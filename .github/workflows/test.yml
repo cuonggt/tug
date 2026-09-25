@@ -2,6 +2,10 @@
 # the oldest Go that go.mod allows and on the newest. A server handles its
 # requests concurrently, so -race is the run that matters, and the shutdown
 # tests serve on a real port.
+#
+# Then the Inertia example end to end: the frontend type-checked and built,
+# served by its Go server, and driven in Chromium with Inertia's real
+# client. That's what catches an Inertia release that changes the protocol.
 name: test
 
 on:
@@ -38,3 +42,26 @@ jobs:
             echo "not gofmt'd:"; echo "$unformatted"; exit 1
           fi
       - run: go test -race ./...
+
+  e2e:
+    name: e2e (examples/inertia)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: examples/inertia
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: examples/inertia/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test

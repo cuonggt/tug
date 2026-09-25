@@ -7,8 +7,8 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 |    | Milestone             | Status |
 |----|-----------------------|--------|
 | M1 | HTTP core             | done   |
-| M2 | Inertia core + Vite   | next   |
-| M3 | Forms and validation  |        |
+| M2 | Inertia core + Vite   | done   |
+| M3 | Forms and validation  | next   |
 | M4 | The full v3 protocol  |        |
 | M5 | CLI                   |        |
 | M6 | v0.1.0                |        |
@@ -39,32 +39,49 @@ responses); one ErrorHandler for errors, panics, 404s and 405s; and the
 RequestID, Logger, Recover and CSRF middleware. tug adds about 35 ns and one
 allocation to a request over ServeMux alone.
 
-## M2 · Inertia core + Vite — next
+## M2 · Inertia core + Vite — done
 
-- A first visit gets HTML with the page object in
-  `<script type="application/json" data-page="app">`, with Go's HTML
-  escaping left on so the data can't close the tag. A request with
-  `X-Inertia` gets the page object as JSON, with `Vary: X-Inertia`.
-- The asset version is a hash of the Vite manifest. A GET with a stale
-  version gets a 409 with `X-Inertia-Location`.
-- Partial reloads (`X-Inertia-Partial-Component`, `-Data`, `-Except`),
-  shared props, and always, optional and deferred props, with prop closures
-  resolved concurrently.
-- 302 becomes 303 after PUT, PATCH and DELETE for plain handlers too
-  (`Ctx.Redirect` already does it); redirects to other sites go through a
-  409; `encryptHistory` and `clearHistory`.
-- Vite: the dev server with hot reload and the React refresh preamble; the
-  production manifest with CSS and preload tags; built files embedded in
-  the binary.
-- Typed pages: `tug.Page[PostsIndexProps]("Posts/Index")`.
-- Nil slices go out as `[]` rather than `null`, so the generated TypeScript
-  types hold.
-- Done when the example React app navigates between pages, deferred props
-  load after first paint, and a Playwright smoke test passes.
+- Package `inertia`, usable with any router: `Render`, `Middleware`,
+  `Location`. A first visit gets HTML with the page object in
+  `<script data-page="app" type="application/json">`; a visit from the
+  client gets it as JSON. `Vary: X-Inertia` goes on every response.
+- A GET from another build gets a 409 with `X-Inertia-Location` and
+  `X-Inertia-Version`, before the handler runs.
+- Partial reloads, shared props (`Share`, `ShareFunc`, and `WithProps` for
+  middleware, listed in `sharedProps`), and `Lazy`, `Optional`, `Always`
+  and `Defer` props. The props that go out in one response are worked out
+  concurrently, and a panic in one becomes an error.
+- A 302 after PUT, PATCH or DELETE becomes a 303; `encryptHistory` and
+  `clearHistory`, sent only when true.
+- Nil slices and maps, at any depth, go out as `[]` and `{}`.
+- Package `vite`: tags from the dev server (with the React refresh preamble)
+  while `public/hot` exists, and from the manifest otherwise; the version is
+  a hash of the manifest; `ServeHTTP` serves the build.
+- `tug.Page[P]`, `Ctx.Inertia`, `Ctx.Location`; `Config.Inertia` puts the
+  middleware around every route.
+- `examples/inertia`: React pages, a deferred prop, a partial reload, a
+  DELETE link, and Playwright tests in Chrome, which CI runs.
 
-## M3 · Forms and validation
+Choices made on the way:
 
-- Encrypted cookie sessions; flash messages through v3's `flash` field.
+- `X-Inertia-Location` is relative, where the spec's example is absolute:
+  behind a proxy that ends TLS, an absolute URL would have to guess the
+  scheme.
+- The dev server announces itself in a file, as laravel-vite-plugin does,
+  so `npm run dev` switches the Go server to it without a restart. The
+  example's `vite.config.ts` has the ten-line plugin that writes it.
+- The example keeps Laravel's layout: the build in `public/build`, served
+  under `/build/`, and embedded with the rest of `public/`.
+- The root template loads the page's own component chunk with the app's, so
+  a first visit doesn't wait for one before fetching the other.
+- The example resolves pages with `import.meta.glob` rather than
+  `@inertiajs/vite`, which adds little without SSR. SSR will bring it in:
+  its dev server answers at `/__inertia_ssr`.
+
+## M3 · Forms and validation — next
+
+- Encrypted cookie sessions; flash messages through v3's `flash` field, and
+  `clearHistory` carried across a redirect.
 - Validation, go-playground/validator tags behind tug's own interface,
   fills the `errors` prop, with error bags, and redirects back. Precognition
   requests get 204 or 422. A `BindError` becomes a field error.
@@ -78,15 +95,17 @@ allocation to a request over ServeMux alone.
 Merge, prepend and deep-merge props (with `matchPropsOn` and resets), once
 props, infinite scroll with a pagination helper, rescued deferred props,
 redirects that keep the URL fragment (`X-Inertia-Redirect`,
-`preserveFragment`), `sharedProps`, and Inertia error pages. Done when tests
-cover every header and page field in the spec.
+`preserveFragment`), prop types nested inside other props, dot paths in
+partial reloads, and Inertia error pages. Done when tests cover every header
+and page field in the spec.
 
 ## M5 · CLI
 
 `tug new` creates a project; `tug dev` runs Vite, rebuilds and restarts Go
 on changes, regenerates the TypeScript types and reloads the browser;
 `tug build` makes the single binary and a distroless Dockerfile; `tug gen`
-writes the TypeScript types and routes. Done when
+writes the TypeScript types and routes, which `examples/inertia` writes by
+hand in `resources/js/types.ts` until then. Done when
 `tug new blog && cd blog && tug dev` gives a running app in under a minute.
 
 ## M6 · v0.1.0

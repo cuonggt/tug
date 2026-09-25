@@ -6,9 +6,29 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** The HTTP core is done: routing, handlers, errors, binding
-and middleware. The Inertia adapter is next; [docs/roadmap.md](docs/roadmap.md)
-has the plan.
+**Status: early.** The HTTP core and Inertia pages with Vite are done; forms
+and validation are next. [docs/roadmap.md](docs/roadmap.md) has the plan.
+
+```go
+type PostsIndexProps struct {
+	Posts []Post                   `json:"posts"`
+	Stats inertia.DeferProp[Stats] `json:"stats"` // fetched after the page shows
+}
+
+var PostsIndex = tug.Page[PostsIndexProps]("Posts/Index") // resources/js/pages/Posts/Index.tsx
+
+func index(c *tug.Ctx) error {
+	return PostsIndex.Render(c, PostsIndexProps{
+		Posts: store.List(),
+		Stats: inertia.Defer(store.Count),
+	})
+}
+```
+
+[`examples/inertia`](examples/inertia/main.go) is the whole app: React
+pages, a deferred prop, the Vite dev server with hot reload, and the
+frontend embedded in the binary for production. Handlers that aren't pages
+look like this:
 
 ```go
 func main() {
@@ -41,6 +61,15 @@ func showPost(c *tug.Ctx) error {
 
 ## What's here
 
+- **Inertia pages** (package `inertia`), to the v3 protocol: a first visit
+  gets HTML with the page object, later visits get JSON. Partial reloads,
+  shared props, and lazy, optional, always and deferred props, worked out
+  concurrently. A browser running an old build reloads, and a 302 after a
+  PUT, PATCH or DELETE becomes a 303. Nil slices go out as `[]`, never
+  `null`. `tug.Page[Props]` ties a component to the props it takes.
+- **Vite** (package `vite`): tags from the dev server while it runs, with
+  the React refresh preamble, and from the build's manifest otherwise, with
+  CSS and preloads. The built files are served, and cached for a year.
 - **Routing** on net/http's `ServeMux`: method routes, groups with their own
   middleware, and named routes with `app.URL("posts.show", 42)`. Paths match
   exactly, so `/` is only the home page, and `{name...}` takes everything
@@ -60,7 +89,7 @@ func showPost(c *tug.Ctx) error {
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking
   connections and lets the requests in flight finish.
 
-The core needs nothing beyond the standard library, and Go 1.25.
+tug needs nothing beyond the standard library, and Go 1.25.
 
 ## Development
 
@@ -68,4 +97,13 @@ The core needs nothing beyond the standard library, and Go 1.25.
 go test -race ./...
 go test -run '^$' -bench . -benchmem .    # tug next to ServeMux alone
 ADDR=127.0.0.1:8080 go run ./examples/api
+```
+
+The Inertia example, from `examples/inertia`:
+
+```sh
+npm install
+npm run dev                               # the Vite dev server
+ADDR=127.0.0.1:8080 go run .              # in another terminal
+npm run build && npx playwright test      # end to end, in Chrome
 ```

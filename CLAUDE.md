@@ -5,21 +5,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1, the HTTP core, is done. `README.md` is the front
-door. Change the pages with the behaviour.
+and where it stands: M1, the HTTP core, and M2, Inertia pages with Vite,
+are done. `README.md` is the front door. Change the pages with the
+behaviour.
 
 ## Commands
 
 ```bash
-go test ./...                              # a few seconds, no network
+go test ./...                              # a few seconds, no network or Node
 go test -race ./...                        # what CI runs; a server is concurrent
 go test -run '^$' -bench . -benchmem .     # tug next to ServeMux alone
 go vet ./... && gofmt -l .
 ADDR=127.0.0.1:8080 go run ./examples/api
 ```
 
+In `examples/inertia`:
+
+```bash
+npm install
+npm run dev                                # Vite, writing public/hot while it runs
+ADDR=127.0.0.1:8080 go run .               # the Go server, from this directory
+npm run typecheck && npm run build
+npx playwright test                        # after a build; uses the installed Chrome
+```
+
 Manual runs should set `ADDR=127.0.0.1:...`: the default `:8080` listens on
-every interface, which sets off the macOS firewall prompt.
+every interface, which sets off the macOS firewall prompt. A `public/hot`
+left behind by a Vite that didn't exit cleanly points the Go server at a
+dev server that isn't there: delete it.
 
 ## Architecture
 
@@ -46,12 +59,31 @@ every interface, which sets off the macOS firewall prompt.
   - `errors.go`: `HTTPError`, `BindError`, `PanicError`,
     `DefaultErrorHandler`. `adapt` in app.go recovers handler panics into
     `*PanicError`, and re-panics `http.ErrAbortHandler`.
+  - `pages.go`: `Page[P]`, a string type whose type parameter ties a
+    component to its props, `Ctx.Inertia` and `Ctx.Location`.
+    `Config.Inertia` puts the Inertia middleware inside the App's own.
+- `inertia`: the v3 protocol for any net/http router, with no import of
+  tug. `inertia.go` renders (HTML first visit, JSON after), and holds the
+  middleware (Vary, the 409 for another build, 302 → 303) and the context
+  helpers. `props.go` has the prop wrappers (unexported interface `prop`;
+  generic `LazyProp`, `OptionalProp`, `AlwaysProp`, `DeferProp`), struct
+  and map props, the partial-reload rules (`selection.wants`), and
+  concurrent resolution. `empty.go` copies whatever holds a nil slice or map
+  so it goes out as `[]` or `{}`, caching which types can't hold one.
+- `vite`: dev-server tags while the hot file exists (read on each render),
+  manifest tags otherwise, `Version` from the manifest's hash, `ServeHTTP`
+  for the build. No import of tug or inertia; it meets them through
+  template funcs.
 - `internal/rw`: the ResponseWriter wrapper that records status and size,
   and keeps Flush, Hijack, ReadFrom and `Unwrap`.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
-- `examples/api`: a JSON API on all of the above. Its tests are the end to
-  end check.
+- `examples/api`: a JSON API on the core. Its tests are the end to end check.
+- `examples/inertia`: React pages on tug. `main.go` embeds `app.html` and
+  `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
+  before one). `main_test.go` runs without Node, against a fake manifest;
+  `e2e/` drives the real build in a browser. `resources/js/types.ts`
+  mirrors the Go props structs by hand.
 
 tug logs through `slog.Default()` and never sets it; that's the app's call.
 

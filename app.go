@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/cuonggt/tug/inertia"
 )
 
 // Config is how an App behaves. Every field has a default, so the zero
@@ -39,6 +41,11 @@ type Config struct {
 	// ShutdownTimeout is how long Run waits for requests in flight after
 	// SIGINT or SIGTERM. Default 10 seconds.
 	ShutdownTimeout time.Duration
+
+	// Inertia renders the app's pages, for Ctx.Inertia and Page.Render.
+	// With it set, every request also goes through its Middleware, inside
+	// the App's own middleware.
+	Inertia *inertia.Inertia
 }
 
 // ConfigFromEnv reads the settings a deployment sets: ADDR, or PORT as
@@ -121,7 +128,11 @@ func (a *App) freeze() {
 		// does, and sends the misses to the ErrorHandler instead.
 		a.mux.Handle("/", a.adapt(a.miss))
 	}
-	a.handler = wrap(a.mux, a.Router.mw)
+	var h http.Handler = a.mux
+	if a.config.Inertia != nil {
+		h = a.config.Inertia.Middleware(h)
+	}
+	a.handler = wrap(h, a.Router.mw)
 }
 
 func (a *App) mustNotServe() {

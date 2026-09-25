@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title data-inertia>tug</title>
+    {{ viteReactRefresh }}
+    {{/* The page's own component loads alongside the app, not after it. */}}
+    {{ vite "resources/js/app.tsx" (printf "resources/js/pages/%s.tsx" .Page.Component) }}
+  </head>
+  <body>
+    {{ .Inertia }}
+  </body>
+</html>
