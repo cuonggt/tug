@@ -17,6 +17,7 @@ const (
 	errorsKey       = "tug.errors"
 	flashKey        = "tug.flash"
 	clearHistoryKey = "tug.clear_history"
+	fragmentKey     = "tug.preserve_fragment"
 )
 
 // errAnswered is what BindValid returns after answering a Precognition
@@ -164,12 +165,22 @@ func (c *Ctx) ClearHistory() {
 	}
 }
 
+// PreserveFragment has the next page shown tell the client to keep the
+// #fragment of the visit that led to it, across the redirect: a comment
+// sent from /posts/1#comments comes back to the comments.
+func (c *Ctx) PreserveFragment() {
+	c.preserveFragment = true
+	if s := c.Session(); s != nil {
+		s.Flash(fragmentKey, true)
+	}
+}
+
 // pageRequest is the request, carrying what its page shows besides its
 // props: what the request before left for it, and what this one flashed.
 func (c *Ctx) pageRequest() *http.Request {
 	ctx := c.r.Context()
 	flash := map[string]any{}
-	clearHistory := c.clearHistory
+	clearHistory, preserveFragment := c.clearHistory, c.preserveFragment
 	if s := c.Session(); s != nil {
 		if errs := messages(s.Flashed(errorsKey)); len(errs) > 0 {
 			ctx = inertia.WithErrors(ctx, errs)
@@ -178,9 +189,11 @@ func (c *Ctx) pageRequest() *http.Request {
 			maps.Copy(flash, before)
 		}
 		clearHistory = clearHistory || s.Flashed(clearHistoryKey) == true
+		preserveFragment = preserveFragment || s.Flashed(fragmentKey) == true
 		// This page shows what this request flashed, so the next mustn't.
 		s.Unflash(flashKey)
 		s.Unflash(clearHistoryKey)
+		s.Unflash(fragmentKey)
 	}
 	maps.Copy(flash, c.flash)
 	if len(flash) > 0 {
@@ -189,7 +202,26 @@ func (c *Ctx) pageRequest() *http.Request {
 	if clearHistory {
 		ctx = inertia.WithClearHistory(ctx)
 	}
+	if preserveFragment {
+		ctx = inertia.WithPreserveFragment(ctx)
+	}
 	return c.r.WithContext(ctx)
+}
+
+// carryFlash sends on what the request before flashed when this one
+// redirects: a redirect shows no page, so the page after it is the one to
+// show what was meant for it. flash is this request's own, which wins.
+func carryFlash(s *session.Session, flash map[string]any) {
+	if before, ok := s.Flashed(flashKey).(map[string]any); ok && len(before) > 0 {
+		merged := maps.Clone(before)
+		maps.Copy(merged, flash)
+		s.Flash(flashKey, merged)
+	}
+	for _, key := range []string{clearHistoryKey, fragmentKey} {
+		if s.Flashed(key) == true {
+			s.Flash(key, true)
+		}
+	}
 }
 
 // messages reads validation errors back from the session, where they've

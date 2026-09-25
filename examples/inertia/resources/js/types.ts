@@ -24,7 +24,7 @@ export interface FlashData {
 }
 
 export interface PostsIndexProps {
-  posts: Post[]
+  posts: { data: Post[] } // a page at a time, as the list scrolls
   stats?: Stats // deferred: there once the client has fetched it
 }
 
@@ -34,6 +34,11 @@ export interface PostsShowProps {
 
 export interface PostsEditProps {
   post: Post
+}
+
+export interface ErrorProps {
+  status: number
+  message: string
 }
 
 // Tells Inertia's own types about the shared props and flash data, so

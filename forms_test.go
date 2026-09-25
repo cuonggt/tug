@@ -258,3 +258,31 @@ func TestValidateChecksValuesThatDontComeFromTheRequest(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+func TestFlashDataGoesOnThroughAChainOfRedirects(t *testing.T) {
+	app, _ := formApp(t)
+	app.Get("/old", func(c *Ctx) error { return c.Redirect("/posts/1") })
+	v := &visitor{t: t, app: app}
+
+	v.do("POST", "/posts", `{"title":"Fine","body":"Fine"}`) // flashes, and redirects to /posts/1
+	v.do("GET", "/old", "")                                  // which the app moved on from
+	if p := v.page(v.do("GET", "/posts/1", "")); !reflect.DeepEqual(p.Flash, map[string]any{"success": "Post created"}) {
+		t.Fatalf("after two redirects, flash %v", p.Flash)
+	}
+}
+
+func TestPreserveFragmentReachesThePageAfterARedirect(t *testing.T) {
+	app, _ := formApp(t)
+	app.Post("/posts/1/comments", func(c *Ctx) error {
+		c.PreserveFragment()
+		return c.Redirect("/posts/1")
+	})
+	v := &visitor{t: t, app: app}
+	v.do("POST", "/posts/1/comments", `{}`)
+	if p := v.page(v.do("GET", "/posts/1", "")); !p.PreserveFragment {
+		t.Fatalf("page %+v", p)
+	}
+	if p := v.page(v.do("GET", "/posts/1", "")); p.PreserveFragment {
+		t.Error("the page after that kept the fragment too")
+	}
+}

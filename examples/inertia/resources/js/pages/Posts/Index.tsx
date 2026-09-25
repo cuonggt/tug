@@ -1,4 +1,4 @@
-import { Deferred, Head, Link, router } from '@inertiajs/react'
+import { Deferred, Head, InfiniteScroll, Link, router } from '@inertiajs/react'
 import Layout from '../../Layout'
 import type { PostsIndexProps, Stats } from '../../types'
 
@@ -10,16 +10,32 @@ export default function Index({ posts, stats }: PostsIndexProps) {
       <Deferred data="stats" fallback={<p className="stats">Counting…</p>}>
         {stats && <StatsLine stats={stats} />}
       </Deferred>
-      <ul className="posts">
-        {posts.map((post) => (
-          <li key={post.id}>
-            <Link href={`/posts/${post.id}`}>{post.title}</Link>
-          </li>
-        ))}
-      </ul>
-      <Link href="/posts/create" className="button">
-        New post
-      </Link>
+      <p>
+        <Link href="/posts/create" className="button">
+          New post
+        </Link>
+      </p>
+      {/* Each click asks the server for the next page, which Go's
+          inertia.Scroll serves and the client adds to the list. */}
+      <InfiniteScroll
+        data="posts"
+        manual
+        next={({ fetch, loadingNext, hasNext }) =>
+          hasNext && (
+            <button type="button" onClick={fetch} disabled={loadingNext}>
+              {loadingNext ? 'Loading…' : 'More posts'}
+            </button>
+          )
+        }
+      >
+        <ul className="posts">
+          {posts.data.map((post) => (
+            <li key={post.id}>
+              <Link href={`/posts/${post.id}`}>{post.title}</Link>
+            </li>
+          ))}
+        </ul>
+      </InfiniteScroll>
     </Layout>
   )
 }

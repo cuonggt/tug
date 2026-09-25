@@ -123,12 +123,29 @@ func DefaultErrorHandler(c *Ctx, err error) {
 		if panicked {
 			message += "\n\n" + string(pe.Stack)
 		}
+	} else if c.errorPage(code, message) {
+		return
 	}
 	if wantsJSON(r) {
 		c.JSON(code, map[string]string{"message": message})
 		return
 	}
 	c.String(code, message)
+}
+
+// errorPage shows an error as Config.ErrorPage, for a request that a page
+// answers: a visit from Inertia's client, or a browser's. It reports
+// whether it did.
+func (c *Ctx) errorPage(code int, message string) bool {
+	pages, component := c.app.config.Inertia, c.app.config.ErrorPage
+	if pages == nil || component == "" || wantsJSON(c.r) {
+		return false
+	}
+	err := pages.RenderStatus(&c.rw, c.pageRequest(), code, component, Props{"status": code, "message": message})
+	if err != nil {
+		slog.ErrorContext(c.Context(), "the error page failed", "component", component, "err", err)
+	}
+	return c.Written()
 }
 
 // wantsJSON reports whether the client asks for JSON first in its Accept

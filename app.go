@@ -48,6 +48,13 @@ type Config struct {
 	// the App's own middleware.
 	Inertia *inertia.Inertia
 
+	// ErrorPage is the Inertia page component that errors are shown with,
+	// such as "Error", with the props status and message: for a 404, a
+	// 403, or a 500 in production. API clients still get JSON, and with
+	// Debug on a 500 still shows its details. Without it, errors are plain
+	// text, which Inertia's client shows in a dialog.
+	ErrorPage string
+
 	// Session keeps each visitor's session, for Ctx.Session. It's what
 	// carries flash data and validation errors from a request to the page
 	// after it. With it set, every request goes through its Middleware,

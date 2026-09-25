@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
@@ -34,6 +35,10 @@ const (
 	headerPartialData      = "X-Inertia-Partial-Data"
 	headerPartialExcept    = "X-Inertia-Partial-Except"
 	headerErrorBag         = "X-Inertia-Error-Bag"
+	headerReset            = "X-Inertia-Reset"
+	headerExceptOnceProps  = "X-Inertia-Except-Once-Props"
+	headerScrollIntent     = "X-Inertia-Infinite-Scroll-Merge-Intent"
+	headerRedirect         = "X-Inertia-Redirect"
 )
 
 // Props are a page's props, by name.
@@ -41,15 +46,23 @@ type Props map[string]any
 
 // Page is the page object: everything the client needs to show a page.
 type Page struct {
-	Component      string              `json:"component"`
-	Props          map[string]any      `json:"props"`
-	URL            string              `json:"url"`
-	Version        string              `json:"version"`
-	EncryptHistory bool                `json:"encryptHistory,omitempty"`
-	ClearHistory   bool                `json:"clearHistory,omitempty"`
-	DeferredProps  map[string][]string `json:"deferredProps,omitempty"`
-	Flash          map[string]any      `json:"flash,omitempty"`
-	SharedProps    []string            `json:"sharedProps,omitempty"`
+	Component        string                `json:"component"`
+	Props            map[string]any        `json:"props"`
+	URL              string                `json:"url"`
+	Version          string                `json:"version"`
+	EncryptHistory   bool                  `json:"encryptHistory,omitempty"`
+	ClearHistory     bool                  `json:"clearHistory,omitempty"`
+	PreserveFragment bool                  `json:"preserveFragment,omitempty"`
+	MergeProps       []string              `json:"mergeProps,omitempty"`
+	PrependProps     []string              `json:"prependProps,omitempty"`
+	DeepMergeProps   []string              `json:"deepMergeProps,omitempty"`
+	MatchPropsOn     []string              `json:"matchPropsOn,omitempty"`
+	DeferredProps    map[string][]string   `json:"deferredProps,omitempty"`
+	RescuedProps     []string              `json:"rescuedProps,omitempty"`
+	ScrollProps      map[string]ScrollMeta `json:"scrollProps,omitempty"`
+	OnceProps        map[string]OnceMeta   `json:"onceProps,omitempty"`
+	Flash            map[string]any        `json:"flash,omitempty"`
+	SharedProps      []string              `json:"sharedProps,omitempty"`
 }
 
 // TemplateData is what the root template is executed with.
@@ -131,6 +144,12 @@ func IsInertia(r *http.Request) bool {
 // as Lazy or Defer; those that go out in the same response are worked out
 // concurrently.
 func (i *Inertia) Render(w http.ResponseWriter, r *http.Request, component string, props any) error {
+	return i.RenderStatus(w, r, http.StatusOK, component, props)
+}
+
+// RenderStatus is Render with a status other than 200, for a page such as
+// an error page: the client shows an Inertia response whatever its status.
+func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int, component string, props any) error {
 	page, err := i.page(r, component, props)
 	if err != nil {
 		return err
@@ -143,7 +162,7 @@ func (i *Inertia) Render(w http.ResponseWriter, r *http.Request, component strin
 		}
 		w.Header().Set(headerInertia, "true")
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(code)
 		w.Write(body)
 		return nil
 	}
@@ -163,7 +182,7 @@ func (i *Inertia) Render(w http.ResponseWriter, r *http.Request, component strin
 		return fmt.Errorf("inertia: root template: %w", err)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(code)
 	w.Write(buf.Bytes())
 	return nil
 }
@@ -201,20 +220,49 @@ func (i *Inertia) page(r *http.Request, component string, props any) (*Page, err
 		EncryptHistory: i.encrypt,
 		SharedProps:    slices.Sorted(maps.Keys(shared)),
 	}
-	if on, ok := r.Context().Value(encryptKey).(bool); ok {
+	ctx := r.Context()
+	if on, ok := ctx.Value(encryptKey).(bool); ok {
 		p.EncryptHistory = on
 	}
-	p.ClearHistory, _ = r.Context().Value(clearKey).(bool)
-	p.Flash, _ = r.Context().Value(flashKey).(map[string]any)
+	p.ClearHistory, _ = ctx.Value(clearKey).(bool)
+	p.PreserveFragment, _ = ctx.Value(fragmentKey).(bool)
+	p.Flash, _ = ctx.Value(flashKey).(map[string]any)
 
-	p.Props, p.DeferredProps, err = resolve(all, selectionFor(r, component))
+	rs := &resolver{
+		partial: IsInertia(r) && r.Header.Get(headerPartialComponent) == component,
+		inertia: IsInertia(r),
+		only:    headerList(r, headerPartialData),
+		except:  headerList(r, headerPartialExcept),
+		reset:   headerList(r, headerReset),
+		loaded:  headerList(r, headerExceptOnceProps),
+		prepend: r.Header.Get(headerScrollIntent) == "prepend",
+		failed: func(path string, err error) {
+			slog.ErrorContext(ctx, "inertia: a deferred prop failed, so the page shows its rescue",
+				"component", component, "prop", path, "err", err)
+		},
+	}
+	p.Props, err = rs.level(all, "", false)
 	if err != nil {
 		return nil, err
 	}
 	if _, ok := p.Props["errors"]; !ok {
 		p.Props["errors"] = errorsFor(r)
 	}
+	p.DeferredProps, p.RescuedProps, p.ScrollProps, p.OnceProps = rs.deferred, rs.rescued, rs.scroll, rs.once
+	p.MergeProps, p.PrependProps, p.DeepMergeProps, p.MatchPropsOn = rs.merge, rs.prepends, rs.deepMerge, rs.matchOn
 	return p, nil
+}
+
+// headerList reads a header that lists props, comma separated, as nil
+// when it isn't there.
+func headerList(r *http.Request, name string) []string {
+	var list []string
+	for s := range strings.SplitSeq(r.Header.Get(name), ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			list = append(list, s)
+		}
+	}
+	return list
 }
 
 // errorsFor is the errors prop: the validation errors in r's context, under
@@ -248,6 +296,9 @@ func requestURL(r *http.Request) string {
 //     frontend with a 409 that makes the client load the page afresh.
 //   - It turns a 302 after a PUT, PATCH or DELETE into a 303, which the
 //     client follows with a GET where it might repeat the method.
+//   - It turns a redirect to a URL with a #fragment into a 409 with
+//     X-Inertia-Redirect: the client's XHR would follow the redirect and
+//     lose the fragment, so the client makes the visit itself.
 func (i *Inertia) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		addVary(w.Header())
@@ -264,12 +315,19 @@ func (i *Inertia) Middleware(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusConflict)
 			return
 		}
+		rw := &redirects{ResponseWriter: w, fragments: !prefetch(r)}
 		switch r.Method {
 		case http.MethodPut, http.MethodPatch, http.MethodDelete:
-			w = &seeOther{w}
+			rw.seeOther = true
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(rw, r)
 	})
+}
+
+// prefetch reports whether r is Inertia prefetching a page, which a
+// fragment redirect leaves alone: the client isn't visiting it yet.
+func prefetch(r *http.Request) bool {
+	return r.Header.Get("Purpose") == "prefetch" || r.Header.Get("Sec-Purpose") == "prefetch"
 }
 
 // Stale reports whether r is a visit from a browser running another build
@@ -310,21 +368,43 @@ func addVary(h http.Header) {
 	h.Add("Vary", headerInertia)
 }
 
-// seeOther is a ResponseWriter that turns a 302 into a 303.
-type seeOther struct {
+// redirects is a ResponseWriter that fixes the redirects of a response to
+// Inertia's client, as Middleware describes.
+type redirects struct {
 	http.ResponseWriter
+	seeOther  bool // turn a 302 into a 303
+	fragments bool // turn a redirect to a #fragment into a 409
+	swallow   bool // the body of a redirect that became a 409
 }
 
-func (w *seeOther) WriteHeader(code int) {
-	if code == http.StatusFound {
-		code = http.StatusSeeOther
+func (w *redirects) WriteHeader(code int) {
+	if code >= 300 && code < 400 {
+		h := w.Header()
+		if to := h.Get("Location"); w.fragments && strings.Contains(to, "#") {
+			h.Del("Location")
+			h.Del("Content-Type")
+			h.Set(headerRedirect, to)
+			w.swallow = true
+			w.ResponseWriter.WriteHeader(http.StatusConflict)
+			return
+		}
+		if w.seeOther && code == http.StatusFound {
+			code = http.StatusSeeOther
+		}
 	}
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *seeOther) Flush() { http.NewResponseController(w.ResponseWriter).Flush() }
+func (w *redirects) Write(b []byte) (int, error) {
+	if w.swallow {
+		return len(b), nil
+	}
+	return w.ResponseWriter.Write(b)
+}
 
-func (w *seeOther) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *redirects) Flush() { http.NewResponseController(w.ResponseWriter).Flush() }
+
+func (w *redirects) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 type ctxKey int
 
@@ -334,7 +414,15 @@ const (
 	clearKey
 	errorsKey
 	flashKey
+	fragmentKey
 )
+
+// WithPreserveFragment returns a context whose page tells the client to
+// keep the #fragment the visit had, across the redirect that brought it
+// here: a form sent from /posts/1#comments comes back to the comments.
+func WithPreserveFragment(ctx context.Context) context.Context {
+	return context.WithValue(ctx, fragmentKey, true)
+}
 
 // WithProps returns a context whose pages get props as shared props. It is
 // for middleware, such as one that puts the signed-in user on every page:

@@ -9,8 +9,8 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M1 | HTTP core             | done   |
 | M2 | Inertia core + Vite   | done   |
 | M3 | Forms and validation  | done   |
-| M4 | The full v3 protocol  | next   |
-| M5 | CLI                   |        |
+| M4 | The full v3 protocol  | done   |
+| M5 | CLI                   | next   |
 | M6 | v0.1.0                |        |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
@@ -113,16 +113,54 @@ Changed on the way:
   every field it can after one that doesn't parse, so the checks after it
   see the rest.
 
-## M4 · The full v3 protocol — next
+## M4 · The full v3 protocol — done
 
-Merge, prepend and deep-merge props (with `matchPropsOn` and resets), once
-props, infinite scroll with a pagination helper, rescued deferred props,
-redirects that keep the URL fragment (`X-Inertia-Redirect`,
-`preserveFragment`), prop types nested inside other props, dot paths in
-partial reloads, and Inertia error pages. Done when tests cover every header
-and page field in the spec.
+Written against the spec and against inertia-laravel 3.3.4's
+`PropsResolver`, the reference for what the spec leaves open, and checked
+with Inertia's client in the example's browser tests.
 
-## M5 · CLI
+- Props nest: prop types work inside maps, and inside structs that declare
+  them, at any depth, with metadata under their dotted paths
+  (`stats.visits`). A partial reload's paths reach inside, both ways:
+  asking for `user.name` looks into `user`.
+- `Merge(v, ...)` and `Lazy(fn).Merge(...)`, with `Prepend`, `DeepMerge`,
+  `MatchOn`, `AppendAt` and `PrependAt`; `Defer(fn).Merge()`. A prop in
+  `X-Inertia-Reset` goes out without a label, so the client replaces it.
+- `Once(fn, As(key), Until(t), Fresh(when))`, and `.Once()` on Defer,
+  Optional and Merge props: left out for a client whose
+  `X-Inertia-Except-Once-Props` names it, but always sent to a partial
+  reload that asks.
+- `Scroll(fn)` for `<InfiniteScroll>`: `{"data": items}`, with
+  `scrollProps`, and merged at `data`, appended or prepended as
+  `X-Inertia-Infinite-Scroll-Merge-Intent` says; `PageNumbers` for numbered
+  pages; `.Defer()` and `.MatchOn()`.
+- `Defer(fn).Rescue()`: a failure, or a panic, leaves the prop out, names
+  it in `rescuedProps`, and is logged.
+- A redirect to a `#fragment` becomes a 409 with `X-Inertia-Redirect`,
+  except for a prefetch; `Ctx.PreserveFragment` for the page after a
+  redirect.
+- `Config.ErrorPage`: errors are shown as an Inertia page with their own
+  status, props `status` and `message`, to browsers and Inertia's client;
+  API clients still get JSON, and Debug still shows a 500's details.
+- `inertia.RenderStatus`, for pages with a status other than 200.
+- The example's list scrolls, ten posts at a time, and it has an error page.
+
+Choices made on the way:
+
+- A plain struct in props is data: it goes out as encoding/json writes it,
+  and a partial reload asking for a path inside it gets all of it. The
+  client deep-merges the result, so it ends up the same, and custom
+  MarshalJSON methods keep working.
+- Laravel's top-level dot keys (`'user.name' => ...`) aren't copied: in Go
+  a nested map or struct says the same thing.
+- The prop options are functions (`Merge(v, MatchOn("id"))`,
+  `.Once(Until(t))`) rather than chained methods, so each prop type gets
+  the options that apply to it without the same method copied onto every
+  type.
+- Flash data carries on through a chain of redirects, as Laravel's adapter
+  does: a page that only redirects shows nothing.
+
+## M5 · CLI — next
 
 `tug new` creates a project; `tug dev` runs Vite, rebuilds and restarts Go
 on changes, regenerates the TypeScript types and reloads the browser;

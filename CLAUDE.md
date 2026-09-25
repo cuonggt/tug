@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1, the HTTP core, M2, Inertia pages with Vite, and
-M3, forms and validation, are done. `README.md` is the front door. Change
-the pages with the behaviour.
+and where it stands: M1 to M4 are done, which is the HTTP core, Inertia
+pages with Vite, forms and validation, and the rest of the v3 protocol.
+`README.md` is the front door. Change the pages with the behaviour.
 
 ## Commands
 
@@ -57,8 +57,11 @@ dev server that isn't there: delete it.
     a `*BindError` inside an `*HTTPError`: 400, or 404 for a path value. A
     field Bind can't fill at all is a plain error, a 500.
   - `errors.go`: `HTTPError`, `BindError`, `PanicError`,
-    `DefaultErrorHandler`. `adapt` in app.go recovers handler panics into
-    `*PanicError`, and re-panics `http.ErrAbortHandler`.
+    `DefaultErrorHandler`, and `errorPage`, which renders
+    `Config.ErrorPage` with `RenderStatus` for browsers and Inertia's
+    client, unless Debug is showing a 500's details. `adapt` in app.go
+    recovers handler panics into `*PanicError`, and re-panics
+    `http.ErrAbortHandler`.
   - `pages.go`: `Page[P]`, a string type whose type parameter ties a
     component to its props, `Ctx.Inertia` and `Ctx.Location`.
     `Config.Inertia` puts the Inertia middleware inside the App's own.
@@ -66,19 +69,31 @@ dev server that isn't there: delete it.
     a Precognition request is answered in `precognition` and returns
     `errAnswered`, which `adapt` keeps from the ErrorHandler),
     `answerInvalid` (flash the errors and go `back`, or a 422), and the
-    glue between sessions and pages: `Flash`, `ClearHistory`, and
-    `pageRequest`, which hands a render the errors and flash data from the
-    session (`tug.errors`, `tug.flash`, `tug.clear_history`) and unflashes
-    what it shows. `keepFlashOnReload` reflashes before the 409 for another
-    build. `Config.Session` puts the session middleware outside Inertia's.
+    glue between sessions and pages: `Flash`, `ClearHistory`,
+    `PreserveFragment`, and `pageRequest`, which hands a render the errors
+    and flash data from the session (`tug.errors`, `tug.flash`,
+    `tug.clear_history`, `tug.preserve_fragment`) and unflashes what it
+    shows. `carryFlash` sends them on when `Ctx.Redirect` redirects again;
+    `keepFlashOnReload` reflashes before the 409 for another build.
+    `Config.Session` puts the session middleware outside Inertia's.
 - `inertia`: the v3 protocol for any net/http router, with no import of
-  tug. `inertia.go` renders (HTML first visit, JSON after), and holds the
-  middleware (Vary, the 409 for another build, 302 → 303) and the context
-  helpers. `props.go` has the prop wrappers (unexported interface `prop`;
-  generic `LazyProp`, `OptionalProp`, `AlwaysProp`, `DeferProp`), struct
-  and map props, the partial-reload rules (`selection.wants`), and
-  concurrent resolution. `empty.go` copies whatever holds a nil slice or map
+  tug. `inertia.go` renders (HTML first visit, JSON after, `RenderStatus`
+  for other statuses), and holds the middleware (Vary, the 409 for another
+  build, and `redirects`: 302 → 303, and a redirect to a #fragment → 409
+  with X-Inertia-Redirect) and the context helpers. `props.go` has the
+  prop types: generic structs, each with its `behavior` (first load,
+  always, deferred group, rescue, merge, once, scroll) behind the
+  unexported interface `prop`, and function options (`MergeOption`,
+  `OnceOption`). Its `resolver` follows inertia-laravel's `PropsResolver`,
+  which is the reference when the spec is unclear. `level` walks one
+  level of the props, `pathWanted` is the two-way partial-reload match,
+  `labeled` decides which props get metadata, `leftOutOfFirstLoad`
+  handles optional, deferred and once props, and `collect*` gathers the
+  page's metadata. Props nest in maps and in structs whose type holds
+  props (`holdsProps`); other values are data for encoding/json. Siblings
+  resolve concurrently. `empty.go` copies whatever holds a nil slice or map
   so it goes out as `[]` or `{}`, caching which types can't hold one.
+  `protocol_test.go` has a test for each rule M4 added.
 - `session`: the cookie store, with no import of tug. AES-256-GCM with a
   key derived by HKDF from each of `Config.Keys`, the first encrypting;
   the cookie name is the AAD. `cookieWriter` sets the cookie when the

@@ -22,12 +22,14 @@ import (
 	"crypto/rand"
 	"embed"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +99,7 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTim
 
 	cfg.Inertia = pages
 	cfg.Session = sessions
+	cfg.ErrorPage = "Error"
 	app := tug.New(cfg)
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
@@ -128,7 +131,7 @@ type Stats struct {
 // types in TypeScript.
 
 type PostsIndexProps struct {
-	Posts []Post                   `json:"posts"`
+	Posts inertia.ScrollProp[Post] `json:"posts"` // a page at a time, as the list scrolls
 	Stats inertia.DeferProp[Stats] `json:"stats"`
 }
 
@@ -186,6 +189,11 @@ func newPosts(countTime time.Duration) *posts {
 		p.byID[post.ID] = post
 		p.last = post.ID
 	}
+	// Enough more for the list to scroll through, a page at a time.
+	for p.last < 25 {
+		p.last++
+		p.byID[p.last] = Post{ID: p.last, Title: fmt.Sprintf("Post %d", p.last), Body: "One of many, to scroll through."}
+	}
 	return p
 }
 
@@ -220,9 +228,21 @@ func (p *posts) titleFree(in *PostInput, id int64) func(validate.Errors) {
 	}
 }
 
+// perPage is how many posts a page of the list has.
+const perPage = 10
+
 func (p *posts) index(c *tug.Ctx) error {
 	return PostsIndex.Render(c, PostsIndexProps{
-		Posts: p.list(),
+		Posts: inertia.Scroll(func() ([]Post, inertia.Paging, error) {
+			page, err := strconv.Atoi(c.Query("page"))
+			if err != nil || page < 1 {
+				page = 1
+			}
+			list := p.list()
+			from := min((page-1)*perPage, len(list))
+			to := min(from+perPage, len(list))
+			return list[from:to], inertia.PageNumbers(page, to < len(list)), nil
+		}).MatchOn("id"),
 		Stats: inertia.Defer(p.count),
 	})
 }

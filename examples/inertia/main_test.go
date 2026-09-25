@@ -25,7 +25,8 @@ func build() fstest.MapFS {
 			"resources/js/pages/Posts/Index.tsx": {"file": "assets/Index-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
 			"resources/js/pages/Posts/Show.tsx": {"file": "assets/Show-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
 			"resources/js/pages/Posts/Create.tsx": {"file": "assets/Create-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
-			"resources/js/pages/Posts/Edit.tsx": {"file": "assets/Edit-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]}
+			"resources/js/pages/Posts/Edit.tsx": {"file": "assets/Edit-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
+			"resources/js/pages/Error.tsx": {"file": "assets/Error-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]}
 		}`)},
 		"assets/app-1.js": {Data: []byte("createInertiaApp()")},
 	}
@@ -120,15 +121,42 @@ func TestTheFirstVisitLoadsTheBuildAndLeavesTheStatsForLater(t *testing.T) {
 	if p.Component != "Posts/Index" || p.Props["stats"] != nil || !slices.Equal(p.DeferredProps["default"], []string{"stats"}) {
 		t.Errorf("page %+v", p)
 	}
-	if len(p.Props["posts"].([]any)) != 3 || p.Props["appName"] != "tug" {
+	if len(titles(p)) != 10 || p.Props["appName"] != "tug" {
 		t.Errorf("props %v", p.Props)
+	}
+	if want := (inertia.ScrollMeta{PageName: "page", NextPage: 2.0, CurrentPage: 1.0}); !reflect.DeepEqual(p.ScrollProps["posts"], want) {
+		t.Errorf("scrollProps %+v", p.ScrollProps["posts"])
+	}
+}
+
+// titles lists the titles of the posts on a page of the list.
+func titles(p inertia.Page) []string {
+	var list []string
+	for _, post := range p.Props["posts"].(map[string]any)["data"].([]any) {
+		list = append(list, post.(map[string]any)["title"].(string))
+	}
+	return list
+}
+
+func TestTheListComesAPageAtATime(t *testing.T) {
+	c := newClient(t)
+	p := c.page(c.visit("GET", "/?page=3", "", "X-Inertia-Partial-Component", "Posts/Index", "X-Inertia-Partial-Data", "posts",
+		"X-Inertia-Infinite-Scroll-Merge-Intent", "append"))
+	if got := titles(p); len(got) != 5 || got[0] != "Post 21" {
+		t.Errorf("page 3 has %v", got)
+	}
+	if want := (inertia.ScrollMeta{PageName: "page", PreviousPage: 2.0, CurrentPage: 3.0}); !reflect.DeepEqual(p.ScrollProps["posts"], want) {
+		t.Errorf("scrollProps %+v", p.ScrollProps["posts"])
+	}
+	if !slices.Equal(p.MergeProps, []string{"posts.data"}) || !slices.Equal(p.MatchPropsOn, []string{"posts.data.id"}) {
+		t.Errorf("mergeProps %v, matchPropsOn %v", p.MergeProps, p.MatchPropsOn)
 	}
 }
 
 func TestTheStatsComeWithTheReloadThatAsksForThem(t *testing.T) {
 	c := newClient(t)
 	p := c.page(c.visit("GET", "/", "", "X-Inertia-Partial-Component", "Posts/Index", "X-Inertia-Partial-Data", "stats"))
-	if got, _ := p.Props["stats"].(map[string]any); got["posts"] != 3.0 || got["words"] != 28.0 {
+	if got, _ := p.Props["stats"].(map[string]any); got["posts"] != 25.0 || got["words"] != 160.0 {
 		t.Fatalf("stats %v", p.Props["stats"])
 	}
 	if _, ok := p.Props["posts"]; ok {
@@ -159,10 +187,10 @@ func TestANewPostThatDoesntValidateGoesBackToTheForm(t *testing.T) {
 func TestANewPostIsCreatedAndThePageAfterSaysSo(t *testing.T) {
 	c := newClient(t)
 	rec := c.visit("POST", "/posts", `{"title":"Forms","body":"Validation from Go.","tags":"go, forms, go"}`)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/posts/4" {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/posts/26" {
 		t.Fatalf("got %d to %q: %s", rec.Code, rec.Header().Get("Location"), rec.Body)
 	}
-	p := c.page(c.visit("GET", "/posts/4", ""))
+	p := c.page(c.visit("GET", "/posts/26", ""))
 	if !reflect.DeepEqual(p.Flash, map[string]any{"success": "Post created"}) {
 		t.Errorf("flash %v", p.Flash)
 	}
@@ -194,7 +222,7 @@ func TestAFieldIsCheckedAsItsFilledIn(t *testing.T) {
 	if rec := c.visit("POST", "/posts", `{"title":"Fresh"}`, precog...); rec.Code != 204 {
 		t.Errorf("a fresh title got %d %s", rec.Code, rec.Body)
 	}
-	if p := c.page(c.visit("GET", "/", "")); len(p.Props["posts"].([]any)) != 3 {
+	if p := c.page(c.visit("GET", "/?page=3", "")); len(titles(p)) != 5 {
 		t.Error("checking a field made a post")
 	}
 }
@@ -206,17 +234,21 @@ func TestDeletingAPostGoesBackToTheListWithoutIt(t *testing.T) {
 		t.Fatalf("delete = %d to %q", rec.Code, rec.Header().Get("Location"))
 	}
 	p := c.page(c.visit("GET", "/", ""))
-	if n := len(p.Props["posts"].([]any)); n != 2 || p.Flash["success"] != "Post deleted" {
-		t.Errorf("%d posts after deleting one of 3, flash %v", n, p.Flash)
+	if got := titles(p); slices.Contains(got, "Delete me") || got[2] != "Post 4" || p.Flash["success"] != "Post deleted" {
+		t.Errorf("the list starts %v after deleting post 3, flash %v", got, p.Flash)
 	}
 }
 
-func TestAPostThatIsntThereIsNotFound(t *testing.T) {
+func TestAPostThatIsntThereShowsTheErrorPage(t *testing.T) {
 	c := newClient(t)
-	for _, path := range []string{"/posts/99", "/posts/abc", "/posts/99/edit"} {
-		if rec := c.visit("GET", path, ""); rec.Code != 404 {
-			t.Errorf("%s = %d", path, rec.Code)
+	for _, path := range []string{"/posts/99", "/posts/abc", "/posts/99/edit", "/nowhere"} {
+		rec := c.visit("GET", path, "")
+		if p := c.page(rec); rec.Code != 404 || p.Component != "Error" || p.Props["status"] != 404.0 {
+			t.Errorf("%s = %d %+v", path, rec.Code, p)
 		}
+	}
+	if p := c.page(c.visit("GET", "/posts/99", "")); p.Props["message"] != "post not found" {
+		t.Errorf("message %v", p.Props["message"])
 	}
 }
 

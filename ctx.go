@@ -24,8 +24,9 @@ type Ctx struct {
 
 	// flash and clearHistory are what this request has for the next page
 	// shown; see Flash.
-	flash        map[string]any
-	clearHistory bool
+	flash            map[string]any
+	clearHistory     bool
+	preserveFragment bool
 }
 
 // Request returns the request.
@@ -111,8 +112,12 @@ func (c *Ctx) NoContent(code int) error {
 // and Inertia, follow a PUT, PATCH or DELETE with a GET, where a 302 may
 // repeat the method.
 func (c *Ctx) Redirect(to string) error {
-	if (len(c.flash) > 0 || c.clearHistory) && c.Session() == nil {
+	s := c.Session()
+	if (len(c.flash) > 0 || c.clearHistory || c.preserveFragment) && s == nil {
 		return errors.New("tug: flash data needs Config.Session to reach the page after a redirect")
+	}
+	if s != nil {
+		carryFlash(s, c.flash)
 	}
 	code := http.StatusSeeOther
 	if c.r.Method == http.MethodGet || c.r.Method == http.MethodHead {

@@ -1,21 +1,22 @@
 import { expect, test } from '@playwright/test'
 
-// The tests share one server and run in order: the first ones need the
-// three posts the example starts with, and the later ones add, change and
-// delete posts.
+// The tests share one server and run in order: the first ones need the 25
+// posts the example starts with, and the later ones add, change and delete
+// posts.
 
 test('the list shows first, and its stats once counted', async ({ page, request }) => {
   // The first visit's page has the posts, and names the stats for later.
   const html = await (await request.get('/')).text()
   const data = html.match(/<script data-page="app" type="application\/json">(.*?)<\/script>/)
   const first = JSON.parse(data![1])
-  expect(first.props.posts).toHaveLength(3)
+  expect(first.props.posts.data).toHaveLength(10)
+  expect(first.scrollProps.posts).toMatchObject({ currentPage: 1, nextPage: 2 })
   expect(first.props.stats).toBeUndefined()
   expect(first.deferredProps).toEqual({ default: ['stats'] })
 
   await page.goto('/')
   await expect(page.getByRole('link', { name: 'Hello, tug' })).toBeVisible()
-  await expect(page.getByTestId('stats')).toContainText('3 posts, 28 words')
+  await expect(page.getByTestId('stats')).toContainText('25 posts, 160 words')
 })
 
 test('a link changes the page without loading a new one', async ({ page }) => {
@@ -37,6 +38,34 @@ test('recounting asks the server for the stats alone', async ({ page }) => {
   await page.getByRole('button', { name: 'Recount' }).click()
   const body = await (await reload).json()
   expect(Object.keys(body.props).sort()).toEqual(['errors', 'stats'])
+})
+
+test('the list gets its next page as asked, until there are no more', async ({ page }) => {
+  await page.goto('/')
+  const posts = page.locator('.posts li')
+  await expect(posts).toHaveCount(10)
+
+  const next = page.waitForResponse((r) => r.request().headers()['x-inertia-infinite-scroll-merge-intent'] === 'append')
+  await page.getByRole('button', { name: 'More posts' }).click()
+  const body = await (await next).json()
+  expect(body.props.posts.data).toHaveLength(10)
+  await expect(posts).toHaveCount(20)
+  await expect(posts.first()).toHaveText('Hello, tug') // added to, not replaced
+
+  await page.getByRole('button', { name: 'More posts' }).click()
+  await expect(posts).toHaveCount(25)
+  await expect(page.getByRole('button', { name: 'More posts' })).toHaveCount(0)
+})
+
+test('a page that is not there is shown as the error page, with its status', async ({ page }) => {
+  const response = await page.goto('/posts/999')
+  expect(response!.status()).toBe(404)
+  await expect(page.getByRole('heading', { name: 'Not found' })).toBeVisible()
+  await expect(page.getByText('404: post not found')).toBeVisible()
+
+  // And from a link, by Inertia's client, the same.
+  await page.getByRole('link', { name: 'Back to the posts' }).click()
+  await expect(page.getByRole('heading', { name: 'Posts' })).toBeVisible()
 })
 
 test('a form sent incomplete comes back with what to fix', async ({ page }) => {

@@ -6,8 +6,8 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** The HTTP core, Inertia pages with Vite, and forms with
-validation are done; the rest of Inertia's protocol is next.
+**Status: early.** The HTTP core, Inertia pages with Vite and the whole v3
+protocol, and forms with validation are done; the CLI is next.
 [docs/roadmap.md](docs/roadmap.md) has the plan.
 
 ```go
@@ -77,12 +77,23 @@ func showPost(c *tug.Ctx) error {
 
 ## What's here
 
-- **Inertia pages** (package `inertia`), to the v3 protocol: a first visit
-  gets HTML with the page object, later visits get JSON. Partial reloads,
-  shared props, and lazy, optional, always and deferred props, worked out
-  concurrently. A browser running an old build reloads, and a 302 after a
-  PUT, PATCH or DELETE becomes a 303. Nil slices go out as `[]`, never
-  `null`. `tug.Page[Props]` ties a component to the props it takes.
+- **Inertia pages** (package `inertia`), to the whole v3 protocol: a first
+  visit gets HTML with the page object, later visits get JSON.
+  `tug.Page[Props]` ties a component to the props it takes, and props nest
+  at any depth.
+  - **Loading:** `Lazy`, `Optional`, `Always` and `Defer` props, worked
+    out concurrently. `Defer(...).Rescue()` turns a failure into Inertia's
+    rescue slot rather than a failed page.
+  - **Merging:** `Merge` props, prepended or deep-merged, and matched on a
+    key. `Scroll` pages a list for `<InfiniteScroll>`.
+  - **Once:** `Once` props stay on the client until they expire.
+  - **Partial reloads** reach nested props by path.
+  - **Redirects:** a browser running an old build reloads. A 302 after a
+    PUT, PATCH or DELETE becomes a 303, and a redirect to a `#fragment`
+    keeps it.
+  - **Error pages:** errors show as a page (`Config.ErrorPage`) with their
+    own status.
+  - **Empty lists:** nil slices go out as `[]`, never `null`.
 - **Forms**: `c.BindValid` binds and checks a request by `validate` tags
   (package `validate`, go-playground/validator's rules) and checks of the
   handler's own. A form that doesn't validate goes back with its errors in
