@@ -197,7 +197,8 @@ func TestNewTakesItsFlagsBeforeAndAfterTheDirectory(t *testing.T) {
 
 // TestANewAppBuildsAndPassesItsOwnTests makes an app of each kind as a
 // person would, with its Go modules and npm packages, and runs what it
-// comes with.
+// comes with, the frontend's build included: type-checking doesn't run the
+// Vite and Tailwind plugins a build goes through.
 func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 	if testing.Short() {
 		t.Skip("installs the new app's packages")
@@ -220,12 +221,16 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 					t.Errorf("tug new didn't make %s", f)
 				}
 			}
-			for _, c := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}, {"npm", "run", "typecheck"}} {
+			for _, c := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}, {"npm", "run", "typecheck"}, {"npm", "run", "build"}} {
 				cmd := exec.Command(c[0], c[1:]...)
 				cmd.Dir = dir
 				if out, err := cmd.CombinedOutput(); err != nil {
 					t.Errorf("%s: %v\n%s", strings.Join(c, " "), err, out)
 				}
+			}
+			// Where the Go server looks for the build.
+			if _, err := os.Stat(filepath.Join(dir, "public/build/.vite/manifest.json")); err != nil {
+				t.Errorf("the build has no manifest where the server reads it: %v", err)
 			}
 		})
 	}
