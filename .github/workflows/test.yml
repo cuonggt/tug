@@ -1,0 +1,40 @@
+# Runs on every push: vet, format, and the suite with the race detector, on
+# the oldest Go that go.mod allows and on the newest. A server handles its
+# requests concurrently, so -race is the run that matters, and the shutdown
+# tests serve on a real port.
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (go ${{ matrix.go }})
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.25.x', stable]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - run: go vet ./...
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+      - run: go test -race ./...
