@@ -1,6 +1,7 @@
 // Command [[ .Name ]] is a tug app: Go handlers, React pages, and Inertia in
-// between, with accounts people register for, log in to, and get back into
-// by email when they've forgotten the password.
+// between, with accounts. People register and verify their email, log in,
+// with a code from their phone too once they turn that on, and change
+// their profile, password and appearance in their settings.
 //
 //	tug dev      run it, rebuilt and reloaded as it changes
 //	tug build    build it into one binary, frontend and all
@@ -8,12 +9,16 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"database/sql"
 	"embed"
 	"errors"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/cuonggt/tug"
@@ -25,7 +30,8 @@ import (
 	"github.com/cuonggt/tug/vite"
 )
 
-// appName is the app's name, on every page and in its mail.
+// appName is the app's name: on every page, in its mail, and in the
+// authenticator apps that make its two-factor codes.
 const appName = "[[ .Name ]]"
 
 //go:embed app.html
@@ -55,11 +61,18 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	app, err := newApp(tug.ConfigFromEnv(), env{Build: build, Keys: keys, DB: db, Mailer: mailer, URL: os.Getenv("APP_URL")})
+	var sending sync.WaitGroup
+	app, err := newApp(tug.ConfigFromEnv(), env{
+		Build: build, Keys: keys, DB: db, Mailer: mailer, URL: os.Getenv("APP_URL"), Sending: &sending,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := app.Run(); err != nil {
+	err = app.Run()
+	// Run waits for the requests in flight, and the mail they sent may
+	// still be on its way.
+	sending.Wait()
+	if err != nil {
 		log.Fatal(err)
 	}
 }
@@ -68,7 +81,7 @@ func main() {
 // the tests make their own.
 type env struct {
 	Build  fs.FS    // the frontend's build
-	Keys   [][]byte // encrypt the sessions, and sign reset links
+	Keys   [][]byte // encrypt the sessions and two-factor secrets, and sign the links in mail
 	DB     *sql.DB
 	Mailer mail.Mailer
 
@@ -76,20 +89,30 @@ type env struct {
 	// start with. Only in development, with APP_DEBUG on, can it be left
 	// out, to be taken from the request instead.
 	URL string
+
+	// Sending counts the mail on its way, for main to wait for as the app
+	// stops. Optional.
+	Sending *sync.WaitGroup
 }
 
 // app is what the handlers share.
 type app struct {
-	users  *users
-	mailer mail.Mailer
-	url    string
-	resets *auth.Resets
+	users         *users
+	mailer        mail.Mailer
+	sending       *sync.WaitGroup
+	url           string
+	resets        *auth.Resets
+	verifications *auth.Verifications
+	twoFactor     *auth.TwoFactor
 
-	// logins counts tries at logging in, by email and address; resetMails
-	// the reset links mailed, by email, so that no one's inbox can be
-	// flooded.
-	logins     *auth.Throttle
-	resetMails *auth.Throttle
+	// Tries, counted so that none can be made fast enough to guess: logins
+	// by email and address; the password of someone logged in, and the
+	// codes of a login waiting for its second factor, by user; and mail,
+	// by what it's for and to whom, so that no one's inbox can be flooded.
+	logins    *auth.Throttle
+	passwords *auth.Throttle
+	codes     *auth.Throttle
+	mails     *auth.Throttle
 }
 
 // newApp puts the app together: its pages, sessions, middleware and routes.
@@ -115,17 +138,31 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	if err != nil {
 		return nil, err
 	}
-	sessions, err := session.New(session.Config{Keys: e.Keys})
+	// Behind a proxy that ends TLS, requests reach the app over plain HTTP:
+	// an https:// APP_URL says the cookie is for HTTPS all the same.
+	sessions, err := session.New(session.Config{Keys: e.Keys, Secure: strings.HasPrefix(e.URL, "https://")})
 	if err != nil {
 		return nil, err
 	}
 	a := &app{
-		users:      &users{db: e.DB},
-		mailer:     e.Mailer,
-		url:        e.URL,
-		resets:     &auth.Resets{Keys: e.Keys},
-		logins:     &auth.Throttle{Max: 5, Window: time.Minute},
-		resetMails: &auth.Throttle{Max: 1, Window: time.Minute},
+		users:         &users{db: e.DB},
+		mailer:        e.Mailer,
+		sending:       cmp.Or(e.Sending, &sync.WaitGroup{}),
+		url:           e.URL,
+		resets:        &auth.Resets{Keys: e.Keys},
+		verifications: &auth.Verifications{Keys: e.Keys},
+		twoFactor:     &auth.TwoFactor{Keys: e.Keys, Issuer: appName},
+		logins:        &auth.Throttle{Max: 5, Window: time.Minute},
+		passwords:     &auth.Throttle{Max: 5, Window: time.Minute},
+		codes:         &auth.Throttle{Max: 5, Window: time.Minute},
+		mails:         &auth.Throttle{Max: 1, Window: time.Minute},
+	}
+	if len(e.Keys) > 1 {
+		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
+		// two-factor secrets over to the new one before it's dropped.
+		if err := a.users.resealTwoFactor(context.Background(), a.twoFactor); err != nil {
+			return nil, err
+		}
 	}
 
 	pages.Share("appName", appName)
@@ -139,19 +176,42 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app := tug.New(cfg)
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
+	app.Get("/up", a.up)
 
 	app.Get("/", home).Name("home")
-	app.Get("/dashboard", a.usersOnly(dashboard)).Name("dashboard")
+	app.Get("/dashboard", a.usersOnly(verified(dashboard))).Name("dashboard")
 
+	// Registering, logging in and out, and a forgotten password: auth.go.
 	app.Get("/register", a.guestsOnly(registerPage)).Name("register")
 	app.Post("/register", a.guestsOnly(a.register)).Name("register.store")
 	app.Get("/login", a.guestsOnly(loginPage)).Name("login")
 	app.Post("/login", a.guestsOnly(a.login)).Name("login.store")
+	app.Get("/two-factor-challenge", a.guestsOnly(twoFactorChallengePage)).Name("two-factor.login")
+	app.Post("/two-factor-challenge", a.guestsOnly(a.twoFactorChallenge)).Name("two-factor.login.store")
 	app.Post("/logout", a.usersOnly(logout)).Name("logout")
 	app.Get("/forgot-password", a.guestsOnly(forgotPasswordPage)).Name("password.request")
 	app.Post("/forgot-password", a.guestsOnly(a.forgotPassword)).Name("password.email")
 	app.Get("/reset-password/{token}", a.guestsOnly(resetPasswordPage)).Name("password.reset")
 	app.Post("/reset-password", a.guestsOnly(a.resetPassword)).Name("password.store")
+	app.Get("/confirm-password", a.usersOnly(confirmPasswordPage)).Name("password.confirm")
+	app.Post("/confirm-password", a.usersOnly(a.confirmPassword)).Name("password.confirm.store")
+	app.Get("/verify-email", a.usersOnly(verifyEmailPage)).Name("verification.notice")
+	app.Post("/verify-email", a.usersOnly(a.resendVerification)).Name("verification.send")
+	app.Get("/verify-email/{id}/{token}", a.verifyEmail).Name("verification.verify")
+
+	// Settings: settings.go, and two-factor logins in twofactor.go. What
+	// could hand the account to someone else asks for the password again.
+	app.Get("/settings", toProfile).Name("settings")
+	app.Get("/settings/profile", a.usersOnly(passwordConfirmed(profilePage))).Name("profile.edit")
+	app.Patch("/settings/profile", a.usersOnly(passwordConfirmed(a.updateProfile))).Name("profile.update")
+	app.Delete("/settings/profile", a.usersOnly(passwordConfirmed(a.deleteAccount))).Name("profile.destroy")
+	app.Get("/settings/security", a.usersOnly(verified(passwordConfirmed(a.securityPage)))).Name("security.edit")
+	app.Put("/settings/password", a.usersOnly(verified(passwordConfirmed(a.updatePassword)))).Name("user-password.update")
+	app.Post("/settings/two-factor", a.usersOnly(verified(passwordConfirmed(a.startTwoFactor)))).Name("two-factor.enable")
+	app.Post("/settings/two-factor/confirm", a.usersOnly(verified(passwordConfirmed(a.confirmTwoFactor)))).Name("two-factor.confirm")
+	app.Delete("/settings/two-factor", a.usersOnly(verified(passwordConfirmed(a.stopTwoFactor)))).Name("two-factor.disable")
+	app.Post("/settings/two-factor/recovery-codes", a.usersOnly(verified(passwordConfirmed(a.newRecoveryCodes)))).Name("two-factor.recovery-codes")
+	app.Get("/settings/appearance", a.usersOnly(appearancePage)).Name("appearance.edit")
 	return app, nil
 }
 
@@ -176,4 +236,15 @@ type DashboardProps struct {
 
 func dashboard(c *tug.Ctx, user *User) error {
 	return Dashboard.Render(c, DashboardProps{User: *user})
+}
+
+// up answers a load balancer's or a platform's health checks: 200 while
+// the app is serving and its database answers, and a 503 when it doesn't.
+func (a *app) up(c *tug.Ctx) error {
+	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+	defer cancel()
+	if err := a.users.db.PingContext(ctx); err != nil {
+		return &tug.HTTPError{Code: http.StatusServiceUnavailable, Message: "the database isn't answering", Err: err}
+	}
+	return c.String(http.StatusOK, "up")
 }

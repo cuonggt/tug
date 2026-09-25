@@ -67,6 +67,21 @@ func TestARedirectAfterAGetIsFoundAndAfterAnythingElseSeeOther(t *testing.T) {
 	}
 }
 
+func TestRedirectBackGoesToTheRefererOnlyWhenItsThisSite(t *testing.T) {
+	app := New(Config{})
+	app.Post("/resend", func(c *Ctx) error { return c.RedirectBack() })
+	for referer, want := range map[string]string{
+		"http://example.com/settings/profile?tab=email": "/settings/profile?tab=email",
+		"https://evil.example/phish":                    "/",
+		"":                                              "/",
+	} {
+		rec := serve(app, "POST", "/resend", "", "Referer", referer)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
+			t.Errorf("from %q: %d to %q, want %q", referer, rec.Code, rec.Header().Get("Location"), want)
+		}
+	}
+}
+
 func TestARedirectToARouteThatIsNotThereIsAnError(t *testing.T) {
 	app := New(Config{})
 	app.Get("/", func(c *Ctx) error { return c.RedirectRoute("nowhere") })

@@ -29,6 +29,11 @@ import (
 //go:embed all:starter all:starter-auth
 var starters embed.FS
 
+// notInAuth are the plain starter's files that an app with -auth has no
+// use for, and leaves out: its layouts, in resources/js/layouts, take
+// Layout.tsx's place.
+var notInAuth = []string{"resources/js/Layout.tsx"}
+
 type starterData struct {
 	Name       string // the directory's name
 	Module     string // the Go module path
@@ -42,15 +47,18 @@ func runNew(args []string) error {
 	module := flags.String("module", "", "the app's Go module path (default: the directory's name)")
 	tugDir := flags.String("tug-dir", "", "a checkout of tug to build the app against, rather than a release")
 	noInstall := flags.Bool("no-install", false, "don't install the app's packages or write its types")
-	withAuth := flags.Bool("auth", false, "with accounts: registering, logging in and out, and resetting a password by email, with the users in SQLite")
+	withAuth := flags.Bool("auth", false, "with accounts: registering, verifying an email, logging in with two factors, resetting a password, and settings, with the users in SQLite")
 	flags.Usage = func() {
 		fmt.Fprint(flags.Output(), `usage: tug new [flags] <dir>
 
 Makes a new tug app in dir: a Go server with an Inertia page, a form that
 checks itself, a React frontend built by Vite, and a .env with a fresh
-APP_KEY. With -auth, people register for accounts, log in and out, and
-reset their passwords by email. Then it installs the Go and frontend
-packages and writes the TypeScript types, so that "tug dev" runs it.
+APP_KEY. With -auth, people register for accounts and verify their email,
+log in, with a code from their phone too if they like, reset a forgotten
+password by email, and change their profile, password and appearance in
+settings; its frontend has Tailwind and shadcn/ui. Then it installs the Go
+and frontend packages and writes the TypeScript types, so that "tug dev"
+runs it.
 
 `)
 		flags.PrintDefaults()
@@ -195,6 +203,11 @@ func writeStarter(root string, data starterData) error {
 			return err
 		}
 	}
+	if data.Auth {
+		for _, rel := range notInAuth {
+			delete(files, rel)
+		}
+	}
 	for rel, content := range files {
 		target := filepath.Join(root, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -208,7 +221,7 @@ func writeStarter(root string, data starterData) error {
 	rand.Read(key)
 	uses := "encrypts the sessions"
 	if data.Auth {
-		uses = "encrypts the sessions and signs password reset links"
+		uses = "encrypts the sessions and two-factor secrets, and signs the links in mail"
 	}
 	env := "# Read by tug dev, and not committed. APP_KEY " + uses + ".\n" +
 		"APP_KEY=base64:" + base64.StdEncoding.EncodeToString(key) + "\nAPP_DEBUG=true\n"

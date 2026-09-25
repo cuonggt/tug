@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,7 +15,6 @@ import (
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/inertia"
-	"github.com/cuonggt/tug/mail"
 	"github.com/cuonggt/tug/session"
 	"github.com/cuonggt/tug/validate"
 )
@@ -61,10 +59,14 @@ func (a *app) shareAuth(r *http.Request) inertia.Props {
 	return inertia.Props{"auth": Auth{User: u}}
 }
 
-// usersOnly makes a handler for users who've logged in, which is handed
-// the user. A guest is sent to log in, and comes back after. A handler
-// that takes a user can't be routed without it: it doesn't compile.
-func (a *app) usersOnly(h func(c *tug.Ctx, user *User) error) tug.HandlerFunc {
+// userHandler is a handler for users who've logged in, which is handed the
+// user. Only usersOnly makes a route of one, so a handler that needs a
+// user can't be routed without it: it doesn't compile.
+type userHandler func(c *tug.Ctx, user *User) error
+
+// usersOnly makes a handler for users who've logged in. A guest is sent to
+// log in, and comes back after.
+func (a *app) usersOnly(h userHandler) tug.HandlerFunc {
 	return func(c *tug.Ctx) error {
 		u, err := a.user(c.Request())
 		if err != nil {
@@ -75,6 +77,37 @@ func (a *app) usersOnly(h func(c *tug.Ctx, user *User) error) tug.HandlerFunc {
 			return c.RedirectRoute("login")
 		}
 		return h(c, u)
+	}
+}
+
+// verified keeps h for users who've verified their email: the others are
+// sent to the page that asks them to.
+func verified(h userHandler) userHandler {
+	return func(c *tug.Ctx, user *User) error {
+		if user.EmailVerifiedAt == nil {
+			return c.RedirectRoute("verification.notice")
+		}
+		return h(c, user)
+	}
+}
+
+// confirmFor is how long typing the password again lets a user into the
+// pages that ask for it, as Laravel's password.confirm does.
+const confirmFor = 3 * time.Hour
+
+// passwordConfirmed keeps h for users who've typed their password in the
+// last three hours, logging in or on the page that asks for it again,
+// which the others are sent to, and back from after. It guards what does
+// the most harm in the hands of whoever finds a browser left logged in:
+// changing the email, and with it who can reset the password, the
+// password itself, and two-factor logins.
+func passwordConfirmed(h userHandler) userHandler {
+	return func(c *tug.Ctx, user *User) error {
+		if !auth.PasswordConfirmed(c.Session(), confirmFor) {
+			auth.SetIntended(c.Session(), c.Request())
+			return c.RedirectRoute("password.confirm")
+		}
+		return h(c, user)
 	}
 }
 
@@ -93,13 +126,15 @@ func (a *app) guestsOnly(h tug.HandlerFunc) tug.HandlerFunc {
 	}
 }
 
-// The pages of registering, logging in and resetting a password, in
+// The pages of registering, logging in, and a forgotten password, in
 // resources/js/pages/Auth.
 var (
-	Register       = tug.Page[NoProps]("Auth/Register")
-	Login          = tug.Page[NoProps]("Auth/Login")
-	ForgotPassword = tug.Page[NoProps]("Auth/ForgotPassword")
-	ResetPassword  = tug.Page[ResetPasswordProps]("Auth/ResetPassword")
+	Register           = tug.Page[NoProps]("Auth/Register")
+	Login              = tug.Page[NoProps]("Auth/Login")
+	TwoFactorChallenge = tug.Page[NoProps]("Auth/TwoFactorChallenge")
+	ForgotPassword     = tug.Page[NoProps]("Auth/ForgotPassword")
+	ResetPassword      = tug.Page[ResetPasswordProps]("Auth/ResetPassword")
+	ConfirmPassword    = tug.Page[NoProps]("Auth/ConfirmPassword")
 )
 
 func registerPage(c *tug.Ctx) error {
@@ -135,8 +170,15 @@ func (a *app) register(c *tug.Ctx) error {
 	if err != nil {
 		return err
 	}
-	auth.Login(c.Session(), u.authID(), u.PasswordHash)
+	s := c.Session()
+	auth.Login(s, u.authID(), u.PasswordHash)
+	auth.SetPasswordConfirmed(s)
+	if err := a.sendVerification(c, u); err != nil {
+		return err
+	}
 	c.Flash("success", "Welcome, "+u.Name+"!")
+	// The dashboard is for verified users, so this is the page that asks
+	// them to follow the link, until they have.
 	return c.RedirectRoute("dashboard")
 }
 
@@ -157,7 +199,12 @@ func loginPage(c *tug.Ctx) error {
 type LoginInput struct {
 	Email    string `json:"email" validate:"required,email"`
 	Password string `json:"password" validate:"required"`
+	Remember bool   `json:"remember"`
 }
+
+// rememberFor is how long a login that ticked "Remember me" lasts without
+// a visit. The rest last as long as the session does, two hours.
+const rememberFor = 30 * 24 * time.Hour
 
 func (a *app) login(c *tug.Ctx) error {
 	var in LoginInput
@@ -169,7 +216,7 @@ func (a *app) login(c *tug.Ctx) error {
 	// and a login that works clears them.
 	key := strings.ToLower(in.Email) + "|" + clientIP(c.Request())
 	if wait := a.logins.Try(key); wait > 0 {
-		return validate.Errors{"email": fmt.Sprintf("too many tries: wait %d seconds, and try again", int(math.Ceil(wait.Seconds())))}
+		return validate.Errors{"email": tooMany(wait)}
 	}
 	u, err := a.users.byEmail(c.Context(), in.Email)
 	if err != nil && !errors.Is(err, errNoUser) {
@@ -192,12 +239,29 @@ func (a *app) login(c *tug.Ctx) error {
 		}
 	}
 	s := c.Session()
+	if in.Remember {
+		s.SetLifetime(rememberFor)
+	} else {
+		s.SetLifetime(0)
+	}
+	if u.TwoFactor {
+		// The password is right; a code from their phone comes next.
+		auth.StartTwoFactor(s, u.authID())
+		return c.RedirectRoute("two-factor.login")
+	}
 	auth.Login(s, u.authID(), u.PasswordHash)
+	auth.SetPasswordConfirmed(s)
+	return toIntended(c)
+}
+
+// toIntended sends someone who has just logged in to the page they were on
+// their way to, or else the dashboard.
+func toIntended(c *tug.Ctx) error {
 	dashboard, err := c.URL("dashboard")
 	if err != nil {
 		return err
 	}
-	return c.Redirect(auth.Intended(s, dashboard))
+	return c.Redirect(auth.Intended(c.Session(), dashboard))
 }
 
 // clientIP is the address a request came from. Behind a proxy, such as a
@@ -210,6 +274,11 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// tooMany says how long to wait after too many tries.
+func tooMany(wait time.Duration) string {
+	return fmt.Sprintf("too many tries: wait %d seconds, and try again", int(math.Ceil(wait.Seconds())))
 }
 
 func logout(c *tug.Ctx, _ *User) error {
@@ -239,53 +308,22 @@ func (a *app) forgotPassword(c *tug.Ctx) error {
 	}
 	// One mail a minute at most for an email, and the answer is the same
 	// whether it has an account or not, so the form can't be asked who has.
-	if u != nil && a.resetMails.Try(u.Email) == 0 {
-		link, err := a.resetLink(c, u)
+	if u != nil && a.mails.Try("reset|"+strings.ToLower(u.Email)) == 0 {
+		link, err := a.link(c, "password.reset", a.resets.Token(u.authID(), u.PasswordHash))
 		if err != nil {
 			return err
 		}
-		a.sendLater(c.Context(), resetMail(u, link))
+		a.sendLater(c.Context(), message{
+			To:      u,
+			Subject: "Reset your " + appName + " password",
+			Intro:   "Someone, hopefully you, asked to reset the password of your " + appName + " account. Follow this link to choose a new one.",
+			Action:  "Choose a new password",
+			URL:     link + "?email=" + url.QueryEscape(u.Email),
+			Outro:   "The link works once, for an hour. If you didn't ask, there's nothing to do: your password stays as it is.",
+		}.mail())
 	}
 	c.Flash("success", "If that email has an account, a link to reset its password is on its way.")
 	return c.RedirectRoute("password.request")
-}
-
-// resetLink is the link a reset mail carries, which starts with the app's
-// own address; in development, without one, it's taken from the request.
-func (a *app) resetLink(c *tug.Ctx, u *User) (string, error) {
-	path, err := c.URL("password.reset", a.resets.Token(u.authID(), u.PasswordHash))
-	if err != nil {
-		return "", err
-	}
-	base := a.url
-	if base == "" {
-		base = "http://" + c.Request().Host
-	}
-	return strings.TrimRight(base, "/") + path + "?email=" + url.QueryEscape(u.Email), nil
-}
-
-func resetMail(u *User, link string) mail.Message {
-	return mail.Message{
-		To:      []string{u.Email},
-		Subject: "Reset your " + appName + " password",
-		Text: "Hi " + u.Name + ",\n\n" +
-			"Someone, hopefully you, asked to reset the password of your " + appName + " account. " +
-			"Follow this link to choose a new one:\n\n" +
-			link + "\n\n" +
-			"The link works once, for an hour. If you didn't ask, there's nothing to do: your password stays as it is.\n",
-	}
-}
-
-// sendLater sends m without the request waiting for it: how long a mail
-// server takes mustn't say whether an email has an account.
-func (a *app) sendLater(ctx context.Context, m mail.Message) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-	go func() {
-		defer cancel()
-		if err := a.mailer.Send(ctx, m); err != nil {
-			slog.ErrorContext(ctx, "a mail wasn't sent", "subject", m.Subject, "err", err)
-		}
-	}()
 }
 
 // ResetPasswordProps are the reset form's props, from the link in the mail.
@@ -322,9 +360,59 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 	if err := a.users.setPassword(c.Context(), u.ID, u.PasswordHash); err != nil {
 		return err
 	}
+	// The link came to the email, which it shows is theirs.
+	if err := a.users.setVerified(c.Context(), u.ID, u.Email); err != nil {
+		return err
+	}
 	// The new password ends every login made with the old one, and the
-	// token with them; this browser starts a login of its own.
-	auth.Login(c.Session(), u.authID(), u.PasswordHash)
+	// token with them. This browser logs in with the new one, or, for a
+	// user with two-factor logins on, goes on to give a code: a link in
+	// their mail is one factor, not two.
+	s := c.Session()
 	c.Flash("success", "Your password is reset.")
+	if u.TwoFactor {
+		auth.StartTwoFactor(s, u.authID())
+		return c.RedirectRoute("two-factor.login")
+	}
+	auth.Login(s, u.authID(), u.PasswordHash)
+	auth.SetPasswordConfirmed(s)
 	return c.RedirectRoute("dashboard")
+}
+
+func confirmPasswordPage(c *tug.Ctx, _ *User) error {
+	return ConfirmPassword.Render(c, NoProps{})
+}
+
+// ConfirmPasswordInput is what the page that asks for the password again
+// sends.
+type ConfirmPasswordInput struct {
+	Password string `json:"password" validate:"required"`
+}
+
+func (a *app) confirmPassword(c *tug.Ctx, user *User) error {
+	var in ConfirmPasswordInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	if err := a.checkPassword(user, "password", in.Password); err != nil {
+		return err
+	}
+	auth.SetPasswordConfirmed(c.Session())
+	return toIntended(c)
+}
+
+// checkPassword checks the password of a user who's logged in, as they
+// confirm it, change it, or delete their account, and returns the error
+// for field when it's wrong. Five tries a minute: whoever has their
+// browser can guess no faster than at the login page.
+func (a *app) checkPassword(user *User, field, password string) error {
+	key := user.authID()
+	if wait := a.passwords.Try(key); wait > 0 {
+		return validate.Errors{field: tooMany(wait)}
+	}
+	if !auth.CheckPassword(user.PasswordHash, password) {
+		return validate.Errors{field: "that isn't your password"}
+	}
+	a.passwords.Clear(key)
+	return nil
 }

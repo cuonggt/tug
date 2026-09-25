@@ -1,0 +1,85 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"math"
+	"net/http"
+	"strconv"
+
+	"github.com/cuonggt/tug"
+)
+
+// Verifying an email: a new user, or one who changes their email, is mailed
+// a link, and the pages for verified users send them to follow it first.
+// The link's token is auth.Verifications', signed for the user and their
+// email as it is when it's made.
+
+var VerifyEmail = tug.Page[NoProps]("Auth/VerifyEmail")
+
+// verifyEmailPage asks a user to follow the link mailed to them, as the
+// pages for verified users send them to. Once they have, there's nothing
+// to ask.
+func verifyEmailPage(c *tug.Ctx, user *User) error {
+	if user.EmailVerifiedAt != nil {
+		return c.RedirectRoute("dashboard")
+	}
+	return VerifyEmail.Render(c, NoProps{})
+}
+
+// sendVerification mails u the link that verifies their email.
+func (a *app) sendVerification(c *tug.Ctx, u *User) error {
+	link, err := a.link(c, "verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
+	if err != nil {
+		return err
+	}
+	a.sendLater(c.Context(), message{
+		To:      u,
+		Subject: "Verify your email for " + appName,
+		Intro:   "Follow this link to verify that " + u.Email + " is yours, and it's where " + appName + " will reach you.",
+		Action:  "Verify my email",
+		URL:     link,
+		Outro:   "The link works for a day. If you didn't make an account, someone typed your email by mistake: there's nothing to do.",
+	}.mail())
+	return nil
+}
+
+// resendVerification mails the link again, from the page that asks for it
+// or from the profile, and goes back there. It sends one a minute at most.
+func (a *app) resendVerification(c *tug.Ctx, user *User) error {
+	if user.EmailVerifiedAt != nil {
+		return c.RedirectRoute("dashboard")
+	}
+	if wait := a.mails.Try("verify|" + user.authID()); wait > 0 {
+		c.Flash("error", fmt.Sprintf("A link went a moment ago: wait %d seconds for another.", int(math.Ceil(wait.Seconds()))))
+		return c.RedirectBack()
+	}
+	if err := a.sendVerification(c, user); err != nil {
+		return err
+	}
+	c.Flash("success", "A new link is on its way to "+user.Email+".")
+	return c.RedirectBack()
+}
+
+// verifyEmail is where the link in the mail leads. Its token shows that
+// the email reaches the user, so it works in any browser, logged in or
+// not, such as the phone the mail was read on.
+func (a *app) verifyEmail(c *tug.Ctx) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return tug.NewHTTPError(http.StatusNotFound)
+	}
+	u, err := a.users.byID(c.Context(), id)
+	if err != nil && !errors.Is(err, errNoUser) {
+		return err
+	}
+	if u == nil || !a.verifications.Check(c.Param("token"), u.authID(), u.Email) {
+		c.Flash("error", "That link has expired, or is for an email you've changed since: send yourself another.")
+		return c.RedirectRoute("verification.notice")
+	}
+	if err := a.users.setVerified(c.Context(), u.ID, u.Email); err != nil {
+		return err
+	}
+	c.Flash("success", "Thanks: your email is verified.")
+	return c.RedirectRoute("dashboard")
+}

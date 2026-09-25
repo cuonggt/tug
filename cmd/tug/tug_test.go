@@ -161,13 +161,19 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 	if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
 		t.Errorf("main.go isn't the auth starter's:\n%s", main)
 	}
-	for _, f := range []string{"auth.go", "users.go", "resources/js/pages/Auth/Login.tsx", "resources/js/pages/Dashboard.tsx"} {
-		if strings.Contains(read(f), "[[") {
+	for _, f := range []string{"auth.go", "users.go", "resources/js/pages/Auth/Login.tsx", "resources/js/pages/Dashboard.tsx", "resources/js/app.tsx"} {
+		if strings.Contains(read(f), "[[ ") {
 			t.Errorf("%s has a placeholder left", f)
 		}
 	}
-	if read("app.html") == "" || read("vite.config.ts") == "" {
+	if !strings.Contains(read("settings.go"), "inertia.OptionalProp[[]string]") {
+		t.Error("settings.go's two brackets, which a placeholder writes, didn't come out as Go's")
+	}
+	if read("go.mod") == "" || read("public/.gitkeep") != "" {
 		t.Error("the plain starter's files didn't come along")
+	}
+	if _, err := os.Stat(filepath.Join(root, "resources/js/Layout.tsx")); err == nil {
+		t.Error("the plain starter's Layout.tsx came along, which the auth starter's layouts replace")
 	}
 	if !strings.Contains(read(".gitignore"), "/app.db") {
 		t.Error("the database isn't ignored")

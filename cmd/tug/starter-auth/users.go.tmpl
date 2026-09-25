@@ -8,49 +8,103 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cuonggt/tug/auth"
 	_ "modernc.org/sqlite" // SQLite in pure Go, so the binary stays static
 )
 
-// User is someone with an account. The password hash never leaves the
-// server: its json tag keeps it out of every page's props.
+// User is someone with an account. What only the server should know never
+// leaves it: the json tags keep the password hash and the two-factor
+// secret out of every page's props.
 type User struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Email           string     `json:"email"`
+	EmailVerifiedAt *time.Time `json:"emailVerifiedAt"` // null until they follow the link mailed to them
+	TwoFactor       bool       `json:"twoFactor"`       // whether logging in takes a code from their phone too
+	CreatedAt       time.Time  `json:"createdAt"`
+
+	PasswordHash string `json:"-"`
+
+	// The two-factor secret and recovery codes, sealed by auth.TwoFactor,
+	// and the time step of the last code that worked. Empty, and 0, while
+	// two-factor logins are off.
+	TwoFactorSecret string `json:"-"`
+	RecoveryCodes   string `json:"-"`
+	TwoFactorStep   int64  `json:"-"`
 }
 
 // authID is the user's ID as package auth keeps it, in the session and in
-// reset links.
+// the links mailed to them.
 func (u *User) authID() string {
 	return strconv.FormatInt(u.ID, 10)
 }
 
-// schema is the database's tables, made when they aren't there yet. An
-// email is unique whatever its case: Ann@example.com is ann@example.com.
-const schema = `
-CREATE TABLE IF NOT EXISTS users (
-	id            INTEGER PRIMARY KEY,
-	name          TEXT NOT NULL,
-	email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
-	password_hash TEXT NOT NULL,
-	created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);`
+// migrations make the database's tables, a step at a time. Each runs once,
+// in order, and SQLite's user_version counts the steps that have. To change
+// the tables, add a step at the end, such as an ALTER TABLE: never change
+// one that has run somewhere, as it won't run there again. An email is
+// unique whatever its case: Ann@example.com is ann@example.com.
+var migrations = []string{
+	`CREATE TABLE users (
+		id                INTEGER PRIMARY KEY,
+		name              TEXT NOT NULL,
+		email             TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		email_verified_at DATETIME,
+		password_hash     TEXT NOT NULL,
+		two_factor_secret TEXT,
+		recovery_codes    TEXT,
+		two_factor_step   INTEGER NOT NULL DEFAULT 0,
+		created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+}
 
-// openDB opens the SQLite database at path, making it when it's not there.
-// Its journal is a write-ahead log, so pages read while a form writes, and
-// a write waits its turn for up to five seconds rather than fail.
+// openDB opens the SQLite database at path, making it when it's not there,
+// and brings its tables up to date. Its journal is a write-ahead log, so
+// pages read while a form writes; a write waits its turn for up to five
+// seconds rather than fail; and a transaction takes the lock for writing
+// when it begins, rather than fail halfway when another writer has it.
 func openDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if err := migrate(context.Background(), db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return db, nil
+}
+
+// migrate runs the steps the database hasn't had, each in a transaction
+// with the count that records it, so a step that fails leaves no trace. A
+// database from a newer build of the app, as after a deploy is rolled
+// back, is left as it is.
+func migrate(ctx context.Context, db *sql.DB) error {
+	for {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		var version int
+		if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if version >= len(migrations) {
+			return tx.Rollback()
+		}
+		if _, err := tx.ExecContext(ctx, migrations[version]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d: %w", version+1, err)
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version+1)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
 }
 
 var (
@@ -63,17 +117,24 @@ type users struct {
 	db *sql.DB
 }
 
-const userColumns = "id, name, email, password_hash, created_at"
+const userColumns = "id, name, email, email_verified_at, password_hash, two_factor_secret, recovery_codes, two_factor_step, created_at"
 
 func scanUser(row *sql.Row) (*User, error) {
 	u := &User{}
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.CreatedAt)
+	var verified sql.NullTime
+	var secret, codes sql.NullString
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &verified, &u.PasswordHash, &secret, &codes, &u.TwoFactorStep, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errNoUser
 	}
 	if err != nil {
 		return nil, err // no half-read user, whose login nothing has checked
 	}
+	if verified.Valid {
+		u.EmailVerifiedAt = &verified.Time
+	}
+	u.TwoFactorSecret, u.RecoveryCodes = secret.String, codes.String
+	u.TwoFactor = u.TwoFactorSecret != ""
 	return u, nil
 }
 
@@ -100,8 +161,140 @@ func (us *users) add(ctx context.Context, name, email, passwordHash string) (*Us
 	return u, err
 }
 
+// setProfile stores a user's name and email, or returns errEmailTaken when
+// another account has the email. A new email isn't verified, whoever
+// verified the old one; the same email in another case is still the same.
+func (us *users) setProfile(ctx context.Context, id int64, name, email string) error {
+	res, err := us.db.ExecContext(ctx, `
+		UPDATE OR IGNORE users
+		SET name = ?, email = ?, email_verified_at = CASE WHEN email = ? THEN email_verified_at END
+		WHERE id = ?`, name, email, email, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n == 0 {
+		return errEmailTaken // the email's uniqueness kept the row as it was
+	}
+	return err
+}
+
+// setVerified records that the user with this ID has verified email, as
+// long as it's still theirs: a link to an email they've changed since
+// verifies nothing.
+func (us *users) setVerified(ctx context.Context, id int64, email string) error {
+	_, err := us.db.ExecContext(ctx, `
+		UPDATE users SET email_verified_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND email = ? AND email_verified_at IS NULL`, id, email)
+	return err
+}
+
 // setPassword stores a user's new password hash.
 func (us *users) setPassword(ctx context.Context, id int64, passwordHash string) error {
 	_, err := us.db.ExecContext(ctx, "UPDATE users SET password_hash = ? WHERE id = ?", passwordHash, id)
 	return err
+}
+
+// setTwoFactor turns two-factor logins on for a user, with their sealed
+// secret and recovery codes and the step of the code they set it up with,
+// or off, with all three empty.
+func (us *users) setTwoFactor(ctx context.Context, id int64, secret, recoveryCodes string, step int64) error {
+	_, err := us.db.ExecContext(ctx, `
+		UPDATE users SET two_factor_secret = ?, recovery_codes = ?, two_factor_step = ? WHERE id = ?`,
+		nullIfEmpty(secret), nullIfEmpty(recoveryCodes), step, id)
+	return err
+}
+
+// setTwoFactorStep stores the time step of the code that last worked for a
+// user, as long as it's later than the one stored: of two logins with the
+// same code at once, one gets in.
+func (us *users) setTwoFactorStep(ctx context.Context, id, step int64) (bool, error) {
+	res, err := us.db.ExecContext(ctx, "UPDATE users SET two_factor_step = ? WHERE id = ? AND two_factor_step < ?", step, id, step)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// setRecoveryCodes stores a user's new sealed recovery codes, in place of
+// the ones they had.
+func (us *users) setRecoveryCodes(ctx context.Context, id int64, codes string) error {
+	_, err := us.db.ExecContext(ctx, "UPDATE users SET recovery_codes = ? WHERE id = ? AND two_factor_secret IS NOT NULL", codes, id)
+	return err
+}
+
+// swapRecoveryCodes stores a user's sealed recovery codes, as they are
+// once one has been used, unless they're no longer was, the codes the use
+// began from: of two logins with the same code at once, one gets in.
+func (us *users) swapRecoveryCodes(ctx context.Context, id int64, was, codes string) (bool, error) {
+	res, err := us.db.ExecContext(ctx, "UPDATE users SET recovery_codes = ? WHERE id = ? AND recovery_codes = ?", codes, id, was)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// remove deletes a user's account.
+func (us *users) remove(ctx context.Context, id int64) error {
+	_, err := us.db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id)
+	return err
+}
+
+// resealTwoFactor seals again, with tf's first key, the two-factor secrets
+// and recovery codes sealed with another. After APP_KEY changes, with the
+// old key in APP_PREVIOUS_KEYS, this moves every user's over at the first
+// start, so the old key can go without taking anyone's second factor with
+// it.
+func (us *users) resealTwoFactor(ctx context.Context, tf *auth.TwoFactor) error {
+	rows, err := us.db.QueryContext(ctx, "SELECT id, two_factor_secret, recovery_codes FROM users WHERE two_factor_secret IS NOT NULL")
+	if err != nil {
+		return err
+	}
+	type sealed struct {
+		id            int64
+		secret, codes string
+	}
+	var stale []sealed
+	for rows.Next() {
+		var s sealed
+		var codes sql.NullString
+		if err := rows.Scan(&s.id, &s.secret, &codes); err != nil {
+			rows.Close()
+			return err
+		}
+		s.codes = codes.String
+		if tf.Stale(s.secret) || s.codes != "" && tf.Stale(s.codes) {
+			stale = append(stale, s)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, s := range stale {
+		secret, err := tf.Open(s.secret)
+		if err != nil {
+			return fmt.Errorf("user %d's two-factor secret: %w", s.id, err)
+		}
+		codes, err := tf.Open(s.codes)
+		if err != nil && s.codes != "" {
+			return fmt.Errorf("user %d's recovery codes: %w", s.id, err)
+		}
+		_, err = us.db.ExecContext(ctx, "UPDATE users SET two_factor_secret = ?, recovery_codes = ? WHERE id = ? AND two_factor_secret = ?",
+			tf.Seal(secret), tf.Seal(codes), s.id, s.secret)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// nullIfEmpty stores "" as NULL.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

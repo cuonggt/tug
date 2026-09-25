@@ -127,6 +127,14 @@ func (c *Ctx) Redirect(to string) error {
 	return nil
 }
 
+// RedirectBack redirects to the page the request came from, by its
+// Referer, when that's a page of this app, and to "/" otherwise: a
+// Referer can name any site. It's for a form that more than one page
+// has, which goes back to whichever it was sent from.
+func (c *Ctx) RedirectBack() error {
+	return c.Redirect(c.back())
+}
+
 // RedirectRoute redirects to the named route, filling its wildcards as
 // App.URL does.
 func (c *Ctx) RedirectRoute(name string, params ...any) error {

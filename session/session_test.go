@@ -191,6 +191,39 @@ func TestASessionPastItsLifetimeStartsAfresh(t *testing.T) {
 	})
 }
 
+func TestASessionCanOutliveTheStoresLifetimeUntilItsCleared(t *testing.T) {
+	st := newStore(t, Config{})
+	st.now = func() time.Time { return time.Now().Add(-3 * time.Hour) }
+	b := newBrowser(t, st)
+	month := 30 * 24 * time.Hour
+	if rec := b.do(func(s *Session) {
+		s.Set("user_id", 7)
+		s.SetLifetime(month)
+	}); !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=2592000") {
+		t.Fatalf("Set-Cookie %q, want a month", rec.Header().Get("Set-Cookie"))
+	}
+
+	// Three hours on, past the Store's two, the session is still there, and
+	// the response keeps its lifetime without being told again.
+	b.store = newStore(t, Config{})
+	rec := b.do(func(s *Session) {
+		if s.Get("user_id") != 7.0 {
+			t.Errorf("a month-long session ended after three hours: user_id %v", s.Get("user_id"))
+		}
+	})
+	if !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=2592000") {
+		t.Errorf("the next response's Set-Cookie %q, want a month still", rec.Header().Get("Set-Cookie"))
+	}
+
+	rec = b.do(func(s *Session) {
+		s.Clear()
+		s.Set("user_id", 8)
+	})
+	if !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=7200") {
+		t.Errorf("after Clear, Set-Cookie %q, want the Store's two hours", rec.Header().Get("Set-Cookie"))
+	}
+}
+
 func TestNewTakesOnlyWellFormedKeysAndLifetimes(t *testing.T) {
 	for name, cfg := range map[string]Config{
 		"no keys":           {},

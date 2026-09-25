@@ -71,8 +71,10 @@ it out.
 tug new [flags] <dir>
 ```
 
-- `-auth`: with accounts: registering, logging in and out, and resetting a
-  password by email, with the users in SQLite.
+- `-auth`: with accounts: registering and verifying an email, logging in
+  with a second factor if the user likes, resetting a password by email,
+  and settings, with the users in SQLite and a frontend of Tailwind and
+  shadcn/ui.
 - `-module path`: the app's Go module path. Default: the directory's name.
 - `-no-install`: don't install the app's packages or write its types.
 - `-tug-dir dir`: a checkout of tug to build the app against, rather than
@@ -99,11 +101,16 @@ the app doesn't build until that has filled in its `go.mod` and `go.sum`.
 `tug dev` installs the npm packages itself when `node_modules` isn't
 there, and writes the types.
 
-With `-auth`, `auth.go`, `users.go`, `resources/js/pages/Dashboard.tsx`
-and the pages in `resources/js/pages/Auth` are added, and `main.go`,
-`main_test.go`, `Layout.tsx`, `Home.tsx`, `app.css`, `Dockerfile`,
-`.env.example`, `.gitignore`, `.dockerignore` and `README.md` are the auth
-starter's own. [Accounts](auth.md) goes through them.
+With `-auth`, the Go files for accounts are added, `auth.go`,
+`verify.go`, `twofactor.go`, `settings.go`, `mail.go` and `users.go`, with
+their tests, and so is a frontend of Tailwind and shadcn/ui: its layouts,
+components and hooks, the pages in `resources/js/pages/Auth` and
+`resources/js/pages/Settings`, and shadcn's `components.json`. The plain
+starter's `Layout.tsx` is left out, and most of its other files are the
+auth starter's own: `main.go`, `main_test.go`, `app.html`, `package.json`,
+`vite.config.ts`, `tsconfig.json`, `app.tsx`, `app.css`, the pages it has,
+`Dockerfile`, `.env.example`, `.gitignore`, `.dockerignore` and
+`README.md`. [Accounts](auth.md) goes through them.
 
 ### Which tug the app requires
 

@@ -1,46 +1,56 @@
-import { Form, Head, Link } from '@inertiajs/react'
-import Layout from '../../Layout'
-import type { PageProps } from '../../tug/pages'
-import { route } from '../../tug/routes'
+import { Form, Head } from '@inertiajs/react'
+import { LoaderCircle } from 'lucide-react'
+import InputError from '@/components/input-error'
+import PasswordInput from '@/components/password-input'
+import TextLink from '@/components/text-link'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import type { PageProps } from '@/tug/pages'
+import { route } from '@/tug/routes'
 
 // ResetPassword is where the link in a reset mail leads: its token, and
 // the email it went to, come in the props.
 export default function ResetPassword({ token, email }: PageProps<'Auth/ResetPassword'>) {
   return (
-    <Layout>
+    <>
       <Head title="Choose a new password" />
-      <h1>Choose a new password</h1>
-      <Form action={route('password.store')} method="post" resetOnError={['password', 'password_confirmation']} className="form">
+      <Form
+        action={route('password.store')}
+        method="post"
+        resetOnError={['password', 'password_confirmation']}
+        className="flex flex-col gap-6"
+      >
         {({ errors, processing }) => (
           <>
             <input type="hidden" name="token" value={token} />
-            <label>
-              Email
-              <input name="email" type="email" autoComplete="username" defaultValue={email} required aria-invalid={!!errors.email} />
-            </label>
-            {errors.email && <p className="error">{errors.email}</p>}
-
-            <label>
-              New password
-              <input name="password" type="password" autoComplete="new-password" required autoFocus aria-invalid={!!errors.password} />
-            </label>
-            {errors.password && <p className="error">{errors.password}</p>}
-
-            <label>
-              New password again
-              <input name="password_confirmation" type="password" autoComplete="new-password" required />
-            </label>
-            {errors.password_confirmation && <p className="error">{errors.password_confirmation}</p>}
-
-            <button type="submit" disabled={processing}>
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" name="email" type="email" autoComplete="username" value={email} readOnly aria-invalid={!!errors.email} />
+              <InputError message={errors.email} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password">New password</Label>
+              <PasswordInput id="password" name="password" autoComplete="new-password" required autoFocus />
+              <InputError message={errors.password} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password_confirmation">New password again</Label>
+              <PasswordInput id="password_confirmation" name="password_confirmation" autoComplete="new-password" required />
+              <InputError message={errors.password_confirmation} />
+            </div>
+            <Button type="submit" className="w-full" disabled={processing}>
+              {processing && <LoaderCircle className="animate-spin" />}
               Set the password
-            </button>
+            </Button>
           </>
         )}
       </Form>
-      <p className="hint">
-        Has the link stopped working? <Link href={route('password.request')}>Ask for another</Link>.
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        Has the link stopped working? <TextLink href={route('password.request')}>Ask for another</TextLink>
       </p>
-    </Layout>
+    </>
   )
 }
+
+ResetPassword.layout = { title: 'Choose a new password', description: 'It logs you out everywhere you were logged in.' }

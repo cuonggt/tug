@@ -5,9 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M6 are done, which is the HTTP core, Inertia
+and where it stands: M1 to M7 are done, which is the HTTP core, Inertia
 pages with Vite, forms and validation, the rest of the v3 protocol, the
-CLI, and v0.1.0: the auth starter and the guide.
+CLI, v0.1.0 (the auth starter and the guide), and the auth starter made
+whole: email verification, remember me, password confirmation, two-factor
+logins, settings, and a Tailwind and shadcn/ui frontend.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -56,7 +58,9 @@ dev server that isn't there: delete it.
     `/`, and a group's `/` is the prefix itself. App middleware wraps the
     whole mux, so it sees 404s; group and route middleware wrap the route.
   - `ctx.go`: `Ctx`, the responses, `Param` and `Query`, and `Redirect`,
-    which is a 302 after GET and a 303 after anything else, as Inertia needs.
+    which is a 302 after GET and a 303 after anything else, as Inertia needs;
+    `RedirectBack` goes to the Referer when it's this site's (`back`, in
+    forms.go).
   - `bind.go`: `Bind` reads the body (JSON, urlencoded, multipart), then the
     query, then path values, so the URL wins. A value that doesn't parse is
     a `*BindError` inside an `*HTTPError`: 400, or 404 for a path value. A
@@ -105,7 +109,9 @@ dev server that isn't there: delete it.
   key derived by HKDF from each of `Config.Keys`, the first encrypting;
   the cookie name is the AAD. `cookieWriter` sets the cookie when the
   response starts. Flash: `next` is what this request flashes, `now` what
-  the one before did; values go through JSON.
+  the one before did; values go through JSON. `SetLifetime` gives one
+  session a lifetime of its own, kept in the payload (`l`), which `Clear`
+  drops.
 - `validate`: `Struct` over one go-playground validator that names fields
   by json tag; `path` turns its namespace into dotted paths, and `message`
   its tags into sentences. `Errors` is `map[string]string`, first message
@@ -130,13 +136,21 @@ dev server that isn't there: delete it.
   starter's Vite plugin to reload the browser; `build.go`; `new.go`
   writes `starter/`, and with `-auth` lays `starter-auth/` over it (its
   files replace the ones of the same name), with the `.tmpl` files filled
-  in between `[[ ]]`. An app requires the tug that made it when that's a
-  release or was fetched by the go command (`release`, `fetched`: the
-  build's module checksum), and otherwise `replace`s it with the checkout
-  it was built from (`checkoutDir`). The starters' Go files are `.tmpl` so
+  in between `[[ ]]` (two brackets in Go, as `OptionalProp[[]string]`,
+  are written by a placeholder, `[[ "[[" ]]`); `notInAuth` lists the plain
+  starter's files an auth app leaves out. An app requires the tug that
+  made it when that's a release or was fetched by the go command
+  (`release`, `fetched`: the build's module checksum), and otherwise
+  `replace`s it with the checkout it was built from (`checkoutDir`). The starters' Go files are `.tmpl` so
   the go tool doesn't build them in place; `tug_test.go` makes a real app
-  of each kind. The auth starter's handlers are in `auth.go.tmpl`, its
-  users in SQLite (modernc.org/sqlite, pure Go) in `users.go.tmpl`.
+  of each kind. The auth starter's handlers are in `auth.go.tmpl` (who's
+  logged in, and the wrappers `usersOnly`, `verified`,
+  `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
+  `twofactor.go.tmpl` and `settings.go.tmpl`, its mail in `mail.go.tmpl`,
+  and its users in SQLite (modernc.org/sqlite, pure Go), with migrations
+  counted in `user_version`, in `users.go.tmpl`. Its frontend is Tailwind
+  and shadcn/ui: the registry's components in `components/ui`, layouts
+  picked by page name in `app.tsx`, toasts from the flash event.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
 - `auth`: the parts of accounts where a slip is a security hole, with no
@@ -144,9 +158,15 @@ dev server that isn't there: delete it.
   OWASP's settings, PHC strings, a check against a decoy when there's no
   hash, and `hashing`, which runs one hash per CPU. `auth.go`: the login
   in the session (`tug.auth.id`, and `tug.auth.check`, a fingerprint of
-  the password hash that `Current` compares) and the intended page.
-  `reset.go`: tokens signed with an HKDF key from the app's, over the
-  expiry, the ID and the password hash. `throttle.go`: counts per key in a
+  the password hash that `Current` compares), the intended page, the time
+  the password was last confirmed (`tug.auth.confirmed`), and a login held
+  back for its second factor (`tug.auth.pending`), which `Login` drops.
+  `tokens.go`: tokens for links in mail, signed with an HKDF key for their
+  purpose alone, over the expiry and their parts; `reset.go` (the ID and
+  the password hash) and `verify.go` (the ID and the email) use it.
+  `twofactor.go`: TOTP (RFC 6238, the last step used kept by the app),
+  secrets and recovery codes sealed with AES-GCM under an HKDF key, and
+  `Stale` for rotation. `throttle.go`: counts per key in a
   map, swept as it doubles; `Try` checks and counts under one lock, so
   tries at the same moment can't all get in.
 - `mail`: `Message`, `SMTP` on net/smtp (STARTTLS, TLS on 465, deadlines
@@ -172,7 +192,8 @@ tug logs through `slog.Default()` and never sets it; that's the app's call.
   ones so far are go-playground/validator, behind package `validate`,
   which is also why Go 1.26 is the minimum, and golang.org/x/crypto, for
   argon2id. The starters' apps can have their own, as the auth starter's
-  SQLite driver is.
+  SQLite driver and its npm packages (Tailwind, shadcn/ui's Radix, lucide,
+  sonner, qrcode.react) are.
 - **The decisions in `docs/roadmap.md` are settled.** Ask before reopening
   one.
 - **Commit subjects are one line**, imperative.

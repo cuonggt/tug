@@ -49,7 +49,8 @@ type Config struct {
 	Cookie string
 
 	// Lifetime is how long a session lasts without a request. Each response
-	// starts it again. Default 2 hours.
+	// starts it again. Default 2 hours; Session.SetLifetime changes it for
+	// one session.
 	Lifetime time.Duration
 
 	// Secure marks the cookie for HTTPS only. A request that came over TLS
@@ -142,10 +143,11 @@ func New(cfg Config) (*Store, error) {
 
 // Session is one visitor's session, for the length of a request.
 type Session struct {
-	values map[string]any
-	now    map[string]any // flashed by the request before, readable now
-	next   map[string]any // flashed by this request, for the next
-	had    bool           // the request came with a session cookie
+	values   map[string]any
+	now      map[string]any // flashed by the request before, readable now
+	next     map[string]any // flashed by this request, for the next
+	had      bool           // the request came with a session cookie
+	lifetime time.Duration  // this session's own, from SetLifetime; 0 for the Store's
 }
 
 type sessionKey struct{}
@@ -166,11 +168,21 @@ func (s *Session) Set(key string, value any) { s.values[key] = value }
 // Delete removes the value under key.
 func (s *Session) Delete(key string) { delete(s.values, key) }
 
-// Clear empties the session, flash data included, as signing out does.
+// Clear empties the session, flash data included, as signing out does. Its
+// lifetime goes back to the Store's.
 func (s *Session) Clear() {
 	clear(s.values)
 	clear(s.now)
 	clear(s.next)
+	s.lifetime = 0
+}
+
+// SetLifetime makes the session last d without a request, in whole seconds,
+// in place of the Store's Lifetime: longer for a login that asked to be
+// remembered, say. Each response starts it again, as it does the Store's.
+// It lasts until Clear, and 0 goes back to the Store's.
+func (s *Session) SetLifetime(d time.Duration) {
+	s.lifetime = max(d.Truncate(time.Second), 0)
 }
 
 // Flash stores value under key for the next request, which reads it with
@@ -196,9 +208,10 @@ func (s *Session) Reflash() {
 
 // payload is what the cookie holds, before encryption.
 type payload struct {
-	Values  map[string]any `json:"v,omitempty"`
-	Flash   map[string]any `json:"f,omitempty"`
-	Expires int64          `json:"e"`
+	Values   map[string]any `json:"v,omitempty"`
+	Flash    map[string]any `json:"f,omitempty"`
+	Expires  int64          `json:"e"`
+	Lifetime int64          `json:"l,omitempty"` // seconds, when SetLifetime set one
 }
 
 // Middleware gives each request its session, and writes the session back
@@ -231,6 +244,7 @@ func (st *Store) load(r *http.Request) *Session {
 	if p.Flash != nil {
 		s.now = p.Flash
 	}
+	s.lifetime = time.Duration(max(p.Lifetime, 0)) * time.Second
 	return s
 }
 
@@ -272,7 +286,16 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 		}
 		return
 	}
-	plain, err := json.Marshal(payload{Values: s.values, Flash: s.next, Expires: st.now().Add(st.lifetime).Unix()})
+	lifetime := st.lifetime
+	if s.lifetime > 0 {
+		lifetime = s.lifetime
+	}
+	plain, err := json.Marshal(payload{
+		Values:   s.values,
+		Flash:    s.next,
+		Expires:  st.now().Add(lifetime).Unix(),
+		Lifetime: int64(s.lifetime / time.Second),
+	})
 	if err != nil {
 		slog.ErrorContext(r.Context(), "session: can't be saved", "err", err)
 		return
@@ -286,7 +309,7 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 			"bytes", len(cookie.Value))
 		return
 	}
-	cookie.MaxAge = int(st.lifetime / time.Second)
+	cookie.MaxAge = int(lifetime / time.Second)
 	http.SetCookie(w, cookie)
 }
 
