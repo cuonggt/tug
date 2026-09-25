@@ -1,0 +1,152 @@
+package main
+
+import (
+	"net/http"
+	"strings"
+	"testing"
+)
+
+func TestSettingsStartAtTheProfile(t *testing.T) {
+	app := newTestApp(t)
+	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	if r := v.get("/settings"); r.location != "/settings/profile" {
+		t.Fatalf("settings: %d to %q", r.code, r.location)
+	}
+	r := v.get("/settings/profile")
+	if user, _ := r.page.Props["user"].(map[string]any); r.page.Component != "Settings/Profile" || user["email"] != "ann@example.com" {
+		t.Errorf("the profile: %d %+v", r.code, r.page)
+	}
+	if r := v.get("/settings/appearance"); r.page.Component != "Settings/Appearance" {
+		t.Errorf("appearance: %d %+v", r.code, r.page)
+	}
+}
+
+func TestANewEmailIsntVerifiedUntilItsLinkIsFollowed(t *testing.T) {
+	app := newTestApp(t)
+	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	r := v.visit("PATCH", "/settings/profile", map[string]any{"name": "Ann Lee", "email": "ann@elsewhere.example"})
+	if r.location != "/settings/profile" {
+		t.Fatalf("saving: %d to %q, errors %v", r.code, r.location, v.get("/settings/profile").errors())
+	}
+	r = v.get("/settings/profile")
+	user, _ := r.page.Props["user"].(map[string]any)
+	if user["name"] != "Ann Lee" || user["email"] != "ann@elsewhere.example" || user["emailVerifiedAt"] != nil {
+		t.Errorf("the profile after: %v", user)
+	}
+	if r.page.Flash["success"] != "Profile saved. We've mailed a link to ann@elsewhere.example to verify it." {
+		t.Errorf("flash %v", r.page.Flash)
+	}
+	m := app.mail()
+	if m.To[0] != "ann@elsewhere.example" {
+		t.Fatalf("the link went to %v", m.To)
+	}
+	if r := v.get("/dashboard"); r.location != "/verify-email" {
+		t.Errorf("the dashboard with the new email: %d to %q", r.code, r.location)
+	}
+	v.get(link(t, m, "/verify-email/"))
+	if r := v.get("/dashboard"); r.page.Component != "Dashboard" {
+		t.Errorf("the dashboard, verified again: %d to %q", r.code, r.location)
+	}
+}
+
+func TestTheSameEmailInAnotherCaseStaysVerified(t *testing.T) {
+	app := newTestApp(t)
+	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	v.visit("PATCH", "/settings/profile", map[string]any{"name": "Ann", "email": "Ann@Example.com"})
+	if r := v.get("/settings/profile"); r.user()["emailVerifiedAt"] == nil || r.page.Flash["success"] != "Profile saved." {
+		t.Errorf("user %v, flash %v", r.user(), r.page.Flash)
+	}
+	app.noMail()
+}
+
+func TestAnEmailWithAnAccountCantBeTaken(t *testing.T) {
+	app := newTestApp(t)
+	app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	v := app.verifiedUser("Bob", "bob@example.com", "correct horse")
+	v.visit("PATCH", "/settings/profile", map[string]any{"name": "Bob", "email": "ANN@example.com"})
+	if r := v.get("/settings/profile"); r.errors()["email"] != "email has an account already" || r.user()["email"] != "bob@example.com" {
+		t.Errorf("errors %v, user %v", r.errors(), r.user())
+	}
+}
+
+func TestChangingThePasswordTakesTheCurrentOneAndLogsOutTheOtherSessions(t *testing.T) {
+	app := newTestApp(t)
+	laptop := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	phone := app.visitor()
+	logIn(phone, "ann@example.com", "correct horse")
+
+	change := map[string]any{"current_password": "wrong horse", "password": "battery staple", "password_confirmation": "battery staple"}
+	phone.visit("PUT", "/settings/password", change)
+	if r := phone.get("/settings/security"); r.errors()["current_password"] != "that isn't your password" {
+		t.Fatalf("errors %v", r.errors())
+	}
+	change["current_password"] = "correct horse"
+	if r := phone.visit("PUT", "/settings/password", change); r.location != "/settings/security" {
+		t.Fatalf("changing: %d to %q", r.code, r.location)
+	}
+	if r := phone.get("/settings/security"); r.page.Component != "Settings/Security" || r.page.Flash["success"] == nil {
+		t.Errorf("this browser, after: %d to %q, flash %v", r.code, r.location, r.page.Flash)
+	}
+	if r := laptop.get("/dashboard"); r.location != "/login" {
+		t.Errorf("the other session is still logged in: %d to %q", r.code, r.location)
+	}
+	if r := logIn(app.visitor(), "ann@example.com", "battery staple"); r.location != "/dashboard" {
+		t.Errorf("the new password doesn't log in: %d to %q", r.code, r.location)
+	}
+}
+
+func TestDeletingTheAccountTakesThePassword(t *testing.T) {
+	app := newTestApp(t)
+	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := app.visitor()
+	logIn(other, "ann@example.com", "correct horse")
+
+	v.visit("DELETE", "/settings/profile", map[string]any{"password": "wrong horse"})
+	if r := v.get("/settings/profile"); r.errors()["password"] != "that isn't your password" || r.user() == nil {
+		t.Fatalf("errors %v, user %v", r.errors(), r.user())
+	}
+	if r := v.visit("DELETE", "/settings/profile", map[string]any{"password": "correct horse"}); r.location != "/" {
+		t.Fatalf("deleting: %d to %q", r.code, r.location)
+	}
+	r := v.get("/")
+	if r.user() != nil || r.page.Flash["success"] != "Your account is deleted." || !r.page.ClearHistory {
+		t.Errorf("after: user %v, flash %v, clearHistory %v", r.user(), r.page.Flash, r.page.ClearHistory)
+	}
+	if r := other.get("/dashboard"); r.location != "/login" {
+		t.Errorf("the other session outlived the account: %d to %q", r.code, r.location)
+	}
+	logIn(other, "ann@example.com", "correct horse")
+	if r := other.get("/login"); r.errors()["email"] != "the email and password don't match an account" {
+		t.Errorf("logging in to the deleted account: errors %v", r.errors())
+	}
+	// The email is free for someone new.
+	if r := register(app.visitor(), "Ann", "ann@example.com", "correct horse"); r.location != "/dashboard" {
+		t.Errorf("registering the email again: %d to %q", r.code, r.location)
+	}
+}
+
+func TestTooManyWrongPasswordsInTheSettingsWaitAMinute(t *testing.T) {
+	app := newTestApp(t)
+	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	for range 5 {
+		v.visit("DELETE", "/settings/profile", map[string]any{"password": "wrong horse"})
+	}
+	v.visit("DELETE", "/settings/profile", map[string]any{"password": "correct horse"})
+	r := v.get("/settings/profile")
+	if msg, _ := r.errors()["password"].(string); !strings.HasPrefix(msg, "too many tries: wait ") || r.user() == nil {
+		t.Errorf("errors %v, user %v", r.errors(), r.user())
+	}
+}
+
+func TestSecurityIsForVerifiedEmailsAndTheProfileIsnt(t *testing.T) {
+	app := newTestApp(t)
+	v := app.visitor()
+	register(v, "Ann", "ann@example.com", "correct horse")
+	if r := v.get("/settings/security"); r.location != "/verify-email" {
+		t.Errorf("security, unverified: %d to %q", r.code, r.location)
+	}
+	// Someone who typed their email wrong can put it right.
+	if r := v.get("/settings/profile"); r.code != http.StatusOK || r.page.Component != "Settings/Profile" {
+		t.Errorf("the profile, unverified: %d to %q", r.code, r.location)
+	}
+}

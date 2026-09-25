@@ -1,0 +1,213 @@
+package main
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+// turnOnTwoFactor turns two-factor logins on for the user logged in to v,
+// as they would with their phone, and returns the secret their app has
+// and the recovery codes they're shown.
+func turnOnTwoFactor(t *testing.T, v *visitor) (secret string, codes []string) {
+	t.Helper()
+	if r := v.visit("POST", "/settings/two-factor", nil); r.location != "/settings/security" {
+		t.Fatalf("starting: %d to %q", r.code, r.location)
+	}
+	setup, _ := v.get("/settings/security").page.Props["setup"].(map[string]any)
+	secret, _ = setup["secret"].(string)
+	if url, _ := setup["url"].(string); !strings.HasPrefix(url, "otpauth://totp/") || !strings.Contains(url, "secret="+secret) {
+		t.Fatalf("the setup: %v", setup)
+	}
+	code, _ := v.app.twoFactor().Code(secret, time.Now())
+	if r := v.visit("POST", "/settings/two-factor/confirm", map[string]any{"code": code}); r.location != "/settings/security" {
+		t.Fatalf("confirming: %d to %q", r.code, r.location)
+	}
+	r := v.get("/settings/security")
+	for _, c := range r.page.Flash["recoveryCodes"].([]any) {
+		codes = append(codes, c.(string))
+	}
+	if user, _ := r.page.Props["user"].(map[string]any); user["twoFactor"] != true || r.page.Props["setup"] != nil || len(codes) != 8 {
+		t.Fatalf("once it's on: %+v", r.page)
+	}
+	return secret, codes
+}
+
+// nextCode is the code the user's app shows 30 seconds on: the one it
+// showed now has been used.
+func nextCode(t *testing.T, app *testApp, secret string) string {
+	t.Helper()
+	code, err := app.twoFactor().Code(secret, time.Now().Add(30*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code
+}
+
+func TestTurningTwoFactorOnTakesACodeFromTheApp(t *testing.T) {
+	app := newTestApp(t)
+	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	v.visit("POST", "/settings/two-factor", nil)
+	v.visit("POST", "/settings/two-factor/confirm", map[string]any{"code": "000000"})
+	r := v.get("/settings/security")
+	if r.errors()["code"] != "that code isn't right: try the one your app shows now" || r.page.Props["setup"] == nil {
+		t.Fatalf("a wrong code: errors %v, setup %v", r.errors(), r.page.Props["setup"])
+	}
+	// Starting afresh makes a new secret, which the first one's code won't fit.
+	v.visit("DELETE", "/settings/two-factor", nil)
+	if r := v.get("/settings/security"); r.page.Props["setup"] != nil {
+		t.Errorf("stopping left the setup: %v", r.page.Props["setup"])
+	}
+	turnOnTwoFactor(t, v)
+}
+
+func TestLoggingInWithTwoFactorTakesACodeAfterThePassword(t *testing.T) {
+	app := newTestApp(t)
+	secret, _ := turnOnTwoFactor(t, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	v := app.visitor()
+	if r := logIn(v, "ann@example.com", "correct horse"); r.location != "/two-factor-challenge" {
+		t.Fatalf("the password: %d to %q", r.code, r.location)
+	}
+	if r := v.get("/dashboard"); r.location != "/login" {
+		t.Fatalf("logged in with the password alone: %d to %q", r.code, r.location)
+	}
+	if r := v.get("/two-factor-challenge"); r.page.Component != "Auth/TwoFactorChallenge" || r.user() != nil {
+		t.Fatalf("the challenge: %d %+v", r.code, r.page)
+	}
+	v.visit("POST", "/two-factor-challenge", map[string]any{"code": "000000"})
+	if r := v.get("/two-factor-challenge"); r.errors()["code"] != "that code isn't right, or has been used: try the next one" {
+		t.Errorf("a wrong code: errors %v", r.errors())
+	}
+	code := nextCode(t, app, secret)
+	if r := v.visit("POST", "/two-factor-challenge", map[string]any{"code": code}); r.location != "/dashboard" {
+		t.Fatalf("the code: %d to %q", r.code, r.location)
+	}
+	if r := v.get("/dashboard"); r.user()["name"] != "Ann" {
+		t.Errorf("not logged in after the code: %v", r.user())
+	}
+
+	// The same code, seen over her shoulder, is no use to anyone else.
+	eve := app.visitor()
+	logIn(eve, "ann@example.com", "correct horse")
+	eve.visit("POST", "/two-factor-challenge", map[string]any{"code": code})
+	if r := eve.get("/dashboard"); r.location != "/login" {
+		t.Errorf("a code worked twice: %d to %q", r.code, r.location)
+	}
+}
+
+func TestARecoveryCodeLogsInOnce(t *testing.T) {
+	app := newTestApp(t)
+	_, codes := turnOnTwoFactor(t, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	v := app.visitor()
+	logIn(v, "ann@example.com", "correct horse")
+	// Typed as it might be read out, in capitals.
+	if r := v.visit("POST", "/two-factor-challenge", map[string]any{"recovery_code": strings.ToUpper(codes[2])}); r.location != "/dashboard" {
+		t.Fatalf("the code: %d to %q", r.code, r.location)
+	}
+	again := app.visitor()
+	logIn(again, "ann@example.com", "correct horse")
+	again.visit("POST", "/two-factor-challenge", map[string]any{"recovery_code": codes[2]})
+	if r := again.get("/two-factor-challenge"); r.errors()["recovery_code"] != "that isn't one of your recovery codes, or it has been used" {
+		t.Errorf("the code, used again: errors %v", r.errors())
+	}
+}
+
+func TestTooManyWrongCodesWaitAMinute(t *testing.T) {
+	app := newTestApp(t)
+	secret, _ := turnOnTwoFactor(t, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	v := app.visitor()
+	logIn(v, "ann@example.com", "correct horse")
+	for range 5 {
+		v.visit("POST", "/two-factor-challenge", map[string]any{"code": "000000"})
+	}
+	v.visit("POST", "/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)})
+	if msg, _ := v.get("/two-factor-challenge").errors()["code"].(string); !strings.HasPrefix(msg, "too many tries: wait ") {
+		t.Errorf("errors %q", msg)
+	}
+}
+
+func TestTheChallengeComesAfterThePassword(t *testing.T) {
+	app := newTestApp(t)
+	v := app.visitor()
+	if r := v.get("/two-factor-challenge"); r.location != "/login" {
+		t.Errorf("the challenge, with no password given: %d to %q", r.code, r.location)
+	}
+	if r := v.visit("POST", "/two-factor-challenge", map[string]any{"code": "123456"}); r.location != "/login" {
+		t.Errorf("a code, with no password given: %d to %q", r.code, r.location)
+	}
+}
+
+func TestTurningTwoFactorOffLeavesThePasswordAlone(t *testing.T) {
+	app := newTestApp(t)
+	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	turnOnTwoFactor(t, v)
+	v.visit("DELETE", "/settings/two-factor", nil)
+	if r := v.get("/settings/security"); r.page.Flash["success"] != "Two-factor logins are off." || r.user()["twoFactor"] != false {
+		t.Fatalf("flash %v, user %v", r.page.Flash, r.user())
+	}
+	if r := logIn(app.visitor(), "ann@example.com", "correct horse"); r.location != "/dashboard" {
+		t.Errorf("logging in: %d to %q", r.code, r.location)
+	}
+}
+
+func TestRecoveryCodesCanBeSeenAgainAndReplaced(t *testing.T) {
+	app := newTestApp(t)
+	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	_, codes := turnOnTwoFactor(t, v)
+	partial := []string{"X-Inertia-Partial-Component", "Settings/Security", "X-Inertia-Partial-Data", "recoveryCodes"}
+	if r := v.get("/settings/security"); r.page.Props["recoveryCodes"] != nil {
+		t.Error("the codes went out with the page, unasked")
+	}
+	r := v.visit("GET", "/settings/security", nil, partial...)
+	if shown, _ := r.page.Props["recoveryCodes"].([]any); len(shown) != 8 || shown[0] != codes[0] {
+		t.Fatalf("asked for, the codes are %v", r.page.Props["recoveryCodes"])
+	}
+
+	v.visit("POST", "/settings/two-factor/recovery-codes", nil)
+	fresh, _ := v.get("/settings/security").page.Flash["recoveryCodes"].([]any)
+	if len(fresh) != 8 || fresh[0] == codes[0] {
+		t.Fatalf("new codes %v", fresh)
+	}
+	login := app.visitor()
+	logIn(login, "ann@example.com", "correct horse")
+	login.visit("POST", "/two-factor-challenge", map[string]any{"recovery_code": codes[0]})
+	if r := login.get("/dashboard"); r.location != "/login" {
+		t.Error("an old recovery code still works")
+	}
+	if r := login.visit("POST", "/two-factor-challenge", map[string]any{"recovery_code": fresh[0]}); r.location != "/dashboard" {
+		t.Errorf("a new recovery code: %d to %q", r.code, r.location)
+	}
+}
+
+func TestAResetPasswordStillTakesTheSecondFactor(t *testing.T) {
+	app := newTestApp(t)
+	secret, _ := turnOnTwoFactor(t, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	v := app.visitor()
+	if r := resetPassword(t, v, resetLink(t, app, "ann@example.com"), "battery staple"); r.location != "/two-factor-challenge" {
+		t.Fatalf("resetting: %d to %q", r.code, r.location)
+	}
+	if r := v.get("/dashboard"); r.location != "/login" {
+		t.Fatalf("logged in by the reset alone: %d to %q", r.code, r.location)
+	}
+	if r := v.get("/two-factor-challenge"); r.page.Component != "Auth/TwoFactorChallenge" || r.page.Flash["success"] != "Your password is reset." {
+		t.Fatalf("the challenge after the reset: %d %+v", r.code, r.page)
+	}
+	if r := v.visit("POST", "/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)}); r.location != "/dashboard" {
+		t.Errorf("the code after the reset: %d to %q", r.code, r.location)
+	}
+}
+
+func TestTwoFactorSecretsMoveToANewKey(t *testing.T) {
+	old := newTestApp(t)
+	secret, _ := turnOnTwoFactor(t, old.verifiedUser("Ann", "ann@example.com", "correct horse"))
+
+	// A deploy with a new APP_KEY, and the old one in APP_PREVIOUS_KEYS,
+	// then one without the old key.
+	startApp(t, old.db, [][]byte{key(2), key(1)})
+	app := startApp(t, old.db, [][]byte{key(2)})
+	v := app.visitor()
+	logIn(v, "ann@example.com", "correct horse")
+	if r := v.visit("POST", "/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)}); r.location != "/dashboard" {
+		t.Errorf("the code, with the old key gone: %d to %q", r.code, r.location)
+	}
+}

@@ -286,7 +286,12 @@ Each returns an error, so a handler can end with `return c.JSON(...)`.
 `c.Redirect(to)` sends the client to another URL: with 302 Found after a GET
 or HEAD, and 303 See Other after anything else. A 303 makes browsers, and
 Inertia, follow a PUT, PATCH or DELETE with a GET, where a 302 may repeat
-the method. `c.RedirectRoute(name, params...)` redirects to a named route.
+the method. `c.RedirectRoute(name, params...)` redirects to a named route,
+and `c.RedirectBack()` to the page the request came from, by its `Referer`,
+when that's a page of this app, and to `/` otherwise, since a `Referer` can
+name any site. It's for a form that more than one page has, which goes back
+to whichever it was sent from, as the auth starter's "send the link again"
+does.
 
 A `Ctx` has more for pages, such as `Inertia` and `Location`, in
 [pages.md](pages.md), and for forms, such as `BindValid`, `Session` and

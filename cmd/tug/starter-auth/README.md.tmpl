@@ -1,8 +1,10 @@
 # [[ .Name ]]
 
 A [tug](https://github.com/cuonggt/tug) app: Go handlers render React pages
-through Inertia, with no API in between. People register for accounts, log
-in and out, and reset their passwords by email.
+through Inertia, with no API in between. People register and verify their
+email, log in, with a code from an authenticator app too if they turn that
+on, reset a forgotten password by email, and change their profile,
+password and appearance in their settings.
 
 ```sh
 tug dev      # run it on http://127.0.0.1:8080, rebuilt and reloaded as it changes
@@ -11,21 +13,27 @@ tug build    # build it into one binary, frontend included
 go test ./...
 ```
 
-- `main.go`: the server, its pages and routes. A page is declared with
-  `tug.Page[Props]("Name")`, and its component is
-  `resources/js/pages/Name.tsx`.
-- `auth.go`: registering, logging in and out, and resetting a password,
-  on tug's package `auth`. A route for users who've logged in is wrapped in
-  `usersOnly`, whose handler is handed the user; every page gets the user,
-  or null, as `auth.user`.
+- `main.go`: the server, its pages and routes, and the health check at
+  `/up`. A page is declared with `tug.Page[Props]("Name")`, and its
+  component is `resources/js/pages/Name.tsx`.
+- `auth.go`: registering, logging in and out, a forgotten password, and
+  the page that asks for the password again, on tug's package `auth`. A
+  route for users is wrapped in `usersOnly`, whose handler is handed the
+  user, and in `verified` or `passwordConfirmed` for what needs them.
+- `verify.go`: verifying an email by a mailed link. `twofactor.go`:
+  two-factor logins. `settings.go`: the settings pages. `mail.go`: the
+  mail, in plain text and HTML.
 - `users.go`: the users, in SQLite (`app.db`, or `DB_PATH`), through
-  `database/sql`.
+  `database/sql`, and the migrations that make and change its tables.
+- `resources/js`: React with Tailwind and [shadcn/ui](https://ui.shadcn.com)
+  components, which `npx shadcn@latest add` adds more of. The layouts are
+  in `layouts/`, and `app.tsx` says which page has which.
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
-- `.env`: read by tug dev. `APP_KEY` encrypts the sessions and signs reset
-  links, and a deployed app needs one of its own, set in its environment,
-  with `APP_URL`, its own address, and `MAIL_HOST` and the rest of
-  `.env.example` for its mail. In development, mail is written out where
-  tug dev shows it, reset links and all.
+- `.env`: read by tug dev. `APP_KEY` encrypts the sessions and two-factor
+  secrets and signs the links in mail, and a deployed app needs one of its
+  own, set in its environment, with `APP_URL`, its own address, and
+  `MAIL_HOST` and the rest of `.env.example` for its mail. In development,
+  mail is written out where tug dev shows it, links and all.
 - `Dockerfile`: the app as one static binary on a distroless image, with
   the database on a volume.

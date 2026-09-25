@@ -1,0 +1,168 @@
+package main
+
+import (
+	"errors"
+	"strings"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/validate"
+)
+
+// The settings pages, in resources/js/pages/Settings, where a user changes
+// their profile, their password and two-factor logins, and how the app
+// looks.
+var (
+	Profile    = tug.Page[ProfileProps]("Settings/Profile")
+	Security   = tug.Page[SecurityProps]("Settings/Security")
+	Appearance = tug.Page[NoProps]("Settings/Appearance")
+)
+
+func toProfile(c *tug.Ctx) error {
+	return c.RedirectRoute("profile.edit")
+}
+
+// ProfileProps are the profile page's props.
+type ProfileProps struct {
+	User User `json:"user"`
+}
+
+func profilePage(c *tug.Ctx, user *User) error {
+	return Profile.Render(c, ProfileProps{User: *user})
+}
+
+// ProfileInput is what the profile form sends.
+type ProfileInput struct {
+	Name  string `json:"name" validate:"required,max=100"`
+	Email string `json:"email" validate:"required,email,max=254"`
+}
+
+// updateProfile saves a user's name and email. A new email isn't verified
+// until they follow the link mailed to it.
+func (a *app) updateProfile(c *tug.Ctx, user *User) error {
+	var in ProfileInput
+	newEmail := func() bool { return !strings.EqualFold(in.Email, user.Email) }
+	err := c.BindValid(&in, func(errs validate.Errors) {
+		if _, bad := errs["email"]; bad || !newEmail() {
+			return
+		}
+		if _, err := a.users.byEmail(c.Context(), in.Email); err == nil {
+			errs.Add("email", "email has an account already")
+		}
+	})
+	if err != nil {
+		return err
+	}
+	err = a.users.setProfile(c.Context(), user.ID, in.Name, in.Email)
+	if errors.Is(err, errEmailTaken) {
+		return validate.Errors{"email": "email has an account already"}
+	}
+	if err != nil {
+		return err
+	}
+	if !newEmail() {
+		c.Flash("success", "Profile saved.")
+		return c.RedirectRoute("profile.edit")
+	}
+	user.Name, user.Email = in.Name, in.Email
+	if err := a.sendVerification(c, user); err != nil {
+		return err
+	}
+	c.Flash("success", "Profile saved. We've mailed a link to "+in.Email+" to verify it.")
+	return c.RedirectRoute("profile.edit")
+}
+
+// DeleteAccountInput is what the form that deletes an account sends: the
+// password once more, as it can't be undone.
+type DeleteAccountInput struct {
+	Password string `json:"password" validate:"required"`
+}
+
+func (a *app) deleteAccount(c *tug.Ctx, user *User) error {
+	var in DeleteAccountInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	if err := a.checkPassword(user, "password", in.Password); err != nil {
+		return err
+	}
+	if err := a.users.remove(c.Context(), user.ID); err != nil {
+		return err
+	}
+	// The user's other sessions end at their next request, which finds no
+	// user.
+	auth.Logout(c.Session())
+	c.ClearHistory()
+	c.Flash("success", "Your account is deleted.")
+	return c.RedirectRoute("home")
+}
+
+// SecurityProps are the security page's props.
+type SecurityProps struct {
+	User User `json:"user"`
+
+	// Setup is the setup of two-factor logins under way, or null: a QR code
+	// for the user's authenticator app to scan, and its secret, for typing
+	// in instead.
+	Setup *TwoFactorSetup `json:"setup"`
+
+	// RecoveryCodes are the user's recovery codes, which go out only to the
+	// partial reload that asks for them, when the user wants to see them.
+	[[- /* Two brackets open tug new's placeholders, so a placeholder writes them. */]]
+	RecoveryCodes inertia.OptionalProp[[ "[[" ]]]string] `json:"recoveryCodes"`
+}
+
+// TwoFactorSetup is what sets up an authenticator app.
+type TwoFactorSetup struct {
+	URL    string `json:"url"` // the QR code's otpauth:// URL
+	Secret string `json:"secret"`
+}
+
+func (a *app) securityPage(c *tug.Ctx, user *User) error {
+	props := SecurityProps{
+		User: *user,
+		RecoveryCodes: inertia.Optional(func() ([]string, error) {
+			return a.openCodes(user.RecoveryCodes)
+		}),
+	}
+	if secret, _ := c.Session().Get(setupKey).(string); secret != "" && !user.TwoFactor {
+		props.Setup = &TwoFactorSetup{URL: a.twoFactor.URL(user.Email, secret), Secret: secret}
+	}
+	return Security.Render(c, props)
+}
+
+// PasswordInput is what the form that changes the password sends.
+type PasswordInput struct {
+	CurrentPassword      string `json:"current_password" validate:"required"`
+	Password             string `json:"password" validate:"required,min=8,max=200"`
+	PasswordConfirmation string `json:"password_confirmation"`
+}
+
+func (a *app) updatePassword(c *tug.Ctx, user *User) error {
+	var in PasswordInput
+	if err := c.BindValid(&in, confirmed(&in.Password, &in.PasswordConfirmation)); err != nil {
+		return err
+	}
+	if err := a.checkPassword(user, "current_password", in.CurrentPassword); err != nil {
+		return err
+	}
+	hash := auth.HashPassword(in.Password)
+	if err := a.users.setPassword(c.Context(), user.ID, hash); err != nil {
+		return err
+	}
+	// The new hash ends every login made with the old one, which is the
+	// way to end one on a lost laptop; this browser logs in with the new.
+	s := c.Session()
+	auth.Login(s, user.authID(), hash)
+	auth.SetPasswordConfirmed(s)
+	c.Flash("success", "Password changed. You've been logged out everywhere else.")
+	return c.RedirectRoute("security.edit")
+}
+
+// appearancePage is where a user picks light, dark, or what their system
+// says. The choice is the browser's to keep: see
+// resources/js/hooks/use-appearance.ts.
+func appearancePage(c *tug.Ctx, _ *User) error {
+	return Appearance.Render(c, NoProps{})
+}

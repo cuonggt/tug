@@ -1,0 +1,91 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"html/template"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/mail"
+)
+
+// message is a mail of the app's to a user: a greeting, what it's about, a
+// link to follow, and what to do if it wasn't them. It goes as plain text,
+// and as HTML with the link as a button, for the mail programs that show
+// HTML.
+type message struct {
+	To      *User
+	Subject string
+	Intro   string // before the link
+	Action  string // the link's button
+	URL     string
+	Outro   string // after the link
+}
+
+func (m message) mail() mail.Message {
+	var html bytes.Buffer
+	if err := mailHTML.Execute(&html, m); err != nil {
+		panic(err) // only for a template that doesn't fit message, found by the tests
+	}
+	return mail.Message{
+		To:      []string{m.To.Email},
+		Subject: m.Subject,
+		Text:    "Hi " + m.To.Name + ",\n\n" + m.Intro + "\n\n" + m.Action + ":\n\n" + m.URL + "\n\n" + m.Outro + "\n\n" + appName + "\n",
+		HTML:    html.String(),
+	}
+}
+
+// mailHTML is a message's HTML, with its style inline, as mail programs
+// take it. html/template escapes what the user typed, such as their name.
+var mailHTML = template.Must(template.New("mail").Parse(`<!doctype html>
+<html>
+<body style="margin:0;padding:32px 16px;background:#f5f5f5;font-family:ui-sans-serif,system-ui,sans-serif;color:#171717">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:480px;background:#ffffff;border:1px solid #e5e5e5;border-radius:12px">
+<tr><td style="padding:32px">
+<p style="margin:0 0 24px;font-size:14px;font-weight:600">{{ .AppName }}</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Hi {{ .To.Name }},</p>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.6">{{ .Intro }}</p>
+<p style="margin:0 0 24px"><a href="{{ .URL }}" style="display:inline-block;padding:10px 18px;background:#171717;color:#ffffff;border-radius:8px;font-size:14px;font-weight:500;text-decoration:none">{{ .Action }}</a></p>
+<p style="margin:0 0 16px;font-size:13px;line-height:1.6;color:#737373">{{ .Outro }}</p>
+<p style="margin:0;font-size:12px;line-height:1.6;color:#a3a3a3;word-break:break-all">If the button doesn't work, copy this link into your browser: {{ .URL }}</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body>
+</html>
+`))
+
+// AppName is the app's name, for the template.
+func (message) AppName() string { return appName }
+
+// link is the address of the named route, for a link in mail: APP_URL, or
+// in development, without it, the address the request came to.
+func (a *app) link(c *tug.Ctx, name string, params ...any) (string, error) {
+	path, err := c.URL(name, params...)
+	if err != nil {
+		return "", err
+	}
+	base := a.url
+	if base == "" {
+		base = "http://" + c.Request().Host
+	}
+	return strings.TrimRight(base, "/") + path, nil
+}
+
+// sendLater sends m without the request waiting for it: a mail server can
+// take seconds, and for a forgotten password, how long it takes mustn't
+// say whether an email has an account. main waits for it as the app
+// stops.
+func (a *app) sendLater(ctx context.Context, m mail.Message) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	a.sending.Go(func() {
+		defer cancel()
+		if err := a.mailer.Send(ctx, m); err != nil {
+			slog.ErrorContext(ctx, "a mail wasn't sent", "subject", m.Subject, "err", err)
+		}
+	})
+}

@@ -1,116 +1,88 @@
+/* Tailwind, with shadcn/ui's theme: the colours are variables, one set for
+   light and one for dark, which the components use by name, as bg-primary
+   and text-muted-foreground. Change them here to change the whole app. */
+@import 'tailwindcss' source('../js');
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
 :root {
-  color-scheme: light dark;
-  --ink: #0f172a;
-  --muted: #64748b;
-  --accent: #0e7490;
-  --danger: #b91c1c;
-  --paper: #ffffff;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #e2e8f0;
-    --muted: #94a3b8;
-    --accent: #22d3ee;
-    --danger: #f87171;
-    --paper: #0b1120;
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
 
-body {
-  margin: 0;
-  background: var(--paper);
-  color: var(--ink);
-}
-
-main {
-  max-width: 40rem;
-  margin: 3rem auto;
-  padding: 0 1rem;
-  line-height: 1.6;
-}
-
-a {
-  color: var(--accent);
-}
-
-.brand,
-.hint {
-  color: var(--muted);
-}
-
-.flash {
-  padding: 0.5rem 0.8rem;
-  border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.form {
-  display: grid;
-  gap: 0.4rem;
-}
-
-.form label {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.form input {
-  font: inherit;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--muted);
-  border-radius: 0.4rem;
-  background: transparent;
-  color: inherit;
-}
-
-.form [aria-invalid='true'] {
-  border-color: var(--danger);
-}
-
-.form button {
-  justify-self: start;
-  font: inherit;
-  padding: 0.3rem 0.8rem;
-  border: 1px solid var(--accent);
-  border-radius: 0.4rem;
-  color: var(--accent);
-  background: none;
-  cursor: pointer;
-}
-
-.error {
-  margin: 0;
-  color: var(--danger);
-  font-size: 0.9rem;
-}
-
-.bar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem 1rem;
-}
-
-.bar nav {
-  display: flex;
-  gap: 1rem;
-}
-
-.brand {
-  text-decoration: none;
-}
-
-/* A button that looks like the links beside it, such as Log out, which
-   is a POST. */
-.link {
-  font: inherit;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  text-decoration: underline;
-  cursor: pointer;
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
 }

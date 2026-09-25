@@ -331,7 +331,8 @@ an empty session. `session.Config` has three more fields:
 - `Lifetime` is how long a session lasts without a request, two hours by
   default. Each response sets the cookie again with a new expiry, so a
   session in use stays alive; one left longer starts afresh, even if the
-  browser kept the cookie, as the expiry is inside it too.
+  browser kept the cookie, as the expiry is inside it too. One session
+  can have a lifetime of its own, set with `SetLifetime`, below.
 - `Secure` keeps the cookie to HTTPS. A request over TLS gets that anyway,
   but behind a proxy that ends TLS, requests arrive over plain HTTP and it
   takes `Secure: true`. See [Deployment](deployment.md#behind-a-proxy).
@@ -354,7 +355,8 @@ To rotate the key, the new one goes in `APP_KEY` and the old one in
 encrypts and each of them decrypts, so sessions made with the old key still
 read, and each response encrypts its session again with the new one. Once
 a `Lifetime` has passed, every session still alive has been through a
-response, and the old key can go.
+response, and the old key can go: the longest lifetime any session has,
+which is a month for the auth starter's "Remember me".
 
 ### Reading and writing
 
@@ -364,6 +366,13 @@ s.Set("theme", "dark")
 theme, _ := s.Get("theme").(string)
 s.Delete("theme")
 ```
+
+`SetLifetime(d)` has the session last `d` without a request, in place of
+the `Store`'s `Lifetime`, as a login that ticked "Remember me" does in the
+auth starter: a month, where everyone else's lasts two hours. The lifetime
+travels in the cookie with the rest, so each response starts it again as
+it does the `Store`'s, until `Clear`, or `SetLifetime(0)`, goes back to the
+`Store`'s.
 
 `Clear` empties the session, flash data included. Values go through
 encoding/json on their way into the cookie, so a later request gets JSON

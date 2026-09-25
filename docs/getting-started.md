@@ -49,14 +49,16 @@ For an app with accounts, add `-auth`:
 tug new -auth blog
 ```
 
-That lays a second starter over the first. People register, log in and
-out, and reset a forgotten password with a link sent by email, and a
-dashboard is for those who've logged in. The users are in SQLite, in
-`app.db`. The code is the app's own, the handlers in `auth.go` and the
-database in `users.go`, to change as the app needs. Until `MAIL_HOST` is
-set, mail isn't sent: it's written out with the app's output in `tug dev`,
-reset links and all. [Accounts](auth.md) has the rest. This page goes on
-with the plain starter.
+That lays a second starter over the first. People register and verify
+their email, log in, with a code from an authenticator app too once they
+turn that on, reset a forgotten password with a link sent by email, and
+change their profile, password and appearance in their settings. The
+users are in SQLite, in `app.db`, and the frontend has Tailwind and
+shadcn/ui. The code is the app's own, the handlers in `auth.go` and the
+files beside it and the database in `users.go`, to change as the app
+needs. Until `MAIL_HOST` is set, mail isn't sent: it's written out with the
+app's output in `tug dev`, links and all. [Accounts](auth.md) has the
+rest. This page goes on with the plain starter.
 
 ## Run it
 

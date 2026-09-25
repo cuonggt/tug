@@ -4,7 +4,8 @@ A tug app ships as one binary: the Go server, with the frontend's build
 inside it. `tug build` makes that binary, and every app that `tug new` makes
 has a Dockerfile that builds it into an image. The binary takes its
 settings from the environment. This page covers each of those, then
-running behind a proxy, shutting down, rotating the key, and logs.
+running behind a proxy, shutting down, health checks, rotating the key,
+and logs.
 
 ## `tug build`
 
@@ -107,14 +108,14 @@ behind: delete it.
 | `ADDR`              | Where the app listens, as `host:port`. | `:8080`, every interface | `tug.ConfigFromEnv` |
 | `PORT`              | The port, when `ADDR` isn't set, as Cloud Run and Fly.io set it. | none | `tug.ConfigFromEnv` |
 | `APP_DEBUG`         | `true` or `1` puts a 500's error, and a panic's stack, in the response. Leave it off in production. | off | `tug.ConfigFromEnv` |
-| `APP_KEY`           | Encrypts the session cookies. The auth starter also signs password reset links with it. | none: the starters stop without it | `session.KeysFromEnv` |
+| `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail. | none: the starters stop without it | `session.KeysFromEnv` |
 | `APP_PREVIOUS_KEYS` | Keys being rotated out, comma separated. They still decrypt sessions and check links. | none | `session.KeysFromEnv` |
 
 The auth starter reads these as well:
 
 | Variable            | What it does | Default | Read by |
 |---------------------|--------------|---------|---------|
-| `APP_URL`           | The app's address, such as `https://example.com`, which the links in its mail start with. | none: needed unless `APP_DEBUG` is on | its `main.go` |
+| `APP_URL`           | The app's address, such as `https://example.com`, which the links in its mail start with. With `https://`, the session cookie is for HTTPS only. | none: needed unless `APP_DEBUG` is on | its `main.go` |
 | `DB_PATH`           | The SQLite database. | `app.db`, and `/data/app.db` in its image | its `main.go` |
 | `MAIL_HOST`         | The SMTP server. Without it, mail is written to the standard error instead of sent. | none | `mail.FromEnv` |
 | `MAIL_PORT`         | The server's port. On 465 the connection is TLS from the start; on another, it uses STARTTLS when the server offers it. | `587` | `mail.FromEnv` |
@@ -236,6 +237,9 @@ came over TLS, and a request from a proxy that ended TLS didn't. Set
 sessions, err := session.New(session.Config{Keys: keys, Secure: true})
 ```
 
+The auth starter sets it from its `APP_URL`, which starts with `https://`
+for an app served over HTTPS.
+
 `c.RedirectRoute`, a form sent back with its errors, and the 409 that
 reloads a page for a new build all carry a path rather than a whole URL,
 so the app needn't know the scheme or host the proxy answers on. The links
@@ -311,8 +315,20 @@ app, err := newApp(cfg, build, keys)
 
 The Dockerfile's `ENTRYPOINT` is the binary itself, with no shell in
 between, so the signal reaches it. Work that a handler starts in a
-goroutine of its own, as the auth starter mails a reset link, isn't a
-request: shutting down doesn't wait for it.
+goroutine of its own isn't a request, and `Run` doesn't wait for it. The
+auth starter sends its mail that way, and counts it in a
+`sync.WaitGroup` that its `main` waits for once `Run` returns, so a mail on
+its way as the app stops goes out first. Each mail has a minute at most,
+so keep the platform's grace period in mind, or have `main` give up
+sooner.
+
+## Health checks
+
+The auth starter answers `GET /up` with 200 and `up` while the app is
+serving and its database answers a ping, and a 503 when it doesn't, for a
+load balancer's or a platform's health check to ask. Like any request,
+each check is a line in the request log. The plain starter has no such
+route; a handler that answers 200 does.
 
 ## Rotating `APP_KEY`
 
@@ -327,8 +343,13 @@ The first key encrypts, and every key decrypts. Each response writes a
 visitor's session back to its cookie, with the new key, so sessions move
 over as people use the app. A session that goes unused for its lifetime,
 2 hours unless `session.Config.Lifetime` says otherwise, has ended anyway,
-so once that long has passed, drop the old key. The auth starter's reset
-links are checked against every key too, and last an hour.
+so once that long has passed, drop the old key. In the auth starter, a
+login that ticked "Remember me" lasts a month without a visit, so keep the
+old key for a month there. Its reset links, which last an hour, and its
+verification links, a day, are checked against every key too. Its
+two-factor secrets are sealed with the key: as the app starts with more
+than one key, it seals every user's again with the new one, so none of
+them is lost when the old key goes.
 
 A new `APP_KEY` without the old one in `APP_PREVIOUS_KEYS` logs everyone
 out: no cookie decrypts, so every visitor starts a new session. That's

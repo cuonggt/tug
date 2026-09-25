@@ -1,0 +1,193 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"strconv"
+	"strings"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/validate"
+)
+
+// Two-factor logins: once a user turns them on, in their security
+// settings, logging in takes a code from an authenticator app on their
+// phone as well as the password, or one of their recovery codes when the
+// phone is lost. auth.TwoFactor makes and checks the codes, and seals the
+// secret and the recovery codes that the users table keeps.
+
+func twoFactorChallengePage(c *tug.Ctx) error {
+	// Without a login waiting for its code, it's the login page's to start.
+	if _, ok := auth.TwoFactorPending(c.Session()); !ok {
+		return c.RedirectRoute("login")
+	}
+	return TwoFactorChallenge.Render(c, NoProps{})
+}
+
+// TwoFactorChallengeInput is what the page after the password sends: the
+// code from the app, or a recovery code.
+type TwoFactorChallengeInput struct {
+	Code         string `json:"code" validate:"required_without=RecoveryCode"`
+	RecoveryCode string `json:"recovery_code" validate:"required_without=Code"`
+}
+
+func (a *app) twoFactorChallenge(c *tug.Ctx) error {
+	s := c.Session()
+	id, ok := auth.TwoFactorPending(s)
+	if !ok {
+		c.Flash("error", "That took more than ten minutes: log in again.")
+		return c.RedirectRoute("login")
+	}
+	var in TwoFactorChallengeInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	field := "code"
+	if in.Code == "" {
+		field = "recovery_code"
+	}
+	// Five tries a minute, counted before the code is checked, as the
+	// password's are: a million codes can't be tried one by one.
+	if wait := a.codes.Try(id); wait > 0 {
+		return validate.Errors{field: tooMany(wait)}
+	}
+	n, _ := strconv.ParseInt(id, 10, 64)
+	u, err := a.users.byID(c.Context(), n)
+	if errors.Is(err, errNoUser) || err == nil && !u.TwoFactor {
+		auth.Logout(s) // the user has gone, or turned two-factor logins off meanwhile
+		return c.RedirectRoute("login")
+	}
+	if err != nil {
+		return err
+	}
+	if in.Code != "" {
+		ok, err = a.useCode(c.Context(), u, in.Code)
+	} else {
+		ok, err = a.useRecoveryCode(c.Context(), u, in.RecoveryCode)
+	}
+	if err != nil {
+		return err
+	}
+	if !ok && field == "code" {
+		return validate.Errors{"code": "that code isn't right, or has been used: try the next one"}
+	}
+	if !ok {
+		return validate.Errors{"recovery_code": "that isn't one of your recovery codes, or it has been used"}
+	}
+	a.codes.Clear(id)
+	auth.Login(s, u.authID(), u.PasswordHash)
+	auth.SetPasswordConfirmed(s)
+	return toIntended(c)
+}
+
+// useCode reports whether code is the one u's app shows, and uses it: a
+// code works once, and of two logins with it at once, only one.
+func (a *app) useCode(ctx context.Context, u *User, code string) (bool, error) {
+	secret, err := a.twoFactor.Open(u.TwoFactorSecret)
+	if err != nil {
+		return false, err
+	}
+	step, ok := a.twoFactor.Check(secret, code, u.TwoFactorStep)
+	if !ok {
+		return false, nil
+	}
+	return a.users.setTwoFactorStep(ctx, u.ID, step)
+}
+
+// useRecoveryCode reports whether code is one of u's recovery codes, and
+// uses it up.
+func (a *app) useRecoveryCode(ctx context.Context, u *User, code string) (bool, error) {
+	codes, err := a.openCodes(u.RecoveryCodes)
+	if err != nil {
+		return false, err
+	}
+	rest, ok := auth.UseRecoveryCode(codes, code)
+	if !ok {
+		return false, nil
+	}
+	return a.users.swapRecoveryCodes(ctx, u.ID, u.RecoveryCodes, a.sealCodes(rest))
+}
+
+// sealCodes seals recovery codes for the users table, a line apiece.
+func (a *app) sealCodes(codes []string) string {
+	return a.twoFactor.Seal(strings.Join(codes, "\n"))
+}
+
+// openCodes opens what sealCodes sealed.
+func (a *app) openCodes(sealed string) ([]string, error) {
+	codes, err := a.twoFactor.Open(sealed)
+	return strings.Fields(codes), err
+}
+
+// setupKey is where the session keeps the secret of a user who is turning
+// two-factor logins on, until a code from their app shows it's set up.
+// The database only ever has a secret that works.
+const setupKey = "two_factor_setup"
+
+// startTwoFactor makes a secret for a user turning two-factor logins on,
+// which the security page shows as a QR code for their app to scan.
+func (a *app) startTwoFactor(c *tug.Ctx, user *User) error {
+	if !user.TwoFactor {
+		c.Session().Set(setupKey, a.twoFactor.NewSecret())
+	}
+	return c.RedirectRoute("security.edit")
+}
+
+// ConfirmTwoFactorInput is the code from the app that's just been set up.
+type ConfirmTwoFactorInput struct {
+	Code string `json:"code" validate:"required"`
+}
+
+// confirmTwoFactor turns two-factor logins on, once a code shows the app
+// has the secret, and shows the recovery codes that come with them.
+func (a *app) confirmTwoFactor(c *tug.Ctx, user *User) error {
+	var in ConfirmTwoFactorInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	s := c.Session()
+	secret, _ := s.Get(setupKey).(string)
+	if user.TwoFactor || secret == "" {
+		return c.RedirectRoute("security.edit")
+	}
+	step, ok := a.twoFactor.Check(secret, in.Code, 0)
+	if !ok {
+		return validate.Errors{"code": "that code isn't right: try the one your app shows now"}
+	}
+	codes := auth.NewRecoveryCodes()
+	if err := a.users.setTwoFactor(c.Context(), user.ID, a.twoFactor.Seal(secret), a.sealCodes(codes), step); err != nil {
+		return err
+	}
+	s.Delete(setupKey)
+	c.Flash("success", "Two-factor logins are on.")
+	c.Flash("recoveryCodes", codes)
+	return c.RedirectRoute("security.edit")
+}
+
+// stopTwoFactor turns two-factor logins off, or stops turning them on.
+func (a *app) stopTwoFactor(c *tug.Ctx, user *User) error {
+	c.Session().Delete(setupKey)
+	if user.TwoFactor {
+		if err := a.users.setTwoFactor(c.Context(), user.ID, "", "", 0); err != nil {
+			return err
+		}
+		c.Flash("success", "Two-factor logins are off.")
+	}
+	return c.RedirectRoute("security.edit")
+}
+
+// newRecoveryCodes replaces a user's recovery codes with new ones, as when
+// they've used some, or fear someone has seen them.
+func (a *app) newRecoveryCodes(c *tug.Ctx, user *User) error {
+	if !user.TwoFactor {
+		return c.RedirectRoute("security.edit")
+	}
+	codes := auth.NewRecoveryCodes()
+	if err := a.users.setRecoveryCodes(c.Context(), user.ID, a.sealCodes(codes)); err != nil {
+		return err
+	}
+	c.Flash("success", "Here are your new recovery codes. The old ones no longer work.")
+	c.Flash("recoveryCodes", codes)
+	return c.RedirectRoute("security.edit")
+}

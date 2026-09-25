@@ -4,14 +4,15 @@ tug is built in milestones, each ending in something that runs. It targets
 the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 [the spec](https://inertiajs.com/the-protocol).
 
-|    | Milestone             | Status |
-|----|-----------------------|--------|
-| M1 | HTTP core             | done   |
-| M2 | Inertia core + Vite   | done   |
-| M3 | Forms and validation  | done   |
-| M4 | The full v3 protocol  | done   |
-| M5 | CLI                   | done   |
-| M6 | v0.1.0                | done   |
+|    | Milestone               | Status |
+|----|-------------------------|--------|
+| M1 | HTTP core               | done   |
+| M2 | Inertia core + Vite     | done   |
+| M3 | Forms and validation    | done   |
+| M4 | The full v3 protocol    | done   |
+| M5 | CLI                     | done   |
+| M6 | v0.1.0                  | done   |
+| M7 | The auth starter, whole | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -271,9 +272,87 @@ Choices made on the way:
   files replace the plain starter's of the same name, and add the rest.
 
 After v0.1: SSR through a Node or Bun process beside the binary, Vue and
-Svelte starters, background job queues, and more of what apps with
-accounts need (email verification, changing a password or email while
-logged in).
+Svelte starters, background job queues, and passkeys.
+
+## M7 · The auth starter, whole — done
+
+Enough of what an app with accounts needs to ship one, learnt from
+Laravel's React starter kit, as it was in September 2026, but for passkeys.
+
+- Email verification: a link mailed at registering and at each new email,
+  signed with `auth.Verifications` for the user and the email, and good
+  for a day. `verified` keeps the dashboard and the security settings from
+  users who haven't followed it, and a page asks them to, with "send
+  another" once a minute.
+- "Remember me": `session.Session.SetLifetime`, a lifetime of the
+  session's own in place of the `Store`'s. A remembered login lasts a
+  month without a visit.
+- Asking for the password again: `auth.SetPasswordConfirmed` and
+  `PasswordConfirmed`, and `passwordConfirmed`, which sends a user who last
+  typed it over three hours ago to a page that asks, and back.
+- Two-factor logins: `auth.TwoFactor` makes secrets and their `otpauth://`
+  URLs, checks TOTP codes (RFC 6238) that work once, and seals secrets and
+  recovery codes with a key derived from the app's; `StartTwoFactor` and
+  `TwoFactorPending` hold a login back until the code comes. The security
+  settings turn it on with a QR code and a code from the app, show the
+  recovery codes, make new ones, and turn it off.
+- Settings: the profile, with a new email verified again; the password,
+  which ends every other login; deleting the account; and light, dark or
+  the system's appearance.
+- The frontend: Tailwind and shadcn/ui, lucide's icons, and sonner's
+  toasts for flash messages; an app layout with a user menu, a card for the
+  pages of `Auth/`, and the settings' own, picked by page name with
+  Inertia v3's `layout` option and given titles with static layout props.
+- The database changes with the app: migrations, run in order at start
+  and counted in SQLite's `user_version`. `GET /up` answers health checks.
+  Mail goes as text and HTML, and `main` waits for the mail still on its
+  way as the app stops. An `https://` `APP_URL` makes the cookie secure.
+- `Ctx.RedirectBack`, to the page a form was sent from. `auth.SetIntended`
+  keeps, for a form sent while logged out or unconfirmed, the page it was
+  on, by its `Referer`, where it kept nothing.
+- `tug new -auth` leaves out the plain starter's files the auth starter has
+  no use for: its `Layout.tsx`.
+
+Choices made on the way:
+
+- Tailwind and shadcn/ui are the auth starter's alone: the plain starter
+  keeps its hand-written CSS and three npm packages. The shadcn components
+  are the registry's, with `cn` pointed at `@/lib/utils` and no
+  `"use client"`, as its CLI writes them with `components.json`'s
+  `rsc: false`, so `npx shadcn add` fits them.
+- Passkeys are left for later: WebAuthn is a lot of code where a slip is a
+  security hole, CBOR, COSE keys and attestation, or a large dependency.
+- "Remember me" is a longer-lived session, not a second cookie as
+  Laravel's is: the whole session is in its cookie anyway, and a new
+  password ends it as it ends any login.
+- A verification link works without a login, in any browser: its token
+  shows the email reaches the user, which is all verifying is. A password
+  reset verifies the email too, for the same reason.
+- The profile asks for the password again as well as the security
+  settings, where Laravel's asks for the security settings alone: a new
+  email decides who can reset the password. Logging in counts as typing
+  it, so it rarely asks.
+- A secret is kept in the session until a code from the app confirms it,
+  so the database never has one that doesn't work. Secrets and recovery
+  codes are sealed rather than hashed, so the codes can be shown again,
+  behind the password, as Laravel and GitHub show them. As the app starts
+  with more than one key, it seals them all again with the first: a
+  rotated `APP_KEY` can go without taking anyone's second factor.
+- A code works once: the time step of the last one that worked is stored,
+  and the update only stores a later one, so of two logins with one code
+  at once, one gets in. A password reset for a user with two-factor logins
+  on goes on to the code: the mail is one factor.
+- The appearance is the browser's, in `localStorage`, applied by a script
+  in the root template before the page paints. Laravel keeps a cookie too,
+  for SSR, which tug doesn't have.
+- The toasts listen for Inertia's `flash` event from the start of
+  `app.tsx`, not in a component's effect, which would miss the flash of a
+  page's first load, as after a link in mail.
+- Inertia's `<Form>` sends a ticked checkbox as the string `"on"`, which
+  `Bind` doesn't take for a bool from JSON. The login page turns it into
+  `true` with a `transform`; `Bind` is left as it is for now.
+- The migrations are the starter's own code, a list of SQL steps, as no
+  ORM is in the core.
 
 ## Decisions
 

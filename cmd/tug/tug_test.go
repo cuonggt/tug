@@ -161,13 +161,19 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 	if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
 		t.Errorf("main.go isn't the auth starter's:\n%s", main)
 	}
-	for _, f := range []string{"auth.go", "users.go", "resources/js/pages/Auth/Login.tsx", "resources/js/pages/Dashboard.tsx"} {
-		if strings.Contains(read(f), "[[") {
+	for _, f := range []string{"auth.go", "users.go", "resources/js/pages/Auth/Login.tsx", "resources/js/pages/Dashboard.tsx", "resources/js/app.tsx"} {
+		if strings.Contains(read(f), "[[ ") {
 			t.Errorf("%s has a placeholder left", f)
 		}
 	}
-	if read("app.html") == "" || read("vite.config.ts") == "" {
+	if !strings.Contains(read("settings.go"), "inertia.OptionalProp[[]string]") {
+		t.Error("settings.go's two brackets, which a placeholder writes, didn't come out as Go's")
+	}
+	if read("go.mod") == "" || read("public/.gitkeep") != "" {
 		t.Error("the plain starter's files didn't come along")
+	}
+	if _, err := os.Stat(filepath.Join(root, "resources/js/Layout.tsx")); err == nil {
+		t.Error("the plain starter's Layout.tsx came along, which the auth starter's layouts replace")
 	}
 	if !strings.Contains(read(".gitignore"), "/app.db") {
 		t.Error("the database isn't ignored")
@@ -191,7 +197,8 @@ func TestNewTakesItsFlagsBeforeAndAfterTheDirectory(t *testing.T) {
 
 // TestANewAppBuildsAndPassesItsOwnTests makes an app of each kind as a
 // person would, with its Go modules and npm packages, and runs what it
-// comes with.
+// comes with, the frontend's build included: type-checking doesn't run the
+// Vite and Tailwind plugins a build goes through.
 func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 	if testing.Short() {
 		t.Skip("installs the new app's packages")
@@ -214,12 +221,16 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 					t.Errorf("tug new didn't make %s", f)
 				}
 			}
-			for _, c := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}, {"npm", "run", "typecheck"}} {
+			for _, c := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}, {"npm", "run", "typecheck"}, {"npm", "run", "build"}} {
 				cmd := exec.Command(c[0], c[1:]...)
 				cmd.Dir = dir
 				if out, err := cmd.CombinedOutput(); err != nil {
 					t.Errorf("%s: %v\n%s", strings.Join(c, " "), err, out)
 				}
+			}
+			// Where the Go server looks for the build.
+			if _, err := os.Stat(filepath.Join(dir, "public/build/.vite/manifest.json")); err != nil {
+				t.Errorf("the build has no manifest where the server reads it: %v", err)
 			}
 		})
 	}

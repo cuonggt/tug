@@ -125,14 +125,21 @@ func TestAGuestSentToLogInGoesBackToThePageAfter(t *testing.T) {
 	})
 }
 
-func TestAFormSentWhileLoggedOutIsntWhereTheLoginGoes(t *testing.T) {
-	b := newBrowser(t)
-	b.request("POST", "/posts", func(s *session.Session, r *http.Request) {
-		SetIntended(s, r)
-		if to := Intended(s, "/dashboard"); to != "/dashboard" {
-			t.Errorf("intended %q", to)
-		}
-	})
+func TestAFormSentWhileLoggedOutGoesBackToItsPageAfter(t *testing.T) {
+	for referer, want := range map[string]string{
+		"http://example.com/posts/new?draft=1": "/posts/new?draft=1",
+		"https://evil.example/posts/new":       "/dashboard", // another site's page
+		"":                                     "/dashboard",
+	} {
+		b := newBrowser(t)
+		b.request("POST", "/posts", func(s *session.Session, r *http.Request) {
+			r.Header.Set("Referer", referer)
+			SetIntended(s, r)
+			if to := Intended(s, "/dashboard"); to != want {
+				t.Errorf("from %q: intended %q, want %q", referer, to, want)
+			}
+		})
+	}
 }
 
 func TestTheIntendedPageIsNeverAnotherSite(t *testing.T) {

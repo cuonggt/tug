@@ -1,70 +1,91 @@
-import { Form, Head, Link } from '@inertiajs/react'
-import Layout from '../../Layout'
-import { route } from '../../tug/routes'
+import { Form, Head } from '@inertiajs/react'
+import { LoaderCircle } from 'lucide-react'
+import InputError from '@/components/input-error'
+import PasswordInput from '@/components/password-input'
+import TextLink from '@/components/text-link'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { route } from '@/tug/routes'
 
 // Register checks each field with the server as it's left, as BindValid in
 // auth.go answers: a taken email shows before the form is sent.
 export default function Register() {
   return (
-    <Layout>
+    <>
       <Head title="Register" />
-      <h1>Register</h1>
       <Form
         action={route('register.store')}
         method="post"
         resetOnError={['password', 'password_confirmation']}
         validationTimeout={300}
-        className="form"
+        className="flex flex-col gap-6"
       >
         {({ errors, processing, validate, invalid }) => (
           <>
-            <label>
-              Name
-              <input name="name" autoComplete="name" required autoFocus aria-invalid={invalid('name')} onBlur={() => validate('name')} />
-            </label>
-            {errors.name && <p className="error">{errors.name}</p>}
-
-            <label>
-              Email
-              <input name="email" type="email" autoComplete="email" required aria-invalid={invalid('email')} onBlur={() => validate('email')} />
-            </label>
-            {errors.email && <p className="error">{errors.email}</p>}
-
-            <label>
-              Password
-              <input
+            <div className="grid gap-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                name="name"
+                autoComplete="name"
+                required
+                autoFocus
+                aria-invalid={invalid('name')}
+                onBlur={() => validate('name')}
+              />
+              <InputError message={errors.name} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                required
+                aria-invalid={invalid('email')}
+                onBlur={() => validate('email')}
+              />
+              <InputError message={errors.email} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password">Password</Label>
+              <PasswordInput
+                id="password"
                 name="password"
-                type="password"
                 autoComplete="new-password"
                 required
                 aria-invalid={invalid('password')}
                 onBlur={() => validate('password')}
               />
-            </label>
-            {errors.password && <p className="error">{errors.password}</p>}
-
-            <label>
-              Password again
-              <input
+              <InputError message={errors.password} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password_confirmation">Password again</Label>
+              <PasswordInput
+                id="password_confirmation"
                 name="password_confirmation"
-                type="password"
                 autoComplete="new-password"
                 required
                 aria-invalid={invalid('password_confirmation')}
                 onBlur={() => validate('password_confirmation')}
               />
-            </label>
-            {errors.password_confirmation && <p className="error">{errors.password_confirmation}</p>}
-
-            <button type="submit" disabled={processing}>
+              <InputError message={errors.password_confirmation} />
+            </div>
+            <Button type="submit" className="w-full" disabled={processing}>
+              {processing && <LoaderCircle className="animate-spin" />}
               Register
-            </button>
+            </Button>
           </>
         )}
       </Form>
-      <p className="hint">
-        Have an account? <Link href={route('login')}>Log in</Link>.
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        Have an account? <TextLink href={route('login')}>Log in</TextLink>
       </p>
-    </Layout>
+    </>
   )
 }
+
+Register.layout = { title: 'Make an account', description: "Your name, your email, and a password of 8 characters or more." }
