@@ -11,9 +11,9 @@ import (
 // Recover answers a panic with a 500 and logs it with its stack through
 // slog.Default(), so one bad request costs no more than itself.
 //
-// A tug app already recovers its own handlers and answers through its
-// ErrorHandler. Recover is for the rest: panics in other middleware and in
-// plain http.Handlers.
+// A tug app already recovers its own handlers, http.Handlers on its routes
+// included, and answers through its ErrorHandler. Recover is for the rest:
+// panics in middleware, and in handlers served by another router.
 func Recover() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

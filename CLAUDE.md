@@ -5,16 +5,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M5 are done, which is the HTTP core, Inertia
-pages with Vite, forms and validation, the rest of the v3 protocol, and the
-CLI.
-`README.md` is the front door. Change the pages with the behaviour.
+and where it stands: M1 to M6 are done, which is the HTTP core, Inertia
+pages with Vite, forms and validation, the rest of the v3 protocol, the
+CLI, and v0.1.0: the auth starter and the guide.
+`README.md` is the front door, and `docs/` the guide, a page per part of
+tug. Change them with the behaviour.
 
 ## Commands
 
 ```bash
 go test -short ./...                       # a few seconds, no network or Node
-go test ./...                              # also makes an app with tug new: needs npm
+go test ./...                              # also makes an app of each kind with tug new: needs npm
 go test -race ./...                        # what CI runs; a server is concurrent
 go test -run '^$' -bench . -benchmem .     # tug next to ServeMux alone
 go vet ./... && gofmt -l .
@@ -25,7 +26,7 @@ The CLI, from a checkout, and in `examples/inertia`:
 
 ```bash
 go build -o /tmp/tug ./cmd/tug            # not -trimpath: tug new finds this checkout by its own path
-/tmp/tug new /tmp/blog && cd /tmp/blog && /tmp/tug dev
+/tmp/tug new /tmp/blog && cd /tmp/blog && /tmp/tug dev    # -auth for the starter with accounts
 go run ../../cmd/tug gen                  # write resources/js/tug again, after changing Go types
 go run ../../cmd/tug dev                  # Vite and the app, rebuilt as it changes
 npm install
@@ -45,8 +46,8 @@ dev server that isn't there: delete it.
     `App`, `Run` and `Serve` with graceful shutdown, and misses. At the first
     request, `freeze` adds `/` as a catch-all, unless a route already takes
     every path under every method. The catch-all answers trailing-slash
-    redirects, 405s (probing the mux with the other methods for `Allow`) and
-    404s, all through the ErrorHandler.
+    redirects itself, with a 307, and 405s (probing the mux with the other
+    methods for `Allow`) and 404s through the ErrorHandler.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -127,12 +128,29 @@ dev server that isn't there: delete it.
   as processes in their own groups (`proc`, `proc_unix.go`), polls for
   changes (`watch`, `snapshot`), and touches `.tug/reload` for the
   starter's Vite plugin to reload the browser; `build.go`; `new.go`
-  writes `starter/`, with the `.tmpl` files filled in between `[[ ]]`, and
-  finds a checkout to `replace` tug with when it isn't a release
-  (`release`, `checkoutDir`). The starter's Go files are `.tmpl` so the go
-  tool doesn't build them in place; `tug_test.go` makes a real app from it.
+  writes `starter/`, and with `-auth` lays `starter-auth/` over it (its
+  files replace the ones of the same name), with the `.tmpl` files filled
+  in between `[[ ]]`. An app requires the tug that made it when that's a
+  release or was fetched by the go command (`release`, `fetched`: the
+  build's module checksum), and otherwise `replace`s it with the checkout
+  it was built from (`checkoutDir`). The starters' Go files are `.tmpl` so
+  the go tool doesn't build them in place; `tug_test.go` makes a real app
+  of each kind. The auth starter's handlers are in `auth.go.tmpl`, its
+  users in SQLite (modernc.org/sqlite, pure Go) in `users.go.tmpl`.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
+- `auth`: the parts of accounts where a slip is a security hole, with no
+  import of tug and no idea what a user is. `password.go`: argon2id at
+  OWASP's settings, PHC strings, a check against a decoy when there's no
+  hash, and `hashing`, which runs one hash per CPU. `auth.go`: the login
+  in the session (`tug.auth.id`, and `tug.auth.check`, a fingerprint of
+  the password hash that `Current` compares) and the intended page.
+  `reset.go`: tokens signed with an HKDF key from the app's, over the
+  expiry, the ID and the password hash. `throttle.go`: counts per key in a
+  map, swept as it doubles; `Try` checks and counts under one lock, so
+  tries at the same moment can't all get in.
+- `mail`: `Message`, `SMTP` on net/smtp (STARTTLS, TLS on 465, deadlines
+  from the context), `Log`, which writes mail out, and `FromEnv`.
 - `examples/api`: a JSON API on the core. Its tests are the end to end check.
 - `examples/inertia`: React pages on tug. `main.go` embeds `app.html` and
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
@@ -151,8 +169,10 @@ tug logs through `slog.Default()` and never sets it; that's the app's call.
   number", "post not found". No Go types, and no raw errors from deep down;
   details that aren't theirs go to the log.
 - **tug stays on the standard library.** A dependency needs a reason; the
-  one so far is go-playground/validator, behind package `validate`, which
-  is also why Go 1.26 is the minimum.
+  ones so far are go-playground/validator, behind package `validate`,
+  which is also why Go 1.26 is the minimum, and golang.org/x/crypto, for
+  argon2id. The starters' apps can have their own, as the auth starter's
+  SQLite driver is.
 - **The decisions in `docs/roadmap.md` are settled.** Ask before reopening
   one.
 - **Commit subjects are one line**, imperative.

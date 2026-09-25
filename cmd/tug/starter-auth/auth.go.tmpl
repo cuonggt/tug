@@ -1,0 +1,330 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"math"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/mail"
+	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/validate"
+)
+
+// Auth is the auth prop every page shares: the user who's logged in, or
+// null for a guest.
+type Auth struct {
+	User *User `json:"user"`
+}
+
+// user returns the user r's session is logged in as, or nil for a guest. A
+// login whose user has gone, or has set a new password since, is over:
+// the session is logged out.
+func (a *app) user(r *http.Request) (*User, error) {
+	s := session.From(r.Context())
+	id, ok := auth.UserID(s)
+	if !ok {
+		return nil, nil
+	}
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		auth.Logout(s)
+		return nil, nil
+	}
+	u, err := a.users.byID(r.Context(), n)
+	if errors.Is(err, errNoUser) || err == nil && !auth.Current(s, u.PasswordHash) {
+		auth.Logout(s)
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// shareAuth is the auth prop, for each page as it's rendered.
+func (a *app) shareAuth(r *http.Request) inertia.Props {
+	u, err := a.user(r)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "the user of a page couldn't be found, so it shows them as a guest", "err", err)
+	}
+	return inertia.Props{"auth": Auth{User: u}}
+}
+
+// usersOnly makes a handler for users who've logged in, which is handed
+// the user. A guest is sent to log in, and comes back after. A handler
+// that takes a user can't be routed without it: it doesn't compile.
+func (a *app) usersOnly(h func(c *tug.Ctx, user *User) error) tug.HandlerFunc {
+	return func(c *tug.Ctx) error {
+		u, err := a.user(c.Request())
+		if err != nil {
+			return err
+		}
+		if u == nil {
+			auth.SetIntended(c.Session(), c.Request())
+			return c.RedirectRoute("login")
+		}
+		return h(c, u)
+	}
+}
+
+// guestsOnly makes a handler for guests, such as the login page: someone
+// who's logged in already goes to the dashboard instead.
+func (a *app) guestsOnly(h tug.HandlerFunc) tug.HandlerFunc {
+	return func(c *tug.Ctx) error {
+		u, err := a.user(c.Request())
+		if err != nil {
+			return err
+		}
+		if u != nil {
+			return c.RedirectRoute("dashboard")
+		}
+		return h(c)
+	}
+}
+
+// The pages of registering, logging in and resetting a password, in
+// resources/js/pages/Auth.
+var (
+	Register       = tug.Page[NoProps]("Auth/Register")
+	Login          = tug.Page[NoProps]("Auth/Login")
+	ForgotPassword = tug.Page[NoProps]("Auth/ForgotPassword")
+	ResetPassword  = tug.Page[ResetPasswordProps]("Auth/ResetPassword")
+)
+
+func registerPage(c *tug.Ctx) error {
+	return Register.Render(c, NoProps{})
+}
+
+// RegisterInput is what the registration form sends.
+type RegisterInput struct {
+	Name                 string `json:"name" validate:"required,max=100"`
+	Email                string `json:"email" validate:"required,email,max=254"`
+	Password             string `json:"password" validate:"required,min=8,max=200"`
+	PasswordConfirmation string `json:"password_confirmation"`
+}
+
+func (a *app) register(c *tug.Ctx) error {
+	var in RegisterInput
+	err := c.BindValid(&in, confirmed(&in.Password, &in.PasswordConfirmation), func(errs validate.Errors) {
+		if _, bad := errs["email"]; bad {
+			return
+		}
+		// Checked as the field is left, as well as when the form is sent.
+		if _, err := a.users.byEmail(c.Context(), in.Email); err == nil {
+			errs.Add("email", "email has an account already: log in to it")
+		}
+	})
+	if err != nil {
+		return err
+	}
+	u, err := a.users.add(c.Context(), in.Name, in.Email, auth.HashPassword(in.Password))
+	if errors.Is(err, errEmailTaken) {
+		return validate.Errors{"email": "email has an account already: log in to it"}
+	}
+	if err != nil {
+		return err
+	}
+	auth.Login(c.Session(), u.authID(), u.PasswordHash)
+	c.Flash("success", "Welcome, "+u.Name+"!")
+	return c.RedirectRoute("dashboard")
+}
+
+// confirmed checks that a password was typed the same twice.
+func confirmed(password, confirmation *string) func(validate.Errors) {
+	return func(errs validate.Errors) {
+		if *confirmation != *password {
+			errs.Add("password_confirmation", "the passwords don't match")
+		}
+	}
+}
+
+func loginPage(c *tug.Ctx) error {
+	return Login.Render(c, NoProps{})
+}
+
+// LoginInput is what the login form sends.
+type LoginInput struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required"`
+}
+
+func (a *app) login(c *tug.Ctx) error {
+	var in LoginInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	// Five tries a minute for an email from one address. A try counts
+	// before the password is checked, so that tries sent at once count too,
+	// and a login that works clears them.
+	key := strings.ToLower(in.Email) + "|" + clientIP(c.Request())
+	if wait := a.logins.Try(key); wait > 0 {
+		return validate.Errors{"email": fmt.Sprintf("too many tries: wait %d seconds, and try again", int(math.Ceil(wait.Seconds())))}
+	}
+	u, err := a.users.byEmail(c.Context(), in.Email)
+	if err != nil && !errors.Is(err, errNoUser) {
+		return err
+	}
+	hash := ""
+	if u != nil {
+		hash = u.PasswordHash
+	}
+	// With no user, the password is checked against no hash, which takes
+	// just as long: how long a login takes doesn't say who has an account.
+	if !auth.CheckPassword(hash, in.Password) {
+		return validate.Errors{"email": "the email and password don't match an account"}
+	}
+	a.logins.Clear(key)
+	if auth.NeedsRehash(u.PasswordHash) {
+		u.PasswordHash = auth.HashPassword(in.Password)
+		if err := a.users.setPassword(c.Context(), u.ID, u.PasswordHash); err != nil {
+			return err
+		}
+	}
+	s := c.Session()
+	auth.Login(s, u.authID(), u.PasswordHash)
+	dashboard, err := c.URL("dashboard")
+	if err != nil {
+		return err
+	}
+	return c.Redirect(auth.Intended(s, dashboard))
+}
+
+// clientIP is the address a request came from. Behind a proxy, such as a
+// load balancer, it's the proxy's: read the client's from the header the
+// proxy sets, such as X-Forwarded-For, once only the proxy can reach the
+// app.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func logout(c *tug.Ctx, _ *User) error {
+	auth.Logout(c.Session())
+	c.ClearHistory()
+	c.Flash("success", "You've logged out.")
+	return c.RedirectRoute("home")
+}
+
+func forgotPasswordPage(c *tug.Ctx) error {
+	return ForgotPassword.Render(c, NoProps{})
+}
+
+// ForgotPasswordInput is what the forgotten password form sends.
+type ForgotPasswordInput struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+func (a *app) forgotPassword(c *tug.Ctx) error {
+	var in ForgotPasswordInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	u, err := a.users.byEmail(c.Context(), in.Email)
+	if err != nil && !errors.Is(err, errNoUser) {
+		return err
+	}
+	// One mail a minute at most for an email, and the answer is the same
+	// whether it has an account or not, so the form can't be asked who has.
+	if u != nil && a.resetMails.Try(u.Email) == 0 {
+		link, err := a.resetLink(c, u)
+		if err != nil {
+			return err
+		}
+		a.sendLater(c.Context(), resetMail(u, link))
+	}
+	c.Flash("success", "If that email has an account, a link to reset its password is on its way.")
+	return c.RedirectRoute("password.request")
+}
+
+// resetLink is the link a reset mail carries, which starts with the app's
+// own address; in development, without one, it's taken from the request.
+func (a *app) resetLink(c *tug.Ctx, u *User) (string, error) {
+	path, err := c.URL("password.reset", a.resets.Token(u.authID(), u.PasswordHash))
+	if err != nil {
+		return "", err
+	}
+	base := a.url
+	if base == "" {
+		base = "http://" + c.Request().Host
+	}
+	return strings.TrimRight(base, "/") + path + "?email=" + url.QueryEscape(u.Email), nil
+}
+
+func resetMail(u *User, link string) mail.Message {
+	return mail.Message{
+		To:      []string{u.Email},
+		Subject: "Reset your " + appName + " password",
+		Text: "Hi " + u.Name + ",\n\n" +
+			"Someone, hopefully you, asked to reset the password of your " + appName + " account. " +
+			"Follow this link to choose a new one:\n\n" +
+			link + "\n\n" +
+			"The link works once, for an hour. If you didn't ask, there's nothing to do: your password stays as it is.\n",
+	}
+}
+
+// sendLater sends m without the request waiting for it: how long a mail
+// server takes mustn't say whether an email has an account.
+func (a *app) sendLater(ctx context.Context, m mail.Message) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	go func() {
+		defer cancel()
+		if err := a.mailer.Send(ctx, m); err != nil {
+			slog.ErrorContext(ctx, "a mail wasn't sent", "subject", m.Subject, "err", err)
+		}
+	}()
+}
+
+// ResetPasswordProps are the reset form's props, from the link in the mail.
+type ResetPasswordProps struct {
+	Token string `json:"token"`
+	Email string `json:"email"`
+}
+
+func resetPasswordPage(c *tug.Ctx) error {
+	return ResetPassword.Render(c, ResetPasswordProps{Token: c.Param("token"), Email: c.Query("email")})
+}
+
+// ResetPasswordInput is what the reset form sends.
+type ResetPasswordInput struct {
+	Token                string `json:"token" validate:"required"`
+	Email                string `json:"email" validate:"required,email"`
+	Password             string `json:"password" validate:"required,min=8,max=200"`
+	PasswordConfirmation string `json:"password_confirmation"`
+}
+
+func (a *app) resetPassword(c *tug.Ctx) error {
+	var in ResetPasswordInput
+	if err := c.BindValid(&in, confirmed(&in.Password, &in.PasswordConfirmation)); err != nil {
+		return err
+	}
+	u, err := a.users.byEmail(c.Context(), in.Email)
+	if err != nil && !errors.Is(err, errNoUser) {
+		return err
+	}
+	if u == nil || !a.resets.Check(in.Token, u.authID(), u.PasswordHash) {
+		return validate.Errors{"email": "this link has expired, or been used"}
+	}
+	u.PasswordHash = auth.HashPassword(in.Password)
+	if err := a.users.setPassword(c.Context(), u.ID, u.PasswordHash); err != nil {
+		return err
+	}
+	// The new password ends every login made with the old one, and the
+	// token with them; this browser starts a login of its own.
+	auth.Login(c.Session(), u.authID(), u.PasswordHash)
+	c.Flash("success", "Your password is reset.")
+	return c.RedirectRoute("dashboard")
+}

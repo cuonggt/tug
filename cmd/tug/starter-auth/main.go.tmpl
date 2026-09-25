@@ -1,0 +1,179 @@
+// Command [[ .Name ]] is a tug app: Go handlers, React pages, and Inertia in
+// between, with accounts people register for, log in to, and get back into
+// by email when they've forgotten the password.
+//
+//	tug dev      run it, rebuilt and reloaded as it changes
+//	tug build    build it into one binary, frontend and all
+package main
+
+import (
+	"cmp"
+	"database/sql"
+	"embed"
+	"errors"
+	"io/fs"
+	"log"
+	"os"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/mail"
+	"github.com/cuonggt/tug/middleware"
+	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/vite"
+)
+
+// appName is the app's name, on every page and in its mail.
+const appName = "[[ .Name ]]"
+
+//go:embed app.html
+var rootTemplate string
+
+// public is what the frontend's build writes to public/build, and anything
+// else public/ holds. The .gitkeep lets it compile before the first build.
+//
+//go:embed all:public
+var public embed.FS
+
+func main() {
+	keys, err := session.KeysFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	build, err := fs.Sub(public, "public/build")
+	if err != nil {
+		log.Fatal(err)
+	}
+	mailer, err := mail.FromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	db, err := openDB(cmp.Or(os.Getenv("DB_PATH"), "app.db"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+	app, err := newApp(tug.ConfigFromEnv(), env{Build: build, Keys: keys, DB: db, Mailer: mailer, URL: os.Getenv("APP_URL")})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// env is what the app is made from: main's comes from the environment, and
+// the tests make their own.
+type env struct {
+	Build  fs.FS    // the frontend's build
+	Keys   [][]byte // encrypt the sessions, and sign reset links
+	DB     *sql.DB
+	Mailer mail.Mailer
+
+	// URL is the app's own address, APP_URL, which the links in its mail
+	// start with. Only in development, with APP_DEBUG on, can it be left
+	// out, to be taken from the request instead.
+	URL string
+}
+
+// app is what the handlers share.
+type app struct {
+	users  *users
+	mailer mail.Mailer
+	url    string
+	resets *auth.Resets
+
+	// logins counts tries at logging in, by email and address; resetMails
+	// the reset links mailed, by email, so that no one's inbox can be
+	// flooded.
+	logins     *auth.Throttle
+	resetMails *auth.Throttle
+}
+
+// newApp puts the app together: its pages, sessions, middleware and routes.
+func newApp(cfg tug.Config, e env) (*tug.App, error) {
+	if e.URL == "" && !cfg.Debug {
+		// A link made from the request's Host could point anywhere: anyone
+		// can send a request that names their own site.
+		return nil, errors.New("APP_URL isn't set: the links in the app's mail need its address, such as https://example.com")
+	}
+	assets, err := vite.New(vite.Config{Build: e.Build, HotFile: "public/hot"})
+	if err != nil {
+		return nil, err
+	}
+	pages, err := inertia.New(inertia.Config{
+		Template: rootTemplate,
+		Funcs:    assets.Funcs(),
+		Version:  assets.Version(),
+		// The pages the browser keeps for Back are encrypted, with a key
+		// that logging out throws away, so the next person at the browser
+		// can't go Back to the last one's.
+		EncryptHistory: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := session.New(session.Config{Keys: e.Keys})
+	if err != nil {
+		return nil, err
+	}
+	a := &app{
+		users:      &users{db: e.DB},
+		mailer:     e.Mailer,
+		url:        e.URL,
+		resets:     &auth.Resets{Keys: e.Keys},
+		logins:     &auth.Throttle{Max: 5, Window: time.Minute},
+		resetMails: &auth.Throttle{Max: 1, Window: time.Minute},
+	}
+
+	pages.Share("appName", appName)
+	// Every page has auth.user: null for a guest, as shared here, which is
+	// also where tug gen learns its type, and the user for someone who has
+	// logged in, shared as each page is rendered.
+	pages.Share("auth", Auth{})
+	pages.ShareFunc(a.shareAuth)
+
+	cfg.Inertia, cfg.Session, cfg.ErrorPage = pages, sessions, "Error"
+	app := tug.New(cfg)
+	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
+	app.Get("/build/{path...}", tug.WrapHandler(assets))
+
+	app.Get("/", home).Name("home")
+	app.Get("/dashboard", a.usersOnly(dashboard)).Name("dashboard")
+
+	app.Get("/register", a.guestsOnly(registerPage)).Name("register")
+	app.Post("/register", a.guestsOnly(a.register)).Name("register.store")
+	app.Get("/login", a.guestsOnly(loginPage)).Name("login")
+	app.Post("/login", a.guestsOnly(a.login)).Name("login.store")
+	app.Post("/logout", a.usersOnly(logout)).Name("logout")
+	app.Get("/forgot-password", a.guestsOnly(forgotPasswordPage)).Name("password.request")
+	app.Post("/forgot-password", a.guestsOnly(a.forgotPassword)).Name("password.email")
+	app.Get("/reset-password/{token}", a.guestsOnly(resetPasswordPage)).Name("password.reset")
+	app.Post("/reset-password", a.guestsOnly(a.resetPassword)).Name("password.store")
+	return app, nil
+}
+
+// NoProps are the props of a page with none of its own. It still has the
+// shared ones, appName and auth.
+type NoProps struct{}
+
+var (
+	Home      = tug.Page[NoProps]("Home")
+	Dashboard = tug.Page[DashboardProps]("Dashboard")
+)
+
+func home(c *tug.Ctx) error {
+	return Home.Render(c, NoProps{})
+}
+
+// DashboardProps are the dashboard's props: the user, who is always there,
+// where the shared auth.user may be null.
+type DashboardProps struct {
+	User User `json:"user"`
+}
+
+func dashboard(c *tug.Ctx, user *User) error {
+	return Dashboard.Render(c, DashboardProps{User: *user})
+}

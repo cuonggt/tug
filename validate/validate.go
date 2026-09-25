@@ -116,20 +116,25 @@ func Struct(v any) error {
 	}
 	errs := Errors{}
 	for _, fe := range fieldErrs {
-		errs.Add(path(fe.Namespace()), message(fe, root))
+		errs.Add(path(fe.Namespace(), root), message(fe, root))
 	}
 	return errs
 }
 
 // path turns the validator's namespace, "PostInput.items[0].price", into
 // the dotted path a client names the field by, "items.0.price".
-func path(namespace string) string {
-	_, rest, found := strings.Cut(namespace, ".")
-	if !found {
-		rest = namespace
+func path(namespace string, root reflect.Type) string {
+	return strings.NewReplacer("[", ".", "]", "").Replace(inRoot(namespace, root))
+}
+
+// inRoot is a namespace without the struct type's name, which the
+// validator starts it with, unless the type has none, as an anonymous
+// struct, var in struct{...}, doesn't.
+func inRoot(namespace string, root reflect.Type) string {
+	if name := root.Name(); name != "" {
+		return strings.TrimPrefix(namespace, name+".")
 	}
-	rest = strings.NewReplacer("[", ".", "]", "").Replace(rest)
-	return rest
+	return namespace
 }
 
 // message says what's wrong with a field, as "title must be at most 80
@@ -213,8 +218,8 @@ func plural(n, one, many string) string {
 // validator gives by its Go name, as the client knows it.
 func sibling(root reflect.Type, structNamespace, goName string) string {
 	t := root
-	parts := strings.Split(structNamespace, ".")
-	for _, part := range parts[1 : len(parts)-1] {
+	parts := strings.Split(inRoot(structNamespace, root), ".")
+	for _, part := range parts[:len(parts)-1] {
 		part, _, _ = strings.Cut(part, "[")
 		f, ok := t.FieldByName(part)
 		if !ok {

@@ -11,7 +11,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M3 | Forms and validation  | done   |
 | M4 | The full v3 protocol  | done   |
 | M5 | CLI                   | done   |
-| M6 | v0.1.0                | next   |
+| M6 | v0.1.0                | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -206,13 +206,74 @@ Choices made on the way:
   pseudo-version) makes apps that build against that checkout, with a
   `replace`; a release makes apps that require the release.
 
-## M6 · v0.1.0 — next
+## M6 · v0.1.0 — done
 
-An auth starter (login, register, logout, password reset), docs, and the
-first release.
+- `tug new -auth` makes an app with accounts: register, log in, log out,
+  a forgotten password reset by a mailed link, and a dashboard for users
+  only. Every page gets `auth.user`. The users are in SQLite, through
+  `database/sql`, and the handlers are the app's own code, in `auth.go`.
+- Package `auth` has the parts of that where a slip is a security hole:
+  `HashPassword` and `CheckPassword` (argon2id), `Login`, `Logout`,
+  `UserID` and `Current` (who a session is logged in as, tied to the
+  password), `Resets` (reset tokens), `Throttle` (tries at logging in), and
+  `SetIntended`/`Intended` (back to the page after logging in).
+- Package `mail` sends mail through SMTP, or writes it out in development,
+  from the same variables Laravel's are.
+- The guide, in [docs/](README.md): getting started, the CLI, routing,
+  pages, forms, auth, TypeScript and deployment.
+- A tug installed with `go install ...@version` makes apps that require
+  that version, pseudo-versions included: the module's checksum says it
+  came from the proxy.
+- Fixed on the way, as the guide was checked against the code: `validate`
+  names the fields of an anonymous input struct, `var in struct{...}`, as
+  it does a named one's, where it had lost a nested field's first segment
+  and panicked on `eqfield`; tug gen types a `[N]byte` as the numbers
+  encoding/json writes; the starters' images listen on a platform's `PORT`,
+  which their `ADDR` had hidden; and `tug new` takes its flags after the
+  directory as well as before it.
+
+Choices made on the way:
+
+- Passwords are hashed with argon2id at OWASP's settings (19 MiB, two
+  passes, about 30 ms), in the PHC string format that PHP's and other
+  libraries' hashes are in, so users can move over from them. Hashes run
+  one per CPU at most, which caps the memory a burst of logins takes.
+- A login keeps the user's ID in the session and a fingerprint of their
+  password hash, as Laravel's `AuthenticateSession` keeps the hash itself:
+  a new password logs out every session made with the old one, which is
+  the one way to end a login held in someone else's copy of a cookie.
+- Reset tokens are signed rather than stored, as Django's are: made with
+  the app's key for a user's password hash, so they work once, and expire
+  after an hour. No table, and nothing to clean up.
+- The reset form says the same thing whether the email has an account or
+  not, and sends the mail without the request waiting for it, so neither
+  the answer nor its timing tells who has one. A wrong login is checked
+  against no hash at all when there's no user, which takes as long.
+- Reset links are made from `APP_URL`, which the auth starter needs outside
+  development: a link made from the request's `Host` could point to any
+  site the request names.
+- `Throttle.Try` checks and counts in one step, and the login counts a try
+  before it checks the password: tries sent at the same moment can't all
+  get in under the limit while each waits 30 ms for its hash.
+- The auth starter encrypts the history the browser keeps for Back, and
+  logging out clears it, so the next person at the browser can't go Back
+  to the last one's dashboard. Where the browser can't encrypt, over plain
+  HTTP other than localhost, Inertia's client keeps the history as it is.
+- A route for users is a handler that takes the user, wrapped in
+  `usersOnly`, rather than middleware: a handler that needs a user doesn't
+  compile unwrapped, and the user needs no trip through the context. The
+  auth prop is shared with `ShareFunc` so that error pages have it too, and
+  with `Share("auth", Auth{})` besides, which is a guest's value and how
+  tug gen learns its type.
+- The starter's SQLite is modernc.org/sqlite, which is pure Go, so `tug
+  build` still makes a static binary.
+- tug new's two starters are one laid over the other: `starter-auth`'s
+  files replace the plain starter's of the same name, and add the rest.
 
 After v0.1: SSR through a Node or Bun process beside the binary, Vue and
-Svelte starters, background job queues.
+Svelte starters, background job queues, and more of what apps with
+accounts need (email verification, changing a password or email while
+logged in).
 
 ## Decisions
 

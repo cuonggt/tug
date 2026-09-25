@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
+	"flag"
 	"net"
 	"os"
 	"os/exec"
@@ -134,6 +136,9 @@ func TestNewFillsInTheStarter(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "main.go.tmpl")); err == nil {
 		t.Error("a .tmpl file was copied as it was")
 	}
+	if _, err := os.Stat(filepath.Join(root, "auth.go")); err == nil {
+		t.Error("an app without -auth has auth.go")
+	}
 	env := read(".env")
 	key, _, _ := strings.Cut(strings.SplitAfter(env, "APP_KEY=base64:")[1], "\n")
 	if k, err := base64.StdEncoding.DecodeString(key); err != nil || len(k) != 32 {
@@ -141,8 +146,52 @@ func TestNewFillsInTheStarter(t *testing.T) {
 	}
 }
 
-// TestANewAppBuildsAndPassesItsOwnTests makes an app as a person would,
-// with its Go modules and npm packages, and runs what it comes with.
+func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "blog")
+	if err := writeStarter(root, starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Auth: true}); err != nil {
+		t.Fatal(err)
+	}
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
+		t.Errorf("main.go isn't the auth starter's:\n%s", main)
+	}
+	for _, f := range []string{"auth.go", "users.go", "resources/js/pages/Auth/Login.tsx", "resources/js/pages/Dashboard.tsx"} {
+		if strings.Contains(read(f), "[[") {
+			t.Errorf("%s has a placeholder left", f)
+		}
+	}
+	if read("app.html") == "" || read("vite.config.ts") == "" {
+		t.Error("the plain starter's files didn't come along")
+	}
+	if !strings.Contains(read(".gitignore"), "/app.db") {
+		t.Error("the database isn't ignored")
+	}
+}
+
+func TestNewTakesItsFlagsBeforeAndAfterTheDirectory(t *testing.T) {
+	checkout, _ := filepath.Abs("../..")
+	dir := filepath.Join(t.TempDir(), "mixed")
+	if err := runNew([]string{"-no-install", dir, "-module", "example.com/mixed", "-tug-dir", checkout}); err != nil {
+		t.Fatal(err)
+	}
+	if mod, _ := os.ReadFile(filepath.Join(dir, "go.mod")); !strings.HasPrefix(string(mod), "module example.com/mixed\n") {
+		t.Errorf("the flag after the directory was dropped: go.mod is\n%s", mod)
+	}
+	two := []string{filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b")}
+	if err := runNew(two); !errors.Is(err, flag.ErrHelp) {
+		t.Errorf("two directories: %v", err)
+	}
+}
+
+// TestANewAppBuildsAndPassesItsOwnTests makes an app of each kind as a
+// person would, with its Go modules and npm packages, and runs what it
+// comes with.
 func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 	if testing.Short() {
 		t.Skip("installs the new app's packages")
@@ -150,21 +199,28 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 	if _, err := exec.LookPath("npm"); err != nil {
 		t.Skip("needs npm")
 	}
-	dir := filepath.Join(t.TempDir(), "blog")
 	checkout, _ := filepath.Abs("../..")
-	if err := runNew([]string{dir, "-tug-dir", checkout}); err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range []string{"resources/js/tug/pages.ts", "resources/js/tug/routes.ts", "go.sum", "node_modules"} {
-		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
-			t.Errorf("tug new didn't make %s", f)
-		}
-	}
-	for _, c := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}, {"npm", "run", "typecheck"}} {
-		cmd := exec.Command(c[0], c[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Errorf("%s: %v\n%s", strings.Join(c, " "), err, out)
-		}
+	for _, kind := range []struct {
+		name  string
+		flags []string
+	}{{"plain", nil}, {"auth", []string{"-auth"}}} {
+		t.Run(kind.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "blog")
+			if err := runNew(append([]string{dir, "-tug-dir", checkout}, kind.flags...)); err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range []string{"resources/js/tug/pages.ts", "resources/js/tug/routes.ts", "go.sum", "node_modules"} {
+				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+					t.Errorf("tug new didn't make %s", f)
+				}
+			}
+			for _, c := range [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}, {"npm", "run", "typecheck"}} {
+				cmd := exec.Command(c[0], c[1:]...)
+				cmd.Dir = dir
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Errorf("%s: %v\n%s", strings.Join(c, " "), err, out)
+				}
+			}
+		})
 	}
 }

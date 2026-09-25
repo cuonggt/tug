@@ -1,7 +1,10 @@
 # The app as one static binary, frontend included, on an image with nothing
-# else in it.
+# else in it. The database is in /data, a volume, so it outlives the
+# container:
 #
-#   docker build -t app . && docker run -p 8080:8080 -e APP_KEY=... app
+#   docker build -t app . && docker run -p 8080:8080 -v app-data:/data \
+#     -e APP_KEY=... -e APP_URL=https://example.com \
+#     -e MAIL_HOST=... -e MAIL_FROM_ADDRESS=... app
 
 FROM node:24-alpine AS frontend
 WORKDIR /app
@@ -16,11 +19,15 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/public/build public/build
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=server /server /server
+# 65532 is the image's nonroot user, who has to be able to write the database.
+COPY --from=server --chown=65532:65532 /data /data
+ENV DB_PATH=/data/app.db
 # The app listens on :8080, or on the PORT a platform sets.
 EXPOSE 8080
+VOLUME /data
 USER nonroot:nonroot
 ENTRYPOINT ["/server"]

@@ -32,7 +32,8 @@ type Post struct {
 		Lat float64 `json:"lat"`
 		Lng float64 `json:"lng"`
 	} `json:"location"`
-	Body   []byte `json:"body"`
+	Body   []byte  `json:"body"`
+	Hash   [4]byte `json:"hash"`
 	secret string
 	Skip   string `json:"-"`
 }
@@ -88,7 +89,7 @@ func TestAStructBecomesAnInterfaceOfWhatEncodingJSONWrites(t *testing.T) {
 	contains(t, generate().Pages,
 		"export interface Post {\n  id: number\n  title: string\n  tags: string[]\n  author: Author\n",
 		"  published_at: string\n  draft?: boolean\n  views: string\n  meta: Record<string, unknown>\n  Raw: unknown\n  ip: string\n",
-		"  location: { lat: number; lng: number }\n  body: string\n}",
+		"  location: { lat: number; lng: number }\n  body: string\n  hash: number[]\n}",
 		"export interface Author {\n  name: string\n  email: string | null\n}",
 	)
 	if strings.Contains(generate().Pages, "secret") || strings.Contains(generate().Pages, "Skip") {

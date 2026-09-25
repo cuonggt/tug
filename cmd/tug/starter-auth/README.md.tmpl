@@ -1,0 +1,31 @@
+# [[ .Name ]]
+
+A [tug](https://github.com/cuonggt/tug) app: Go handlers render React pages
+through Inertia, with no API in between. People register for accounts, log
+in and out, and reset their passwords by email.
+
+```sh
+tug dev      # run it on http://127.0.0.1:8080, rebuilt and reloaded as it changes
+tug gen      # write the TypeScript of the pages' props and the routes
+tug build    # build it into one binary, frontend included
+go test ./...
+```
+
+- `main.go`: the server, its pages and routes. A page is declared with
+  `tug.Page[Props]("Name")`, and its component is
+  `resources/js/pages/Name.tsx`.
+- `auth.go`: registering, logging in and out, and resetting a password,
+  on tug's package `auth`. A route for users who've logged in is wrapped in
+  `usersOnly`, whose handler is handed the user; every page gets the user,
+  or null, as `auth.user`.
+- `users.go`: the users, in SQLite (`app.db`, or `DB_PATH`), through
+  `database/sql`.
+- `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
+  isn't edited by hand; tug dev and tug build write it again.
+- `.env`: read by tug dev. `APP_KEY` encrypts the sessions and signs reset
+  links, and a deployed app needs one of its own, set in its environment,
+  with `APP_URL`, its own address, and `MAIL_HOST` and the rest of
+  `.env.example` for its mail. In development, mail is written out where
+  tug dev shows it, reset links and all.
+- `Dockerfile`: the app as one static binary on a distroless image, with
+  the database on a volume.

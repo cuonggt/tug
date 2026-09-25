@@ -76,6 +76,30 @@ func TestEachFieldGetsAMessageUnderItsJSONName(t *testing.T) {
 	}
 }
 
+// An anonymous struct, var in struct{...}, has no type name for the
+// validator to start the fields' paths with.
+func TestAnAnonymousStructsFieldsAreNamedTheSame(t *testing.T) {
+	var in struct {
+		Password string `json:"password"`
+		Confirm  string `json:"password_confirmation" validate:"eqfield=Password"`
+		Lines    []Line `json:"lines" validate:"dive"`
+	}
+	in.Password, in.Confirm = "secret", "secert"
+	in.Lines = []Line{{Product: "tea", Quantity: 1}, {Product: "cake"}}
+
+	var errs Errors
+	if err := Struct(&in); !errors.As(err, &errs) {
+		t.Fatalf("got %v, want Errors", err)
+	}
+	want := Errors{
+		"password_confirmation": "password_confirmation must match password",
+		"lines.1.quantity":      "quantity must be at least 1",
+	}
+	if !reflect.DeepEqual(errs, want) {
+		t.Errorf("got %v, want %v", errs, want)
+	}
+}
+
 func TestAddKeepsTheFirstMessageForAField(t *testing.T) {
 	errs := Errors{}
 	errs.Add("title", "title is required")

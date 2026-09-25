@@ -1,0 +1,320 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+	"testing/fstest"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/mail"
+)
+
+// outbox is a mailer that keeps what it's given, for the tests to read.
+type outbox chan mail.Message
+
+func (o outbox) Send(_ context.Context, m mail.Message) error {
+	o <- m
+	return nil
+}
+
+// newTestApp makes the app with a database of its own, and mail that goes
+// into the outbox it returns.
+func newTestApp(t *testing.T) (*tug.App, outbox) {
+	t.Helper()
+	db, err := openDB(filepath.Join(t.TempDir(), "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	sent := make(outbox, 10)
+	app, err := newApp(tug.Config{}, env{
+		Build:  fstest.MapFS{},
+		Keys:   [][]byte{bytes.Repeat([]byte{1}, 32)},
+		DB:     db,
+		Mailer: sent,
+		URL:    "https://app.example",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app, sent
+}
+
+// visitor is Inertia's client in a browser: it keeps the session cookie.
+// Its visits get JSON, so the tests run without a frontend build.
+type visitor struct {
+	t      *testing.T
+	app    *tug.App
+	cookie *http.Cookie
+}
+
+// response is what a visit got back.
+type response struct {
+	code     int
+	location string // where a redirect goes
+	page     inertia.Page
+}
+
+func (v *visitor) visit(method, target string, body map[string]string) response {
+	v.t.Helper()
+	data, _ := json.Marshal(body)
+	req := httptest.NewRequest(method, target, bytes.NewReader(data))
+	req.Header.Set("X-Inertia", "true")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Referer", "http://example.com/")
+	if v.cookie != nil {
+		req.AddCookie(v.cookie)
+	}
+	rec := httptest.NewRecorder()
+	v.app.ServeHTTP(rec, req)
+	for _, c := range rec.Result().Cookies() {
+		v.cookie = c
+	}
+	r := response{code: rec.Code, location: rec.Header().Get("Location")}
+	if rec.Header().Get("X-Inertia") == "true" {
+		if err := json.Unmarshal(rec.Body.Bytes(), &r.page); err != nil {
+			v.t.Fatal(err)
+		}
+	}
+	return r
+}
+
+// errors are the validation errors a page shows.
+func (r response) errors() map[string]any {
+	errs, _ := r.page.Props["errors"].(map[string]any)
+	return errs
+}
+
+// user is the auth.user every page shares, or nil for a guest.
+func (r response) user() map[string]any {
+	auth, _ := r.page.Props["auth"].(map[string]any)
+	u, _ := auth["user"].(map[string]any)
+	return u
+}
+
+func register(v *visitor, name, email, password string) response {
+	return v.visit("POST", "/register", map[string]string{
+		"name": name, "email": email, "password": password, "password_confirmation": password,
+	})
+}
+
+func logIn(v *visitor, email, password string) response {
+	return v.visit("POST", "/login", map[string]string{"email": email, "password": password})
+}
+
+func TestRegisteringLogsTheNewUserIn(t *testing.T) {
+	app, _ := newTestApp(t)
+	v := &visitor{t: t, app: app}
+	if r := register(v, "Ann", "ann@example.com", "correct horse"); r.code != http.StatusSeeOther || r.location != "/dashboard" {
+		t.Fatalf("registering: %d to %q", r.code, r.location)
+	}
+	r := v.visit("GET", "/dashboard", nil)
+	if user, _ := r.page.Props["user"].(map[string]any); r.page.Component != "Dashboard" || user["name"] != "Ann" {
+		t.Fatalf("dashboard: %d %+v", r.code, r.page)
+	}
+	if r.page.Flash["success"] != "Welcome, Ann!" || r.user()["email"] != "ann@example.com" {
+		t.Errorf("flash %v, auth.user %v", r.page.Flash, r.user())
+	}
+	if props, _ := json.Marshal(r.page.Props); bytes.Contains(props, []byte("argon2id")) {
+		t.Errorf("the password hash is in the page: %s", props)
+	}
+}
+
+func TestAnEmailHasOneAccount(t *testing.T) {
+	app, _ := newTestApp(t)
+	register(&visitor{t: t, app: app}, "Ann", "ann@example.com", "correct horse")
+	v := &visitor{t: t, app: app}
+	if r := register(v, "Imposter", "ANN@example.com", "correct horse"); r.location != "/" {
+		t.Fatalf("registering again: %d to %q, want back to the form", r.code, r.location)
+	}
+	if r := v.visit("GET", "/register", nil); r.errors()["email"] != "email has an account already: log in to it" || r.user() != nil {
+		t.Errorf("errors %v, user %v", r.errors(), r.user())
+	}
+}
+
+func TestRegisteringTakesThePasswordTypedTwice(t *testing.T) {
+	app, _ := newTestApp(t)
+	v := &visitor{t: t, app: app}
+	v.visit("POST", "/register", map[string]string{"name": "Ann", "email": "ann@example.com", "password": "correct horse", "password_confirmation": "correct hose"})
+	r := v.visit("GET", "/register", nil)
+	if r.errors()["password_confirmation"] != "the passwords don't match" {
+		t.Errorf("errors %v", r.errors())
+	}
+	register(v, "Ann", "ann@example.com", "short")
+	if r := v.visit("GET", "/register", nil); r.errors()["password"] != "password must be at least 8 characters" {
+		t.Errorf("errors %v", r.errors())
+	}
+}
+
+func TestAGuestIsSentToLogInAndBackAfter(t *testing.T) {
+	app, _ := newTestApp(t)
+	register(&visitor{t: t, app: app}, "Ann", "ann@example.com", "correct horse")
+	v := &visitor{t: t, app: app}
+	if r := v.visit("GET", "/dashboard", nil); r.code != http.StatusFound || r.location != "/login" {
+		t.Fatalf("a guest's dashboard: %d to %q", r.code, r.location)
+	}
+	if r := logIn(v, "ann@example.com", "correct horse"); r.code != http.StatusSeeOther || r.location != "/dashboard" {
+		t.Fatalf("logging in: %d to %q", r.code, r.location)
+	}
+	if r := v.visit("GET", "/", nil); r.user()["name"] != "Ann" {
+		t.Errorf("auth.user %v", r.user())
+	}
+}
+
+func TestAWrongPasswordDoesntLogIn(t *testing.T) {
+	app, _ := newTestApp(t)
+	register(&visitor{t: t, app: app}, "Ann", "ann@example.com", "correct horse")
+	for _, email := range []string{"ann@example.com", "bob@example.com"} {
+		v := &visitor{t: t, app: app}
+		logIn(v, email, "wrong horse")
+		if r := v.visit("GET", "/login", nil); r.errors()["email"] != "the email and password don't match an account" {
+			t.Errorf("%s: errors %v", email, r.errors())
+		}
+		if r := v.visit("GET", "/dashboard", nil); r.location != "/login" {
+			t.Errorf("%s: logged in with the wrong password", email)
+		}
+	}
+}
+
+func TestTooManyWrongPasswordsWaitAMinute(t *testing.T) {
+	app, _ := newTestApp(t)
+	register(&visitor{t: t, app: app}, "Ann", "ann@example.com", "correct horse")
+	v := &visitor{t: t, app: app}
+	for range 5 {
+		logIn(v, "ann@example.com", "wrong horse")
+	}
+	logIn(v, "ann@example.com", "correct horse")
+	r := v.visit("GET", "/login", nil)
+	if msg, _ := r.errors()["email"].(string); !strings.HasPrefix(msg, "too many tries: wait ") || r.user() != nil {
+		t.Errorf("errors %v, user %v", r.errors(), r.user())
+	}
+}
+
+func TestLoggingOutEndsTheLogin(t *testing.T) {
+	app, _ := newTestApp(t)
+	v := &visitor{t: t, app: app}
+	register(v, "Ann", "ann@example.com", "correct horse")
+	if r := v.visit("POST", "/logout", nil); r.location != "/" {
+		t.Fatalf("logging out: %d to %q", r.code, r.location)
+	}
+	r := v.visit("GET", "/", nil)
+	if r.user() != nil || r.page.Flash["success"] != "You've logged out." {
+		t.Errorf("auth.user %v, flash %v", r.user(), r.page.Flash)
+	}
+	if !r.page.EncryptHistory || !r.page.ClearHistory {
+		t.Error("the history the browser keeps isn't cleared: Back could show the dashboard")
+	}
+	if r := v.visit("GET", "/dashboard", nil); r.location != "/login" {
+		t.Errorf("the dashboard after logging out: %d to %q", r.code, r.location)
+	}
+}
+
+func TestSomeoneLoggedInSkipsTheGuestPages(t *testing.T) {
+	app, _ := newTestApp(t)
+	v := &visitor{t: t, app: app}
+	register(v, "Ann", "ann@example.com", "correct horse")
+	for _, page := range []string{"/login", "/register", "/forgot-password"} {
+		if r := v.visit("GET", page, nil); r.location != "/dashboard" {
+			t.Errorf("%s: %d to %q", page, r.code, r.location)
+		}
+	}
+}
+
+func TestEveryPageKnowsWhosLoggedIn(t *testing.T) {
+	app, _ := newTestApp(t)
+	v := &visitor{t: t, app: app}
+	if r := v.visit("GET", "/", nil); r.page.Component != "Home" || r.user() != nil {
+		t.Fatalf("a guest's home: %+v", r.page)
+	}
+	register(v, "Ann", "ann@example.com", "correct horse")
+	if r := v.visit("GET", "/nowhere", nil); r.code != http.StatusNotFound || r.page.Component != "Error" || r.user()["name"] != "Ann" {
+		t.Errorf("a 404 while logged in: %d %+v", r.code, r.page)
+	}
+}
+
+// resetLink asks for a reset link for email, and returns its path.
+func resetLink(t *testing.T, v *visitor, sent outbox, email string) string {
+	t.Helper()
+	if r := v.visit("POST", "/forgot-password", map[string]string{"email": email}); r.location != "/forgot-password" {
+		t.Fatalf("asking for a link: %d to %q", r.code, r.location)
+	}
+	select {
+	case m := <-sent:
+		link := regexp.MustCompile(`https://app\.example(/reset-password/\S+)`).FindStringSubmatch(m.Text)
+		if len(link) < 2 || m.To[0] != email {
+			t.Fatalf("mail to %v:\n%s", m.To, m.Text)
+		}
+		return link[1]
+	case <-time.After(5 * time.Second):
+		t.Fatal("no mail came")
+	}
+	return ""
+}
+
+func TestAResetLinkSetsANewPasswordOnce(t *testing.T) {
+	app, sent := newTestApp(t)
+	register(&visitor{t: t, app: app}, "Ann", "ann@example.com", "correct horse")
+	v := &visitor{t: t, app: app}
+	link := resetLink(t, v, sent, "ann@example.com")
+
+	r := v.visit("GET", link, nil)
+	token, _ := r.page.Props["token"].(string)
+	if r.page.Component != "Auth/ResetPassword" || token == "" || r.page.Props["email"] != "ann@example.com" {
+		t.Fatalf("the reset page: %d %+v", r.code, r.page)
+	}
+	reset := map[string]string{"token": token, "email": "ann@example.com", "password": "battery staple", "password_confirmation": "battery staple"}
+	if r := v.visit("POST", "/reset-password", reset); r.location != "/dashboard" {
+		t.Fatalf("resetting: %d to %q", r.code, r.location)
+	}
+	if r := v.visit("GET", "/dashboard", nil); r.page.Flash["success"] != "Your password is reset." {
+		t.Errorf("flash %v", r.page.Flash)
+	}
+
+	other := &visitor{t: t, app: app}
+	if r := logIn(other, "ann@example.com", "battery staple"); r.location != "/dashboard" {
+		t.Errorf("the new password doesn't log in: %d to %q", r.code, r.location)
+	}
+	again := &visitor{t: t, app: app}
+	again.visit("POST", "/reset-password", reset)
+	if r := again.visit("GET", "/", nil); r.errors()["email"] != "this link has expired, or been used" {
+		t.Errorf("the link worked twice: errors %v", r.errors())
+	}
+}
+
+func TestResettingAPasswordLogsOutTheOtherSessions(t *testing.T) {
+	app, sent := newTestApp(t)
+	laptop := &visitor{t: t, app: app}
+	register(laptop, "Ann", "ann@example.com", "correct horse")
+	phone := &visitor{t: t, app: app}
+	link := resetLink(t, phone, sent, "ann@example.com")
+	token := phone.visit("GET", link, nil).page.Props["token"].(string)
+	phone.visit("POST", "/reset-password", map[string]string{"token": token, "email": "ann@example.com", "password": "battery staple", "password_confirmation": "battery staple"})
+
+	if r := laptop.visit("GET", "/dashboard", nil); r.location != "/login" {
+		t.Errorf("the old login still works: %d to %q", r.code, r.location)
+	}
+}
+
+func TestForgettingAPasswordSaysTheSameForAnyEmail(t *testing.T) {
+	app, sent := newTestApp(t)
+	v := &visitor{t: t, app: app}
+	v.visit("POST", "/forgot-password", map[string]string{"email": "nobody@example.com"})
+	r := v.visit("GET", "/forgot-password", nil)
+	if r.page.Flash["success"] != "If that email has an account, a link to reset its password is on its way." {
+		t.Errorf("flash %v", r.page.Flash)
+	}
+	select {
+	case m := <-sent:
+		t.Errorf("mail went to %v", m.To)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

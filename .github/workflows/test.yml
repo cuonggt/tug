@@ -30,13 +30,14 @@ jobs:
       matrix:
         go: ['1.26.x', stable]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
-      # The CLI's tests make a new app with tug new, npm packages and all.
+      # The CLI's tests make an app of each kind with tug new, npm packages
+      # and all, and the auth starter's SQLite driver is a big compile.
       - uses: actions/setup-node@v4
         with:
           node-version: 24

@@ -6,13 +6,13 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** The framework and its CLI are done; an auth starter, docs
-and the first release are next. [docs/roadmap.md](docs/roadmap.md) has the
-plan.
+**Status: early.** v0.1.0 is the first release: the framework, its CLI,
+and a starter with accounts. [The guide](docs/README.md) covers all of it,
+and [docs/roadmap.md](docs/roadmap.md) has what's next.
 
 ```sh
-go install github.com/cuonggt/tug/cmd/tug@latest   # from a checkout, before a release: go install ./cmd/tug
-tug new blog                                        # a new app, in ./blog
+go install github.com/cuonggt/tug/cmd/tug@latest
+tug new blog                                        # a new app, in ./blog; tug new -auth blog for accounts
 cd blog
 tug dev                                             # http://127.0.0.1:8080, rebuilt and reloaded as it changes
 ```
@@ -117,6 +117,14 @@ func showPost(c *tug.Ctx) error {
 - **Sessions** (package `session`): in an encrypted cookie, keyed by
   `APP_KEY`, with flash data. `c.Flash` reaches the next page shown, after
   a redirect or not, and only that one.
+- **Accounts**: `tug new -auth` makes an app where people register, log in
+  and out, and reset their passwords by email, with the users in SQLite.
+  Its handlers are the app's own code, on package `auth`, which has the
+  parts where a slip is a security hole: argon2id password hashes, logins
+  that end when the password changes, reset tokens that work once, and a
+  throttle on password guessing.
+- **Mail** (package `mail`): through an SMTP server, or in development
+  written out where `tug dev` shows it, reset links and all.
 - **Vite** (package `vite`): tags from the dev server while it runs, with
   the React refresh preamble, and from the build's manifest otherwise, with
   CSS and preloads. The built files are served, and cached for a year.
@@ -139,8 +147,9 @@ func showPost(c *tug.Ctx) error {
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking
   connections and lets the requests in flight finish.
 
-tug needs Go 1.26. Its one dependency is go-playground/validator, for
-package `validate`; the rest is the standard library.
+tug needs Go 1.26. Its dependencies are go-playground/validator, for
+package `validate`, and golang.org/x/crypto, for argon2id in package `auth`;
+the rest is the standard library.
 
 ## Development
 

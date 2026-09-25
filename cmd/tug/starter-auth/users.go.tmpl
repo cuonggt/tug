@@ -1,0 +1,107 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
+
+	_ "modernc.org/sqlite" // SQLite in pure Go, so the binary stays static
+)
+
+// User is someone with an account. The password hash never leaves the
+// server: its json tag keeps it out of every page's props.
+type User struct {
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	Email        string    `json:"email"`
+	PasswordHash string    `json:"-"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// authID is the user's ID as package auth keeps it, in the session and in
+// reset links.
+func (u *User) authID() string {
+	return strconv.FormatInt(u.ID, 10)
+}
+
+// schema is the database's tables, made when they aren't there yet. An
+// email is unique whatever its case: Ann@example.com is ann@example.com.
+const schema = `
+CREATE TABLE IF NOT EXISTS users (
+	id            INTEGER PRIMARY KEY,
+	name          TEXT NOT NULL,
+	email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	password_hash TEXT NOT NULL,
+	created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`
+
+// openDB opens the SQLite database at path, making it when it's not there.
+// Its journal is a write-ahead log, so pages read while a form writes, and
+// a write waits its turn for up to five seconds rather than fail.
+func openDB(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return db, nil
+}
+
+var (
+	errNoUser     = errors.New("no such user")
+	errEmailTaken = errors.New("the email has an account already")
+)
+
+// users are the app's users, in the database.
+type users struct {
+	db *sql.DB
+}
+
+const userColumns = "id, name, email, password_hash, created_at"
+
+func scanUser(row *sql.Row) (*User, error) {
+	u := &User{}
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errNoUser
+	}
+	if err != nil {
+		return nil, err // no half-read user, whose login nothing has checked
+	}
+	return u, nil
+}
+
+// byID returns the user with this ID, or errNoUser.
+func (us *users) byID(ctx context.Context, id int64) (*User, error) {
+	return scanUser(us.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE id = ?", id))
+}
+
+// byEmail returns the user with this email, in any case, or errNoUser.
+func (us *users) byEmail(ctx context.Context, email string) (*User, error) {
+	return scanUser(us.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE email = ?", email))
+}
+
+// add adds a user, or returns errEmailTaken when the email has an account.
+func (us *users) add(ctx context.Context, name, email, passwordHash string) (*User, error) {
+	u := &User{Name: name, Email: email, PasswordHash: passwordHash}
+	err := us.db.QueryRowContext(ctx, `
+		INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)
+		ON CONFLICT (email) DO NOTHING
+		RETURNING id, created_at`, name, email, passwordHash).Scan(&u.ID, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errEmailTaken // two people registering the same email at once end here
+	}
+	return u, err
+}
+
+// setPassword stores a user's new password hash.
+func (us *users) setPassword(ctx context.Context, id int64, passwordHash string) error {
+	_, err := us.db.ExecContext(ctx, "UPDATE users SET password_hash = ? WHERE id = ?", passwordHash, id)
+	return err
+}

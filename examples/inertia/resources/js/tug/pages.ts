@@ -32,8 +32,10 @@ export interface Stats {
   words: number
 }
 
-// SharedProps are the props every page gets from inertia.Share. Props shared
-// per request, with ShareFunc, can be added to it from another file:
+// SharedProps are the props every page gets from inertia.Share. A prop that
+// ShareFunc works out per request is here too when Share gives it a first
+// value, as Share("auth", Auth{}) does; or it can be added from another
+// file:
 //
 //   declare module './pages' { interface SharedProps { user: User } }
 export interface SharedProps {

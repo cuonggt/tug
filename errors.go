@@ -14,7 +14,8 @@ import (
 // the response: NewHTTPError(http.StatusNotFound) is a 404.
 //
 // Message is shown to the client, so it says what went wrong in their
-// terms. Err is the cause, for the log; it is never shown.
+// terms. Err is the cause, for the log; only Config.Debug shows it, in a
+// server error's response.
 type HTTPError struct {
 	Code    int
 	Message string

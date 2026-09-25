@@ -77,8 +77,10 @@ func pages(in Input) string {
 	for _, name := range slices.Sorted(maps.Keys(g.decls)) {
 		b.WriteString("\n" + g.decls[name])
 	}
-	b.WriteString("\n// SharedProps are the props every page gets from inertia.Share. Props shared\n")
-	b.WriteString("// per request, with ShareFunc, can be added to it from another file:\n")
+	b.WriteString("\n// SharedProps are the props every page gets from inertia.Share. A prop that\n")
+	b.WriteString("// ShareFunc works out per request is here too when Share gives it a first\n")
+	b.WriteString("// value, as Share(\"auth\", Auth{}) does; or it can be added from another\n")
+	b.WriteString("// file:\n")
 	b.WriteString("//\n//   declare module './pages' { interface SharedProps { user: User } }\n")
 	b.WriteString("export interface SharedProps {\n" + lines(shared) + "}\n")
 	b.WriteString("\n// Pages are the props of each page component, as tug.Page declares them.\n")
@@ -198,8 +200,8 @@ func (g *gen) typeOf(t reflect.Type) string {
 	case reflect.Pointer:
 		return g.typeOf(t.Elem()) + " | null"
 	case reflect.Slice, reflect.Array:
-		if t.Elem().Kind() == reflect.Uint8 {
-			return "string" // encoding/json writes bytes as base64
+		if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 {
+			return "string" // encoding/json writes a []byte as base64, and a [N]byte as numbers
 		}
 		return array(g.typeOf(t.Elem()))
 	case reflect.Map:

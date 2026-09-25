@@ -15,6 +15,13 @@
 // ErrorHandler turns that error into the response, so a handler says what
 // went wrong, as NewHTTPError(http.StatusNotFound), and never writes an
 // error page itself.
+//
+// The rest is in packages of their own, which don't import this one:
+// inertia renders pages, session keeps sessions in a cookie, validate
+// checks structs, vite puts a Vite build into pages, auth has the parts of
+// accounts where a slip is a security hole, mail sends mail, and middleware
+// has RequestID, Logger, Recover and CSRF. The guide is in the repository's
+// docs directory: https://github.com/cuonggt/tug/tree/main/docs.
 package tug
 
 import "net/http"
