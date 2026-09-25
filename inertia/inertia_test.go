@@ -434,3 +434,57 @@ func TestNewNeedsARootTemplateThatParses(t *testing.T) {
 		}
 	}
 }
+
+func TestValidationErrorsBecomeTheErrorsProp(t *testing.T) {
+	i := newInertia(t, Config{})
+	errs := map[string]string{"title": "title is required"}
+
+	r := visit("GET", "/posts/create")
+	r = r.WithContext(WithErrors(r.Context(), errs))
+	if _, p := render(t, i, r, "Posts/Create", nil); !reflect.DeepEqual(p.Props["errors"], map[string]any{"title": "title is required"}) {
+		t.Errorf("errors %v", p.Props["errors"])
+	}
+
+	// A form that names an error bag gets its errors under the bag's name,
+	// and an empty object when there are none.
+	r = visit("GET", "/posts/create", "X-Inertia-Error-Bag", "createPost")
+	if _, p := render(t, i, r.WithContext(WithErrors(r.Context(), errs)), "Posts/Create", nil); !reflect.DeepEqual(p.Props["errors"], map[string]any{"createPost": map[string]any{"title": "title is required"}}) {
+		t.Errorf("errors in a bag %v", p.Props["errors"])
+	}
+	if _, p := render(t, i, r, "Posts/Create", nil); !reflect.DeepEqual(p.Props["errors"], map[string]any{}) {
+		t.Errorf("no errors in a bag %v", p.Props["errors"])
+	}
+}
+
+func TestFlashDataGoesOutBesideThePropsAndOnlyWhenThereIsSome(t *testing.T) {
+	i := newInertia(t, Config{})
+	r := visit("GET", "/")
+	if rec, _ := render(t, i, r, "Home", nil); strings.Contains(rec.Body.String(), "flash") {
+		t.Errorf("a page without flash data named it: %s", rec.Body)
+	}
+	r = r.WithContext(WithFlash(r.Context(), map[string]any{"success": "Post created"}))
+	_, p := render(t, i, r, "Home", nil)
+	if !reflect.DeepEqual(p.Flash, map[string]any{"success": "Post created"}) {
+		t.Errorf("flash %v", p.Flash)
+	}
+	if _, ok := p.Props["success"]; ok {
+		t.Error("the flash data went out as a prop too")
+	}
+}
+
+func TestStaleIsAGetFromAnotherBuild(t *testing.T) {
+	i := newInertia(t, Config{Version: "v2"})
+	for _, tc := range []struct {
+		r    *http.Request
+		want bool
+	}{
+		{visit("GET", "/", "X-Inertia-Version", "v1"), true},
+		{visit("GET", "/", "X-Inertia-Version", "v2"), false},
+		{visit("POST", "/", "X-Inertia-Version", "v1"), false},
+		{httptest.NewRequest("GET", "/", nil), false},
+	} {
+		if got := i.Stale(tc.r); got != tc.want {
+			t.Errorf("%s with version %q: %v, want %v", tc.r.Method, tc.r.Header.Get("X-Inertia-Version"), got, tc.want)
+		}
+	}
+}

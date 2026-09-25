@@ -2,6 +2,7 @@ package tug
 
 import (
 	"bytes"
+	"cmp"
 	"encoding"
 	"encoding/json"
 	"errors"
@@ -40,7 +41,9 @@ import (
 //
 // A value that doesn't parse is a 400, or a 404 when it's a path value,
 // since /posts/abc is a page that isn't there. The error wraps a *BindError
-// naming the field. A body over Config.BodyLimit is a 413, and a body Bind
+// naming the field. The fields after it are still bound, so that checking
+// them, as BindValid does, finds what's really wrong with them rather than
+// what's missing. A body over Config.BodyLimit is a 413, and a body Bind
 // can't read is a 415.
 func (c *Ctx) Bind(dst any) error {
 	v := reflect.ValueOf(dst)
@@ -50,15 +53,23 @@ func (c *Ctx) Bind(dst any) error {
 	v = v.Elem()
 	fields := fieldsOf(v.Type())
 
+	var first error
 	if err := c.bindBody(dst, v, fields); err != nil {
-		return err
+		if !isBindError(err) {
+			return err
+		}
+		first = err
 	}
 	for _, f := range fields {
 		if f.query == "" {
 			continue
 		}
 		if err := setValues(v.FieldByIndex(f.index), lookup(c.queryValues(), f.query)); err != nil {
-			return bindFailed(http.StatusBadRequest, f.query, err)
+			err = bindFailed(http.StatusBadRequest, f.query, err)
+			if !isBindError(err) {
+				return err
+			}
+			first = cmp.Or(first, err)
 		}
 	}
 	for _, f := range fields {
@@ -66,10 +77,17 @@ func (c *Ctx) Bind(dst any) error {
 			continue
 		}
 		if err := setValues(v.FieldByIndex(f.index), []string{c.r.PathValue(f.path)}); err != nil {
-			return bindFailed(http.StatusNotFound, f.path, err)
+			return bindFailed(http.StatusNotFound, f.path, err) // no such page, whatever else is wrong
 		}
 	}
-	return nil
+	return first
+}
+
+// isBindError reports whether err is a value that didn't parse, rather
+// than a request Bind can't read at all.
+func isBindError(err error) bool {
+	var be *BindError
+	return errors.As(err, &be)
 }
 
 // multipartMemory is how much of a multipart body is held in memory. Files
@@ -85,11 +103,22 @@ func (c *Ctx) bindBody(dst any, v reflect.Value, fields []field) error {
 	if err != nil {
 		return NewHTTPError(http.StatusUnsupportedMediaType)
 	}
-	r.Body = http.MaxBytesReader(c.rw.ResponseWriter, r.Body, c.app.config.BodyLimit)
+	if c.body == nil {
+		r.Body = http.MaxBytesReader(c.rw.ResponseWriter, r.Body, c.app.config.BodyLimit)
+	}
 
 	switch {
 	case mediaType == "application/json" || strings.HasSuffix(mediaType, "+json"):
-		return bindJSON(r.Body, dst)
+		// Kept, so that a handler can bind the body more than once, as one
+		// that finds a post by its {id} and then binds the form does.
+		if c.body == nil {
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				return bodyFailed(err)
+			}
+			c.body = append([]byte{}, data...)
+		}
+		return bindJSON(c.body, dst)
 	case mediaType == "application/x-www-form-urlencoded":
 		if err := r.ParseForm(); err != nil {
 			return bodyFailed(err)
@@ -104,15 +133,11 @@ func (c *Ctx) bindBody(dst any, v reflect.Value, fields []field) error {
 	return NewHTTPError(http.StatusUnsupportedMediaType)
 }
 
-func bindJSON(body io.Reader, dst any) error {
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return bodyFailed(err)
-	}
+func bindJSON(data []byte, dst any) error {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil
 	}
-	err = json.Unmarshal(data, dst)
+	err := json.Unmarshal(data, dst)
 	if err == nil {
 		return nil
 	}
@@ -139,6 +164,7 @@ var (
 )
 
 func bindForm(v reflect.Value, fields []field, values url.Values, files map[string][]*multipart.FileHeader) error {
+	var first error
 	for _, f := range fields {
 		if f.form == "" {
 			continue
@@ -155,11 +181,15 @@ func bindForm(v reflect.Value, fields []field, values url.Values, files map[stri
 			}
 		default:
 			if err := setValues(fv, lookup(values, f.form)); err != nil {
-				return bindFailed(http.StatusBadRequest, f.form, err)
+				err = bindFailed(http.StatusBadRequest, f.form, err)
+				if !isBindError(err) {
+					return err
+				}
+				first = cmp.Or(first, err)
 			}
 		}
 	}
-	return nil
+	return first
 }
 
 // lookup returns what a form or query has under name, or else under

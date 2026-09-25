@@ -291,3 +291,23 @@ func TestABindErrorIsAnsweredWithWhatToFix(t *testing.T) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestAJSONBodyCanBeBoundTwice(t *testing.T) {
+	var id struct {
+		ID int64 `path:"id"`
+	}
+	var in struct {
+		Title string `json:"title"`
+	}
+	var err1, err2 error
+	app := New(Config{})
+	app.Put("/posts/{id}", func(c *Ctx) error {
+		err1 = c.Bind(&id)
+		err2 = c.Bind(&in)
+		return nil
+	})
+	serve(app, "PUT", "/posts/7", `{"title":"Hi"}`, "Content-Type", "application/json")
+	if err1 != nil || err2 != nil || id.ID != 7 || in.Title != "Hi" {
+		t.Fatalf("bound %d and %q, errors %v %v", id.ID, in.Title, err1, err2)
+	}
+}

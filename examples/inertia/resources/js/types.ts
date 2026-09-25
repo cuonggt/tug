@@ -13,16 +13,34 @@ export interface Stats {
   words: number
 }
 
-// Every page also gets the props main.go shares.
-interface SharedProps {
+// What every page gets from main.go's pages.Share.
+export interface SharedProps {
   appName: string
 }
 
-export interface PostsIndexProps extends SharedProps {
+// What main.go's handlers flash with c.Flash.
+export interface FlashData {
+  success?: string
+}
+
+export interface PostsIndexProps {
   posts: Post[]
   stats?: Stats // deferred: there once the client has fetched it
 }
 
-export interface PostsShowProps extends SharedProps {
+export interface PostsShowProps {
   post: Post
+}
+
+export interface PostsEditProps {
+  post: Post
+}
+
+// Tells Inertia's own types about the shared props and flash data, so
+// usePage() knows them.
+declare module '@inertiajs/core' {
+  export interface InertiaConfig {
+    sharedPageProps: SharedProps
+    flashDataType: FlashData
+  }
 }

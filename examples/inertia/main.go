@@ -1,6 +1,7 @@
 // Command inertia is tug's example of an Inertia app: posts, shown by React
-// pages that get their props from Go handlers. The list's stats are a
-// deferred prop, so the list shows before they're counted.
+// pages that get their props from Go handlers, and written with forms that
+// check themselves as they're filled in. The list's stats are a deferred
+// prop, so the list shows before they're counted.
 //
 // With the Vite dev server, which reloads the pages as they change:
 //
@@ -11,13 +12,19 @@
 // With the frontend built into the binary:
 //
 //	npm run build && go build && ADDR=127.0.0.1:8080 ./inertia
+//
+// Sessions are encrypted with APP_KEY; without one, the example makes up a
+// key, and its sessions end when it stops.
 package main
 
 import (
 	"cmp"
+	"crypto/rand"
 	"embed"
+	"errors"
 	"io/fs"
 	"log"
+	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
@@ -28,6 +35,8 @@ import (
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/middleware"
+	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/validate"
 	"github.com/cuonggt/tug/vite"
 )
 
@@ -45,7 +54,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app, err := newApp(tug.ConfigFromEnv(), build, "public/hot", 400*time.Millisecond)
+	keys, err := session.KeysFromEnv()
+	if errors.Is(err, session.ErrNoKey) {
+		// Fine for trying the example out. A real app stops here instead:
+		// with a key made up at each start, a restart signs everyone out.
+		slog.Warn("APP_KEY isn't set, so sessions end when the server stops")
+		key := make([]byte, 32)
+		rand.Read(key)
+		keys = [][]byte{key}
+	} else if err != nil {
+		log.Fatal(err)
+	}
+	app, err := newApp(tug.ConfigFromEnv(), build, "public/hot", keys, 400*time.Millisecond)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -56,7 +76,7 @@ func main() {
 
 // newApp puts the example together. countTime is how long counting the
 // stats takes, standing in for a slow query.
-func newApp(cfg tug.Config, build fs.FS, hotFile string, countTime time.Duration) (*tug.App, error) {
+func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTime time.Duration) (*tug.App, error) {
 	assets, err := vite.New(vite.Config{Build: build, HotFile: hotFile})
 	if err != nil {
 		return nil, err
@@ -70,15 +90,24 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, countTime time.Duration
 		return nil, err
 	}
 	pages.Share("appName", "tug")
+	sessions, err := session.New(session.Config{Keys: keys})
+	if err != nil {
+		return nil, err
+	}
 
 	cfg.Inertia = pages
+	cfg.Session = sessions
 	app := tug.New(cfg)
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 
 	p := newPosts(countTime)
 	app.Get("/", p.index).Name("posts.index")
+	app.Get("/posts/create", p.create).Name("posts.create")
+	app.Post("/posts", p.store).Name("posts.store")
 	app.Get("/posts/{id}", p.show).Name("posts.show")
+	app.Get("/posts/{id}/edit", p.edit).Name("posts.edit")
+	app.Put("/posts/{id}", p.update).Name("posts.update")
 	app.Delete("/posts/{id}", p.destroy).Name("posts.destroy")
 	return app, nil
 }
@@ -111,10 +140,38 @@ type PostsShowProps struct {
 
 var PostsShow = tug.Page[PostsShowProps]("Posts/Show")
 
+type PostsCreateProps struct{}
+
+var PostsCreate = tug.Page[PostsCreateProps]("Posts/Create")
+
+type PostsEditProps struct {
+	Post Post `json:"post"`
+}
+
+var PostsEdit = tug.Page[PostsEditProps]("Posts/Edit")
+
+// PostInput is what the post form sends.
+type PostInput struct {
+	Title string `json:"title" validate:"required,max=80"`
+	Body  string `json:"body" validate:"required,min=10"`
+	Tags  string `json:"tags" validate:"max=100"` // comma separated
+}
+
+func (in PostInput) post(id int64) Post {
+	var tags []string
+	for tag := range strings.SplitSeq(in.Tags, ",") {
+		if tag = strings.TrimSpace(tag); tag != "" && !slices.Contains(tags, tag) {
+			tags = append(tags, tag)
+		}
+	}
+	return Post{ID: id, Title: strings.TrimSpace(in.Title), Body: in.Body, Tags: tags}
+}
+
 // posts keeps the posts in memory.
 type posts struct {
 	mu        sync.Mutex
 	byID      map[int64]Post
+	last      int64
 	countTime time.Duration
 }
 
@@ -127,6 +184,7 @@ func newPosts(countTime time.Duration) *posts {
 		{ID: 3, Title: "Delete me", Body: "This post is here to be deleted."},
 	} {
 		p.byID[post.ID] = post
+		p.last = post.ID
 	}
 	return p
 }
@@ -149,11 +207,43 @@ func (p *posts) count() (Stats, error) {
 	return s, nil
 }
 
+// titleFree is a check that no post but the one with id has in's title.
+func (p *posts) titleFree(in *PostInput, id int64) func(validate.Errors) {
+	return func(errs validate.Errors) {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		for _, post := range p.byID {
+			if post.ID != id && strings.EqualFold(post.Title, strings.TrimSpace(in.Title)) {
+				errs.Add("title", "another post has that title")
+			}
+		}
+	}
+}
+
 func (p *posts) index(c *tug.Ctx) error {
 	return PostsIndex.Render(c, PostsIndexProps{
 		Posts: p.list(),
 		Stats: inertia.Defer(p.count),
 	})
+}
+
+func (p *posts) create(c *tug.Ctx) error {
+	return PostsCreate.Render(c, PostsCreateProps{})
+}
+
+func (p *posts) store(c *tug.Ctx) error {
+	var in PostInput
+	if err := c.BindValid(&in, p.titleFree(&in, 0)); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	p.last++
+	post := in.post(p.last)
+	p.byID[post.ID] = post
+	p.mu.Unlock()
+
+	c.Flash("success", "Post created")
+	return c.RedirectRoute("posts.show", post.ID)
 }
 
 // postID is the {id} of a post's URL.
@@ -183,6 +273,31 @@ func (p *posts) show(c *tug.Ctx) error {
 	return PostsShow.Render(c, PostsShowProps{Post: post})
 }
 
+func (p *posts) edit(c *tug.Ctx) error {
+	post, err := p.find(c)
+	if err != nil {
+		return err
+	}
+	return PostsEdit.Render(c, PostsEditProps{Post: post})
+}
+
+func (p *posts) update(c *tug.Ctx) error {
+	post, err := p.find(c)
+	if err != nil {
+		return err
+	}
+	var in PostInput
+	if err := c.BindValid(&in, p.titleFree(&in, post.ID)); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	p.byID[post.ID] = in.post(post.ID)
+	p.mu.Unlock()
+
+	c.Flash("success", "Post updated")
+	return c.RedirectRoute("posts.show", post.ID)
+}
+
 func (p *posts) destroy(c *tug.Ctx) error {
 	post, err := p.find(c)
 	if err != nil {
@@ -191,5 +306,7 @@ func (p *posts) destroy(c *tug.Ctx) error {
 	p.mu.Lock()
 	delete(p.byID, post.ID)
 	p.mu.Unlock()
+
+	c.Flash("success", "Post deleted")
 	return c.RedirectRoute("posts.index")
 }

@@ -6,8 +6,9 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** The HTTP core and Inertia pages with Vite are done; forms
-and validation are next. [docs/roadmap.md](docs/roadmap.md) has the plan.
+**Status: early.** The HTTP core, Inertia pages with Vite, and forms with
+validation are done; the rest of Inertia's protocol is next.
+[docs/roadmap.md](docs/roadmap.md) has the plan.
 
 ```go
 type PostsIndexProps struct {
@@ -23,12 +24,27 @@ func index(c *tug.Ctx) error {
 		Stats: inertia.Defer(store.Count),
 	})
 }
+
+type PostInput struct {
+	Title string `json:"title" validate:"required,max=80"`
+	Body  string `json:"body" validate:"required"`
+}
+
+func create(c *tug.Ctx) error {
+	var in PostInput
+	if err := c.BindValid(&in); err != nil {
+		return err // back to the form with its errors; a field being filled in is checked here too
+	}
+	post := store.Add(in)
+	c.Flash("success", "Post created") // usePage().flash on the next page
+	return c.RedirectRoute("posts.show", post.ID)
+}
 ```
 
 [`examples/inertia`](examples/inertia/main.go) is the whole app: React
-pages, a deferred prop, the Vite dev server with hot reload, and the
-frontend embedded in the binary for production. Handlers that aren't pages
-look like this:
+pages, a deferred prop, forms that check each field as it's left, flash
+messages, the Vite dev server with hot reload, and the frontend embedded in
+the binary for production. Handlers that aren't pages look like this:
 
 ```go
 func main() {
@@ -67,6 +83,15 @@ func showPost(c *tug.Ctx) error {
   concurrently. A browser running an old build reloads, and a 302 after a
   PUT, PATCH or DELETE becomes a 303. Nil slices go out as `[]`, never
   `null`. `tug.Page[Props]` ties a component to the props it takes.
+- **Forms**: `c.BindValid` binds and checks a request by `validate` tags
+  (package `validate`, go-playground/validator's rules) and checks of the
+  handler's own. A form that doesn't validate goes back with its errors in
+  the `errors` prop, under an error bag when the form names one; an API
+  client gets a 422. Precognition, a form checking each field as it's left,
+  is answered without running the rest of the handler.
+- **Sessions** (package `session`): in an encrypted cookie, keyed by
+  `APP_KEY`, with flash data. `c.Flash` reaches the next page shown, after
+  a redirect or not, and only that one.
 - **Vite** (package `vite`): tags from the dev server while it runs, with
   the React refresh preamble, and from the build's manifest otherwise, with
   CSS and preloads. The built files are served, and cached for a year.
@@ -89,7 +114,8 @@ func showPost(c *tug.Ctx) error {
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking
   connections and lets the requests in flight finish.
 
-tug needs nothing beyond the standard library, and Go 1.25.
+tug needs Go 1.26. Its one dependency is go-playground/validator, for
+package `validate`; the rest is the standard library.
 
 ## Development
 

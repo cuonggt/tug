@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1, the HTTP core, and M2, Inertia pages with Vite,
-are done. `README.md` is the front door. Change the pages with the
-behaviour.
+and where it stands: M1, the HTTP core, M2, Inertia pages with Vite, and
+M3, forms and validation, are done. `README.md` is the front door. Change
+the pages with the behaviour.
 
 ## Commands
 
@@ -62,6 +62,15 @@ dev server that isn't there: delete it.
   - `pages.go`: `Page[P]`, a string type whose type parameter ties a
     component to its props, `Ctx.Inertia` and `Ctx.Location`.
     `Config.Inertia` puts the Inertia middleware inside the App's own.
+  - `forms.go`: `BindValid`/`Validate` (tags, then the handler's checks;
+    a Precognition request is answered in `precognition` and returns
+    `errAnswered`, which `adapt` keeps from the ErrorHandler),
+    `answerInvalid` (flash the errors and go `back`, or a 422), and the
+    glue between sessions and pages: `Flash`, `ClearHistory`, and
+    `pageRequest`, which hands a render the errors and flash data from the
+    session (`tug.errors`, `tug.flash`, `tug.clear_history`) and unflashes
+    what it shows. `keepFlashOnReload` reflashes before the 409 for another
+    build. `Config.Session` puts the session middleware outside Inertia's.
 - `inertia`: the v3 protocol for any net/http router, with no import of
   tug. `inertia.go` renders (HTML first visit, JSON after), and holds the
   middleware (Vary, the 409 for another build, 302 → 303) and the context
@@ -70,6 +79,15 @@ dev server that isn't there: delete it.
   and map props, the partial-reload rules (`selection.wants`), and
   concurrent resolution. `empty.go` copies whatever holds a nil slice or map
   so it goes out as `[]` or `{}`, caching which types can't hold one.
+- `session`: the cookie store, with no import of tug. AES-256-GCM with a
+  key derived by HKDF from each of `Config.Keys`, the first encrypting;
+  the cookie name is the AAD. `cookieWriter` sets the cookie when the
+  response starts. Flash: `next` is what this request flashes, `now` what
+  the one before did; values go through JSON.
+- `validate`: `Struct` over one go-playground validator that names fields
+  by json tag; `path` turns its namespace into dotted paths, and `message`
+  its tags into sentences. `Errors` is `map[string]string`, first message
+  per field.
 - `vite`: dev-server tags while the hot file exists (read on each render),
   manifest tags otherwise, `Version` from the manifest's hash, `ServeHTTP`
   for the build. No import of tug or inertia; it meets them through
@@ -82,8 +100,9 @@ dev server that isn't there: delete it.
 - `examples/inertia`: React pages on tug. `main.go` embeds `app.html` and
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
   before one). `main_test.go` runs without Node, against a fake manifest;
-  `e2e/` drives the real build in a browser. `resources/js/types.ts`
-  mirrors the Go props structs by hand.
+  `e2e/` drives the real build in a browser, in order: the later tests
+  change the posts. `resources/js/types.ts` mirrors the Go props structs
+  by hand, and tells Inertia the shared props and flash types.
 
 tug logs through `slog.Default()` and never sets it; that's the app's call.
 
@@ -94,8 +113,9 @@ tug logs through `slog.Default()` and never sets it; that's the app's call.
 - **Error text is for the person who gets it**: "age must be a whole
   number", "post not found". No Go types, and no raw errors from deep down;
   details that aren't theirs go to the log.
-- **The core stays on the standard library.** A dependency needs a reason;
-  go-playground/validator in M3 is the one planned.
+- **tug stays on the standard library.** A dependency needs a reason; the
+  one so far is go-playground/validator, behind package `validate`, which
+  is also why Go 1.26 is the minimum.
 - **The decisions in `docs/roadmap.md` are settled.** Ask before reopening
   one.
 - **Commit subjects are one line**, imperative.

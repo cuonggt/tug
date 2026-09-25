@@ -1,11 +1,11 @@
 import { Deferred, Head, Link, router } from '@inertiajs/react'
+import Layout from '../../Layout'
 import type { PostsIndexProps, Stats } from '../../types'
 
-export default function Index({ appName, posts, stats }: PostsIndexProps) {
+export default function Index({ posts, stats }: PostsIndexProps) {
   return (
-    <main>
+    <Layout>
       <Head title="Posts" />
-      <p className="brand">{appName}</p>
       <h1>Posts</h1>
       <Deferred data="stats" fallback={<p className="stats">Counting…</p>}>
         {stats && <StatsLine stats={stats} />}
@@ -17,7 +17,10 @@ export default function Index({ appName, posts, stats }: PostsIndexProps) {
           </li>
         ))}
       </ul>
-    </main>
+      <Link href="/posts/create" className="button">
+        New post
+      </Link>
+    </Layout>
   )
 }
 

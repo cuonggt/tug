@@ -40,7 +40,7 @@ func (c *Ctx) Inertia(component string, props any) error {
 	if pages == nil {
 		return errors.New("tug: rendering an Inertia page needs Config.Inertia")
 	}
-	return pages.Render(&c.rw, c.r, component, props)
+	return pages.Render(&c.rw, c.pageRequest(), component, props)
 }
 
 // Location sends the client to url with a full page load, which is how an

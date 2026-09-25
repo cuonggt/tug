@@ -3,6 +3,7 @@ package tug
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,6 +18,14 @@ type Ctx struct {
 	r     *http.Request
 	rw    rw.Writer
 	query url.Values
+
+	// body is the JSON body, once Bind has read it.
+	body []byte
+
+	// flash and clearHistory are what this request has for the next page
+	// shown; see Flash.
+	flash        map[string]any
+	clearHistory bool
 }
 
 // Request returns the request.
@@ -102,6 +111,9 @@ func (c *Ctx) NoContent(code int) error {
 // and Inertia, follow a PUT, PATCH or DELETE with a GET, where a 302 may
 // repeat the method.
 func (c *Ctx) Redirect(to string) error {
+	if (len(c.flash) > 0 || c.clearHistory) && c.Session() == nil {
+		return errors.New("tug: flash data needs Config.Session to reach the page after a redirect")
+	}
 	code := http.StatusSeeOther
 	if c.r.Method == http.MethodGet || c.r.Method == http.MethodHead {
 		code = http.StatusFound

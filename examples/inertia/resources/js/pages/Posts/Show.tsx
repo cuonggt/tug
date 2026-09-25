@@ -1,13 +1,11 @@
 import { Head, Link } from '@inertiajs/react'
+import Layout from '../../Layout'
 import type { PostsShowProps } from '../../types'
 
-export default function Show({ appName, post }: PostsShowProps) {
+export default function Show({ post }: PostsShowProps) {
   return (
-    <main>
+    <Layout>
       <Head title={post.title} />
-      <p className="brand">
-        <Link href="/">{appName}</Link> / posts
-      </p>
       <h1>{post.title}</h1>
       <p>{post.body}</p>
       <ul className="tags">
@@ -15,9 +13,14 @@ export default function Show({ appName, post }: PostsShowProps) {
           <li key={tag}>{tag}</li>
         ))}
       </ul>
-      <Link href={`/posts/${post.id}`} method="delete" as="button" className="danger">
-        Delete
-      </Link>
-    </main>
+      <p className="actions">
+        <Link href={`/posts/${post.id}/edit`} className="button">
+          Edit
+        </Link>
+        <Link href={`/posts/${post.id}`} method="delete" as="button" className="danger">
+          Delete
+        </Link>
+      </p>
+    </Layout>
   )
 }

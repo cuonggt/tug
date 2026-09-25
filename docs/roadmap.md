@@ -8,8 +8,8 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 |----|-----------------------|--------|
 | M1 | HTTP core             | done   |
 | M2 | Inertia core + Vite   | done   |
-| M3 | Forms and validation  | next   |
-| M4 | The full v3 protocol  |        |
+| M3 | Forms and validation  | done   |
+| M4 | The full v3 protocol  | next   |
 | M5 | CLI                   |        |
 | M6 | v0.1.0                |        |
 
@@ -78,19 +78,42 @@ Choices made on the way:
   `@inertiajs/vite`, which adds little without SSR. SSR will bring it in:
   its dev server answers at `/__inertia_ssr`.
 
-## M3 · Forms and validation — next
+## M3 · Forms and validation — done
 
-- Encrypted cookie sessions; flash messages through v3's `flash` field, and
-  `clearHistory` carried across a redirect.
-- Validation, go-playground/validator tags behind tug's own interface,
-  fills the `errors` prop, with error bags, and redirects back. Precognition
-  requests get 204 or 422. A `BindError` becomes a field error.
-- The CSRF 403, and other refusals by middleware, answer through the
-  ErrorHandler, so Inertia shows them as pages rather than plain text.
-- Done when a page in the example app creates, edits and deletes with live
-  validation and flash messages.
+- Package `session`: the session in a cookie, AES-256-GCM with a key derived
+  (HKDF) from `APP_KEY`, which can be rotated with `APP_PREVIOUS_KEYS`, as
+  Laravel names them. Flash data lasts one request (`Flash`, `Flashed`,
+  `Reflash`, `Unflash`), and the cookie's expiry slides with each response.
+- Package `validate`: go-playground/validator's tags, fields named by their
+  json tags and dotted paths (`lines.1.quantity`), and messages in the
+  style of the bind errors: "title must be at most 80 characters".
+- `Ctx.BindValid` and `Ctx.Validate`, with checks of the handler's own, such
+  as a title that's taken. A value that doesn't parse is a field error.
+- A form that doesn't validate goes back to its Referer (on this site) with
+  the errors flashed, under the error bag the client names; an API client
+  gets a 422 with `message` and `errors`.
+- Precognition requests are answered inside BindValid, 204 or 422, for the
+  fields named in `Precognition-Validate-Only`, and the handler stops there.
+- `Ctx.Flash` reaches the next page shown, in this request or after a
+  redirect, and only that one; a 409 for another build keeps it for the
+  reload. `Ctx.ClearHistory` survives a redirect the same way.
+- The example creates, edits and deletes posts with Inertia's `<Form>`,
+  checking each field as it's left, and shows a flash message after each.
 
-## M4 · The full v3 protocol
+Changed on the way:
+
+- The Go minimum is 1.26, not 1.25. go-playground/validator and every
+  current golang.org/x module require it, and x/crypto is one to keep up
+  to date. It's also what Go supports, with 1.27.
+- Dropped: sending the CSRF 403 through the ErrorHandler. With token-free
+  CSRF, a real user never meets it: there's no token to expire, as there is
+  behind Laravel's 419. Only a cross-site forgery does, and plain text is
+  enough for that.
+- Bind keeps a JSON body it has read, so a handler can bind twice, and binds
+  every field it can after one that doesn't parse, so the checks after it
+  see the rest.
+
+## M4 · The full v3 protocol — next
 
 Merge, prepend and deep-merge props (with `matchPropsOn` and resets), once
 props, infinite scroll with a pagination helper, rescued deferred props,
@@ -128,4 +151,5 @@ Svelte starters, background job queues.
 - No ORM in the core; apps use whatever database library they like.
 - SSR comes after v0.1 and stays optional, since it needs a JavaScript
   runtime beside the binary.
-- Go 1.25 at least, for `http.CrossOriginProtection`.
+- Go 1.26 at least: `http.CrossOriginProtection` needs 1.25, and the
+  current golang.org/x modules need 1.26.

@@ -33,6 +33,7 @@ const (
 	headerPartialComponent = "X-Inertia-Partial-Component"
 	headerPartialData      = "X-Inertia-Partial-Data"
 	headerPartialExcept    = "X-Inertia-Partial-Except"
+	headerErrorBag         = "X-Inertia-Error-Bag"
 )
 
 // Props are a page's props, by name.
@@ -47,6 +48,7 @@ type Page struct {
 	EncryptHistory bool                `json:"encryptHistory,omitempty"`
 	ClearHistory   bool                `json:"clearHistory,omitempty"`
 	DeferredProps  map[string][]string `json:"deferredProps,omitempty"`
+	Flash          map[string]any      `json:"flash,omitempty"`
 	SharedProps    []string            `json:"sharedProps,omitempty"`
 }
 
@@ -203,15 +205,30 @@ func (i *Inertia) page(r *http.Request, component string, props any) (*Page, err
 		p.EncryptHistory = on
 	}
 	p.ClearHistory, _ = r.Context().Value(clearKey).(bool)
+	p.Flash, _ = r.Context().Value(flashKey).(map[string]any)
 
 	p.Props, p.DeferredProps, err = resolve(all, selectionFor(r, component))
 	if err != nil {
 		return nil, err
 	}
 	if _, ok := p.Props["errors"]; !ok {
-		p.Props["errors"] = map[string]any{}
+		p.Props["errors"] = errorsFor(r)
 	}
 	return p, nil
+}
+
+// errorsFor is the errors prop: the validation errors in r's context, under
+// the error bag the request names, if it names one, as a page with more
+// than one form does. With no errors it's an empty object, bag or not.
+func errorsFor(r *http.Request) any {
+	errs, _ := r.Context().Value(errorsKey).(map[string]string)
+	if len(errs) == 0 {
+		return map[string]any{}
+	}
+	if bag := r.Header.Get(headerErrorBag); bag != "" {
+		return map[string]any{bag: errs}
+	}
+	return errs
 }
 
 // requestURL is the URL the browser shows for r: its path and query.
@@ -238,7 +255,7 @@ func (i *Inertia) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Method == http.MethodGet && r.Header.Get(headerVersion) != i.version {
+		if i.Stale(r) {
 			// Relative, where the protocol's example is absolute: behind a
 			// proxy that ends TLS, an absolute URL would have to guess the
 			// scheme, and window.location takes either.
@@ -253,6 +270,14 @@ func (i *Inertia) Middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Stale reports whether r is a visit from a browser running another build
+// of the frontend, which Middleware answers with a 409 that reloads the
+// page. Whatever the request before flashed is still to be shown, on the
+// page the reload fetches.
+func (i *Inertia) Stale(r *http.Request) bool {
+	return IsInertia(r) && r.Method == http.MethodGet && r.Header.Get(headerVersion) != i.version
 }
 
 // Location sends the client to url with a full page load. That's how an
@@ -307,6 +332,8 @@ const (
 	propsKey ctxKey = iota
 	encryptKey
 	clearKey
+	errorsKey
+	flashKey
 )
 
 // WithProps returns a context whose pages get props as shared props. It is
@@ -335,4 +362,18 @@ func WithEncryptHistory(ctx context.Context, on bool) context.Context {
 // the history it has encrypted, as after the session ends.
 func WithClearHistory(ctx context.Context) context.Context {
 	return context.WithValue(ctx, clearKey, true)
+}
+
+// WithErrors returns a context whose page has errs, a message for each
+// field, as its errors prop: the validation errors a form was sent back
+// with. The client shows them against the form's fields.
+func WithErrors(ctx context.Context, errs map[string]string) context.Context {
+	return context.WithValue(ctx, errorsKey, errs)
+}
+
+// WithFlash returns a context whose page carries flash as its flash data,
+// such as a message after a redirect. Unlike a prop, the client doesn't
+// keep it in history, so going back doesn't show it again.
+func WithFlash(ctx context.Context, flash map[string]any) context.Context {
+	return context.WithValue(ctx, flashKey, flash)
 }

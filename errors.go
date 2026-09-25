@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/cuonggt/tug/validate"
 )
 
 // HTTPError is an error with a status. Return one from a handler to choose
@@ -70,14 +72,22 @@ func (e *PanicError) Unwrap() error {
 	return err
 }
 
-// DefaultErrorHandler answers an error from a handler. An *HTTPError
-// chooses the status and message. Anything else is a 500 that keeps its
-// details in the log, unless Config.Debug is on. Server errors are logged
-// through slog.Default(), with the stack for a panic.
+// DefaultErrorHandler answers an error from a handler. validate.Errors go
+// back to the form they came from, as Inertia expects, or to an API client
+// as a 422 (see BindValid). An *HTTPError chooses the status and message.
+// Anything else is a 500 that keeps its details in the log, unless
+// Config.Debug is on. Server errors are logged through slog.Default(),
+// with the stack for a panic.
 //
 // The body is JSON, {"message": "..."}, when the request's Accept header
 // asks for JSON first, and plain text otherwise.
 func DefaultErrorHandler(c *Ctx, err error) {
+	var invalid validate.Errors
+	if errors.As(err, &invalid) && !c.Written() {
+		c.answerInvalid(invalid)
+		return
+	}
+
 	code, message := http.StatusInternalServerError, ""
 	var he *HTTPError
 	if errors.As(err, &he) {

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/session"
 )
 
 // Config is how an App behaves. Every field has a default, so the zero
@@ -46,6 +47,12 @@ type Config struct {
 	// With it set, every request also goes through its Middleware, inside
 	// the App's own middleware.
 	Inertia *inertia.Inertia
+
+	// Session keeps each visitor's session, for Ctx.Session. It's what
+	// carries flash data and validation errors from a request to the page
+	// after it. With it set, every request goes through its Middleware,
+	// inside the App's own middleware.
+	Session *session.Store
 }
 
 // ConfigFromEnv reads the settings a deployment sets: ADDR, or PORT as
@@ -132,6 +139,12 @@ func (a *App) freeze() {
 	if a.config.Inertia != nil {
 		h = a.config.Inertia.Middleware(h)
 	}
+	if a.config.Session != nil {
+		if a.config.Inertia != nil {
+			h = keepFlashOnReload(a.config.Inertia, h)
+		}
+		h = a.config.Session.Middleware(h)
+	}
 	a.handler = wrap(h, a.Router.mw)
 }
 
@@ -155,7 +168,7 @@ func (a *App) adapt(h HandlerFunc) http.Handler {
 				a.config.ErrorHandler(c, &PanicError{Value: v, Stack: debug.Stack()})
 			}
 		}()
-		if err := h(c); err != nil {
+		if err := h(c); err != nil && !errors.Is(err, errAnswered) {
 			a.config.ErrorHandler(c, err)
 		}
 	})
