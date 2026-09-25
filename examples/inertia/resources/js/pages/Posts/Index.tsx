@@ -1,8 +1,9 @@
 import { Deferred, Head, InfiniteScroll, Link, router } from '@inertiajs/react'
 import Layout from '../../Layout'
-import type { PostsIndexProps, Stats } from '../../types'
+import type { PageProps, Stats } from '../../tug/pages'
+import { route } from '../../tug/routes'
 
-export default function Index({ posts, stats }: PostsIndexProps) {
+export default function Index({ posts, stats }: PageProps<'Posts/Index'>) {
   return (
     <Layout>
       <Head title="Posts" />
@@ -11,7 +12,7 @@ export default function Index({ posts, stats }: PostsIndexProps) {
         {stats && <StatsLine stats={stats} />}
       </Deferred>
       <p>
-        <Link href="/posts/create" className="button">
+        <Link href={route('posts.create')} className="button">
           New post
         </Link>
       </p>
@@ -31,7 +32,7 @@ export default function Index({ posts, stats }: PostsIndexProps) {
         <ul className="posts">
           {posts.data.map((post) => (
             <li key={post.id}>
-              <Link href={`/posts/${post.id}`}>{post.title}</Link>
+              <Link href={route('posts.show', { id: post.id })}>{post.title}</Link>
             </li>
           ))}
         </ul>

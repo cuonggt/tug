@@ -2,6 +2,7 @@ package tug
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"reflect"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/internal/typegen"
 	"github.com/cuonggt/tug/session"
 )
 
@@ -245,7 +248,14 @@ func (a *App) routed(r *http.Request) bool {
 // Run serves on Config.Addr until SIGINT or SIGTERM, then shuts down
 // gracefully: it stops taking connections and waits up to
 // Config.ShutdownTimeout for the requests in flight to finish.
+//
+// Run is also where tug gen learns about the app: started by it, with
+// TUG_GEN set to a file, Run writes the TypeScript for the app's pages and
+// named routes there, and returns without serving.
 func (a *App) Run() error {
+	if path := os.Getenv("TUG_GEN"); path != "" {
+		return a.gen(path)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ln, err := net.Listen("tcp", a.config.Addr)
@@ -253,6 +263,27 @@ func (a *App) Run() error {
 		return err
 	}
 	return a.Serve(ctx, ln)
+}
+
+// gen writes tug gen's TypeScript for the app to the file at path: that of
+// the pages Page declared, the props shared with inertia.Share, and the
+// named routes.
+func (a *App) gen(path string) error {
+	in := typegen.Input{Pages: declaredPages()}
+	if a.config.ErrorPage != "" {
+		in.Pages = append(in.Pages, typegen.Page{Component: a.config.ErrorPage, Props: reflect.TypeFor[ErrorPageProps]()})
+	}
+	if a.config.Inertia != nil {
+		in.Shared = a.config.Inertia.Shared()
+	}
+	for name, rt := range a.names {
+		in.Routes = append(in.Routes, typegen.Route{Name: name, Method: rt.method, Path: rt.path})
+	}
+	data, err := json.Marshal(typegen.Generate(in))
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // Serve serves on ln until ctx is done, then shuts down as Run does. It

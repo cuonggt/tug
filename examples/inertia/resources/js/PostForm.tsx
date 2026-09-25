@@ -1,5 +1,5 @@
 import { Form } from '@inertiajs/react'
-import type { Post } from './types'
+import type { Post } from './tug/pages'
 
 interface PostFormProps {
   action: string

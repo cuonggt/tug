@@ -1,8 +1,9 @@
 import { Head, Link } from '@inertiajs/react'
 import Layout from '../../Layout'
-import type { PostsShowProps } from '../../types'
+import type { PageProps } from '../../tug/pages'
+import { route } from '../../tug/routes'
 
-export default function Show({ post }: PostsShowProps) {
+export default function Show({ post }: PageProps<'Posts/Show'>) {
   return (
     <Layout>
       <Head title={post.title} />
@@ -14,10 +15,10 @@ export default function Show({ post }: PostsShowProps) {
         ))}
       </ul>
       <p className="actions">
-        <Link href={`/posts/${post.id}/edit`} className="button">
+        <Link href={route('posts.edit', { id: post.id })} className="button">
           Edit
         </Link>
-        <Link href={`/posts/${post.id}`} method="delete" as="button" className="danger">
+        <Link href={route('posts.destroy', { id: post.id })} method="delete" as="button" className="danger">
           Delete
         </Link>
       </p>

@@ -1,19 +1,29 @@
 package tug
 
 import (
+	"cmp"
 	"errors"
+	"fmt"
+	"reflect"
+	"slices"
+	"sync"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/internal/typegen"
 )
 
 // Props are a page's props, for a page without a struct of its own.
 type Props = inertia.Props
 
-// Page is an Inertia page component, and the props it takes:
+// PageOf is an Inertia page component, and the props it takes. Page
+// declares one.
+type PageOf[P any] struct{ component string }
+
+// Page declares an Inertia page component, and the props it takes:
 //
 //	type PostsIndexProps struct {
-//		Posts []Post                      `json:"posts"`
-//		Stats inertia.DeferProp[Stats]    `json:"stats"`
+//		Posts []Post                   `json:"posts"`
+//		Stats inertia.DeferProp[Stats] `json:"stats"`
 //	}
 //
 //	var PostsIndex = tug.Page[PostsIndexProps]("Posts/Index")
@@ -23,12 +33,45 @@ type Props = inertia.Props
 //	}
 //
 // Declared this way, a page can only be rendered with the props it takes,
-// and the compiler says so when it isn't.
-type Page[P any] string
+// and tug gen writes their TypeScript, for the page component to take them
+// too. A component declared twice with different props panics.
+func Page[P any](component string) PageOf[P] {
+	declare(component, reflect.TypeFor[P]())
+	return PageOf[P]{component: component}
+}
+
+// Component returns the page's component name, as "Posts/Index".
+func (p PageOf[P]) Component() string { return p.component }
 
 // Render renders the page with props, as Ctx.Inertia does.
-func (p Page[P]) Render(c *Ctx, props P) error {
-	return c.Inertia(string(p), props)
+func (p PageOf[P]) Render(c *Ctx, props P) error {
+	return c.Inertia(p.component, props)
+}
+
+// declared are the pages Page has declared, by component.
+var declared = struct {
+	sync.Mutex
+	pages map[string]reflect.Type
+}{pages: map[string]reflect.Type{}}
+
+func declare(component string, props reflect.Type) {
+	declared.Lock()
+	defer declared.Unlock()
+	if other, ok := declared.pages[component]; ok && other != props {
+		panic(fmt.Sprintf("tug: page %q is declared twice, with props %s and %s", component, other, props))
+	}
+	declared.pages[component] = props
+}
+
+func declaredPages() []typegen.Page {
+	declared.Lock()
+	defer declared.Unlock()
+	var pages []typegen.Page
+	for component, props := range declared.pages {
+		pages = append(pages, typegen.Page{Component: component, Props: props})
+	}
+	slices.SortFunc(pages, func(a, b typegen.Page) int { return cmp.Compare(a.Component, b.Component) })
+	return pages
 }
 
 // Inertia renders an Inertia page component with props: an HTML page for a

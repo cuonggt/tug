@@ -1,0 +1,102 @@
+// Command [[ .Name ]] is a tug app: Go handlers, React pages, and Inertia in
+// between.
+//
+//	tug dev      run it, rebuilt and reloaded as it changes
+//	tug build    build it into one binary, frontend and all
+package main
+
+import (
+	"embed"
+	"io/fs"
+	"log"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/middleware"
+	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/vite"
+)
+
+//go:embed app.html
+var rootTemplate string
+
+// public is what the frontend's build writes to public/build, and anything
+// else public/ holds. The .gitkeep lets it compile before the first build.
+//
+//go:embed all:public
+var public embed.FS
+
+func main() {
+	keys, err := session.KeysFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	build, err := fs.Sub(public, "public/build")
+	if err != nil {
+		log.Fatal(err)
+	}
+	app, err := newApp(tug.ConfigFromEnv(), build, keys)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// newApp puts the app together: its pages, sessions, middleware and routes.
+func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
+	assets, err := vite.New(vite.Config{Build: build, HotFile: "public/hot"})
+	if err != nil {
+		return nil, err
+	}
+	pages, err := inertia.New(inertia.Config{
+		Template: rootTemplate,
+		Funcs:    assets.Funcs(),
+		Version:  assets.Version(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	pages.Share("appName", "[[ .Name ]]")
+	sessions, err := session.New(session.Config{Keys: keys})
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.Inertia, cfg.Session, cfg.ErrorPage = pages, sessions, "Error"
+	app := tug.New(cfg)
+	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
+	app.Get("/build/{path...}", tug.WrapHandler(assets))
+
+	app.Get("/", home).Name("home")
+	app.Post("/hello", hello).Name("hello")
+	return app, nil
+}
+
+// HomeProps are the props of the home page, resources/js/pages/Home.tsx,
+// which tug gen writes the TypeScript of.
+type HomeProps struct {
+	Greeting string `json:"greeting"`
+}
+
+var Home = tug.Page[HomeProps]("Home")
+
+func home(c *tug.Ctx) error {
+	return Home.Render(c, HomeProps{Greeting: "This page was rendered by Go at " + time.Now().Format("15:04:05") + "."})
+}
+
+// HelloInput is what the form on the home page sends.
+type HelloInput struct {
+	Name string `json:"name" validate:"required,max=40"`
+}
+
+func hello(c *tug.Ctx) error {
+	var in HelloInput
+	if err := c.BindValid(&in); err != nil {
+		return err // back to the form, with what to fix
+	}
+	c.Flash("success", "Hello, "+in.Name+"!")
+	return c.RedirectRoute("home")
+}

@@ -1,0 +1,87 @@
+:root {
+  color-scheme: light dark;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --accent: #0e7490;
+  --danger: #b91c1c;
+  --paper: #ffffff;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #22d3ee;
+    --danger: #f87171;
+    --paper: #0b1120;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+main {
+  max-width: 40rem;
+  margin: 3rem auto;
+  padding: 0 1rem;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--accent);
+}
+
+.brand,
+.hint {
+  color: var(--muted);
+}
+
+.flash {
+  padding: 0.5rem 0.8rem;
+  border-left: 4px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.form {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.form label {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.form input {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--muted);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+}
+
+.form [aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.form button {
+  justify-self: start;
+  font: inherit;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.4rem;
+  color: var(--accent);
+  background: none;
+  cursor: pointer;
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.9rem;
+}

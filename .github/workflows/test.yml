@@ -3,9 +3,11 @@
 # requests concurrently, so -race is the run that matters, and the shutdown
 # tests serve on a real port.
 #
-# Then the Inertia example end to end: the frontend type-checked and built,
-# served by its Go server, and driven in Chromium with Inertia's real
-# client. That's what catches an Inertia release that changes the protocol.
+# Then the Inertia example end to end: its TypeScript types checked against
+# the Go ones (tug gen writes them again, and they must not change), the
+# frontend type-checked and built, served by its Go server, and driven in
+# Chromium with Inertia's real client. That's what catches an Inertia
+# release that changes the protocol.
 name: test
 
 on:
@@ -34,6 +36,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
+      # The CLI's tests make a new app with tug new, npm packages and all.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - run: go vet ./...
       - name: gofmt
         run: |
@@ -61,6 +67,8 @@ jobs:
           cache: npm
           cache-dependency-path: examples/inertia/package-lock.json
       - run: npm ci
+      - name: the types are the Go ones
+        run: go run ../../cmd/tug gen && git diff --exit-code resources/js/tug
       - run: npm run typecheck
       - run: npm run build
       - run: npx playwright install --with-deps chromium

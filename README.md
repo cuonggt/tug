@@ -6,9 +6,16 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** The HTTP core, Inertia pages with Vite and the whole v3
-protocol, and forms with validation are done; the CLI is next.
-[docs/roadmap.md](docs/roadmap.md) has the plan.
+**Status: early.** The framework and its CLI are done; an auth starter, docs
+and the first release are next. [docs/roadmap.md](docs/roadmap.md) has the
+plan.
+
+```sh
+go install github.com/cuonggt/tug/cmd/tug@latest   # from a checkout, before a release: go install ./cmd/tug
+tug new blog                                        # a new app, in ./blog
+cd blog
+tug dev                                             # http://127.0.0.1:8080, rebuilt and reloaded as it changes
+```
 
 ```go
 type PostsIndexProps struct {
@@ -77,6 +84,13 @@ func showPost(c *tug.Ctx) error {
 
 ## What's here
 
+- **The CLI**, `tug`: `tug new` makes an app, ready to run, with a .env
+  and a fresh APP_KEY. `tug dev` runs it with Vite: Go is rebuilt and
+  restarted as it changes, and the browser reloaded. `tug gen` writes the
+  TypeScript of each page's props and of the named routes, with a typed
+  `route()`, so the frontend is checked against the Go. `tug build` makes
+  one static binary with the frontend in it, and the app comes with a
+  Dockerfile for a distroless image.
 - **Inertia pages** (package `inertia`), to the whole v3 protocol: a first
   visit gets HTML with the page object, later visits get JSON.
   `tug.Page[Props]` ties a component to the props it takes, and props nest

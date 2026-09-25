@@ -465,3 +465,9 @@ func WithErrors(ctx context.Context, errs map[string]string) context.Context {
 func WithFlash(ctx context.Context, flash map[string]any) context.Context {
 	return context.WithValue(ctx, flashKey, flash)
 }
+
+// Shared returns the props shared with Share, for tools such as tug gen
+// that describe them.
+func (i *Inertia) Shared() Props {
+	return maps.Clone(i.shared)
+}

@@ -133,6 +133,12 @@ func DefaultErrorHandler(c *Ctx, err error) {
 	c.String(code, message)
 }
 
+// ErrorPageProps are the props of Config.ErrorPage.
+type ErrorPageProps struct {
+	Status  int    `json:"status"`
+	Message string `json:"message"`
+}
+
 // errorPage shows an error as Config.ErrorPage, for a request that a page
 // answers: a visit from Inertia's client, or a browser's. It reports
 // whether it did.
@@ -141,7 +147,7 @@ func (c *Ctx) errorPage(code int, message string) bool {
 	if pages == nil || component == "" || wantsJSON(c.r) {
 		return false
 	}
-	err := pages.RenderStatus(&c.rw, c.pageRequest(), code, component, Props{"status": code, "message": message})
+	err := pages.RenderStatus(&c.rw, c.pageRequest(), code, component, ErrorPageProps{Status: code, Message: message})
 	if err != nil {
 		slog.ErrorContext(c.Context(), "the error page failed", "component", component, "err", err)
 	}

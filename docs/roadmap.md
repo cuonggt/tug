@@ -10,8 +10,8 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M2 | Inertia core + Vite   | done   |
 | M3 | Forms and validation  | done   |
 | M4 | The full v3 protocol  | done   |
-| M5 | CLI                   | next   |
-| M6 | v0.1.0                |        |
+| M5 | CLI                   | done   |
+| M6 | v0.1.0                | next   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -160,16 +160,53 @@ Choices made on the way:
 - Flash data carries on through a chain of redirects, as Laravel's adapter
   does: a page that only redirects shows nothing.
 
-## M5 · CLI — next
+## M5 · CLI — done
 
-`tug new` creates a project; `tug dev` runs Vite, rebuilds and restarts Go
-on changes, regenerates the TypeScript types and reloads the browser;
-`tug build` makes the single binary and a distroless Dockerfile; `tug gen`
-writes the TypeScript types and routes, which `examples/inertia` writes by
-hand in `resources/js/types.ts` until then. Done when
-`tug new blog && cd blog && tug dev` gives a running app in under a minute.
+- `tug gen` writes `resources/js/tug/pages.ts`, the props of every page that
+  `tug.Page` declares, the shared props and a `PageProps<'Component'>`
+  helper, and `routes.ts`, the named routes with a typed `route()`. A
+  route name that isn't there, or a missing `{id}`, doesn't type-check.
+- `tug new` makes an app from the starter in `cmd/tug/starter`: a page with
+  a form that checks itself, an error page, tests, a Dockerfile for a
+  distroless image, and a `.env` with a fresh APP_KEY. It installs the Go
+  and npm packages and writes the types.
+- `tug dev` reads `.env` and runs Vite and the app. On a change to Go,
+  go.mod or a template it rebuilds, writes the types again, restarts the
+  app and reloads the browser. It keeps the last good build running while
+  a build fails, and takes the next free port when 8080 is taken.
+- `tug build` writes the types, type-checks and builds the frontend, and
+  builds one static, stripped binary with it inside.
+- `examples/inertia` uses the written types and `route()`, and CI fails when
+  they're out of date with the Go.
 
-## M6 · v0.1.0
+Measured on a Mac with warm caches: `tug new blog` takes 4 to 8 seconds,
+`tug dev` serves in under a second after, and a rebuild after a change
+takes under a second. The binary of the starter is 9.6 MB.
+
+Choices made on the way:
+
+- tug gen learns the app by running it, as Laravel's route tools boot the
+  app, rather than by reading its source: route groups and prefixes only
+  exist at run time. `tug.Page` is now a function that records each page
+  and its props type, with the same call as before; `App.Run`, started
+  with TUG_GEN set to a file, writes the TypeScript there instead of
+  serving. Whatever main does before Run, it does for tug gen too.
+- The TypeScript is written from reflection on the Go types, as
+  encoding/json writes them: json tags, omitempty, embedded structs,
+  pointers as `| null`, `time.Time` as a string, and the prop types as what
+  they hold, deferred and optional ones as `?`.
+- Props shared per request (ShareFunc) have no type tug can see: an app
+  adds them to `SharedProps` in a file of its own.
+- tug dev polls for changes rather than depending on fsnotify, and tells
+  Vite to reload the browser through a file its plugin watches, which is
+  ten lines in the app's vite.config.ts.
+- The starter's templates use `[[ ]]`, so the `{{ }}` of the app's own
+  html/template, and of JSX, stay as they are.
+- A tug built from a checkout (its version is `(devel)` or a
+  pseudo-version) makes apps that build against that checkout, with a
+  `replace`; a release makes apps that require the release.
+
+## M6 · v0.1.0 — next
 
 An auth starter (login, register, logout, password reset), docs, and the
 first release.

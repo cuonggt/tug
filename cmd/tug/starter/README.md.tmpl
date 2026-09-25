@@ -1,0 +1,20 @@
+# [[ .Name ]]
+
+A [tug](https://github.com/cuonggt/tug) app: Go handlers render React pages
+through Inertia, with no API in between.
+
+```sh
+tug dev      # run it on http://127.0.0.1:8080, rebuilt and reloaded as it changes
+tug gen      # write the TypeScript of the pages' props and the routes
+tug build    # build it into one binary, frontend included
+go test ./...
+```
+
+- `main.go`: the server, its pages and routes. A page is declared with
+  `tug.Page[Props]("Name")`, and its component is
+  `resources/js/pages/Name.tsx`.
+- `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
+  isn't edited by hand; tug dev and tug build write it again.
+- `.env`: read by tug dev. `APP_KEY` encrypts the sessions, and a deployed
+  app needs one of its own, set in its environment.
+- `Dockerfile`: the app as one static binary on a distroless image.

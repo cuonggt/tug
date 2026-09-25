@@ -5,26 +5,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M4 are done, which is the HTTP core, Inertia
-pages with Vite, forms and validation, and the rest of the v3 protocol.
+and where it stands: M1 to M5 are done, which is the HTTP core, Inertia
+pages with Vite, forms and validation, the rest of the v3 protocol, and the
+CLI.
 `README.md` is the front door. Change the pages with the behaviour.
 
 ## Commands
 
 ```bash
-go test ./...                              # a few seconds, no network or Node
+go test -short ./...                       # a few seconds, no network or Node
+go test ./...                              # also makes an app with tug new: needs npm
 go test -race ./...                        # what CI runs; a server is concurrent
 go test -run '^$' -bench . -benchmem .     # tug next to ServeMux alone
 go vet ./... && gofmt -l .
 ADDR=127.0.0.1:8080 go run ./examples/api
 ```
 
-In `examples/inertia`:
+The CLI, from a checkout, and in `examples/inertia`:
 
 ```bash
+go build -o /tmp/tug ./cmd/tug            # not -trimpath: tug new finds this checkout by its own path
+/tmp/tug new /tmp/blog && cd /tmp/blog && /tmp/tug dev
+go run ../../cmd/tug gen                  # write resources/js/tug again, after changing Go types
+go run ../../cmd/tug dev                  # Vite and the app, rebuilt as it changes
 npm install
-npm run dev                                # Vite, writing public/hot while it runs
-ADDR=127.0.0.1:8080 go run .               # the Go server, from this directory
 npm run typecheck && npm run build
 npx playwright test                        # after a build; uses the installed Chrome
 ```
@@ -62,8 +66,10 @@ dev server that isn't there: delete it.
     client, unless Debug is showing a 500's details. `adapt` in app.go
     recovers handler panics into `*PanicError`, and re-panics
     `http.ErrAbortHandler`.
-  - `pages.go`: `Page[P]`, a string type whose type parameter ties a
-    component to its props, `Ctx.Inertia` and `Ctx.Location`.
+  - `pages.go`: `Page[P]`, which declares a component with its props
+    type in the registry tug gen reads (`declare`, `declaredPages`) and
+    returns a `PageOf[P]` that renders only those props, `Ctx.Inertia`
+    and `Ctx.Location`.
     `Config.Inertia` puts the Inertia middleware inside the App's own.
   - `forms.go`: `BindValid`/`Validate` (tags, then the handler's checks;
     a Precognition request is answered in `precognition` and returns
@@ -109,6 +115,22 @@ dev server that isn't there: delete it.
   template funcs.
 - `internal/rw`: the ResponseWriter wrapper that records status and size,
   and keeps Flush, Hijack, ReadFrom and `Unwrap`.
+- `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
+  values: `pages.ts` (an interface per named struct, `SharedProps`,
+  `Pages`, `PageProps`, and the `InertiaConfig` augmentation) and
+  `routes.ts` (the route table, `Params`, `route()`). The prop types are
+  found by package path and generic name (`propOf`). The app runs it: see
+  `App.gen` in app.go, reached from Run when TUG_GEN names a file, and the
+  page registry `declare`d by `tug.Page` in pages.go.
+- `cmd/tug`: the CLI, on the stdlib flag package. `gen.go` builds the app
+  into `.tug/app` and runs it with TUG_GEN; `dev.go` runs Vite and the app
+  as processes in their own groups (`proc`, `proc_unix.go`), polls for
+  changes (`watch`, `snapshot`), and touches `.tug/reload` for the
+  starter's Vite plugin to reload the browser; `build.go`; `new.go`
+  writes `starter/`, with the `.tmpl` files filled in between `[[ ]]`, and
+  finds a checkout to `replace` tug with when it isn't a release
+  (`release`, `checkoutDir`). The starter's Go files are `.tmpl` so the go
+  tool doesn't build them in place; `tug_test.go` makes a real app from it.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
 - `examples/api`: a JSON API on the core. Its tests are the end to end check.
@@ -116,8 +138,8 @@ dev server that isn't there: delete it.
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
   before one). `main_test.go` runs without Node, against a fake manifest;
   `e2e/` drives the real build in a browser, in order: the later tests
-  change the posts. `resources/js/types.ts` mirrors the Go props structs
-  by hand, and tells Inertia the shared props and flash types.
+  change the posts. `resources/js/tug` is written by tug gen and committed
+  (CI checks it's current); `resources/js/types.ts` has only the flash type.
 
 tug logs through `slog.Default()` and never sets it; that's the app's call.
 

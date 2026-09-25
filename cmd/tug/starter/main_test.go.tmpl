@@ -1,0 +1,78 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"testing/fstest"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/inertia"
+)
+
+// visitor is Inertia's client in a browser: it keeps the session cookie.
+// Its visits get JSON, so the tests run without a frontend build.
+type visitor struct {
+	t      *testing.T
+	app    *tug.App
+	cookie *http.Cookie
+}
+
+func newVisitor(t *testing.T) *visitor {
+	app, err := newApp(tug.Config{}, fstest.MapFS{}, [][]byte{bytes.Repeat([]byte{1}, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &visitor{t: t, app: app}
+}
+
+func (v *visitor) visit(method, target, body string) (int, inertia.Page) {
+	v.t.Helper()
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.Header.Set("X-Inertia", "true")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Referer", "http://example.com/")
+	if v.cookie != nil {
+		req.AddCookie(v.cookie)
+	}
+	rec := httptest.NewRecorder()
+	v.app.ServeHTTP(rec, req)
+	for _, c := range rec.Result().Cookies() {
+		v.cookie = c
+	}
+	var p inertia.Page
+	if rec.Code == http.StatusOK {
+		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+			v.t.Fatal(err)
+		}
+	}
+	return rec.Code, p
+}
+
+func TestTheHomePageGreets(t *testing.T) {
+	code, p := newVisitor(t).visit("GET", "/", "")
+	if code != 200 || p.Component != "Home" || !strings.HasPrefix(p.Props["greeting"].(string), "This page was rendered by Go") {
+		t.Fatalf("got %d %+v", code, p)
+	}
+}
+
+func TestSayingHelloWithoutANameComesBackWithWhatToFix(t *testing.T) {
+	v := newVisitor(t)
+	if code, _ := v.visit("POST", "/hello", `{"name":""}`); code != http.StatusSeeOther {
+		t.Fatalf("got %d, want to go back", code)
+	}
+	if _, p := v.visit("GET", "/", ""); p.Props["errors"].(map[string]any)["name"] != "name is required" {
+		t.Fatalf("errors %v", p.Props["errors"])
+	}
+}
+
+func TestSayingHelloIsAnsweredOnTheNextPage(t *testing.T) {
+	v := newVisitor(t)
+	v.visit("POST", "/hello", `{"name":"Ann"}`)
+	if _, p := v.visit("GET", "/", ""); p.Flash["success"] != "Hello, Ann!" {
+		t.Fatalf("flash %v", p.Flash)
+	}
+}

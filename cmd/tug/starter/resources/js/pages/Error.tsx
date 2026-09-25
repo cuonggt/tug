@@ -9,7 +9,7 @@ const titles: Record<number, string> = {
   500: 'Something went wrong',
 }
 
-// Error is the page tug's error handler shows errors with (Config.ErrorPage),
+// Error is the page tug shows errors with (Config.ErrorPage in main.go),
 // with the response's own status.
 export default function Error({ status, message }: PageProps<'Error'>) {
   const title = titles[status] ?? 'Something went wrong'
@@ -21,7 +21,7 @@ export default function Error({ status, message }: PageProps<'Error'>) {
         {status}: {message}
       </p>
       <p>
-        <Link href={route('posts.index')}>Back to the posts</Link>
+        <Link href={route('home')}>Back home</Link>
       </p>
     </Layout>
   )
