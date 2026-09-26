@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"flag"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,6 +141,14 @@ func TestNewFillsInTheStarter(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "auth.go")); err == nil {
 		t.Error("an app without -auth has auth.go")
 	}
+	for _, f := range onlySSR {
+		if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+			t.Errorf("an app without -ssr has %s", f)
+		}
+	}
+	if strings.Contains(read("main.go"), "ssr") || strings.Contains(read("package.json"), "--ssr") {
+		t.Error("an app without -ssr renders on the server")
+	}
 	env := read(".env")
 	key, _, _ := strings.Cut(strings.SplitAfter(env, "APP_KEY=base64:")[1], "\n")
 	if k, err := base64.StdEncoding.DecodeString(key); err != nil || len(k) != 32 {
@@ -195,6 +205,39 @@ func TestNewTakesItsFlagsBeforeAndAfterTheDirectory(t *testing.T) {
 	}
 }
 
+func TestNewWithSSRAddsTheAppOnTheServer(t *testing.T) {
+	for _, auth := range []bool{false, true} {
+		root := filepath.Join(t.TempDir(), "blog")
+		if err := writeStarter(root, starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Auth: auth, SSR: true}); err != nil {
+			t.Fatal(err)
+		}
+		read := func(name string) string {
+			b, err := os.ReadFile(filepath.Join(root, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(b)
+		}
+		for _, f := range onlySSR {
+			read(f)
+		}
+		for f, want := range map[string]string{
+			"main.go":        "ssr.Gateway{DevServer: assets.DevServer",
+			"package.json":   `"build": "vite build && vite build --ssr"`,
+			"vite.config.ts": "outDir: 'ssr/build'",
+			"app.html":       "{{ .InertiaHead }}",
+			"Dockerfile":     "FROM gcr.io/distroless/nodejs24-debian12",
+			".gitignore":     "/ssr/build/",
+			".dockerignore":  "ssr/build",
+			".env.example":   "SSR_URL=",
+		} {
+			if got := read(f); !strings.Contains(got, want) || strings.Contains(got, "[[") {
+				t.Errorf("auth %v: %s has no %q, or a placeholder left:\n%s", auth, f, want, got)
+			}
+		}
+	}
+}
+
 // TestANewAppBuildsAndPassesItsOwnTests makes an app of each kind as a
 // person would, with its Go modules and npm packages, and runs what it
 // comes with, the frontend's build included: type-checking doesn't run the
@@ -210,7 +253,12 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 	for _, kind := range []struct {
 		name  string
 		flags []string
-	}{{"plain", nil}, {"auth", []string{"-auth"}}} {
+	}{
+		{"plain", nil},
+		{"auth", []string{"-auth"}},
+		{"plain with SSR", []string{"-ssr"}},
+		{"auth with SSR", []string{"-auth", "-ssr"}},
+	} {
 		t.Run(kind.name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "blog")
 			if err := runNew(append([]string{dir, "-tug-dir", checkout}, kind.flags...)); err != nil {
@@ -232,6 +280,57 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(dir, "public/build/.vite/manifest.json")); err != nil {
 				t.Errorf("the build has no manifest where the server reads it: %v", err)
 			}
+			if slices.Contains(kind.flags, "-ssr") {
+				rendersOnTheServer(t, dir)
+			}
 		})
+	}
+}
+
+// rendersOnTheServer builds the app in dir, runs it as it runs deployed,
+// and checks a first visit comes back rendered on the server, by Node.
+func rendersOnTheServer(t *testing.T, dir string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(dir, "ssr/build/ssr.mjs")); err != nil {
+		t.Fatalf("the build has no SSR bundle where the server embeds it: %v", err)
+	}
+	build := exec.Command("go", "build", "-o", "app", ".")
+	build.Dir = dir
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	vars, err := readDotEnv(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	app := exec.Command(filepath.Join(dir, "app"))
+	app.Dir = dir
+	app.Env = append(append(os.Environ(), vars...), "ADDR="+addr)
+	app.Stdout, app.Stderr = &out, &out
+	if err := app.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		app.Process.Signal(os.Interrupt)
+		app.Wait()
+	}()
+
+	var page string
+	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(page, `data-server-rendered="true"`); time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no first visit came back rendered on the server; the last was\n%s\nand the app said\n%s", page, out.String())
+		}
+		if resp, err := http.Get("http://" + addr + "/"); err == nil {
+			b, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			page = string(b)
+		}
 	}
 }

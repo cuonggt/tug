@@ -72,7 +72,9 @@ server listens on 127.0.0.1:8080 unless ADDR or PORT say otherwise.
 	if err != nil {
 		return err
 	}
-	env = append(env, "ADDR="+addr)
+	// TUG_DEV tells the app that Vite's dev server is its, which renders
+	// its pages on the server too, so it needs no Node process of its own.
+	env = append(env, "ADDR="+addr, "TUG_DEV=1")
 	changes := watch(ctx, ".", 300*time.Millisecond)
 	var app *proc
 	defer func() { app.stop() }()

@@ -58,7 +58,12 @@ shadcn/ui. The code is the app's own, the handlers in `auth.go` and the
 files beside it and the database in `users.go`, to change as the app
 needs. Until `MAIL_HOST` is set, mail isn't sent: it's written out with the
 app's output in `tug dev`, links and all. [Accounts](auth.md) has the
-rest. This page goes on with the plain starter.
+rest.
+
+For pages rendered on the server, for search engines and pages that show
+before their scripts run, add `-ssr`, to either: Node renders them, beside
+the app. [Server-side rendering](ssr.md) has the rest. This page goes on
+with the plain starter.
 
 ## Run it
 

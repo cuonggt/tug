@@ -28,6 +28,9 @@ import (
 	"github.com/cuonggt/tug/middleware"
 	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/session"
+[[- if .SSR ]]
+	"github.com/cuonggt/tug/ssr"
+[[- end ]]
 	"github.com/cuonggt/tug/vite"
 )
 
@@ -43,6 +46,15 @@ var rootTemplate string
 //
 //go:embed all:public
 var public embed.FS
+[[- if .SSR ]]
+
+// ssrBuild is what `vite build --ssr` writes to ssr/build: the pages, for
+// Node to render on the server. The .gitkeep lets it compile before the
+// first build.
+//
+//go:embed all:ssr
+var ssrBuild embed.FS
+[[- end ]]
 
 func main() {
 	keys, err := session.KeysFromEnv()
@@ -53,6 +65,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+[[- if .SSR ]]
+	bundle, err := fs.Sub(ssrBuild, "ssr/build")
+	if err != nil {
+		log.Fatal(err)
+	}
+[[- end ]]
 	mailer, err := mail.FromEnv()
 	if err != nil {
 		log.Fatal(err)
@@ -69,6 +87,9 @@ func main() {
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers})
 	app, err := newApp(tug.ConfigFromEnv(), env{
 		Build: build, Keys: keys, DB: db, Mailer: mailer, URL: os.Getenv("APP_URL"), Queue: q,
+[[- if .SSR ]]
+		SSR: bundle,
+[[- end ]]
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -100,6 +121,12 @@ type env struct {
 	// Queue is where the app pushes its background jobs, its mail, and what
 	// runs them: main runs it beside the server, and the tests on its own.
 	Queue *queue.Queue
+[[- if .SSR ]]
+
+	// SSR is the SSR build: the pages, for Node to render on the server.
+	// Without it, as in the tests, they render in the browser alone.
+	SSR fs.FS
+[[- end ]]
 }
 
 // app is what the handlers share.
@@ -137,6 +164,13 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	if err != nil {
 		return nil, err
 	}
+[[- if .SSR ]]
+	// A first visit's page renders on the server: through Vite's dev server
+	// under tug dev, and otherwise through Node, which runs the SSR bundle
+	// beside the app, or the SSR server at SSR_URL. Without them, as before
+	// the first build, it renders in the browser alone, as later visits do.
+	server := &ssr.Server{Bundle: e.SSR, Node: os.Getenv("SSR_NODE")}
+[[- end ]]
 	pages, err := inertia.New(inertia.Config{
 		Template: rootTemplate,
 		Funcs:    assets.Funcs(),
@@ -145,6 +179,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		// that logging out throws away, so the next person at the browser
 		// can't go Back to the last one's.
 		EncryptHistory: true,
+[[- if .SSR ]]
+		SSR:            &ssr.Gateway{DevServer: assets.DevServer, Server: server, URL: os.Getenv("SSR_URL")},
+[[- end ]]
 	})
 	if err != nil {
 		return nil, err
@@ -192,6 +229,11 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	cfg.Inertia, cfg.Session, cfg.ErrorPage = pages, sessions, "Error"
 	app := tug.New(cfg)
 	a.routes = app
+[[- if .SSR ]]
+	if os.Getenv("TUG_DEV") == "" && os.Getenv("SSR_URL") == "" {
+		app.Go(server.Run)
+	}
+[[- end ]]
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 	app.Get("/up", a.up)

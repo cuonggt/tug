@@ -5,13 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M9 are done, which is the HTTP core, Inertia
+and where it stands: M1 to M10 are done, which is the HTTP core, Inertia
 pages with Vite, forms and validation, the rest of the v3 protocol, the
 CLI, v0.1.0 (the auth starter and the guide), the auth starter made whole
 (v0.2.0): email verification, remember me, password confirmation,
 two-factor logins, settings, and a Tailwind and shadcn/ui frontend, and
 background jobs (v0.3.0): package `queue`, which the auth starter sends
-its mail with, and jobs on a schedule (v0.4.0).
+its mail with, jobs on a schedule (v0.4.0), and server-side rendering:
+package `ssr`, with Node beside the app, and `tug new -ssr`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -99,7 +100,9 @@ dev server that isn't there: delete it.
     `Config.Session` puts the session middleware outside Inertia's.
 - `inertia`: the v3 protocol for any net/http router, with no import of
   tug. `inertia.go` renders (HTML first visit, JSON after, `RenderStatus`
-  for other statuses), and holds the middleware (Vary, the 409 for another
+  for other statuses; a first visit asks `Config.SSR`, a `Renderer`, for
+  the page's head and body, and keeps the browser's when it has none or
+  fails, which it logs; `WithoutSSR` skips it), and holds the middleware (Vary, the 409 for another
   build, and `redirects`: 302 → 303, and a redirect to a #fragment → 409
   with X-Inertia-Redirect) and the context helpers. `props.go` has the
   prop types: generic structs, each with its `behavior` (first load,
@@ -128,8 +131,8 @@ dev server that isn't there: delete it.
   per field.
 - `vite`: dev-server tags while the hot file exists (read on each render),
   manifest tags otherwise, `Version` from the manifest's hash, `ServeHTTP`
-  for the build. No import of tug or inertia; it meets them through
-  template funcs.
+  for the build, and `DevServer`, the dev server's URL, for package ssr.
+  No import of tug or inertia; it meets them through template funcs.
 - `internal/rw`: the ResponseWriter wrapper that records status and size,
   and keeps Flush, Hijack, ReadFrom and `Unwrap`.
 - `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
@@ -148,12 +151,19 @@ dev server that isn't there: delete it.
   files replace the ones of the same name), with the `.tmpl` files filled
   in between `[[ ]]` (two brackets in Go, as `OptionalProp[[]string]`,
   are written by a placeholder, `[[ "[[" ]]`); `notInAuth` lists the plain
-  starter's files an auth app leaves out. An app requires the tug that
-  made it when that's a release or was fetched by the go command
-  (`release`, `fetched`: the build's module checksum), and otherwise
-  `replace`s it with the checkout it was built from (`checkoutDir`). The starters' Go files are `.tmpl` so
-  the go tool doesn't build them in place; `tug_test.go` makes a real app
-  of each kind. The auth starter's handlers are in `auth.go.tmpl` (who's
+  starter's files an auth app leaves out, and `onlySSR` those only an app
+  with `-ssr` has. `-ssr` is `[[ if .SSR ]]` in the templates, written
+  `[[- if ]]` before an indented line, as `-]]` would eat its indent.
+  `tug dev` gives the app `TUG_DEV=1`, so an SSR app leaves rendering to
+  Vite. An app requires the tug that made it when that's a release or was
+  fetched by the go command (`release`, `fetched`: the build's module
+  checksum), and otherwise `replace`s it with the checkout it was built
+  from (`checkoutDir`). The starters' Go files are `.tmpl` so the go tool
+  doesn't build them in place; `tug_test.go` makes a real app of each
+  kind, and runs an SSR one's binary for a page rendered on the server.
+  Both starters make their app in `resources/js/inertia.tsx`
+  (`createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
+  server's, call. The auth starter's handlers are in `auth.go.tmpl` (who's
   logged in, and the wrappers `usersOnly`, `verified`,
   `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
   `twofactor.go.tmpl` and `settings.go.tmpl`, its mail in `mail.go.tmpl`,
@@ -190,6 +200,16 @@ dev server that isn't there: delete it.
   tries at the same moment can't all get in.
 - `mail`: `Message`, `SMTP` on net/smtp (STARTTLS, TLS on 465, deadlines
   from the context), `Log`, which writes mail out, and `FromEnv`.
+- `ssr`: server-side rendering through Inertia's own SSR, with no import of
+  tug. `ssr.go`: `Gateway`, an `inertia.Renderer`: the dev server's
+  `/__inertia_ssr` while it runs, otherwise `URL` (SSR_URL) or `Server`'s
+  `/render`; no server, or a dev server still loading (`null`), renders
+  nothing, and Inertia's error JSON becomes the error (`failure`).
+  `server.go`: `Server.Run`, for `App.Go`, copies the embedded bundle to a
+  temp dir, runs Node with `SSR_PORT` on a free port, waits for `/health`,
+  starts it again with a growing wait, and stops it with the app;
+  `proc_linux.go` has Linux stop it if the app dies. Its tests run a fake
+  bundle in real Node.
 - `queue`: background jobs, with no import of tug and no idea where jobs
   are kept. `store.go`: `Job` and `Store`, whose Done, Retry and Fail act
   only for the claim that holds a job, told apart by its `Attempts`.

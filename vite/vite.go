@@ -92,10 +92,11 @@ func New(cfg Config) (*Vite, error) {
 // build. It's what inertia.Config.Version wants.
 func (v *Vite) Version() string { return v.version }
 
-// devServer returns the dev server's URL while it runs, and "" otherwise.
-// It reads the hot file each time, so the dev server can start and stop
-// while the Go server runs.
-func (v *Vite) devServer() string {
+// DevServer returns the dev server's URL while it runs, and "" otherwise,
+// for what else the dev server does, such as package ssr's rendering. It
+// reads the hot file each time, so the dev server can start and stop while
+// the Go server runs.
+func (v *Vite) DevServer() string {
 	if v.hotFile == "" {
 		return ""
 	}
@@ -112,7 +113,7 @@ func (v *Vite) devServer() string {
 // Otherwise they load the built files, with each entry's CSS and that of
 // the chunks it imports, and preload those chunks.
 func (v *Vite) Tags(entries ...string) (template.HTML, error) {
-	if dev := v.devServer(); dev != "" {
+	if dev := v.DevServer(); dev != "" {
 		var b strings.Builder
 		fmt.Fprintf(&b, `<script type="module" src="%s"></script>`, html.EscapeString(dev+"/@vite/client"))
 		for _, e := range entries {
@@ -197,7 +198,7 @@ func isCSS(path string) bool {
 // the first script while the dev server runs, without which React
 // components don't hot reload. For a build it's empty.
 func (v *Vite) ReactRefresh() template.HTML {
-	dev := v.devServer()
+	dev := v.DevServer()
 	if dev == "" {
 		return ""
 	}

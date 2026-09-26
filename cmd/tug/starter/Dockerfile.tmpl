@@ -1,5 +1,10 @@
+[[ if .SSR -]]
+# The app as one static binary, frontend and SSR bundle included, on an
+# image with Node, which renders the pages on the server beside it.
+[[ else -]]
 # The app as one static binary, frontend included, on an image with nothing
 # else in it.
+[[ end -]]
 #
 #   docker build -t app . && docker run -p 8080:8080 -e APP_KEY=... app
 
@@ -16,9 +21,17 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/public/build public/build
+[[ if .SSR -]]
+COPY --from=frontend /app/ssr/build ssr/build
+[[ end -]]
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
 
+[[ if .SSR -]]
+FROM gcr.io/distroless/nodejs24-debian12
+ENV SSR_NODE=/nodejs/bin/node
+[[ else -]]
 FROM gcr.io/distroless/static-debian12
+[[ end -]]
 COPY --from=server /server /server
 # The app listens on :8080, or on the PORT a platform sets.
 EXPOSE 8080

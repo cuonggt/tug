@@ -13,16 +13,18 @@ has the rest of the detail.
    middleware, `Ctx`, binding requests, and errors.
 3. [Pages](pages.md): Inertia pages and their props, the props worked out
    later, shared props, redirects, error pages, and Vite.
-4. [Forms and sessions](forms.md): validation, forms that check each field
+4. [Server-side rendering](ssr.md): pages rendered on the server for a
+   first visit, by Node beside the app, and package `ssr`.
+5. [Forms and sessions](forms.md): validation, forms that check each field
    as it's left, flash messages, sessions, and CSRF.
-5. [Accounts](auth.md): the auth starter, and packages `auth` and `mail`.
-6. [Background jobs](jobs.md): package `queue`, for work that outlasts the
+6. [Accounts](auth.md): the auth starter, and packages `auth` and `mail`.
+7. [Background jobs](jobs.md): package `queue`, for work that outlasts the
    request, and runs again when it fails, or runs on a schedule.
-7. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
-8. [Deployment](deployment.md): one binary, the Dockerfile, and the
+8. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
+9. [Deployment](deployment.md): one binary, the Dockerfile, and the
    environment.
-9. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen` and `tug build`, in
-   full.
+10. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen` and `tug build`, in
+    full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,
 and what comes next.

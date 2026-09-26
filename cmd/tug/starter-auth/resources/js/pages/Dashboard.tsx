@@ -7,7 +7,10 @@ import { route } from '@/tug/routes'
 // Dashboard is for users who've verified their email: its route in main.go
 // wraps it in usersOnly and verified, and its handler is handed the user.
 export default function Dashboard({ user }: PageProps<'Dashboard'>) {
-  const since = new Date(user.createdAt).toLocaleDateString(undefined, { dateStyle: 'long' })
+  // In a language and zone of its own, so the date reads the same rendered
+  // on the server as in a browser, whose own may differ, and a page
+  // rendered on the server hydrates as it came.
+  const since = new Date(user.createdAt).toLocaleDateString('en-US', { dateStyle: 'long', timeZone: 'UTC' })
   const code = 'font-mono text-foreground'
   return (
     <>

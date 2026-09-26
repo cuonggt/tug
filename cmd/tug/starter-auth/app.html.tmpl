@@ -3,6 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+[[- if .SSR ]]
+    {{/* What the page rendered on the server puts in the head, its own
+         <title> first: the one after it is for a page without one. */}}
+    {{ .InertiaHead }}
+[[- end ]]
     <title data-inertia>[[ .Name ]]</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23171717'/%3E%3C/svg%3E">
     {{/* Light or dark before the page paints, rather than a flash of the

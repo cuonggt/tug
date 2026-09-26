@@ -137,6 +137,14 @@ app that runs: a session one copy writes, another reads.
 `ADDR` wins over `PORT`. The Dockerfiles set neither, so the app listens on
 `:8080`, or on the `PORT` that a platform such as Cloud Run sets.
 
+An app with server-side rendering, `tug new -ssr`, reads these as well
+([ssr.md](ssr.md)):
+
+| Variable   | What it does | Default | Read by |
+|------------|--------------|---------|---------|
+| `SSR_NODE` | The Node that renders pages on the server, beside the app. | the `node` on `PATH`, and `/nodejs/bin/node` in its image | its `main.go` |
+| `SSR_URL`  | An SSR server run apart, such as `http://127.0.0.1:13714`, to render pages with, in place of a Node of the app's own. | none | its `main.go` |
+
 ## The Dockerfile
 
 The plain starter's:
@@ -216,7 +224,13 @@ owner and all. A directory of the host's, mounted with
 `-v /srv/blog:/data`, keeps the host's owner: make it writable by 65532.
 
 The SQLite driver is modernc.org/sqlite, in pure Go, so the binary is
-still static. Running the image:
+still static.
+
+With server-side rendering, the frontend stage's `npm run build` writes the
+SSR build to `ssr/build` too, which the Go stage copies in, to embed, and
+the image is `gcr.io/distroless/nodejs24-debian12`, which has Node, at
+`/nodejs/bin/node`, as `SSR_NODE` says. The binary is still static; Node is
+there for it to run. Running the image:
 
 ```sh
 docker run -p 8080:8080 -v blog-data:/data \
@@ -323,8 +337,9 @@ gives the ones running 10 seconds, its `Grace`, alongside the requests'
 `ShutdownTimeout`. A job still running after that is put back, and runs at
 the next start. So shutting down takes as long as the longer of the two,
 and a moment more to put jobs back: keep it under the platform's grace
-period.
-[jobs.md](jobs.md) has the rest.
+period. [jobs.md](jobs.md) has the rest. The Node of an app with
+server-side rendering stops the same way, with the renders it has, and
+five seconds to.
 
 ## Health checks
 

@@ -109,6 +109,12 @@ func showPost(c *tug.Ctx) error {
   - **Error pages:** errors show as a page (`Config.ErrorPage`) with their
     own status.
   - **Empty lists:** nil slices go out as `[]`, never `null`.
+- **Server-side rendering** (package `ssr`), when an app wants it, as
+  `tug new -ssr` makes one: a first visit's page comes with its HTML, for
+  search engines and pages that show before their scripts run, rendered by
+  Inertia's own SSR in Node, which the app runs beside it, from the SSR
+  build it embeds. Without Node, pages render in the browser, as they
+  would anyway.
 - **Forms**: `c.BindValid` binds and checks a request by `validate` tags
   (package `validate`, go-playground/validator's rules) and checks of the
   handler's own. A form that doesn't validate goes back with its errors in

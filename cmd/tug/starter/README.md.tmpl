@@ -13,8 +13,21 @@ go test ./...
 - `main.go`: the server, its pages and routes. A page is declared with
   `tug.Page[Props]("Name")`, and its component is
   `resources/js/pages/Name.tsx`.
+- `resources/js/app.tsx`: the app in the browser, which `inertia.tsx`
+[[- if .SSR ]]
+  makes, and `ssr.tsx`, the app on the server. A first visit's page
+  renders there first, with Node, which the app runs beside it from the
+  SSR build in `ssr/build`; under tug dev, Vite renders it.
+[[- else ]]
+  makes.
+[[- end ]]
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions, and a deployed
   app needs one of its own, set in its environment.
+[[ if .SSR -]]
+- `Dockerfile`: the app as one static binary on a distroless image with
+  Node, for the pages it renders on the server.
+[[- else -]]
 - `Dockerfile`: the app as one static binary on a distroless image.
+[[- end ]]

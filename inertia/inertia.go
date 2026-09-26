@@ -72,8 +72,14 @@ type TemplateData struct {
 	Page *Page
 
 	// Inertia is the page object and the element the app mounts in, to put
-	// in the body: {{ .Inertia }}.
+	// in the body: {{ .Inertia }}. With Config.SSR, the element has the
+	// page's HTML in it already.
 	Inertia template.HTML
+
+	// InertiaHead is what a page rendered on the server puts in the head,
+	// such as its <title>: {{ .InertiaHead }}. It's empty without
+	// Config.SSR, or for a page rendered in the browser.
+	InertiaHead template.HTML
 }
 
 // Config is how pages are rendered.
@@ -94,6 +100,28 @@ type Config struct {
 	// browser's history, so they can't be read back after the session
 	// ends. WithEncryptHistory changes it for one request.
 	EncryptHistory bool
+
+	// SSR renders first visits on the server, when it's set, as package
+	// ssr's Gateway does, through Inertia's own server-side rendering in
+	// Node, so the page's HTML is there before its scripts run. A page it
+	// doesn't render goes out to be rendered in the browser, as it would
+	// without it. WithoutSSR skips it for a request.
+	SSR Renderer
+}
+
+// A Renderer renders a page on the server, for a first visit: the page
+// object, as JSON, in, and its head and body out. A Rendered with no Body
+// and no error is a page it didn't render, as while its server starts, and
+// an error one it failed to, which is logged; either way, the page renders
+// in the browser.
+type Renderer interface {
+	Render(ctx context.Context, page []byte) (Rendered, error)
+}
+
+// Rendered is a page rendered on the server.
+type Rendered struct {
+	Head []string // tags for the head, such as the page's <title>
+	Body string   // the page object, and the element the app mounts in, with its HTML
 }
 
 // Inertia renders pages.
@@ -101,6 +129,7 @@ type Inertia struct {
 	tmpl        *template.Template
 	version     string
 	encrypt     bool
+	ssr         Renderer
 	shared      Props
 	sharedFuncs []func(r *http.Request) Props
 }
@@ -114,7 +143,7 @@ func New(cfg Config) (*Inertia, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inertia: root template: %w", err)
 	}
-	return &Inertia{tmpl: tmpl, version: cfg.Version, encrypt: cfg.EncryptHistory, shared: Props{}}, nil
+	return &Inertia{tmpl: tmpl, version: cfg.Version, encrypt: cfg.EncryptHistory, ssr: cfg.SSR, shared: Props{}}, nil
 }
 
 // Share adds a prop that every page gets, such as the app's name. A page's
@@ -173,11 +202,21 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 	if err != nil {
 		return err
 	}
-	var buf bytes.Buffer
-	err = i.tmpl.Execute(&buf, TemplateData{
+	td := TemplateData{
 		Page:    page,
 		Inertia: template.HTML(`<script data-page="app" type="application/json">` + string(data) + `</script><div id="app"></div>`),
-	})
+	}
+	if i.ssr != nil && !skipsSSR(r.Context()) {
+		rendered, err := i.ssr.Render(r.Context(), data)
+		switch {
+		case err != nil:
+			slog.WarnContext(r.Context(), "inertia: a page wasn't rendered on the server, so it renders in the browser", "component", component, "err", err)
+		case rendered.Body != "":
+			td.Inertia, td.InertiaHead = template.HTML(rendered.Body), template.HTML(strings.Join(rendered.Head, "\n"))
+		}
+	}
+	var buf bytes.Buffer
+	err = i.tmpl.Execute(&buf, td)
 	if err != nil {
 		return fmt.Errorf("inertia: root template: %w", err)
 	}
@@ -415,7 +454,20 @@ const (
 	errorsKey
 	flashKey
 	fragmentKey
+	noSSRKey
 )
+
+// WithoutSSR returns a context whose pages render in the browser, even
+// with Config.SSR: for pages that gain little from it, such as those behind
+// a login, which no search engine sees.
+func WithoutSSR(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noSSRKey, true)
+}
+
+func skipsSSR(ctx context.Context) bool {
+	skip, _ := ctx.Value(noSSRKey).(bool)
+	return skip
+}
 
 // WithPreserveFragment returns a context whose page tells the client to
 // keep the #fragment the visit had, across the redirect that brought it

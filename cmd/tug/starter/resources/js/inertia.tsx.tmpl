@@ -1,0 +1,23 @@
+import { createInertiaApp, type ResolvedComponent } from '@inertiajs/react'
+import '../css/app.css'
+
+// Each page is its own chunk, loaded when a visit needs it. The Go server's
+// root template loads the first page's alongside app.tsx.
+const pages = import.meta.glob<{ default: ResolvedComponent }>('./pages/**/*.tsx')
+
+// createApp makes the app. In the browser, app.tsx's call renders the page,
+// or takes over the HTML the server rendered of it; on the server, with
+// server-side rendering, ssr.tsx's returns what renders a page to HTML.
+export function createApp() {
+  return createInertiaApp({
+    title: (title) => (title ? `${title} · [[ .Name ]]` : '[[ .Name ]]'),
+    resolve: async (name) => {
+      const load = pages[`./pages/${name}.tsx`]
+      if (!load) {
+        throw new Error(`There's no page component at resources/js/pages/${name}.tsx`)
+      }
+      return (await load()).default
+    },
+    progress: { color: '#0e7490' },
+  })
+}

@@ -9,12 +9,18 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+[[- if .SSR ]]
+	"os"
+[[- end ]]
 	"time"
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/middleware"
 	"github.com/cuonggt/tug/session"
+[[- if .SSR ]]
+	"github.com/cuonggt/tug/ssr"
+[[- end ]]
 	"github.com/cuonggt/tug/vite"
 )
 
@@ -26,6 +32,15 @@ var rootTemplate string
 //
 //go:embed all:public
 var public embed.FS
+[[- if .SSR ]]
+
+// ssrBuild is what `vite build --ssr` writes to ssr/build: the pages, for
+// Node to render on the server. The .gitkeep lets it compile before the
+// first build.
+//
+//go:embed all:ssr
+var ssrBuild embed.FS
+[[- end ]]
 
 func main() {
 	keys, err := session.KeysFromEnv()
@@ -36,7 +51,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+[[- if .SSR ]]
+	bundle, err := fs.Sub(ssrBuild, "ssr/build")
+	if err != nil {
+		log.Fatal(err)
+	}
+	app, err := newApp(tug.ConfigFromEnv(), build, keys, bundle)
+[[- else ]]
 	app, err := newApp(tug.ConfigFromEnv(), build, keys)
+[[- end ]]
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,15 +69,31 @@ func main() {
 }
 
 // newApp puts the app together: its pages, sessions, middleware and routes.
+[[- if .SSR ]]
+// Its pages render on the server with bundle, the SSR build, as well as in
+// the browser.
+func newApp(cfg tug.Config, build fs.FS, keys [][]byte, bundle fs.FS) (*tug.App, error) {
+[[- else ]]
 func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
+[[- end ]]
 	assets, err := vite.New(vite.Config{Build: build, HotFile: "public/hot"})
 	if err != nil {
 		return nil, err
 	}
+[[- if .SSR ]]
+	// A first visit's page renders on the server: through Vite's dev server
+	// under tug dev, and otherwise through Node, which runs the SSR bundle
+	// beside the app, or the SSR server at SSR_URL. Without them, as before
+	// the first build, it renders in the browser alone, as later visits do.
+	server := &ssr.Server{Bundle: bundle, Node: os.Getenv("SSR_NODE")}
+[[- end ]]
 	pages, err := inertia.New(inertia.Config{
 		Template: rootTemplate,
 		Funcs:    assets.Funcs(),
 		Version:  assets.Version(),
+[[- if .SSR ]]
+		SSR:      &ssr.Gateway{DevServer: assets.DevServer, Server: server, URL: os.Getenv("SSR_URL")},
+[[- end ]]
 	})
 	if err != nil {
 		return nil, err
@@ -67,6 +106,11 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 
 	cfg.Inertia, cfg.Session, cfg.ErrorPage = pages, sessions, "Error"
 	app := tug.New(cfg)
+[[- if .SSR ]]
+	if os.Getenv("TUG_DEV") == "" && os.Getenv("SSR_URL") == "" {
+		app.Go(server.Run)
+	}
+[[- end ]]
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 

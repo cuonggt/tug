@@ -43,13 +43,15 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 ```
 
 `assets` loads the frontend, from `build` or the dev server: see
-[Vite](#vite). `inertia.Config` has four fields:
+[Vite](#vite). `inertia.Config` has five fields:
 
 - `Template` is the root template, in html/template syntax. `New` fails
   when it's empty or doesn't parse.
 - `Funcs` are its functions, such as `vite` and `viteReactRefresh`.
 - `Version` names the frontend build ([A new build](#a-new-build)).
 - `EncryptHistory` is under [History encryption](#history-encryption).
+- `SSR` renders first visits on the server, when it's set:
+  [ssr.md](ssr.md).
 
 With `Config.Inertia` set, `c.Inertia` and `Page.Render` render with it,
 and every request goes through its middleware, inside the App's own.
@@ -76,7 +78,10 @@ a redirect ([forms.md](forms.md)). The root template, `app.html`:
 `<div id="app">` the app mounts in. encoding/json escapes `<`, `>` and `&`,
 so no prop can close the script element early. `.Page` is the
 `*inertia.Page` being rendered; here `vite` loads its component's script
-with the app's, so a first visit fetches both at once.
+with the app's, so a first visit fetches both at once. With server-side
+rendering, the `<div id="app">` has the page's HTML in it, and
+`{{ .InertiaHead }}`, in the head, has the tags of its `<Head>`, its
+`<title>` first: [ssr.md](ssr.md).
 
 ## Declaring and rendering pages
 

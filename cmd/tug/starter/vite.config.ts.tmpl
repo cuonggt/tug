@@ -1,4 +1,7 @@
 import fs from 'node:fs'
+[[- if .SSR ]]
+import inertia from '@inertiajs/vite'
+[[- end ]]
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 
@@ -6,6 +9,34 @@ const devServer = 'http://localhost:5173'
 
 // The Go server serves the build from public/build under /build/, and
 // finds the dev server through public/hot.
+[[- if .SSR ]]
+// `vite build --ssr` builds ssr.tsx into ssr/build, which the Go server
+// embeds, and runs with Node to render pages on the server; under tug dev,
+// @inertiajs/vite has the dev server render them.
+export default defineConfig(({ command, isSsrBuild }) => ({
+  base: command === 'build' ? '/build/' : '/',
+  // public/ is the Go server's to serve; the build goes inside it.
+  publicDir: false,
+  plugins: [react(), inertia({ ssr: { sourcemap: false } }), tug()],
+  build: isSsrBuild
+    ? {
+        outDir: 'ssr/build',
+        emptyOutDir: true,
+        rolldownOptions: {
+          input: 'resources/js/ssr.tsx',
+          output: { entryFileNames: '[name].mjs', chunkFileNames: '[name]-[hash].mjs' },
+        },
+      }
+    : {
+        manifest: true,
+        outDir: 'public/build',
+        emptyOutDir: true,
+        rolldownOptions: { input: 'resources/js/app.tsx' },
+      },
+  // The SSR bundle takes its packages with it, to run where node_modules
+  // isn't, as in the app's image.
+  ssr: isSsrBuild ? { noExternal: true } : undefined,
+[[- else ]]
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/build/' : '/',
   // public/ is the Go server's to serve; the build goes inside it.
@@ -17,6 +48,7 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true,
     rolldownOptions: { input: 'resources/js/app.tsx' },
   },
+[[- end ]]
   server: {
     port: 5173,
     strictPort: true,

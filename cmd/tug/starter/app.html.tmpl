@@ -3,6 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+[[- if .SSR ]]
+    {{/* What the page rendered on the server puts in the head, its own
+         <title> first: the one after it is for a page without one. */}}
+    {{ .InertiaHead }}
+[[- end ]]
     <title data-inertia>[[ .Name ]]</title>
     <link rel="icon" href="data:,">
     {{ viteReactRefresh }}

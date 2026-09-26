@@ -32,7 +32,14 @@ go test ./...
   does every night. `QUEUE_WORKERS` is how many run at once.
 - `resources/js`: React with Tailwind and [shadcn/ui](https://ui.shadcn.com)
   components, which `npx shadcn@latest add` adds more of. The layouts are
-  in `layouts/`, and `app.tsx` says which page has which.
+  in `layouts/`, and `inertia.tsx`, which makes the app, says which page
+  has which.
+[[- if .SSR ]] `app.tsx` is the app in the browser, and `ssr.tsx`
+  the app on the server: a first visit's page renders there first, with
+  Node, which the app runs beside it from the SSR build in `ssr/build`,
+  or under tug dev, with Vite.
+[[- else ]] `app.tsx` is the app in the browser.
+[[- end ]]
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions and two-factor
@@ -40,5 +47,11 @@ go test ./...
   own, set in its environment, with `APP_URL`, its own address, and
   `MAIL_HOST` and the rest of `.env.example` for its mail. In development,
   mail is written out where tug dev shows it, links and all.
+[[ if .SSR -]]
+- `Dockerfile`: the app as one static binary on a distroless image with
+  Node, for the pages it renders on the server, and the database on a
+  volume.
+[[- else -]]
 - `Dockerfile`: the app as one static binary on a distroless image, with
   the database on a volume.
+[[- end ]]

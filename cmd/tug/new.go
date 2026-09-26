@@ -34,12 +34,17 @@ var starters embed.FS
 // Layout.tsx's place.
 var notInAuth = []string{"resources/js/Layout.tsx"}
 
+// onlySSR are the files that only an app with -ssr has: the app on the
+// server, and the directory its build goes in.
+var onlySSR = []string{"resources/js/ssr.tsx", "ssr/.gitkeep"}
+
 type starterData struct {
 	Name       string // the directory's name
 	Module     string // the Go module path
 	TugVersion string // the tug module version go.mod requires
 	TugDir     string // a tug checkout go.mod replaces it with, when tug isn't a release
 	Auth       bool   // with accounts: starter-auth over starter
+	SSR        bool   // with pages rendered on the server too
 }
 
 func runNew(args []string) error {
@@ -48,6 +53,7 @@ func runNew(args []string) error {
 	tugDir := flags.String("tug-dir", "", "a checkout of tug to build the app against, rather than a release")
 	noInstall := flags.Bool("no-install", false, "don't install the app's packages or write its types")
 	withAuth := flags.Bool("auth", false, "with accounts: registering, verifying an email, logging in with two factors, resetting a password, and settings, with the users in SQLite")
+	withSSR := flags.Bool("ssr", false, "with server-side rendering: a first visit's page renders on the server too, with Node, which runs beside the app")
 	flags.Usage = func() {
 		fmt.Fprint(flags.Output(), `usage: tug new [flags] <dir>
 
@@ -56,9 +62,10 @@ checks itself, a React frontend built by Vite, and a .env with a fresh
 APP_KEY. With -auth, people register for accounts and verify their email,
 log in, with a code from their phone too if they like, reset a forgotten
 password by email, and change their profile, password and appearance in
-settings; its frontend has Tailwind and shadcn/ui. Then it installs the Go
-and frontend packages and writes the TypeScript types, so that "tug dev"
-runs it.
+settings; its frontend has Tailwind and shadcn/ui. With -ssr, a first
+visit's page is rendered on the server as well as in the browser, by Node
+running beside the app. Then it installs the Go and frontend packages and
+writes the TypeScript types, so that "tug dev" runs it.
 
 `)
 		flags.PrintDefaults()
@@ -90,7 +97,7 @@ runs it.
 	if entries, err := os.ReadDir(abs); err == nil && len(entries) > 0 {
 		return fmt.Errorf("%s isn't empty: tug new makes a directory of its own", dir)
 	}
-	data := starterData{Name: filepath.Base(abs), Module: *module, Auth: *withAuth}
+	data := starterData{Name: filepath.Base(abs), Module: *module, Auth: *withAuth, SSR: *withSSR}
 	if data.Module == "" {
 		data.Module = data.Name
 	}
@@ -205,6 +212,11 @@ func writeStarter(root string, data starterData) error {
 	}
 	if data.Auth {
 		for _, rel := range notInAuth {
+			delete(files, rel)
+		}
+	}
+	if !data.SSR {
+		for _, rel := range onlySSR {
 			delete(files, rel)
 		}
 	}

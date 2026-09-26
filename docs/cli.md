@@ -75,6 +75,8 @@ tug new [flags] <dir>
   with a second factor if the user likes, resetting a password by email,
   and settings, with the users in SQLite and a frontend of Tailwind and
   shadcn/ui.
+- `-ssr`: with server-side rendering: a first visit's page is rendered on
+  the server as well as in the browser, by Node, which runs beside the app.
 - `-module path`: the app's Go module path. Default: the directory's name.
 - `-no-install`: don't install the app's packages or write its types.
 - `-tug-dir dir`: a checkout of tug to build the app against, rather than
@@ -111,6 +113,12 @@ auth starter's own: `main.go`, `main_test.go`, `app.html`, `package.json`,
 `vite.config.ts`, `tsconfig.json`, `app.tsx`, `app.css`, the pages it has,
 `Dockerfile`, `.env.example`, `.gitignore`, `.dockerignore` and
 `README.md`. [Accounts](auth.md) goes through them.
+
+With `-ssr`, either starter gets `resources/js/ssr.tsx` and `ssr/.gitkeep`,
+and its `main.go`, `main_test.go`, `app.html`, `package.json`,
+`vite.config.ts`, `Dockerfile`, `.env.example`, `.gitignore`,
+`.dockerignore` and `README.md` render pages on the server too.
+[Server-side rendering](ssr.md) goes through them.
 
 ### Which tug the app requires
 
@@ -155,7 +163,8 @@ Runs the app for development. It has no flags.
    `node_modules` isn't there.
 2. It starts Vite's dev server: `npm run dev`.
 3. It picks the app's address (below), and passes it to the app as
-   `ADDR`.
+   `ADDR`, with `TUG_DEV=1`, which tells an app with server-side rendering
+   that the dev server renders its pages, so it runs no Node of its own.
 4. It builds the app into `.tug/app`, writes its types as `tug gen` does,
    starts it, and waits for it to take connections. Then it says where the
    app is, and reloads the browser:
@@ -333,7 +342,8 @@ as it starts it:
    `tsc --noEmit`.
 3. `tug build: the frontend`: `npm run build`. Vite writes the build, with
    its manifest, to `public/build`, which the Go server serves under
-   `/build/`.
+   `/build/`. With server-side rendering, the script runs
+   `vite build --ssr` too, which writes the SSR build to `ssr/build`.
 4. `tug build: the binary`: `go build -trimpath -ldflags="-s -w"`, with
    `CGO_ENABLED=0`. That makes it static, so it runs with nothing else
    installed, and leaves out the debug information and the paths of the
@@ -347,7 +357,8 @@ tug build: blog, 9.6 MB, frontend included
 
 A step that fails stops it, and names the command. The frontend is inside
 because the starter's `main.go` embeds `public/`, with
-`//go:embed all:public`, and `app.html`.
+`//go:embed all:public`, and `app.html`, and with server-side rendering
+`ssr/` too, which Node runs beside the app.
 
 `tug build` makes a binary for the system it runs on. With `GOOS` or
 `GOARCH` set for another, the first step can't run the app it has built,

@@ -4,17 +4,18 @@ tug is built in milestones, each ending in something that runs. It targets
 the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 [the spec](https://inertiajs.com/the-protocol).
 
-|    | Milestone               | Status |
-|----|-------------------------|--------|
-| M1 | HTTP core               | done   |
-| M2 | Inertia core + Vite     | done   |
-| M3 | Forms and validation    | done   |
-| M4 | The full v3 protocol    | done   |
-| M5 | CLI                     | done   |
-| M6 | v0.1.0                  | done   |
-| M7 | The auth starter, whole | done   |
-| M8 | Background jobs         | done   |
-| M9 | Scheduled jobs          | done   |
+|     | Milestone               | Status |
+|-----|-------------------------|--------|
+| M1  | HTTP core               | done   |
+| M2  | Inertia core + Vite     | done   |
+| M3  | Forms and validation    | done   |
+| M4  | The full v3 protocol    | done   |
+| M5  | CLI                     | done   |
+| M6  | v0.1.0                  | done   |
+| M7  | The auth starter, whole | done   |
+| M8  | Background jobs         | done   |
+| M9  | Scheduled jobs          | done   |
+| M10 | Server-side rendering   | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -274,7 +275,8 @@ Choices made on the way:
   files replace the plain starter's of the same name, and add the rest.
 
 After v0.1: SSR through a Node or Bun process beside the binary, Vue and
-Svelte starters, and passkeys. Background jobs are M8.
+Svelte starters, and passkeys. Background jobs are M8, and SSR, through
+Node beside the binary, M10.
 
 ## M7 · The auth starter, whole — done
 
@@ -347,7 +349,9 @@ Choices made on the way:
   on goes on to the code: the mail is one factor.
 - The appearance is the browser's, in `localStorage`, applied by a script
   in the root template before the page paints. Laravel keeps a cookie too,
-  for SSR, which tug doesn't have.
+  so its server renders the right one; with tug's SSR, which came in M10,
+  the server renders the system's, and the page settles on the choice as
+  it hydrates.
 - The toasts listen for Inertia's `flash` event from the start of
   `app.tsx`, not in a component's effect, which would miss the flash of a
   page's first load, as after a link in mail.
@@ -456,6 +460,58 @@ Choices made on the way:
   repeats, which is for later.
 - Unique jobs in general are left for later: a schedule's runs are unique
   by their schedule and time, which is all scheduling needs.
+
+## M10 · Server-side rendering — done
+
+A first visit's page rendered on the server, by Inertia's own SSR in Node,
+which the app runs beside it: for search engines, link previews, and pages
+that show before their scripts run. It's optional, as the decisions below
+have it, and an app without it is as it was.
+
+- `inertia.Config.SSR`, a `Renderer`, which a first visit asks for the
+  page's head and body: the body where `{{ .Inertia }}` goes, and the head
+  in `{{ .InertiaHead }}`. A page it doesn't render renders in the browser,
+  and a failure is logged. `WithoutSSR` skips it for a request.
+- Package `ssr`. `Gateway` renders through the Vite dev server's
+  `/__inertia_ssr` while it runs, and otherwise through `SSR_URL`, or the
+  Node that `Server` runs. `Server.Run`, for `App.Go`, runs the SSR build
+  the binary embeds with Node, on a free port at 127.0.0.1, starts it again
+  when it stops, and stops it with the app. `vite.Vite.DevServer` tells
+  the gateway where the dev server is.
+- `tug new -ssr`: `@inertiajs/vite`, `ssr.tsx`, a build of both bundles,
+  the SSR build embedded, the wiring in `main.go`, and a Dockerfile on
+  distroless Node. `tug dev` gives the app `TUG_DEV=1`, as Vite renders
+  its pages then.
+- Both starters make their app in `inertia.tsx`, which `app.tsx` and
+  `ssr.tsx` call, and keep what needs a browser in `app.tsx`. The auth
+  starter's dashboard formats its date the same on the server as in a
+  browser, whose own language may differ.
+
+Choices made on the way:
+
+- The app runs Node itself, from the SSR build in its binary, which it
+  writes to a directory of its own as it starts: `tug build` still makes
+  one binary, and a deploy runs one command, with Node in the image.
+  `SSR_URL` points at an SSR server run apart instead, as Laravel's
+  `inertia:start-ssr` runs one.
+- The SSR server is Inertia's own, and tug speaks its protocol, the page
+  posted to `/render` and its head and body back, as inertia-laravel does.
+  `ssr.tsx` starts it itself, where Laravel's kit has `@inertiajs/vite`
+  wrap `app.tsx`: the plugin writes the port into the build, and the app
+  picks a free one as it starts.
+- A page that isn't rendered on the server renders in the browser, never
+  as a 500: with no server there, without a word, and on a failure, with
+  one in the log.
+- The SSR build takes its packages with it, so none are installed where it
+  runs; in development, Vite loads them from `node_modules`, as React's
+  server build, which is CommonJS, needs.
+- The SSR build has no source maps, which would be megabytes in every
+  binary; errors in development map to the sources anyway.
+- The build goes to `ssr/build`, beside a tracked `ssr/.gitkeep`, as
+  `public/build` does, so `//go:embed all:ssr` compiles before a build.
+- The root template has `{{ .InertiaHead }}` before its own `<title>`:
+  browsers take the first, the page's, and a page without one has the
+  app's.
 
 ## Decisions
 
