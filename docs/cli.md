@@ -117,7 +117,7 @@ auth starter's own: `main.go`, `main_test.go`, `app.html`, `package.json`,
 The app's `go.mod` requires the tug that `tug new` is:
 
 - **A release**, installed with `go install
-  github.com/cuonggt/tug/cmd/tug@latest` or `@v0.3.0`, makes apps that
+  github.com/cuonggt/tug/cmd/tug@latest` or `@v0.4.0`, makes apps that
   require that version.
 - **A commit the go command fetched**, as `go install
   github.com/cuonggt/tug/cmd/tug@<commit>` does, makes apps that require
@@ -360,7 +360,7 @@ and stops. The starter's `Dockerfile` builds on Linux, with the same
 tug version
 ```
 
-Prints tug's version: `tug v0.3.0` for that release. A tug installed at a
+Prints tug's version: `tug v0.4.0` for that release. A tug installed at a
 commit prints its pseudo-version, and one built from a checkout prints
 `(devel)` or a pseudo-version, with `+dirty` when the checkout had changes.
 It's the version `tug new` goes by.

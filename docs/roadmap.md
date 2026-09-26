@@ -420,7 +420,7 @@ Choices made on the way:
 
 Jobs that come round on their own, every night or every hour, and run
 once however many instances of the app there are: the first of what M8
-left out.
+left out. Released as v0.4.0.
 
 - `Kind.Schedule(s, v)` pushes a job of the kind, with `v`, at each time
   `s` names: `queue.Every(d)` at each multiple of `d`, and
