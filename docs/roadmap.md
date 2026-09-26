@@ -14,6 +14,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M6 | v0.1.0                  | done   |
 | M7 | The auth starter, whole | done   |
 | M8 | Background jobs         | done   |
+| M9 | Scheduled jobs          | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -414,6 +415,47 @@ Choices made on the way:
   kind that's new, and one from after runs it.
 - The starter's claim reads before it writes, since SQLite has one writer,
   and an `UPDATE` that matches nothing still takes its lock.
+
+## M9 · Scheduled jobs — done
+
+Jobs that come round on their own, every night or every hour, and run
+once however many instances of the app there are: the first of what M8
+left out.
+
+- `Kind.Schedule(s, v)` pushes a job of the kind, with `v`, at each time
+  `s` names: `queue.Every(d)` at each multiple of `d`, and
+  `queue.Cron(expr)` at the times of a cron expression, in UTC, parsed by
+  tug: five fields, with ranges, lists, steps and names, and `@daily` and
+  the like. An expression that isn't one, or that never comes round,
+  panics as the app starts.
+- `queue.ScheduleStore` is a Store that also keeps each schedule's run
+  pushed last: `PushScheduled` pushes a run unless it, or a later one, is
+  pushed already, and keeps the run and the job together.
+  `queuetest.TestStore` checks it of a Store that is one, and `Memory` is.
+- The auth starter keeps its schedules in a `schedules` table, and every
+  night deletes the jobs that failed over a month ago, with `prune-jobs`.
+
+Choices made on the way:
+
+- A schedule's runs are pushed ahead, each as a job due at its time, once
+  the one before it has come round. A run due while the app is down, as
+  during a deploy, is already in the Store, so it runs as the app comes
+  back: once, however many runs were missed. A new schedule waits for its
+  next time, rather than running at once for one that has passed.
+- Once across instances comes from the Store, not from electing one
+  instance to run the schedules: every instance pushes each run, and the
+  Store lets one push win, with an upsert that only moves a schedule
+  forward, in a transaction with the job. There's no leader to lose and
+  replace.
+- `ScheduleStore` is an extra a Store may have, not a new method on
+  `Store`: an app made with v0.3.0 has its own Store, in `jobs.go`, which
+  still compiles, and `Schedule` panics as the app starts when the Store
+  can't keep schedules.
+- tug parses cron itself, as it stays on the standard library, and in
+  UTC: time zones bring runs that a change of the clocks skips or
+  repeats, which is for later.
+- Unique jobs in general are left for later: a schedule's runs are unique
+  by their schedule and time, which is all scheduling needs.
 
 ## Decisions
 

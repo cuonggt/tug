@@ -5,13 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M8 are done, which is the HTTP core, Inertia
+and where it stands: M1 to M9 are done, which is the HTTP core, Inertia
 pages with Vite, forms and validation, the rest of the v3 protocol, the
 CLI, v0.1.0 (the auth starter and the guide), the auth starter made whole
 (v0.2.0): email verification, remember me, password confirmation,
 two-factor logins, settings, and a Tailwind and shadcn/ui frontend, and
 background jobs (v0.3.0): package `queue`, which the auth starter sends
-its mail with.
+its mail with, and jobs on a schedule.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -159,14 +159,17 @@ dev server that isn't there: delete it.
   `twofactor.go.tmpl` and `settings.go.tmpl`, its mail in `mail.go.tmpl`,
   and its users in SQLite (modernc.org/sqlite, pure Go), with migrations
   counted in `user_version`, in `users.go.tmpl`. Its jobs are in the same
-  database: `jobs.go.tmpl` is a `queue.Store`, which `jobs_test.go.tmpl`
-  runs `queuetest.TestStore` on. The mail goes by jobs (`VerifyMail` in
-  `verify.go.tmpl`, `ResetMail` in `auth.go.tmpl`) that carry IDs and make
-  the mail, token and all, as they run; `main` runs the queue with
-  `app.Go`, unless `QUEUE_WORKERS` is 0, and the tests on their own, with
-  an `outbox` that can be down. Its frontend is Tailwind
-  and shadcn/ui: the registry's components in `components/ui`, layouts
-  picked by page name in `app.tsx`, toasts from the flash event.
+  database: `jobs.go.tmpl` is a `queue.ScheduleStore`, which
+  `jobs_test.go.tmpl` runs `queuetest.TestStore` on, with a `schedules`
+  table whose upsert only moves forward, in a transaction with the job;
+  `prune-jobs` runs every night and deletes jobs that failed a month ago.
+  The mail goes by jobs (`VerifyMail` in `verify.go.tmpl`, `ResetMail` in
+  `auth.go.tmpl`) that carry IDs and make the mail, token and all, as they
+  run; `main` runs the queue with `app.Go`, unless `QUEUE_WORKERS` is 0,
+  and the tests on their own, with an `outbox` that can be down. Its
+  frontend is Tailwind and shadcn/ui: the registry's components in
+  `components/ui`, layouts picked by page name in `app.tsx`, toasts from
+  the flash event.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
 - `auth`: the parts of accounts where a slip is a security hole, with no
@@ -197,8 +200,13 @@ dev server that isn't there: delete it.
   Retry after its `backoff` (attempt⁴ seconds), or Fail after its last
   attempt or a `Permanent` error. `hold` is how long a claim holds a job,
   the longest Timeout and a minute. `Drain` runs what's due in the
-  caller. `kind.go`: `Handle`, `Kind[T]` with `Push` and `PushAt` (the
-  value as JSON), and the options. `queuetest`: `Memory`, and `TestStore`,
+  caller. `pushScheduled`, at the top of `Run`'s loop, pushes each
+  schedule's next run once the one pushed last has come round; every
+  instance does, and `ScheduleStore.PushScheduled` (store.go) lets one
+  win. `kind.go`: `Handle`, `Kind[T]` with `Push` and `PushAt` (the value
+  as JSON) and `Schedule`, and the options. `schedule.go`: `Schedule`,
+  `Every` (time.Truncate's multiples) and `Cron` (UTC, fields as bitsets,
+  `Next` searching from the month down). `queuetest`: `Memory`, and `TestStore`,
   the Store's promises as tests, which every Store's own tests run.
   `queue_test.go` is an external package, for `Memory`, with
   `export_test.go` for the clock.

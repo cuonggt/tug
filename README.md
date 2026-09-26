@@ -134,8 +134,10 @@ func showPost(c *tug.Ctx) error {
   wait for, such as a mail, kept by a store such as a table in the app's
   database, so a failure or a restart doesn't lose it. A job that fails
   runs again after a wait that grows, and the workers run beside the
-  server with `app.Go`, finishing what they have as the app stops. The
-  auth starter sends its mail this way, with its jobs in SQLite.
+  server with `app.Go`, finishing what they have as the app stops. Jobs
+  run on a schedule too, with `Every` or a cron expression, once across
+  all instances. The auth starter sends its mail this way, with its jobs
+  in SQLite.
 - **Vite** (package `vite`): tags from the dev server while it runs, with
   the React refresh preamble, and from the build's manifest otherwise, with
   CSS and preloads. The built files are served, and cached for a year.

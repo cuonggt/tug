@@ -61,3 +61,18 @@ type Store interface {
 	// finds it.
 	Fail(ctx context.Context, j *Job) error
 }
+
+// ScheduleStore is a Store that also keeps which runs of a schedule have
+// been pushed, for Kind.Schedule. Each instance of the app pushes each run
+// of a schedule, as none knows whether the others have, so one push must
+// win.
+type ScheduleStore interface {
+	Store
+
+	// PushScheduled pushes j, the run of the schedule named schedule that's
+	// due at j.RunAt, unless a run of it due then or later has been pushed
+	// already, and says whether it did. It keeps the run and pushes the job
+	// together or not at all: of several instances pushing the same run at
+	// once, one does.
+	PushScheduled(ctx context.Context, schedule string, j *Job) (bool, error)
+}

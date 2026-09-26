@@ -63,8 +63,9 @@ plain starter's of the same name and add the rest, and the plain
   again.
 - `verify.go`: verifying an email. `twofactor.go`: two-factor logins.
   `settings.go`: the settings pages. `mail.go`: the mail the app sends.
-- `jobs.go`: the background jobs, in a table of their own, for package
-  `queue`, which runs them beside the server. The mail goes by jobs.
+- `jobs.go`: the background jobs, in tables of their own, for package
+  `queue`, which runs them beside the server. The mail goes by jobs, and
+  a job every night deletes the ones that failed over a month ago.
 - `users.go`: `User`, the `users` table, and its queries, and the
   migrations, which make the `jobs` table too. An email is unique whatever
   its case.
@@ -426,8 +427,9 @@ The mail goes by jobs, which `jobs.go` keeps in the database: a
 the links start with, and the job makes the mail, link and token, as it
 runs. So a mail server that's down, or the app restarting, loses no mail:
 a job that fails runs again, 10 times over about four hours, and then
-stays in the table as failed, with its error. `main` runs the jobs beside
-the server with `app.Go`. [jobs.md](jobs.md) has the queue.
+stays in the table as failed, with its error, for a month: a scheduled
+job, `prune-jobs`, deletes older ones every night. `main` runs the jobs
+beside the server with `app.Go`. [jobs.md](jobs.md) has the queue.
 
 ### The database
 
@@ -822,9 +824,9 @@ would have it, with no password typed since, by logging in through a
   after the right password mean someone else knows it: mailing the user
   then is worth doing.
 - **Mail that keeps failing**: a mail job runs 10 times over about four
-  hours, then stays in the `jobs` table as failed, with an error in the
-  log. [jobs.md](jobs.md) has the SQL that finds failed jobs and runs them
-  again. And now and then a mail goes twice: a job runs at least once, and
+  hours, then stays in the `jobs` table as failed for a month, with an
+  error in the log. [jobs.md](jobs.md) has the SQL that finds failed jobs
+  and runs them again. And now and then a mail goes twice: a job runs at least once, and
   again when the app is killed as it sends.
 
 ### What the starter leaves out

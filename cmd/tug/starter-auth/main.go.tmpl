@@ -169,9 +169,11 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		resetAsks:     &auth.Throttle{Max: 5, Window: time.Minute},
 	}
 	// The mail goes by jobs, which make each mail as it goes: in verify.go
-	// and auth.go.
+	// and auth.go. Every night, a job deletes the jobs that failed for good
+	// over a month ago: jobs.go.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
+	queue.Handle(e.Queue, "prune-jobs", (&jobs{db: e.DB}).prune).Schedule(queue.Cron("@daily"), struct{}{})
 	if len(e.Keys) > 1 {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
 		// two-factor secrets over to the new one before it's dropped.

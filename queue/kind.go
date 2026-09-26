@@ -82,6 +82,45 @@ func (k *Kind[T]) PushAt(ctx context.Context, at time.Time, v T) error {
 	return nil
 }
 
+// Schedule runs a job of this kind on its own, with v, at each time s
+// names: queue.Cron("0 2 * * *") at 2:00 each day, say. Each run is pushed
+// ahead, as a job due at its time, once the run before it has come round,
+// so a run that comes due while the app is down runs as it starts again:
+// once, however many runs it missed. A new schedule's first run is its
+// next time, not one that has passed. Every instance of the app that runs
+// the queue pushes the runs, and the Store sees that each is pushed once:
+// Schedule needs a ScheduleStore.
+//
+// Schedule panics when q's Store isn't a ScheduleStore, when the kind has
+// a schedule already, or once q runs.
+func (k *Kind[T]) Schedule(s Schedule, v T) {
+	payload, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("queue: the value of the %s schedule: %v", k.name, err))
+	}
+	if _, ok := k.q.store.(ScheduleStore); !ok {
+		panic(fmt.Sprintf("queue: scheduling %s needs a Store that keeps schedules, a ScheduleStore, and the queue's %T isn't one", k.name, k.q.store))
+	}
+	k.q.mu.Lock()
+	defer k.q.mu.Unlock()
+	if k.q.started {
+		panic(fmt.Sprintf("queue: scheduling %s after Run has started; give the queue its schedules first", k.name))
+	}
+	for _, sc := range k.q.scheduled {
+		if sc.kind == k.name {
+			panic(fmt.Sprintf("queue: the jobs of kind %q have a schedule already", k.name))
+		}
+	}
+	k.q.scheduled = append(k.q.scheduled, scheduled{kind: k.name, schedule: s, payload: payload})
+}
+
+// scheduled is a kind's schedule, and the value its runs are pushed with.
+type scheduled struct {
+	kind     string
+	schedule Schedule
+	payload  []byte
+}
+
 // call runs the handler on j, with a context done after its Timeout. A
 // panic is an error, as the job's worker has others to run.
 func (h *handler) call(ctx context.Context, j *Job) (err error) {

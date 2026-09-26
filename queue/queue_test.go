@@ -505,3 +505,110 @@ func mustPanic(t *testing.T, what string, f func()) {
 	}()
 	f()
 }
+
+func TestAScheduledJobRunsAtEachOfItsTimes(t *testing.T) {
+	q, _, c := newQueue(queue.Config{Poll: 10 * time.Millisecond})
+	c.add(30 * time.Second) // 12:00:30
+	ran := make(chan string, 10)
+	report := queue.Handle(q, "report", func(_ context.Context, g greeting) error {
+		ran <- g.Name
+		return nil
+	})
+	report.Schedule(queue.Every(time.Minute), greeting{Name: "Ann"})
+	run(t, q)
+	select {
+	case <-ran:
+		t.Fatal("ran before 12:01, its first time")
+	case <-time.After(100 * time.Millisecond):
+	}
+	c.add(30 * time.Second) // 12:01
+	if name := within(t, ran, "the run at 12:01"); name != "Ann" {
+		t.Errorf("ran with %q, want the schedule's value", name)
+	}
+	time.Sleep(50 * time.Millisecond) // for the run at 12:02 to be pushed
+	c.add(time.Minute)
+	within(t, ran, "the run at 12:02")
+	select {
+	case <-ran:
+		t.Error("ran a third time, at 12:02")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestARunDueWhileTheAppWasDownRunsOnceAsItStarts(t *testing.T) {
+	s := &store{}
+	c := &clock{t: time.Date(2026, 9, 1, 12, 0, 30, 0, time.UTC)}
+	// instance starts an instance of the app, whose runs go to ran.
+	instance := func(ran chan<- struct{}) (stop func()) {
+		q := queue.New(queue.Config{Store: s, Poll: 10 * time.Millisecond})
+		queue.SetNow(q, c.now)
+		queue.Handle(q, "report", func(context.Context, struct{}) error {
+			ran <- struct{}{}
+			return nil
+		}).Schedule(queue.Every(time.Minute), struct{}{})
+		stop = run(t, q)
+		time.Sleep(50 * time.Millisecond) // for the next run to be pushed
+		return stop
+	}
+
+	before, after := make(chan struct{}, 10), make(chan struct{}, 10)
+	instance(before)()     // it pushes the run at 12:01, and stops before then
+	c.add(5 * time.Minute) // 12:05:30
+	instance(after)
+	within(t, after, "the run at 12:01, as the app started again")
+	select {
+	case <-after:
+		t.Error("ran again: the runs missed after 12:01 ran too")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if len(before) != 0 {
+		t.Error("the instance that stopped ran the job")
+	}
+}
+
+func TestEachRunOfAScheduleRunsOnceWithSeveralInstances(t *testing.T) {
+	s := &store{}
+	c := &clock{t: time.Date(2026, 9, 1, 12, 0, 30, 0, time.UTC)}
+	ran := make(chan struct{}, 20)
+	for range 3 {
+		q := queue.New(queue.Config{Store: s, Poll: 10 * time.Millisecond})
+		queue.SetNow(q, c.now)
+		queue.Handle(q, "report", func(context.Context, struct{}) error {
+			ran <- struct{}{}
+			return nil
+		}).Schedule(queue.Every(time.Minute), struct{}{})
+		run(t, q)
+	}
+	for minute := 1; minute <= 3; minute++ {
+		time.Sleep(50 * time.Millisecond) // for the next run to be pushed
+		c.add(time.Minute)
+		within(t, ran, "a run")
+	}
+	select {
+	case <-ran:
+		t.Error("a run ran twice")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// plain is a Store and no more: no ScheduleStore.
+type plain struct{ queue.Store }
+
+func TestSchedulingNeedsAStoreThatKeepsSchedules(t *testing.T) {
+	q := queue.New(queue.Config{Store: plain{&queuetest.Memory{}}})
+	report := queue.Handle(q, "report", func(context.Context, struct{}) error { return nil })
+	mustPanic(t, "a schedule with a Store that doesn't keep them", func() {
+		report.Schedule(queue.Every(time.Hour), struct{}{})
+	})
+}
+
+func TestSchedulingAKindTwiceOrOnceTheQueueRunsPanics(t *testing.T) {
+	q, _, _ := newQueue(queue.Config{})
+	noop := func(context.Context, struct{}) error { return nil }
+	report, digest := queue.Handle(q, "report", noop), queue.Handle(q, "digest", noop)
+	report.Schedule(queue.Every(time.Hour), struct{}{})
+	mustPanic(t, "a second schedule for a kind", func() { report.Schedule(queue.Cron("@daily"), struct{}{}) })
+	stop := run(t, q)
+	stop()
+	mustPanic(t, "a schedule after Run", func() { digest.Schedule(queue.Every(time.Hour), struct{}{}) })
+}

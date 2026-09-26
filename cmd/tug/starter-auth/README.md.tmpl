@@ -28,7 +28,8 @@ go test ./...
 - `jobs.go`: the background jobs, in the same database, for tug's package
   `queue`, which runs them beside the server. The mail goes by jobs, so a
   mail server that's down, or a restart, doesn't lose any: a job that
-  fails runs again later. `QUEUE_WORKERS` is how many run at once.
+  fails runs again later. Jobs can run on a schedule too, as `prune-jobs`
+  does every night. `QUEUE_WORKERS` is how many run at once.
 - `resources/js`: React with Tailwind and [shadcn/ui](https://ui.shadcn.com)
   components, which `npx shadcn@latest add` adds more of. The layouts are
   in `layouts/`, and `app.tsx` says which page has which.

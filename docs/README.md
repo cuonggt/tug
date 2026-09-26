@@ -17,7 +17,7 @@ has the rest of the detail.
    as it's left, flash messages, sessions, and CSRF.
 5. [Accounts](auth.md): the auth starter, and packages `auth` and `mail`.
 6. [Background jobs](jobs.md): package `queue`, for work that outlasts the
-   request, and runs again when it fails.
+   request, and runs again when it fails, or runs on a schedule.
 7. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
 8. [Deployment](deployment.md): one binary, the Dockerfile, and the
    environment.

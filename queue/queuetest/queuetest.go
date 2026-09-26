@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,11 +19,13 @@ import (
 )
 
 // Memory is a queue.Store that keeps its jobs in memory, for tests: they
-// go when the program does. The zero value is an empty Store.
+// go when the program does. It keeps schedules too, as a
+// queue.ScheduleStore. The zero value is an empty Store.
 type Memory struct {
-	mu   sync.Mutex
-	last int
-	jobs []*memoryJob // in the order they were pushed
+	mu        sync.Mutex
+	last      int
+	jobs      []*memoryJob         // in the order they were pushed
+	schedules map[string]time.Time // each schedule's run pushed last
 }
 
 type memoryJob struct {
@@ -34,12 +37,31 @@ type memoryJob struct {
 func (m *Memory) Push(_ context.Context, j *queue.Job) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.push(j)
+	return nil
+}
+
+func (m *Memory) PushScheduled(_ context.Context, schedule string, j *queue.Job) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if last, ok := m.schedules[schedule]; ok && !last.Before(j.RunAt) {
+		return false, nil
+	}
+	if m.schedules == nil {
+		m.schedules = make(map[string]time.Time)
+	}
+	m.schedules[schedule] = j.RunAt
+	m.push(j)
+	return true, nil
+}
+
+// push keeps j; m.mu is held.
+func (m *Memory) push(j *queue.Job) {
 	m.last++
 	j.ID = strconv.Itoa(m.last)
 	kept := *j
 	kept.Payload = bytes.Clone(j.Payload)
 	m.jobs = append(m.jobs, &memoryJob{Job: kept})
-	return nil
 }
 
 func (m *Memory) Claim(_ context.Context, now, until time.Time) (*queue.Job, error) {
@@ -99,8 +121,9 @@ func (mj *memoryJob) claimedBy(j *queue.Job) bool {
 }
 
 // TestStore checks that the Stores open returns keep the promises package
-// queue depends on, with a new, empty one for each test. A Store's own
-// tests call it, as the auth starter's do for its table in SQLite:
+// queue depends on, with a new, empty one for each test, and those of a
+// ScheduleStore too when they are one. A Store's own tests call it, as the
+// auth starter's do for its tables in SQLite:
 //
 //	func TestTheJobsTableKeepsTheQueuesPromises(t *testing.T) {
 //		queuetest.TestStore(t, func(t *testing.T) queue.Store {
@@ -284,6 +307,89 @@ func TestStore(t *testing.T, open func(t *testing.T) queue.Store) {
 		}
 		if len(claimed) != jobs {
 			t.Errorf("%d of the %d jobs were claimed", len(claimed), jobs)
+		}
+	})
+
+	// The rest are a ScheduleStore's.
+	schedules := func(t *testing.T) queue.ScheduleStore {
+		t.Helper()
+		s, ok := open(t).(queue.ScheduleStore)
+		if !ok {
+			t.Skip("not a ScheduleStore")
+		}
+		return s
+	}
+	pushRun := func(t *testing.T, s queue.ScheduleStore, schedule string, at time.Time) bool {
+		t.Helper()
+		j := &queue.Job{Kind: schedule, Payload: []byte(`{}`), RunAt: at}
+		pushed, err := s.PushScheduled(ctx, schedule, j)
+		if err != nil {
+			t.Fatalf("PushScheduled: %v", err)
+		}
+		if pushed && j.ID == "" {
+			t.Fatal("PushScheduled pushed a job and set no ID")
+		}
+		return pushed
+	}
+	// count claims the jobs due by a day after t0, and counts them.
+	count := func(t *testing.T, s queue.Store) int {
+		t.Helper()
+		n := 0
+		for range 10 {
+			if claim(t, s, t0.Add(24*time.Hour), t0.Add(25*time.Hour)) == nil {
+				break
+			}
+			n++
+		}
+		return n
+	}
+
+	t.Run("a run of a schedule is pushed once", func(t *testing.T) {
+		s := schedules(t)
+		if !pushRun(t, s, "report", t0) {
+			t.Fatal("the first push of a run didn't push it")
+		}
+		if pushRun(t, s, "report", t0) {
+			t.Error("the run was pushed a second time")
+		}
+		if n := count(t, s); n != 1 {
+			t.Errorf("%d jobs, want the run's one", n)
+		}
+	})
+
+	t.Run("a schedule's runs are pushed in order, and an earlier one isn't", func(t *testing.T) {
+		s := schedules(t)
+		if !pushRun(t, s, "report", t0.Add(time.Hour)) || pushRun(t, s, "report", t0) || !pushRun(t, s, "report", t0.Add(2*time.Hour)) {
+			t.Error("want the runs at 1 and 2 hours pushed, and the one at 0 not, after the one at 1")
+		}
+	})
+
+	t.Run("schedules are kept apart by name", func(t *testing.T) {
+		s := schedules(t)
+		if !pushRun(t, s, "report", t0) || !pushRun(t, s, "digest", t0) {
+			t.Error("a run of one schedule kept another's run at the same time from being pushed")
+		}
+	})
+
+	t.Run("of pushes of a run at once, one wins", func(t *testing.T) {
+		s := schedules(t)
+		var won atomic.Int32
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() {
+				j := &queue.Job{Kind: "report", Payload: []byte(`{}`), RunAt: t0}
+				pushed, err := s.PushScheduled(ctx, "report", j)
+				if err != nil {
+					t.Errorf("PushScheduled: %v", err)
+				}
+				if pushed {
+					won.Add(1)
+				}
+			})
+		}
+		wg.Wait()
+		if n := count(t, s); won.Load() != 1 || n != 1 {
+			t.Errorf("%d pushes won, and %d jobs were pushed: want 1 of each", won.Load(), n)
 		}
 	})
 }

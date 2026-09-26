@@ -61,9 +61,10 @@ type Queue struct {
 	grace   time.Duration
 	now     func() time.Time
 
-	mu       sync.Mutex
-	handlers map[string]*handler
-	started  bool // Run has begun, and the handlers are fixed
+	mu        sync.Mutex
+	handlers  map[string]*handler
+	scheduled []scheduled
+	started   bool // Run has begun, and the handlers and schedules are fixed
 
 	// wake tells Run a job is due, without waiting for its next poll.
 	wake chan struct{}
@@ -123,6 +124,7 @@ func (q *Queue) Run(ctx context.Context) error {
 	q.mu.Lock()
 	q.started = true
 	hold := q.hold()
+	scheduled := q.scheduled
 	q.mu.Unlock()
 
 	// The jobs run with a context of their own, which outlives ctx by the
@@ -131,7 +133,9 @@ func (q *Queue) Run(ctx context.Context) error {
 	defer stopJobs()
 	slots := make(chan struct{}, q.workers)
 	var running sync.WaitGroup
+	pushed := make([]time.Time, len(scheduled)) // the run of each schedule pushed last
 	for {
+		q.pushScheduled(ctx, scheduled, pushed)
 		select {
 		case slots <- struct{}{}:
 		case <-ctx.Done():
@@ -197,6 +201,34 @@ func (q *Queue) Drain(ctx context.Context) error {
 		if err := q.run(ctx, j); err != nil {
 			return err
 		}
+	}
+}
+
+// pushScheduled pushes the next run of each schedule whose run pushed last
+// has come round, or, as Run starts, has none. Every instance does, and the
+// Store sees that one push of each run wins, so an instance that loses has
+// its answer all the same: the run is pushed.
+func (q *Queue) pushScheduled(ctx context.Context, scheduled []scheduled, pushed []time.Time) {
+	now := q.now()
+	for i, sc := range scheduled {
+		if ctx.Err() != nil {
+			return
+		}
+		if now.Before(pushed[i]) {
+			continue
+		}
+		at := sc.schedule.Next(now)
+		if at.IsZero() {
+			continue // it never comes round again
+		}
+		_, err := q.store.(ScheduleStore).PushScheduled(ctx, sc.kind, &Job{Kind: sc.kind, Payload: sc.payload, RunAt: at})
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Error("the job queue can't push a scheduled job", "kind", sc.kind, "at", at, "err", err)
+			}
+			continue // it tries again next time round
+		}
+		pushed[i] = at
 	}
 }
 

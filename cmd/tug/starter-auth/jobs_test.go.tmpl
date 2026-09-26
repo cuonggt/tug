@@ -67,3 +67,56 @@ func TestAnAddressCanAskForFiveResetLinksAMinute(t *testing.T) {
 	}
 	app.noMail()
 }
+
+func TestJobsThatFailedOverAMonthAgoArePruned(t *testing.T) {
+	s := &jobs{db: testDB(t)}
+	ctx, now := context.Background(), time.Now()
+	for _, ago := range []string{"-40 days", "-10 days"} {
+		s.Push(ctx, &queue.Job{Kind: "verify-mail", Payload: []byte(`{}`), RunAt: now})
+		j, err := s.Claim(ctx, now, now.Add(time.Minute))
+		if err != nil || j == nil {
+			t.Fatalf("claimed %v, %v", j, err)
+		}
+		j.Error = "failed " + ago
+		s.Fail(ctx, j)
+		s.db.Exec("UPDATE jobs SET failed_at = datetime('now', ?) WHERE id = ?", ago, j.ID)
+	}
+	if err := s.prune(ctx, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	rows, err := s.db.Query("SELECT error FROM jobs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var e string
+		rows.Scan(&e)
+		left = append(left, e)
+	}
+	if len(left) != 1 || left[0] != "failed -10 days" {
+		t.Errorf("left %q, want the job that failed 10 days ago", left)
+	}
+}
+
+func TestTheAppPrunesFailedJobsEveryNight(t *testing.T) {
+	started := time.Now().UTC()
+	app := newTestApp(t)
+	var runAt int64
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		err := app.db.QueryRow("SELECT run_at FROM jobs WHERE kind = 'prune-jobs'").Scan(&runAt)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the prune job wasn't pushed: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The next midnight UTC, or the one after, should one have come round
+	// as the app started.
+	midnight := started.Truncate(24 * time.Hour).Add(24 * time.Hour)
+	if got := time.UnixMilli(runAt).UTC(); !got.Equal(midnight) && !got.Equal(midnight.Add(24*time.Hour)) {
+		t.Errorf("the prune job runs at %v, want the next midnight UTC, %v", got, midnight)
+	}
+}

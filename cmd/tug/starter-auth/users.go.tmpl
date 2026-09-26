@@ -69,6 +69,12 @@ var migrations = []string{
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX jobs_due ON jobs (run_at) WHERE failed_at IS NULL`,
+	// The run of each schedule pushed last, so that one instance pushes
+	// it: jobs.go.
+	`CREATE TABLE schedules (
+		name   TEXT PRIMARY KEY,
+		run_at INTEGER NOT NULL
+	)`,
 }
 
 // openDB opens the SQLite database at path, making it when it's not there,

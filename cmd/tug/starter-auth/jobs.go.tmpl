@@ -12,9 +12,10 @@ import (
 
 // jobs is where the app's background jobs wait, in its database, for tug's
 // package queue, which runs them beside the server: the app's mail, which
-// a mail server that's down, or the app restarting, doesn't lose. A job
-// that fails for good stays, with its error and failed_at, to be looked
-// at, and run again by clearing failed_at:
+// a mail server that's down, or the app restarting, doesn't lose, and the
+// jobs that run on a schedule. A job that fails for good stays for a
+// month, with its error and failed_at, to be looked at, and run again by
+// clearing failed_at:
 //
 //	SELECT id, kind, payload, attempts, error, failed_at FROM jobs WHERE failed_at IS NOT NULL;
 //	UPDATE jobs SET failed_at = NULL, attempts = 0, run_at = 0 WHERE id = 42;
@@ -26,8 +27,46 @@ type jobs struct {
 }
 
 func (s *jobs) Push(ctx context.Context, j *queue.Job) error {
+	return insertJob(ctx, s.db, j)
+}
+
+// PushScheduled keeps the schedule's run and pushes its job in one
+// transaction: of several instances pushing a run at once, one does, and
+// a run is never kept without its job.
+func (s *jobs) PushScheduled(ctx context.Context, schedule string, j *queue.Job) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var name string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO schedules (name, run_at) VALUES (?1, ?2)
+		ON CONFLICT (name) DO UPDATE SET run_at = excluded.run_at WHERE run_at < excluded.run_at
+		RETURNING name`, schedule, j.RunAt.UnixMilli()).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil // this run, or a later one, is pushed already
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := insertJob(ctx, tx, j); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// queryer is the database, or a transaction in it.
+type queryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func insertJob(ctx context.Context, db queryer, j *queue.Job) error {
 	var id int64
-	err := s.db.QueryRowContext(ctx, "INSERT INTO jobs (kind, payload, run_at) VALUES (?, ?, ?) RETURNING id",
+	err := db.QueryRowContext(ctx, "INSERT INTO jobs (kind, payload, run_at) VALUES (?, ?, ?) RETURNING id",
 		j.Kind, string(j.Payload), j.RunAt.UnixMilli()).Scan(&id)
 	j.ID = strconv.FormatInt(id, 10)
 	return err
@@ -84,5 +123,13 @@ func (s *jobs) Retry(ctx context.Context, j *queue.Job) error {
 func (s *jobs) Fail(ctx context.Context, j *queue.Job) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE jobs SET failed_at = CURRENT_TIMESTAMP, held_until = 0, error = ? WHERE id = ? AND attempts = ?",
 		j.Error, j.ID, j.Attempts)
+	return err
+}
+
+// prune deletes the jobs that failed for good over a month ago: long
+// enough for someone to have looked, and the table doesn't grow for ever.
+// It's a job itself, which newApp schedules for every night.
+func (s *jobs) prune(ctx context.Context, _ struct{}) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM jobs WHERE failed_at < datetime('now', '-30 days')")
 	return err
 }
