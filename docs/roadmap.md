@@ -364,7 +364,7 @@ Choices made on the way:
 
 Work a request starts and doesn't wait for, kept until it has run, and run
 again when it fails: the auth starter's mail first, which a mail server
-that was down, or a restart, used to lose.
+that was down, or a restart, used to lose. Released as v0.3.0.
 
 - Package `queue`. `Handle` gives a queue the handler for a kind of job,
   by name, and returns a `Kind[T]`, whose `Push` and `PushAt` keep the
