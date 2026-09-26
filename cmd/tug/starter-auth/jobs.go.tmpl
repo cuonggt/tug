@@ -1,0 +1,88 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"strconv"
+	"time"
+
+	"github.com/cuonggt/tug/queue"
+)
+
+// jobs is where the app's background jobs wait, in its database, for tug's
+// package queue, which runs them beside the server: the app's mail, which
+// a mail server that's down, or the app restarting, doesn't lose. A job
+// that fails for good stays, with its error and failed_at, to be looked
+// at, and run again by clearing failed_at:
+//
+//	SELECT id, kind, payload, attempts, error, failed_at FROM jobs WHERE failed_at IS NOT NULL;
+//	UPDATE jobs SET failed_at = NULL, attempts = 0, run_at = 0 WHERE id = 42;
+//
+// run_at and held_until are Unix milliseconds, as each poll compares them
+// with the time.
+type jobs struct {
+	db *sql.DB
+}
+
+func (s *jobs) Push(ctx context.Context, j *queue.Job) error {
+	var id int64
+	err := s.db.QueryRowContext(ctx, "INSERT INTO jobs (kind, payload, run_at) VALUES (?, ?, ?) RETURNING id",
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli()).Scan(&id)
+	j.ID = strconv.FormatInt(id, 10)
+	return err
+}
+
+// Claim looks before it claims: an idle queue asks every second, and a
+// write, even one that changes nothing, would take SQLite's one lock for
+// writing each time. The claim itself is one statement, which finds the
+// job and holds it, so that two at once can't both have it.
+func (s *jobs) Claim(ctx context.Context, now, until time.Time) (*queue.Job, error) {
+	var due bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM jobs WHERE failed_at IS NULL AND run_at <= ?1 AND held_until <= ?1)",
+		now.UnixMilli()).Scan(&due)
+	if err != nil || !due {
+		return nil, err
+	}
+	j := &queue.Job{}
+	var id, runAt int64
+	var payload string
+	var lastErr sql.NullString
+	err = s.db.QueryRowContext(ctx, `
+		UPDATE jobs SET held_until = ?2, attempts = attempts + 1
+		WHERE id = (
+			SELECT id FROM jobs WHERE failed_at IS NULL AND run_at <= ?1 AND held_until <= ?1
+			ORDER BY run_at, id LIMIT 1
+		)
+		RETURNING id, kind, payload, run_at, attempts, error`, now.UnixMilli(), until.UnixMilli()).
+		Scan(&id, &j.Kind, &payload, &runAt, &j.Attempts, &lastErr)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil // another instance's claim got there first
+	}
+	if err != nil {
+		return nil, err
+	}
+	j.ID, j.Payload, j.RunAt, j.Error = strconv.FormatInt(id, 10), []byte(payload), time.UnixMilli(runAt), lastErr.String
+	return j, nil
+}
+
+// Done, Retry and Fail change a job only while it has the attempts the
+// claim left it with: once its hold ran out and another claim took it,
+// the job is that claim's.
+
+func (s *jobs) Done(ctx context.Context, j *queue.Job) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM jobs WHERE id = ? AND attempts = ?", j.ID, j.Attempts)
+	return err
+}
+
+func (s *jobs) Retry(ctx context.Context, j *queue.Job) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE jobs SET run_at = ?, held_until = 0, error = ? WHERE id = ? AND attempts = ?",
+		j.RunAt.UnixMilli(), j.Error, j.ID, j.Attempts)
+	return err
+}
+
+func (s *jobs) Fail(ctx context.Context, j *queue.Job) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE jobs SET failed_at = CURRENT_TIMESTAMP, held_until = 0, error = ? WHERE id = ? AND attempts = ?",
+		j.Error, j.ID, j.Attempts)
+	return err
+}

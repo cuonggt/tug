@@ -16,10 +16,12 @@ has the rest of the detail.
 4. [Forms and sessions](forms.md): validation, forms that check each field
    as it's left, flash messages, sessions, and CSRF.
 5. [Accounts](auth.md): the auth starter, and packages `auth` and `mail`.
-6. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
-7. [Deployment](deployment.md): one binary, the Dockerfile, and the
+6. [Background jobs](jobs.md): package `queue`, for work that outlasts the
+   request, and runs again when it fails.
+7. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
+8. [Deployment](deployment.md): one binary, the Dockerfile, and the
    environment.
-8. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen` and `tug build`, in
+9. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen` and `tug build`, in
    full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,

@@ -1,0 +1,69 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/queue"
+	"github.com/cuonggt/tug/queue/queuetest"
+)
+
+func TestTheJobsTableKeepsTheQueuesPromises(t *testing.T) {
+	queuetest.TestStore(t, func(t *testing.T) queue.Store {
+		return &jobs{db: testDB(t)}
+	})
+}
+
+func TestAJobThatFailsForGoodStaysUntilItsRunAgain(t *testing.T) {
+	s := &jobs{db: testDB(t)}
+	ctx, now := context.Background(), time.Now()
+	s.Push(ctx, &queue.Job{Kind: "verify-mail", Payload: []byte(`{"user":1}`), RunAt: now})
+	j, err := s.Claim(ctx, now, now.Add(time.Minute))
+	if err != nil || j == nil {
+		t.Fatalf("claimed %v, %v", j, err)
+	}
+	j.Error = "550 no such mailbox"
+	if err := s.Fail(ctx, j); err != nil {
+		t.Fatal(err)
+	}
+	var kind, lastErr string
+	var failed bool
+	err = s.db.QueryRow("SELECT kind, error, failed_at IS NOT NULL FROM jobs WHERE id = ?", j.ID).Scan(&kind, &lastErr, &failed)
+	if err != nil || kind != "verify-mail" || lastErr != "550 no such mailbox" || !failed {
+		t.Fatalf("the failed job: %q, %q, failed %v, %v", kind, lastErr, failed, err)
+	}
+
+	// As jobs.go says to.
+	if _, err := s.db.Exec("UPDATE jobs SET failed_at = NULL, attempts = 0, run_at = 0 WHERE id = ?", j.ID); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := s.Claim(ctx, now, now.Add(time.Minute)); err != nil || again == nil || again.Attempts != 1 {
+		t.Errorf("claimed %+v, %v: want the job, to run again from its first attempt", again, err)
+	}
+}
+
+func TestAMailThatDoesntGoIsSentAgain(t *testing.T) {
+	app := newTestApp(t)
+	app.outbox.down.Store(1)
+	register(app.visitor(), "Ann", "ann@example.com", "correct horse")
+	if m := app.mail(); m.To[0] != "ann@example.com" || !strings.HasPrefix(m.Subject, "Verify") {
+		t.Errorf("sent again: the mail to %v, %s", m.To, m.Subject)
+	}
+}
+
+func TestAnAddressCanAskForFiveResetLinksAMinute(t *testing.T) {
+	app := newTestApp(t)
+	app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	v := app.visitor()
+	for i := range 5 {
+		v.visit("POST", "/forgot-password", map[string]any{"email": fmt.Sprintf("nobody%d@example.com", i)})
+	}
+	v.visit("POST", "/forgot-password", map[string]any{"email": "ann@example.com"})
+	if r := v.get("/forgot-password"); r.page.Flash["success"] != "If that email has an account, a link to reset its password is on its way." {
+		t.Errorf("the sixth ask: flash %v, want the answer every ask gets", r.page.Flash)
+	}
+	app.noMail()
+}

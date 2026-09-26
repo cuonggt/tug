@@ -2,11 +2,8 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"html/template"
-	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/mail"
@@ -62,30 +59,21 @@ var mailHTML = template.Must(template.New("mail").Parse(`<!doctype html>
 // AppName is the app's name, for the template.
 func (message) AppName() string { return appName }
 
-// link is the address of the named route, for a link in mail: APP_URL, or
-// in development, without it, the address the request came to.
-func (a *app) link(c *tug.Ctx, name string, params ...any) (string, error) {
-	path, err := c.URL(name, params...)
+// base is the address the links in mail start with: APP_URL, or in
+// development, without it, the address the request came to. The job that
+// makes a mail takes it along, as it has no request of its own.
+func (a *app) base(c *tug.Ctx) string {
+	if a.url != "" {
+		return strings.TrimRight(a.url, "/")
+	}
+	return "http://" + c.Request().Host
+}
+
+// link is the address of the named route, from base, for a link in mail.
+func (a *app) link(base, name string, params ...any) (string, error) {
+	path, err := a.routes.URL(name, params...)
 	if err != nil {
 		return "", err
 	}
-	base := a.url
-	if base == "" {
-		base = "http://" + c.Request().Host
-	}
-	return strings.TrimRight(base, "/") + path, nil
-}
-
-// sendLater sends m without the request waiting for it: a mail server can
-// take seconds, and for a forgotten password, how long it takes mustn't
-// say whether an email has an account. main waits for it as the app
-// stops.
-func (a *app) sendLater(ctx context.Context, m mail.Message) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-	a.sending.Go(func() {
-		defer cancel()
-		if err := a.mailer.Send(ctx, m); err != nil {
-			slog.ErrorContext(ctx, "a mail wasn't sent", "subject", m.Subject, "err", err)
-		}
-	})
+	return base + path, nil
 }

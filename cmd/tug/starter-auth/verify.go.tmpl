@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cuonggt/tug"
 )
@@ -27,13 +29,39 @@ func verifyEmailPage(c *tug.Ctx, user *User) error {
 	return VerifyEmail.Render(c, NoProps{})
 }
 
-// sendVerification mails u the link that verifies their email.
+// sendVerification mails u the link that verifies their email, by a job.
 func (a *app) sendVerification(c *tug.Ctx, u *User) error {
-	link, err := a.link(c, "verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
+	return a.verifyMail.Push(c.Context(), VerifyMail{User: u.ID, Email: u.Email, Base: a.base(c)})
+}
+
+// VerifyMail is the job that mails a user the link that verifies their
+// email. The link is made as the mail goes, so no token waits in the
+// database.
+type VerifyMail struct {
+	User  int64  `json:"user"`
+	Email string `json:"email"` // the email the link is for
+	Base  string `json:"base"`  // the address the link starts with
+}
+
+// mailVerification runs VerifyMail jobs. A user who has gone, verified
+// their email, or changed it since the job was pushed gets nothing: the
+// link would verify nothing.
+func (a *app) mailVerification(ctx context.Context, job VerifyMail) error {
+	u, err := a.users.byID(ctx, job.User)
+	if errors.Is(err, errNoUser) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	a.sendLater(c.Context(), message{
+	if u.EmailVerifiedAt != nil || !strings.EqualFold(u.Email, job.Email) {
+		return nil
+	}
+	link, err := a.link(job.Base, "verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
+	if err != nil {
+		return err
+	}
+	return a.mailer.Send(ctx, message{
 		To:      u,
 		Subject: "Verify your email for " + appName,
 		Intro:   "Follow this link to verify that " + u.Email + " is yours, and it's where " + appName + " will reach you.",
@@ -41,7 +69,6 @@ func (a *app) sendVerification(c *tug.Ctx, u *User) error {
 		URL:     link,
 		Outro:   "The link works for a day. If you didn't make an account, someone typed your email by mistake: there's nothing to do.",
 	}.mail())
-	return nil
 }
 
 // resendVerification mails the link again, from the page that asks for it

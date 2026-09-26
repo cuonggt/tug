@@ -64,6 +64,21 @@ the listener. The server either one starts has a `ReadHeaderTimeout` of 10
 seconds, so a client that sends its headers a byte at a time can't hold a
 connection for as long as it likes.
 
+Work that isn't a request, such as a job queue's workers, runs beside the
+server with `app.Go`:
+
+```go
+app.Go(q.Run) // a job queue's: func(ctx context.Context) error
+```
+
+`Run` and `Serve` start it as they start serving, with a context that's
+done as the app shuts down, and wait for it to return before they do. An
+error it returns before then shuts the app down, and `Run` returns it, as
+an app whose jobs have stopped shouldn't carry on as though they hadn't.
+`ServeHTTP` starts nothing, nor does `tug gen`, and `Go` panics once the
+app is serving.
+[jobs.md](jobs.md) has the job queue.
+
 `Run` is also how `tug gen` learns the app: it runs the app with `TUG_GEN`
 set, and `Run` writes the app's TypeScript instead of serving. So add every
 route before calling `Run`; whatever `main` does before it, it does for

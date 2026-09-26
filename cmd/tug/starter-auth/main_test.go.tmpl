@@ -5,10 +5,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -17,56 +19,87 @@ import (
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/mail"
+	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/session"
 )
 
 // outbox is a mailer that keeps what it's given, for the tests to read.
-type outbox chan mail.Message
+// It can be down, as a mail server can, for a number of mails.
+type outbox struct {
+	sent chan mail.Message
+	down atomic.Int32
+}
 
-func (o outbox) Send(_ context.Context, m mail.Message) error {
-	o <- m
-	return nil
+func (o *outbox) Send(ctx context.Context, m mail.Message) error {
+	if o.down.Add(-1) >= 0 {
+		return errors.New("dial tcp: connection refused")
+	}
+	select {
+	case o.sent <- m:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // testApp is the app with a database of its own, and mail that goes into
 // its outbox.
 type testApp struct {
 	*tug.App
-	t    *testing.T
-	db   *sql.DB
-	keys [][]byte
-	sent outbox
+	t      *testing.T
+	db     *sql.DB
+	keys   [][]byte
+	outbox *outbox
 }
 
 func key(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
 
 func newTestApp(t *testing.T) *testApp {
 	t.Helper()
+	return startApp(t, testDB(t), [][]byte{key(1)})
+}
+
+// testDB is a database of the test's own, with its tables made.
+func testDB(t *testing.T) *sql.DB {
+	t.Helper()
 	db, err := openDB(filepath.Join(t.TempDir(), "app.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return startApp(t, db, [][]byte{key(1)})
+	return db
 }
 
-// startApp makes the app on db, with keys, as a deploy does.
+// startApp makes the app on db, with keys, as a deploy does, and runs its
+// jobs until the test ends. A job that has come due runs at once, rather
+// than at the next second's poll.
 func startApp(t *testing.T, db *sql.DB, keys [][]byte) *testApp {
 	t.Helper()
-	sent := make(outbox, 20)
-	app, err := newApp(tug.Config{}, env{Build: fstest.MapFS{}, Keys: keys, DB: db, Mailer: sent, URL: "https://app.example"})
+	out := &outbox{sent: make(chan mail.Message, 20)}
+	q := queue.New(queue.Config{Store: &jobs{db: db}, Poll: 10 * time.Millisecond})
+	app, err := newApp(tug.Config{}, env{Build: fstest.MapFS{}, Keys: keys, DB: db, Mailer: out, URL: "https://app.example", Queue: q})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testApp{App: app, t: t, db: db, keys: keys, sent: sent}
+	ctx, stop := context.WithCancel(context.Background())
+	ran := make(chan struct{})
+	go func() {
+		q.Run(ctx)
+		close(ran)
+	}()
+	t.Cleanup(func() {
+		stop()
+		<-ran
+	})
+	return &testApp{App: app, t: t, db: db, keys: keys, outbox: out}
 }
 
-// mail returns the next mail the app sent. It's sent from a goroutine, so
-// it may not be there yet when the request is answered.
+// mail returns the next mail the app sent. A job sends it, so it may not
+// be there yet when the request is answered.
 func (a *testApp) mail() mail.Message {
 	a.t.Helper()
 	select {
-	case m := <-a.sent:
+	case m := <-a.outbox.sent:
 		return m
 	case <-time.After(5 * time.Second):
 		a.t.Fatal("no mail came")
@@ -78,7 +111,7 @@ func (a *testApp) mail() mail.Message {
 func (a *testApp) noMail() {
 	a.t.Helper()
 	select {
-	case m := <-a.sent:
+	case m := <-a.outbox.sent:
 		a.t.Errorf("mail went to %v: %s", m.To, m.Subject)
 	case <-time.After(100 * time.Millisecond):
 	}

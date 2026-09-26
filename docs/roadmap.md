@@ -13,6 +13,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M5 | CLI                     | done   |
 | M6 | v0.1.0                  | done   |
 | M7 | The auth starter, whole | done   |
+| M8 | Background jobs         | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -272,7 +273,7 @@ Choices made on the way:
   files replace the plain starter's of the same name, and add the rest.
 
 After v0.1: SSR through a Node or Bun process beside the binary, Vue and
-Svelte starters, background job queues, and passkeys.
+Svelte starters, and passkeys. Background jobs are M8.
 
 ## M7 · The auth starter, whole — done
 
@@ -358,6 +359,61 @@ Choices made on the way:
   `42` bind as they always have, with no second reading.
 - The migrations are the starter's own code, a list of SQL steps, as no
   ORM is in the core.
+
+## M8 · Background jobs — done
+
+Work a request starts and doesn't wait for, kept until it has run, and run
+again when it fails: the auth starter's mail first, which a mail server
+that was down, or a restart, used to lose.
+
+- Package `queue`. `Handle` gives a queue the handler for a kind of job,
+  by name, and returns a `Kind[T]`, whose `Push` and `PushAt` keep the
+  value as JSON. `Run` runs jobs `Workers` at a time, woken by a push
+  through the queue, or else by its `Poll`. A job that fails runs again
+  after attempt⁴ seconds, 10 times over about four hours, and is then kept
+  as failed, with its error; `Permanent` fails one at once, and a panic is
+  a failed attempt. `Drain` runs what's due, for tests.
+- `Store`: push, claim, done, retry and fail. A claim holds a job for the
+  longest `Timeout` and a minute, and a late claim can't change a job a
+  later one has taken. `queuetest.TestStore` checks that a Store keeps
+  these promises, and `queuetest.Memory` is one in memory, for tests.
+- `App.Go`: work beside the server, started with it, told to stop as it
+  shuts down, and waited for. An error from it shuts the app down.
+- The auth starter keeps its jobs in SQLite, in a `jobs` table its
+  migrations make, and sends its mail by jobs. `QUEUE_WORKERS` is how many
+  run at once, and 0 runs none. The forgotten-password form takes five
+  asks a minute from an address.
+
+Choices made on the way:
+
+- The queue has no SQL: `Store` is an interface, and the auth starter's
+  `jobs.go` is the SQLite one, as its users are its own code. tug has no
+  database code anywhere; the starter counts its migrations in
+  `user_version`, beside which a table of tug's would need migrations of
+  its own; and SQL tested in tug would put a driver in its go.mod. What a
+  slip in a Store costs, a job run twice or lost, `queuetest.TestStore`
+  tests, so the starter's SQLite and anyone's Postgres run the same tests.
+- A job runs at least once, not exactly once: one whose worker was killed
+  runs again once its hold is up, so a handler is safe to run twice.
+  Exactly once would need the job and what it does in one transaction,
+  which a mail can't be in.
+- The workers run in the app's binary, beside the server, as one binary is
+  tug's point. With a database on a server of its own, instances share
+  the work, and `QUEUE_WORKERS=0` keeps one out of it.
+- The starter's mail jobs carry IDs, and make the mail, token and all, as
+  they run: no reset or verification token waits in the database, and a
+  mail sent late still has a fresh link.
+- The forgotten-password form pushes a job whatever the email, and the job
+  looks it up: pushed only for an account, the job would be a write only
+  for an account, and how long the form took would say who has one.
+- As the app stops, the jobs running get a grace period, then are
+  canceled and put back, due at once, rather than left held until their
+  hold runs out: a deploy doesn't hold them up for minutes.
+- A queue with no handler for a kind runs it again later, rather than
+  failing it: in a rolling deploy, an instance from before it may claim a
+  kind that's new, and one from after runs it.
+- The starter's claim reads before it writes, since SQLite has one writer,
+  and an `UPDATE` that matches nothing still takes its lock.
 
 ## Decisions
 

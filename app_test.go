@@ -2,10 +2,15 @@ package tug
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -112,4 +117,72 @@ func TestServeGivesUpOnRequestsThatOutlastTheShutdownTimeout(t *testing.T) {
 	if err := <-served; err == nil || !strings.Contains(err.Error(), "still running") {
 		t.Fatalf("Serve returned %v, want it to say requests were still running", err)
 	}
+}
+
+func TestWorkBesideTheServerStopsAsItShutsDownAndServeWaitsForIt(t *testing.T) {
+	captureLog(t)
+	app := New(Config{})
+	started := make(chan struct{})
+	var finished atomic.Bool
+	app.Go(func(ctx context.Context) error {
+		close(started)
+		<-ctx.Done()
+		time.Sleep(50 * time.Millisecond) // finishing what it was doing
+		finished.Store(true)
+		return ctx.Err()
+	})
+	_, stop, served := start(t, app)
+	<-started
+	stop()
+	if err := <-served; err != nil {
+		t.Fatalf("Serve returned %v, want nil for work that stopped when told to", err)
+	}
+	if !finished.Load() {
+		t.Error("Serve returned before the work beside the server had")
+	}
+}
+
+func TestWorkBesideTheServerThatFailsShutsTheAppDown(t *testing.T) {
+	captureLog(t)
+	app := New(Config{})
+	app.Go(func(ctx context.Context) error { return errors.New("the jobs table is gone") })
+	_, _, served := start(t, app)
+	select {
+	case err := <-served:
+		if err == nil || !strings.Contains(err.Error(), "the jobs table is gone") {
+			t.Errorf("Serve returned %v, want the work's error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the app went on serving with the work beside it failed")
+	}
+}
+
+func TestServeHTTPAndTugGenStartNothingGoAdded(t *testing.T) {
+	app := New(Config{})
+	app.Get("/", func(c *Ctx) error { return c.String(200, "home") })
+	app.Go(func(context.Context) error {
+		t.Error("the work beside the server started")
+		return nil
+	})
+	app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+
+	path := filepath.Join(t.TempDir(), "gen.json")
+	t.Setenv("TUG_GEN", path)
+	if err := app.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("tug gen wrote nothing: %v", err)
+	}
+}
+
+func TestGoOnceTheAppIsServingPanics(t *testing.T) {
+	app := New(Config{})
+	app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	defer func() {
+		if recover() == nil {
+			t.Error("Go didn't panic")
+		}
+	}()
+	app.Go(func(context.Context) error { return nil })
 }

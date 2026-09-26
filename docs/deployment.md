@@ -117,6 +117,7 @@ The auth starter reads these as well:
 |---------------------|--------------|---------|---------|
 | `APP_URL`           | The app's address, such as `https://example.com`, which the links in its mail start with. With `https://`, the session cookie is for HTTPS only. | none: needed unless `APP_DEBUG` is on | its `main.go` |
 | `DB_PATH`           | The SQLite database. | `app.db`, and `/data/app.db` in its image | its `main.go` |
+| `QUEUE_WORKERS`     | How many background jobs, such as mail, run at once. With `0`, this instance runs none and leaves its jobs to the others on the database. | `4` | its `main.go` |
 | `MAIL_HOST`         | The SMTP server. Without it, mail is written to the standard error instead of sent. | none | `mail.FromEnv` |
 | `MAIL_PORT`         | The server's port. On 465 the connection is TLS from the start; on another, it uses STARTTLS when the server offers it. | `587` | `mail.FromEnv` |
 | `MAIL_USERNAME`, `MAIL_PASSWORD` | The login, for a server that wants one. | none | `mail.FromEnv` |
@@ -315,12 +316,15 @@ app, err := newApp(cfg, build, keys)
 
 The Dockerfile's `ENTRYPOINT` is the binary itself, with no shell in
 between, so the signal reaches it. Work that a handler starts in a
-goroutine of its own isn't a request, and `Run` doesn't wait for it. The
-auth starter sends its mail that way, and counts it in a
-`sync.WaitGroup` that its `main` waits for once `Run` returns, so a mail on
-its way as the app stops goes out first. Each mail has a minute at most,
-so keep the platform's grace period in mind, or have `main` give up
-sooner.
+goroutine of its own isn't a request, and `Run` doesn't wait for it; what
+`app.Go` runs, it does. The auth starter's job queue, which sends its
+mail, runs that way: as the app shuts down, it takes no more jobs, and
+gives the ones running 10 seconds, its `Grace`, alongside the requests'
+`ShutdownTimeout`. A job still running after that is put back, and runs at
+the next start. So shutting down takes as long as the longer of the two,
+and a moment more to put jobs back: keep it under the platform's grace
+period.
+[jobs.md](jobs.md) has the rest.
 
 ## Health checks
 

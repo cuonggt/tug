@@ -17,8 +17,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cuonggt/tug"
@@ -26,6 +26,7 @@ import (
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/mail"
 	"github.com/cuonggt/tug/middleware"
+	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/session"
 	"github.com/cuonggt/tug/vite"
 )
@@ -61,18 +62,24 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	var sending sync.WaitGroup
+	workers, err := strconv.Atoi(cmp.Or(os.Getenv("QUEUE_WORKERS"), "4"))
+	if err != nil || workers < 0 {
+		log.Fatal("QUEUE_WORKERS is how many jobs the app runs at once, such as 4, or 0 for none")
+	}
+	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers})
 	app, err := newApp(tug.ConfigFromEnv(), env{
-		Build: build, Keys: keys, DB: db, Mailer: mailer, URL: os.Getenv("APP_URL"), Sending: &sending,
+		Build: build, Keys: keys, DB: db, Mailer: mailer, URL: os.Getenv("APP_URL"), Queue: q,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = app.Run()
-	// Run waits for the requests in flight, and the mail they sent may
-	// still be on its way.
-	sending.Wait()
-	if err != nil {
+	// The jobs run beside the server, and Run waits for the ones running
+	// as it stops. An instance with none leaves its jobs to the others on
+	// the database.
+	if workers > 0 {
+		app.Go(q.Run)
+	}
+	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -90,17 +97,19 @@ type env struct {
 	// out, to be taken from the request instead.
 	URL string
 
-	// Sending counts the mail on its way, for main to wait for as the app
-	// stops. Optional.
-	Sending *sync.WaitGroup
+	// Queue is where the app pushes its background jobs, its mail, and what
+	// runs them: main runs it beside the server, and the tests on its own.
+	Queue *queue.Queue
 }
 
 // app is what the handlers share.
 type app struct {
 	users         *users
 	mailer        mail.Mailer
-	sending       *sync.WaitGroup
 	url           string
+	routes        *tug.App // for the links in mail, which jobs make with no request
+	verifyMail    *queue.Kind[VerifyMail]
+	resetMail     *queue.Kind[ResetMail]
 	resets        *auth.Resets
 	verifications *auth.Verifications
 	twoFactor     *auth.TwoFactor
@@ -108,11 +117,13 @@ type app struct {
 	// Tries, counted so that none can be made fast enough to guess: logins
 	// by email and address; the password of someone logged in, and the
 	// codes of a login waiting for its second factor, by user; and mail,
-	// by what it's for and to whom, so that no one's inbox can be flooded.
+	// by what it's for and to whom, so that no one's inbox can be flooded,
+	// and the asks for a reset link, which are jobs, by address.
 	logins    *auth.Throttle
 	passwords *auth.Throttle
 	codes     *auth.Throttle
 	mails     *auth.Throttle
+	resetAsks *auth.Throttle
 }
 
 // newApp puts the app together: its pages, sessions, middleware and routes.
@@ -147,7 +158,6 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	a := &app{
 		users:         &users{db: e.DB},
 		mailer:        e.Mailer,
-		sending:       cmp.Or(e.Sending, &sync.WaitGroup{}),
 		url:           e.URL,
 		resets:        &auth.Resets{Keys: e.Keys},
 		verifications: &auth.Verifications{Keys: e.Keys},
@@ -156,7 +166,12 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		passwords:     &auth.Throttle{Max: 5, Window: time.Minute},
 		codes:         &auth.Throttle{Max: 5, Window: time.Minute},
 		mails:         &auth.Throttle{Max: 1, Window: time.Minute},
+		resetAsks:     &auth.Throttle{Max: 5, Window: time.Minute},
 	}
+	// The mail goes by jobs, which make each mail as it goes: in verify.go
+	// and auth.go.
+	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
+	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
 	if len(e.Keys) > 1 {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
 		// two-factor secrets over to the new one before it's dropped.
@@ -174,6 +189,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 
 	cfg.Inertia, cfg.Session, cfg.ErrorPage = pages, sessions, "Error"
 	app := tug.New(cfg)
+	a.routes = app
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 	app.Get("/up", a.up)

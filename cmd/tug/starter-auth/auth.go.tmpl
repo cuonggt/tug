@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -302,28 +303,48 @@ func (a *app) forgotPassword(c *tug.Ctx) error {
 	if err := c.BindValid(&in); err != nil {
 		return err
 	}
-	u, err := a.users.byEmail(c.Context(), in.Email)
-	if err != nil && !errors.Is(err, errNoUser) {
-		return err
-	}
-	// One mail a minute at most for an email, and the answer is the same
-	// whether it has an account or not, so the form can't be asked who has.
-	if u != nil && a.mails.Try("reset|"+strings.ToLower(u.Email)) == 0 {
-		link, err := a.link(c, "password.reset", a.resets.Token(u.authID(), u.PasswordHash))
-		if err != nil {
+	// The job looks the email up, not the request, so the answer is the
+	// same, and as quick, whether it has an account or not: the form can't
+	// be asked who has. Each ask is a job in the database, so an address
+	// has five a minute, and an email gets one mail a minute at most.
+	if a.resetAsks.Try(clientIP(c.Request())) == 0 && a.mails.Try("reset|"+strings.ToLower(in.Email)) == 0 {
+		if err := a.resetMail.Push(c.Context(), ResetMail{Email: in.Email, Base: a.base(c)}); err != nil {
 			return err
 		}
-		a.sendLater(c.Context(), message{
-			To:      u,
-			Subject: "Reset your " + appName + " password",
-			Intro:   "Someone, hopefully you, asked to reset the password of your " + appName + " account. Follow this link to choose a new one.",
-			Action:  "Choose a new password",
-			URL:     link + "?email=" + url.QueryEscape(u.Email),
-			Outro:   "The link works once, for an hour. If you didn't ask, there's nothing to do: your password stays as it is.",
-		}.mail())
 	}
 	c.Flash("success", "If that email has an account, a link to reset its password is on its way.")
 	return c.RedirectRoute("password.request")
+}
+
+// ResetMail is the job that mails a link to reset the password of the
+// account with Email, if there is one. The link is made as the mail goes,
+// from the password it replaces, so no token waits in the database.
+type ResetMail struct {
+	Email string `json:"email"`
+	Base  string `json:"base"` // the address the link starts with
+}
+
+// mailReset runs ResetMail jobs.
+func (a *app) mailReset(ctx context.Context, job ResetMail) error {
+	u, err := a.users.byEmail(ctx, job.Email)
+	if errors.Is(err, errNoUser) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	link, err := a.link(job.Base, "password.reset", a.resets.Token(u.authID(), u.PasswordHash))
+	if err != nil {
+		return err
+	}
+	return a.mailer.Send(ctx, message{
+		To:      u,
+		Subject: "Reset your " + appName + " password",
+		Intro:   "Someone, hopefully you, asked to reset the password of your " + appName + " account. Follow this link to choose a new one.",
+		Action:  "Choose a new password",
+		URL:     link + "?email=" + url.QueryEscape(u.Email),
+		Outro:   "The link works once, for an hour. If you didn't ask, there's nothing to do: your password stays as it is.",
+	}.mail())
 }
 
 // ResetPasswordProps are the reset form's props, from the link in the mail.

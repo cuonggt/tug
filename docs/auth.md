@@ -62,19 +62,21 @@ plain starter's of the same name and add the rest, and the plain
   logging in and out, a forgotten password, and asking for the password
   again.
 - `verify.go`: verifying an email. `twofactor.go`: two-factor logins.
-  `settings.go`: the settings pages. `mail.go`: the mail the app sends,
-  and sending it.
-- `users.go`: `User`, the `users` table and its migrations, and its
-  queries. An email is unique whatever its case.
-- `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`:
-  a test of each flow, with the mail kept in memory.
+  `settings.go`: the settings pages. `mail.go`: the mail the app sends.
+- `jobs.go`: the background jobs, in a table of their own, for package
+  `queue`, which runs them beside the server. The mail goes by jobs.
+- `users.go`: `User`, the `users` table, and its queries, and the
+  migrations, which make the `jobs` table too. An email is unique whatever
+  its case.
+- `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
+  `jobs_test.go`: a test of each flow, with the mail kept in memory.
 - `resources/js`: `app.tsx`, which picks each page's layout; `layouts/`,
   the app's, the login card's, and the settings'; `components/`, the app's
   own and shadcn/ui's in `components/ui`; and the pages, `Home`,
   `Dashboard` and `Error`, and those in `Auth/` and `Settings/`.
-- `.env.example`: `APP_KEY`, `APP_URL`, `DB_PATH` and the mail's
-  variables, with what each is for. The `Dockerfile` keeps the database in
-  a `/data` volume.
+- `.env.example`: `APP_KEY`, `APP_URL`, `DB_PATH`, `QUEUE_WORKERS` and the
+  mail's variables, with what each is for. The `Dockerfile` keeps the
+  database in a `/data` volume.
 
 ### Trying it
 
@@ -211,10 +213,16 @@ link.
 ### Verifying an email
 
 ```go
-link, err := a.link(c, "verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
+// in a request, at registering, or at a new email
+a.verifyMail.Push(c.Context(), VerifyMail{User: u.ID, Email: u.Email, Base: a.base(c)})
+
+// in the job, as the mail goes
+link, err := a.link(job.Base, "verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
 ```
 
-The link is `APP_URL`, then `/verify-email/{id}/{token}`, with a token from
+The mail goes by a job, which makes the link as it sends it, unless the
+user has verified or changed their email since. The link is `APP_URL`,
+then `/verify-email/{id}/{token}`, with a token from
 `auth.Verifications`: signed for the user's ID and their email as it is,
 and good for a day. Following it proves the email reaches its owner, so it
 works in any browser, logged in or not, such as the phone the mail was read
@@ -369,23 +377,25 @@ someone's browser can guess no faster than at the login page.
 ### A forgotten password
 
 ```go
-if u != nil && a.mails.Try("reset|"+strings.ToLower(u.Email)) == 0 {
-    link, err := a.link(c, "password.reset", a.resets.Token(u.authID(), u.PasswordHash))
-    ...
-    a.sendLater(c.Context(), message{...}.mail())
+if a.resetAsks.Try(clientIP(c.Request())) == 0 && a.mails.Try("reset|"+strings.ToLower(in.Email)) == 0 {
+    if err := a.resetMail.Push(c.Context(), ResetMail{Email: in.Email, Base: a.base(c)}); err != nil {
+        return err
+    }
 }
 c.Flash("success", "If that email has an account, a link to reset its password is on its way.")
 return c.RedirectRoute("password.request")
 ```
 
-- The answer is the same for any email, so the form can't be asked who has
-  an account.
-- An account gets one mail a minute at most, so no one's inbox can be
+- The answer is the same for any email, and so is the work behind it: the
+  request pushes a `ResetMail` job whatever the email, and the job looks it
+  up. How long the form takes to answer can't say who has an account.
+- An email gets one mail a minute at most, so no one's inbox can be
   flooded from the form: `a.mails` is a `Throttle` with a `Max` of 1, for
-  reset links by email and verification links by user.
-- `sendLater` sends from a goroutine, with a minute to do it, and logs a
-  failure. The request doesn't wait: how long a mail server takes would
-  say whether the email has an account.
+  reset links by email and verification links by user. Each ask is a job
+  in the database, so an address has five a minute, in `a.resetAsks`.
+- The job, `mailReset`, finds the account, makes the token from its
+  password hash as it is then, and sends the mail, so no token waits in
+  the database. A mail that doesn't go runs again later.
 - The link is `APP_URL`, then the path of `password.reset` with a token
   from `auth.Resets`, then the email in the query.
 
@@ -409,15 +419,22 @@ goes on to give a code.
 about, a link, and what to do if it wasn't the user. `message.mail()`
 writes it as plain text, and as HTML with the link as a button, from an
 `html/template` with its style inline, as mail programs take it, and with
-what the user typed, such as their name, escaped. `sendLater` sends it in
-a goroutine that `main` waits for once `app.Run` returns, so mail still on
-its way as the app stops goes out.
+what the user typed, such as their name, escaped.
+
+The mail goes by jobs, which `jobs.go` keeps in the database: a
+`VerifyMail` or a `ResetMail` names the user, or the email, and the address
+the links start with, and the job makes the mail, link and token, as it
+runs. So a mail server that's down, or the app restarting, loses no mail:
+a job that fails runs again, 10 times over about four hours, and then
+stays in the table as failed, with its error. `main` runs the jobs beside
+the server with `app.Go`. [jobs.md](jobs.md) has the queue.
 
 ### The database
 
 ```go
 var migrations = []string{
     `CREATE TABLE users (...)`,
+    `CREATE TABLE jobs (...); CREATE INDEX jobs_due ...`,
 }
 ```
 
@@ -723,20 +740,29 @@ at its first mail.
 
 ### Testing
 
-The starter's tests hand the app a `Mailer` that keeps what it's given:
+The starter's tests hand the app a `Mailer` that keeps what it's given,
+and can be down for a number of mails, as a mail server can:
 
 ```go
-type outbox chan mail.Message
+type outbox struct {
+    sent chan mail.Message
+    down atomic.Int32
+}
 
-func (o outbox) Send(_ context.Context, m mail.Message) error {
-    o <- m
-    return nil
+func (o *outbox) Send(ctx context.Context, m mail.Message) error {
+    if o.down.Add(-1) >= 0 {
+        return errors.New("dial tcp: connection refused")
+    }
+    ...
 }
 ```
 
 A test reads the mail from the channel, and gives up after five seconds:
-mail is sent from a goroutine, so it may not be there yet when the request
-is answered. The tests log in as a user with two-factor logins on with
+a job sends it, so it may not be there yet when the request is answered.
+Each test app runs its own queue on its own database, asking for jobs
+every 10 milliseconds, so a mail that failed goes again as soon as its
+wait is over. `jobs_test.go` runs `queuetest.TestStore` on the `jobs`
+table. The tests log in as a user with two-factor logins on with
 `auth.TwoFactor.Code`, a code for now and one for 30 seconds on, since a
 code works once. `oldLogin` makes a session as one logged in long ago
 would have it, with no password typed since, by logging in through a
@@ -795,9 +821,11 @@ would have it, with no password typed since, by logging in through a
   the password lock its owner out for as long. Codes that keep failing
   after the right password mean someone else knows it: mailing the user
   then is worth doing.
-- **Mail that fails** is logged and not sent again: there's no queue. A
-  mail still on its way as the app stops goes out first, but one on its
-  way as it crashes is lost.
+- **Mail that keeps failing**: a mail job runs 10 times over about four
+  hours, then stays in the `jobs` table as failed, with an error in the
+  log. [jobs.md](jobs.md) has the SQL that finds failed jobs and runs them
+  again. And now and then a mail goes twice: a job runs at least once, and
+  again when the app is killed as it sends.
 
 ### What the starter leaves out
 

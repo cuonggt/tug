@@ -5,11 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M7 are done, which is the HTTP core, Inertia
+and where it stands: M1 to M8 are done, which is the HTTP core, Inertia
 pages with Vite, forms and validation, the rest of the v3 protocol, the
-CLI, v0.1.0 (the auth starter and the guide), and the auth starter made
-whole: email verification, remember me, password confirmation, two-factor
-logins, settings, and a Tailwind and shadcn/ui frontend.
+CLI, v0.1.0 (the auth starter and the guide), the auth starter made whole
+(v0.2.0): email verification, remember me, password confirmation,
+two-factor logins, settings, and a Tailwind and shadcn/ui frontend, and
+background jobs: package `queue`, which the auth starter sends its mail
+with.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -49,7 +51,10 @@ dev server that isn't there: delete it.
     request, `freeze` adds `/` as a catch-all, unless a route already takes
     every path under every method. The catch-all answers trailing-slash
     redirects itself, with a 307, and 405s (probing the mux with the other
-    methods for `Allow`) and 404s through the ErrorHandler.
+    methods for `Allow`) and 404s through the ErrorHandler. `Go` adds work
+    to run beside the server (`background`): `Serve` starts it with a
+    context canceled as shutdown begins, waits for it, and shuts down when
+    it fails first; `stopped` drops its `context.Canceled`.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -153,7 +158,13 @@ dev server that isn't there: delete it.
   `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
   `twofactor.go.tmpl` and `settings.go.tmpl`, its mail in `mail.go.tmpl`,
   and its users in SQLite (modernc.org/sqlite, pure Go), with migrations
-  counted in `user_version`, in `users.go.tmpl`. Its frontend is Tailwind
+  counted in `user_version`, in `users.go.tmpl`. Its jobs are in the same
+  database: `jobs.go.tmpl` is a `queue.Store`, which `jobs_test.go.tmpl`
+  runs `queuetest.TestStore` on. The mail goes by jobs (`VerifyMail` in
+  `verify.go.tmpl`, `ResetMail` in `auth.go.tmpl`) that carry IDs and make
+  the mail, token and all, as they run; `main` runs the queue with
+  `app.Go`, unless `QUEUE_WORKERS` is 0, and the tests on their own, with
+  an `outbox` that can be down. Its frontend is Tailwind
   and shadcn/ui: the registry's components in `components/ui`, layouts
   picked by page name in `app.tsx`, toasts from the flash event.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
@@ -176,6 +187,21 @@ dev server that isn't there: delete it.
   tries at the same moment can't all get in.
 - `mail`: `Message`, `SMTP` on net/smtp (STARTTLS, TLS on 465, deadlines
   from the context), `Log`, which writes mail out, and `FromEnv`.
+- `queue`: background jobs, with no import of tug and no idea where jobs
+  are kept. `store.go`: `Job` and `Store`, whose Done, Retry and Fail act
+  only for the claim that holds a job, told apart by its `Attempts`.
+  `queue.go`: `Run`, one goroutine that claims while a worker slot is
+  free, woken by a push through the Queue (`poke`, `wake`) or else by
+  `Poll`; stopping gives the jobs running `Grace`, then cancels their
+  context, and `run` puts them back. `run` records how a job went: Done,
+  Retry after its `backoff` (attempt⁴ seconds), or Fail after its last
+  attempt or a `Permanent` error. `hold` is how long a claim holds a job,
+  the longest Timeout and a minute. `Drain` runs what's due in the
+  caller. `kind.go`: `Handle`, `Kind[T]` with `Push` and `PushAt` (the
+  value as JSON), and the options. `queuetest`: `Memory`, and `TestStore`,
+  the Store's promises as tests, which every Store's own tests run.
+  `queue_test.go` is an external package, for `Memory`, with
+  `export_test.go` for the clock.
 - `examples/api`: a JSON API on the core. Its tests are the end to end check.
 - `examples/inertia`: React pages on tug. `main.go` embeds `app.html` and
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile

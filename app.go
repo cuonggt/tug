@@ -95,6 +95,9 @@ type App struct {
 	start   sync.Once
 	handler http.Handler
 	serving atomic.Bool
+
+	// background is what Go runs beside the server.
+	background []func(ctx context.Context) error
 }
 
 // New returns an App. Without a Config it reads one from the environment
@@ -245,9 +248,26 @@ func (a *App) routed(r *http.Request) bool {
 	return pattern != "" && pattern != "/"
 }
 
+// Go runs fn beside the server, for work that isn't a request, such as a
+// job queue's workers: Run and Serve start it as they start serving, with
+// a context that's done as the app shuts down, and wait for it to return.
+// An error it returns before then shuts the app down, and Serve returns
+// it: an app whose jobs have stopped shouldn't carry on as though they
+// hadn't. ServeHTTP, as tests call it, starts nothing, and nor does tug
+// gen.
+//
+// Go panics once the app is serving.
+func (a *App) Go(fn func(ctx context.Context) error) {
+	if a.serving.Load() {
+		panic("tug: Go is for before the app is serving: what it runs starts with the server")
+	}
+	a.background = append(a.background, fn)
+}
+
 // Run serves on Config.Addr until SIGINT or SIGTERM, then shuts down
-// gracefully: it stops taking connections and waits up to
-// Config.ShutdownTimeout for the requests in flight to finish.
+// gracefully: it stops taking connections, waits up to
+// Config.ShutdownTimeout for the requests in flight to finish, and waits
+// for what Go runs to return.
 //
 // Run is also where tug gen learns about the app: started by it, with
 // TUG_GEN set to a file, Run writes the TypeScript for the app's pages and
@@ -303,21 +323,53 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	go func() { served <- srv.Serve(ln) }()
 	slog.Info("listening", "addr", ln.Addr().String())
 
-	select {
-	case err := <-served:
-		return err
-	case <-ctx.Done():
+	// What Go runs is told to stop as the server shuts down, and stops
+	// the server when it fails first.
+	work, stopWork := context.WithCancel(ctx)
+	defer stopWork()
+	errs := make([]error, len(a.background))
+	failed := make(chan struct{}, len(a.background))
+	var working sync.WaitGroup
+	for i, fn := range a.background {
+		working.Go(func() {
+			if errs[i] = fn(work); errs[i] != nil {
+				failed <- struct{}{}
+			}
+		})
 	}
 
+	select {
+	case err := <-served:
+		stopWork()
+		working.Wait()
+		return errors.Join(err, stopped(errs))
+	case <-ctx.Done():
+	case <-failed:
+	}
+
+	stopWork()
 	slog.Info("shutting down", "timeout", a.config.ShutdownTimeout)
 	sctx, cancel := context.WithTimeout(context.Background(), a.config.ShutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(sctx); err != nil {
+	var err error
+	if serr := srv.Shutdown(sctx); serr != nil {
 		srv.Close()
-		return fmt.Errorf("tug: requests still running after %v: %w", a.config.ShutdownTimeout, err)
+		err = fmt.Errorf("tug: requests still running after %v: %w", a.config.ShutdownTimeout, serr)
+	} else if serr := <-served; !errors.Is(serr, http.ErrServerClosed) {
+		err = serr
 	}
-	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
-		return err
+	working.Wait()
+	return errors.Join(err, stopped(errs))
+}
+
+// stopped is what the work Go runs returned, but for its being canceled,
+// which is how it was told to stop.
+func stopped(errs []error) error {
+	var failed []error
+	for _, err := range errs {
+		if err != nil && !errors.Is(err, context.Canceled) {
+			failed = append(failed, err)
+		}
 	}
-	return nil
+	return errors.Join(failed...)
 }
