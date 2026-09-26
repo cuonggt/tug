@@ -265,10 +265,9 @@ a.logins.Clear(key)
   and stored (`auth.NeedsRehash`).
 - "Remember me" makes the session last a month without a visit, with
   `s.SetLifetime(rememberFor)`, where the rest last two hours. Each visit
-  starts the month again. The login page sends the checkbox as a boolean:
-  a ticked checkbox is `"on"` in the data Inertia's `<Form>` sends, and a
-  `transform` turns it into the `true` that `LoginInput.Remember`, a
-  `bool`, takes.
+  starts the month again. The box sends `"on"` when it's ticked, which
+  `Bind` reads as `true` for `LoginInput.Remember`, a `bool`, as it reads a
+  form's value ([Routing](routing.md#binding)).
 - A user with two-factor logins on goes on to give a code (below).
   Everyone else is logged in with `auth.Login`, and goes to the page
   `auth.Intended` kept, or the dashboard.

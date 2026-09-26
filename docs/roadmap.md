@@ -348,9 +348,13 @@ Choices made on the way:
 - The toasts listen for Inertia's `flash` event from the start of
   `app.tsx`, not in a component's effect, which would miss the flash of a
   page's first load, as after a link in mail.
-- Inertia's `<Form>` sends a ticked checkbox as the string `"on"`, which
-  `Bind` doesn't take for a bool from JSON. The login page turns it into
-  `true` with a `transform`; `Bind` is left as it is for now.
+- Inertia's `<Form>` sends a form as JSON with every value a string, `"on"`
+  from a checkbox and `"42"` from a number input, which `encoding/json`
+  won't put in a bool or a number. `Bind` reads such a string as it reads a
+  form's value, times from date inputs too, and `""` leaves the field
+  alone. It does so only for a body that fails to decode as it is, and
+  finds fields by `encoding/json`'s own rules, so a JSON API's `true` and
+  `42` bind as they always have, with no second reading.
 - The migrations are the starter's own code, a list of SQL steps, as no
   ORM is in the core.
 

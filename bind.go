@@ -36,6 +36,12 @@ import (
 // *multipart.FileHeader or []*multipart.FileHeader. An empty form value
 // leaves its field alone, as an empty input means no value rather than zero.
 //
+// Inertia's <Form> sends a form as JSON, with every value a string: "on"
+// from a checkbox, "42" from a number input, "2026-09-25" from a date input,
+// and "" from one left empty. So a JSON string where a bool, a number or a
+// time.Time goes is read as a form's value is, and "" leaves its field
+// alone; a JSON true or 42 binds as it is.
+//
 // Query values are bound after the body, and path values last, so a body
 // can't overwrite the ID in the URL.
 //
@@ -137,7 +143,23 @@ func bindJSON(data []byte, dst any) error {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil
 	}
+	v := reflect.ValueOf(dst).Elem()
+	before := reflect.New(v.Type()).Elem()
+	before.Set(v)
 	err := json.Unmarshal(data, dst)
+	var syntax *json.SyntaxError
+	if err != nil && !errors.As(err, &syntax) {
+		// Perhaps a form sent as JSON, with a string for every value, as
+		// Inertia's <Form> sends one: see jsonAsForm. A body that decodes as
+		// it is binds as encoding/json has it.
+		if form, ok := jsonAsForm(data, reflect.TypeOf(dst)); ok {
+			// Decoding the body as it was sent set what it could on the way,
+			// such as a pointer for an empty string, which reading it as a
+			// form leaves alone: start again from dst as it was.
+			v.Set(before)
+			err = json.Unmarshal(form, dst)
+		}
+	}
 	if err == nil {
 		return nil
 	}

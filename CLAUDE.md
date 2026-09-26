@@ -64,7 +64,12 @@ dev server that isn't there: delete it.
   - `bind.go`: `Bind` reads the body (JSON, urlencoded, multipart), then the
     query, then path values, so the URL wins. A value that doesn't parse is
     a `*BindError` inside an `*HTTPError`: 400, or 404 for a path value. A
-    field Bind can't fill at all is a plain error, a 500.
+    field Bind can't fill at all is a plain error, a 500. A JSON body that
+    fails to decode is read again by `jsonAsForm` (`jsonform.go`), with its
+    strings for bools, numbers and times parsed as form values, as
+    Inertia's `<Form>` sends every value as a string; it finds fields by
+    `encoding/json`'s rules (`jsonFieldsOf`), and `bindJSON` restores `dst`
+    before the second decode.
   - `errors.go`: `HTTPError`, `BindError`, `PanicError`,
     `DefaultErrorHandler`, and `errorPage`, which renders
     `Config.ErrorPage` with `RenderStatus` for browsers and Inertia's

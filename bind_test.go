@@ -2,11 +2,14 @@ package tug
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"math"
 	"mime/multipart"
 	"net/http/httptest"
 	"net/netip"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -203,6 +206,176 @@ func TestAJSONValueOfTheWrongTypeIsA400ThatNamesTheField(t *testing.T) {
 	}
 }
 
+func TestAFormSentAsJSONBindsAsTheFormWould(t *testing.T) {
+	// As Inertia's <Form> sends one: its FormData as an object, with every
+	// value a string, and nothing for a checkbox that isn't ticked.
+	type input struct {
+		Name     string     `json:"name"`
+		Remember bool       `json:"remember"`
+		Admin    bool       `json:"admin"`
+		Age      int        `json:"age"`
+		Height   *float64   `json:"height"`
+		Score    float32    `json:"score"`
+		Big      int64      `json:"big"`
+		IDs      []uint     `json:"ids"`
+		Due      time.Time  `json:"due"`
+		At       *time.Time `json:"at"`
+		Left     time.Time  `json:"left"`
+	}
+	got, err := bind[input](t, "/", "POST", "/", "application/json", `{
+		"name": "Ann", "remember": "on", "age": "42", "height": "", "score": "9.5",
+		"big": "9007199254740993", "ids": ["1", "", "3"],
+		"due": "2026-09-25", "at": "2026-09-25T14:30", "left": ""
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 9, 25, 14, 30, 0, 0, time.UTC)
+	want := input{
+		Name: "Ann", Remember: true, Age: 42, Score: 9.5, Big: 9007199254740993, IDs: []uint{1, 3},
+		Due: time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC), At: &at,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("bound %+v, want %+v", got, want)
+	}
+}
+
+func TestJSONBoolsAndNumbersStillBindAsThemselves(t *testing.T) {
+	type input struct {
+		Remember bool `json:"remember"`
+		Age      int  `json:"age"`
+	}
+	got, err := bind[input](t, "/", "POST", "/", "application/json", `{"remember":true,"age":"42"}`)
+	if err != nil || got != (input{Remember: true, Age: 42}) {
+		t.Fatalf("bound %+v, %v", got, err)
+	}
+}
+
+func TestAJSONStringThatDoesNotParseIsStillA400AndTheRestBind(t *testing.T) {
+	type input struct {
+		Age      int    `json:"age"`
+		Remember bool   `json:"remember"`
+		Level    int8   `json:"level"`
+		Count    uint   `json:"count"`
+		Name     string `json:"name"`
+	}
+	got, err := bind[input](t, "/", "POST", "/", "application/json",
+		`{"age":"old","remember":"on","level":"300","count":"-1","name":"Ann"}`)
+	if he := httpError(t, err); he.Code != 400 || he.Message != "age must be a whole number" {
+		t.Fatalf("got %d %q, want the first field that's wrong", he.Code, he.Message)
+	}
+	if !got.Remember || got.Name != "Ann" {
+		t.Errorf("bound %+v: the fields after the bad one should be too", got)
+	}
+	for body, want := range map[string]string{
+		`{"level":"300"}`:      "level must be a whole number",
+		`{"count":"-1"}`:       "count must be a whole number, 0 or more",
+		`{"remember":"maybe"}`: "remember must be true or false",
+	} {
+		_, err := bind[input](t, "/", "POST", "/", "application/json", body)
+		if he := httpError(t, err); he.Message != want {
+			t.Errorf("%s: got %q, want %q", body, he.Message, want)
+		}
+	}
+}
+
+func TestJSONStringsBindInNestedStructsListsAndMaps(t *testing.T) {
+	type line struct {
+		Qty int `json:"qty"`
+	}
+	type input struct {
+		Author struct {
+			Age      int  `json:"age"`
+			Verified bool `json:"verified"`
+		} `json:"author"`
+		Lines  []line         `json:"lines"`
+		Counts map[string]int `json:"counts"`
+		Tags   []string       `json:"tags"`
+		Extra  any            `json:"extra"`
+	}
+	got, err := bind[input](t, "/", "POST", "/", "application/json",
+		`{"author":{"age":"30","verified":"yes"},"lines":[{"qty":"2"},{"qty":"3"}],"counts":{"a":"1"},"tags":["1"],"extra":"5"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Author.Age != 30 || !got.Author.Verified || !reflect.DeepEqual(got.Lines, []line{{2}, {3}}) ||
+		got.Counts["a"] != 1 || !reflect.DeepEqual(got.Tags, []string{"1"}) || got.Extra != "5" {
+		t.Fatalf("bound %+v", got)
+	}
+}
+
+// cents reads an amount in dollars, "12.34", as cents: a type that reads
+// its own text.
+type cents int
+
+func (c *cents) UnmarshalText(b []byte) error {
+	d, err := strconv.ParseFloat(string(b), 64)
+	*c = cents(math.Round(d * 100))
+	return err
+}
+
+func TestFieldsThatReadTheirOwnJSONStringsAreLeftToThem(t *testing.T) {
+	type input struct {
+		ID       int64      `json:"id,string"`
+		Price    cents      `json:"price"`
+		IP       netip.Addr `json:"ip"`
+		At       time.Time  `json:"at"`
+		Remember bool       `json:"remember"` // "on", which has Bind read the body again
+	}
+	const at = `"2026-09-25T10:00:00+00:00"` // RFC 3339, which time.Time reads itself
+	got, err := bind[input](t, "/", "POST", "/", "application/json",
+		`{"id":"42","price":"5","ip":"127.0.0.1","at":`+at+`,"remember":"on"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := input{ID: 42, Price: 500, IP: netip.MustParseAddr("127.0.0.1"), Remember: true}
+	if err := json.Unmarshal([]byte(at), &want.At); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("bound %+v, want %+v", got, want)
+	}
+}
+
+func TestAnEmptyJSONStringLeavesTheFieldAsTheHandlerHadIt(t *testing.T) {
+	var in struct {
+		Page     int   `json:"page"`
+		Draft    *bool `json:"draft"`
+		Remember bool  `json:"remember"`
+	}
+	var err error
+	app := New(Config{})
+	app.Post("/", func(c *Ctx) error {
+		in.Page = 1
+		err = c.Bind(&in)
+		return nil
+	})
+	serve(app, "POST", "/", `{"page":"","draft":"","remember":"on"}`, "Content-Type", "application/json")
+	if err != nil || in.Page != 1 || in.Draft != nil || !in.Remember {
+		t.Fatalf("bound page %d, draft %v, remember %v, %v", in.Page, in.Draft, in.Remember, err)
+	}
+}
+
+func TestAJSONKeyFindsTheFieldEncodingJSONFillsWithIt(t *testing.T) {
+	type Paging struct {
+		Page    int `json:"page"`
+		PerPage int `json:"per_page"`
+	}
+	type input struct {
+		Paging
+		Page     string `json:"page"` // hides the embedded one
+		Remember bool   `json:"remember"`
+	}
+	got, err := bind[input](t, "/", "POST", "/", "application/json",
+		`{"page":"2","PER_PAGE":"20","remember":"on"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Page != "2" || got.Paging.Page != 0 || got.PerPage != 20 || !got.Remember {
+		t.Fatalf("bound %+v", got)
+	}
+}
+
 func TestAPathValueThatDoesNotParseIsA404(t *testing.T) {
 	type input struct {
 		ID int64 `path:"id"`
@@ -298,6 +471,7 @@ func TestAJSONBodyCanBeBoundTwice(t *testing.T) {
 	}
 	var in struct {
 		Title string `json:"title"`
+		Draft bool   `json:"draft"`
 	}
 	var err1, err2 error
 	app := New(Config{})
@@ -306,8 +480,8 @@ func TestAJSONBodyCanBeBoundTwice(t *testing.T) {
 		err2 = c.Bind(&in)
 		return nil
 	})
-	serve(app, "PUT", "/posts/7", `{"title":"Hi"}`, "Content-Type", "application/json")
-	if err1 != nil || err2 != nil || id.ID != 7 || in.Title != "Hi" {
-		t.Fatalf("bound %d and %q, errors %v %v", id.ID, in.Title, err1, err2)
+	serve(app, "PUT", "/posts/7", `{"title":"Hi","draft":"on"}`, "Content-Type", "application/json")
+	if err1 != nil || err2 != nil || id.ID != 7 || in.Title != "Hi" || !in.Draft {
+		t.Fatalf("bound %d and %+v, errors %v %v", id.ID, in, err1, err2)
 	}
 }

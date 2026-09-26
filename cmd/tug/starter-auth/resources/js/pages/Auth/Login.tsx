@@ -17,9 +17,6 @@ export default function Login() {
         action={route('login.store')}
         method="post"
         resetOnError={['password']}
-        // A ticked checkbox sends "on"; LoginInput.Remember in auth.go is a
-        // bool, which JSON has as true or false.
-        transform={(data) => ({ ...data, remember: data.remember === 'on' })}
         className="flex flex-col gap-6"
       >
         {({ errors, processing }) => (

@@ -65,10 +65,14 @@ export default function Create() {
 }
 ```
 
-`<Form>` sends its inputs by their `name`s, the names in the json tags.
-When the form comes back, `errors` has a message for each field that's
-wrong, such as "body must be at least 10 characters", and the inputs keep
-what was typed. `route()` is written by `tug gen` from the named routes
+`<Form>` sends its inputs by their `name`s, the names in the json tags, as
+JSON with every value a string. `Bind` reads a string where the struct has
+a bool, a number or a `time.Time` as it reads a form's value, so a
+checkbox's `"on"` fills a `bool`, a number input's `"42"` an `int`, and an
+input left empty leaves its field alone ([Routing](routing.md#binding) has
+the rest). When the form comes back, `errors` has a message for each field
+that's wrong, such as "body must be at least 10 characters", and the inputs
+keep what was typed. `route()` is written by `tug gen` from the named routes
 ([TypeScript](typescript.md)). Sending the form back, and the flash message
 outliving the redirect, take `Config.Session`, which `tug new` sets up: see
 [Sessions](#sessions).

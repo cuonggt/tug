@@ -357,6 +357,21 @@ struct's own, as `encoding/json` promotes them. A field of a type `Bind`
 can't fill, such as a map, is the program's mistake rather than the
 client's: when a value comes for it, `Bind` returns a plain error, a 500.
 
+Inertia's `<Form>` sends a form as JSON, with every value a string, as the
+browser's `FormData` has it: `"on"` from a ticked checkbox, `"42"` from a
+number input, `"2026-09-25"` from a date input, and `""` from one left
+empty. `encoding/json` takes none of those for a bool, a number or a
+`time.Time`, so a JSON body that doesn't decode is read again, with each of
+those strings read as the form's value would be: `"on"` is `true`, `"42"`
+is `42`, a date is one in UTC, and `""` leaves its field alone, or, in a
+list, is left out. That goes for fields at any depth, in nested structs,
+lists and maps, found by `encoding/json`'s own rules for which field a key
+fills. A string that still doesn't parse is the error it was: "age must be
+a whole number". A body that decodes as it is, as an API client's `true`
+and `42` do, binds just as `encoding/json` has it, and a field that reads
+its own JSON or text, such as `netip.Addr`, or one tagged `json:",string"`,
+is given the string as it came.
+
 A value that doesn't parse is a 400 whose message names the field: "age
 must be a whole number", or "author.age must be a whole number" from a JSON
 body. The error is an `*HTTPError` that wraps a `*BindError`. The fields

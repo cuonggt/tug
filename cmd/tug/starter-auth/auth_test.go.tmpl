@@ -168,15 +168,21 @@ func TestTooManyWrongPasswordsWaitAMinute(t *testing.T) {
 func TestRememberMeKeepsTheLoginForAMonth(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	for remember, maxAge := range map[bool]int{true: 30 * 24 * 60 * 60, false: 2 * 60 * 60} {
+	// As the login form sends the box: "on" when it's ticked, and nothing
+	// when it isn't.
+	for remember, maxAge := range map[string]int{"on": 30 * 24 * 60 * 60, "": 2 * 60 * 60} {
 		v := app.visitor()
-		r := v.visit("POST", "/login", map[string]any{"email": "ann@example.com", "password": "correct horse", "remember": remember})
+		body := map[string]any{"email": "ann@example.com", "password": "correct horse"}
+		if remember != "" {
+			body["remember"] = remember
+		}
+		r := v.visit("POST", "/login", body)
 		if r.location != "/dashboard" || r.cookie == nil || r.cookie.MaxAge != maxAge {
-			t.Errorf("remember %v: %d to %q, cookie %v", remember, r.code, r.location, r.cookie)
+			t.Errorf("remember %q: %d to %q, cookie %v", remember, r.code, r.location, r.cookie)
 		}
 		// And on the visits after, which start its time again.
 		if r := v.get("/dashboard"); r.cookie == nil || r.cookie.MaxAge != maxAge {
-			t.Errorf("remember %v, the next visit: cookie %v", remember, r.cookie)
+			t.Errorf("remember %q, the next visit: cookie %v", remember, r.cookie)
 		}
 	}
 }
