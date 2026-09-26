@@ -278,6 +278,7 @@ Svelte starters, background job queues, and passkeys.
 
 Enough of what an app with accounts needs to ship one, learnt from
 Laravel's React starter kit, as it was in September 2026, but for passkeys.
+Released as v0.2.0.
 
 - Email verification: a link mailed at registering and at each new email,
   signed with `auth.Verifications` for the user and the email, and good

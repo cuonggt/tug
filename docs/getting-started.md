@@ -20,7 +20,7 @@ tug version
 
 `go install` puts `tug` in `$(go env GOPATH)/bin`, or in `$GOBIN` when
 that's set, and that directory needs to be on your `PATH`. `tug version`
-prints the version installed, such as `tug v0.1.0`. The apps `tug new`
+prints the version installed, such as `tug v0.2.0`. The apps `tug new`
 makes require that version.
 
 ## Make an app
