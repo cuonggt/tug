@@ -466,7 +466,7 @@ Choices made on the way:
 A first visit's page rendered on the server, by Inertia's own SSR in Node,
 which the app runs beside it: for search engines, link previews, and pages
 that show before their scripts run. It's optional, as the decisions below
-have it, and an app without it is as it was.
+have it, and an app without it is as it was. Released as v0.5.0.
 
 - `inertia.Config.SSR`, a `Renderer`, which a first visit asks for the
   page's head and body: the body where `{{ .Inertia }}` goes, and the head

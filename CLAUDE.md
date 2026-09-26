@@ -11,8 +11,8 @@ CLI, v0.1.0 (the auth starter and the guide), the auth starter made whole
 (v0.2.0): email verification, remember me, password confirmation,
 two-factor logins, settings, and a Tailwind and shadcn/ui frontend, and
 background jobs (v0.3.0): package `queue`, which the auth starter sends
-its mail with, jobs on a schedule (v0.4.0), and server-side rendering:
-package `ssr`, with Node beside the app, and `tug new -ssr`.
+its mail with, jobs on a schedule (v0.4.0), and server-side rendering
+(v0.5.0): package `ssr`, with Node beside the app, and `tug new -ssr`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
