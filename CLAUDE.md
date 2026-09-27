@@ -5,14 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M10 are done, which is the HTTP core, Inertia
+and where it stands: M1 to M11 are done, which is the HTTP core, Inertia
 pages with Vite, forms and validation, the rest of the v3 protocol, the
 CLI, v0.1.0 (the auth starter and the guide), the auth starter made whole
 (v0.2.0): email verification, remember me, password confirmation,
 two-factor logins, settings, and a Tailwind and shadcn/ui frontend, and
 background jobs (v0.3.0): package `queue`, which the auth starter sends
-its mail with, jobs on a schedule (v0.4.0), and server-side rendering
-(v0.5.0): package `ssr`, with Node beside the app, and `tug new -ssr`.
+its mail with, jobs on a schedule (v0.4.0), server-side rendering
+(v0.5.0): package `ssr`, with Node beside the app, and `tug new -ssr`, and
+tests of an app's pages: package `tugtest`, which the starters' tests use.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -230,12 +231,26 @@ dev server that isn't there: delete it.
   the Store's promises as tests, which every Store's own tests run.
   `queue_test.go` is an external package, for `Memory`, with
   `export_test.go` for the clock.
+- `tugtest`: Inertia's client for an app's Go tests, a browser with the
+  app open. `tugtest.go`: `Client`, whose visits (`Visit`, and `Get` to
+  `Delete`) send X-Inertia, the `Version` it runs, and the page it's on as
+  the Referer; `FirstVisit` and `Do`; the cookies it keeps (`keep`), by
+  name alone; and `Session`, which runs a function on the session through
+  a `session.Store`. A client not yet shown a page takes the app's version
+  from the 409 its first visit gets (`send`), which tug's Inertia
+  middleware sends the version in. `response.go`: `Response`, with
+  `Location`, `Follow` (redirects and the protocol's 409s) and `Errors`,
+  and `Props`, `Prop` and `Flash`, which read the page's JSON into Go
+  types; `valuesOnly` drops what went out for inertia's prop types, which
+  hold functions, so a page's own props struct takes the rest. It fails
+  the test itself, with t.Fatalf, when asked for what isn't there. Package
+  tug's own tests can't use it, as it imports tug.
 - `examples/api`: a JSON API on the core. Its tests are the end to end check.
 - `examples/inertia`: React pages on tug. `main.go` embeds `app.html` and
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
-  before one). `main_test.go` runs without Node, against a fake manifest;
-  `e2e/` drives the real build in a browser, in order: the later tests
-  change the posts. `resources/js/tug` is written by tug gen and committed
+  before one). `main_test.go` runs on tugtest without Node, against a fake
+  manifest; `e2e/` drives the real build in a browser, in order: the later
+  tests change the posts. `resources/js/tug` is written by tug gen and committed
   (CI checks it's current); `resources/js/types.ts` has only the flash type.
 
 tug logs through `slog.Default()` and never sets it; that's the app's call.

@@ -2,77 +2,49 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/cuonggt/tug"
-	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/tugtest"
 )
 
-// visitor is Inertia's client in a browser: it keeps the session cookie.
-// Its visits get JSON, so the tests run without a frontend build.
-type visitor struct {
-	t      *testing.T
-	app    *tug.App
-	cookie *http.Cookie
-}
-
-func newVisitor(t *testing.T) *visitor {
+// newClient is a browser with the app open, which the tests use as
+// Inertia's client in it does: its visits get the pages as JSON, so the
+// tests run without a frontend build. See package tugtest.
+func newClient(t *testing.T) *tugtest.Client {
 	app, err := newApp(tug.Config{}, fstest.MapFS{}, [][]byte{bytes.Repeat([]byte{1}, 32)}[[ if .SSR ]], fstest.MapFS{}[[ end ]])
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &visitor{t: t, app: app}
-}
-
-func (v *visitor) visit(method, target, body string) (int, inertia.Page) {
-	v.t.Helper()
-	req := httptest.NewRequest(method, target, strings.NewReader(body))
-	req.Header.Set("X-Inertia", "true")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Referer", "http://example.com/")
-	if v.cookie != nil {
-		req.AddCookie(v.cookie)
-	}
-	rec := httptest.NewRecorder()
-	v.app.ServeHTTP(rec, req)
-	for _, c := range rec.Result().Cookies() {
-		v.cookie = c
-	}
-	var p inertia.Page
-	if rec.Code == http.StatusOK {
-		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
-			v.t.Fatal(err)
-		}
-	}
-	return rec.Code, p
+	return tugtest.New(t, app)
 }
 
 func TestTheHomePageGreets(t *testing.T) {
-	code, p := newVisitor(t).visit("GET", "/", "")
-	if code != 200 || p.Component != "Home" || !strings.HasPrefix(p.Props["greeting"].(string), "This page was rendered by Go") {
-		t.Fatalf("got %d %+v", code, p)
+	r := newClient(t).Get("/")
+	if home := tugtest.Props(r, Home); !strings.HasPrefix(home.Greeting, "This page was rendered by Go") {
+		t.Fatalf("got %v, greeting %q", r, home.Greeting)
 	}
 }
 
 func TestSayingHelloWithoutANameComesBackWithWhatToFix(t *testing.T) {
-	v := newVisitor(t)
-	if code, _ := v.visit("POST", "/hello", `{"name":""}`); code != http.StatusSeeOther {
-		t.Fatalf("got %d, want to go back", code)
+	c := newClient(t)
+	c.Get("/")
+	r := c.Post("/hello", map[string]any{"name": ""})
+	if r.Code != http.StatusSeeOther || r.Location() != "/" {
+		t.Fatalf("got %v, want back to the form", r)
 	}
-	if _, p := v.visit("GET", "/", ""); p.Props["errors"].(map[string]any)["name"] != "name is required" {
-		t.Fatalf("errors %v", p.Props["errors"])
+	if errs := r.Follow().Errors(); errs["name"] != "name is required" {
+		t.Fatalf("errors %v", errs)
 	}
 }
 
 func TestSayingHelloIsAnsweredOnTheNextPage(t *testing.T) {
-	v := newVisitor(t)
-	v.visit("POST", "/hello", `{"name":"Ann"}`)
-	if _, p := v.visit("GET", "/", ""); p.Flash["success"] != "Hello, Ann!" {
-		t.Fatalf("flash %v", p.Flash)
+	c := newClient(t)
+	c.Get("/")
+	if r := c.Post("/hello", map[string]any{"name": "Ann"}).Follow(); r.Page.Flash["success"] != "Hello, Ann!" {
+		t.Fatalf("flash %v", r.Page.Flash)
 	}
 }

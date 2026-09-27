@@ -145,6 +145,11 @@ func showPost(c *tug.Ctx) error {
   run on a schedule too, with `Every` or a cron expression, once across
   all instances. The auth starter sends its mail this way, with its jobs
   in SQLite.
+- **Tests** (package `tugtest`): Inertia's client, for Go's tests of an
+  app's pages, which need no browser or frontend build. Its visits keep
+  the cookies the app sets and follow its redirects, and a page's props
+  read into the struct its `tug.Page` declares:
+  `tugtest.Props(r, Dashboard).User`. The starters' tests use it.
 - **Vite** (package `vite`): tags from the dev server while it runs, with
   the React refresh preamble, and from the build's manifest otherwise, with
   CSS and preloads. The built files are served, and cached for a year.

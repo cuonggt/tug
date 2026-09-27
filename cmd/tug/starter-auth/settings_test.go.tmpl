@@ -4,57 +4,58 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/cuonggt/tug/tugtest"
 )
 
 func TestSettingsStartAtTheProfile(t *testing.T) {
 	app := newTestApp(t)
-	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	if r := v.get("/settings"); r.location != "/settings/profile" {
-		t.Fatalf("settings: %d to %q", r.code, r.location)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	if r := c.Get("/settings"); r.Location() != "/settings/profile" {
+		t.Fatalf("settings: %v", r)
 	}
-	r := v.get("/settings/profile")
-	if user, _ := r.page.Props["user"].(map[string]any); r.page.Component != "Settings/Profile" || user["email"] != "ann@example.com" {
-		t.Errorf("the profile: %d %+v", r.code, r.page)
+	if u := tugtest.Props(c.Get("/settings/profile"), Profile).User; u.Email != "ann@example.com" {
+		t.Errorf("the profile's user: %+v", u)
 	}
-	if r := v.get("/settings/appearance"); r.page.Component != "Settings/Appearance" {
-		t.Errorf("appearance: %d %+v", r.code, r.page)
+	if r := c.Get("/settings/appearance"); r.Page.Component != "Settings/Appearance" {
+		t.Errorf("appearance: %v", r)
 	}
 }
 
 func TestANewEmailIsntVerifiedUntilItsLinkIsFollowed(t *testing.T) {
 	app := newTestApp(t)
-	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	r := v.visit("PATCH", "/settings/profile", map[string]any{"name": "Ann Lee", "email": "ann@elsewhere.example"})
-	if r.location != "/settings/profile" {
-		t.Fatalf("saving: %d to %q, errors %v", r.code, r.location, v.get("/settings/profile").errors())
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c.Get("/settings/profile")
+	r := c.Patch("/settings/profile", map[string]any{"name": "Ann Lee", "email": "ann@elsewhere.example"})
+	if r.Location() != "/settings/profile" {
+		t.Fatalf("saving: %v, errors %v", r, r.Follow().Errors())
 	}
-	r = v.get("/settings/profile")
-	user, _ := r.page.Props["user"].(map[string]any)
-	if user["name"] != "Ann Lee" || user["email"] != "ann@elsewhere.example" || user["emailVerifiedAt"] != nil {
-		t.Errorf("the profile after: %v", user)
+	r = r.Follow()
+	if u := tugtest.Props(r, Profile).User; u.Name != "Ann Lee" || u.Email != "ann@elsewhere.example" || u.EmailVerifiedAt != nil {
+		t.Errorf("the profile after: %+v", u)
 	}
-	if r.page.Flash["success"] != "Profile saved. We've mailed a link to ann@elsewhere.example to verify it." {
-		t.Errorf("flash %v", r.page.Flash)
+	if r.Page.Flash["success"] != "Profile saved. We've mailed a link to ann@elsewhere.example to verify it." {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
 	m := app.mail()
 	if m.To[0] != "ann@elsewhere.example" {
 		t.Fatalf("the link went to %v", m.To)
 	}
-	if r := v.get("/dashboard"); r.location != "/verify-email" {
-		t.Errorf("the dashboard with the new email: %d to %q", r.code, r.location)
+	if r := c.Get("/dashboard"); r.Location() != "/verify-email" {
+		t.Errorf("the dashboard with the new email: %v", r)
 	}
-	v.get(link(t, m, "/verify-email/"))
-	if r := v.get("/dashboard"); r.page.Component != "Dashboard" {
-		t.Errorf("the dashboard, verified again: %d to %q", r.code, r.location)
+	c.Get(link(t, m, "/verify-email/"))
+	if r := c.Get("/dashboard"); r.Page.Component != "Dashboard" {
+		t.Errorf("the dashboard, verified again: %v", r)
 	}
 }
 
 func TestTheSameEmailInAnotherCaseStaysVerified(t *testing.T) {
 	app := newTestApp(t)
-	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v.visit("PATCH", "/settings/profile", map[string]any{"name": "Ann", "email": "Ann@Example.com"})
-	if r := v.get("/settings/profile"); r.user()["emailVerifiedAt"] == nil || r.page.Flash["success"] != "Profile saved." {
-		t.Errorf("user %v, flash %v", r.user(), r.page.Flash)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	r := c.Patch("/settings/profile", map[string]any{"name": "Ann", "email": "Ann@Example.com"}).Follow()
+	if u := tugtest.Props(r, Profile).User; u.EmailVerifiedAt == nil || r.Page.Flash["success"] != "Profile saved." {
+		t.Errorf("user %+v, flash %v", u, r.Page.Flash)
 	}
 	app.noMail()
 }
@@ -62,91 +63,92 @@ func TestTheSameEmailInAnotherCaseStaysVerified(t *testing.T) {
 func TestAnEmailWithAnAccountCantBeTaken(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v := app.verifiedUser("Bob", "bob@example.com", "correct horse")
-	v.visit("PATCH", "/settings/profile", map[string]any{"name": "Bob", "email": "ANN@example.com"})
-	if r := v.get("/settings/profile"); r.errors()["email"] != "email has an account already" || r.user()["email"] != "bob@example.com" {
-		t.Errorf("errors %v, user %v", r.errors(), r.user())
+	c := app.verifiedUser("Bob", "bob@example.com", "correct horse")
+	c.Get("/settings/profile")
+	r := c.Patch("/settings/profile", map[string]any{"name": "Bob", "email": "ANN@example.com"}).Follow()
+	if u := tugtest.Props(r, Profile).User; r.Errors()["email"] != "email has an account already" || u.Email != "bob@example.com" {
+		t.Errorf("errors %v, user %+v", r.Errors(), u)
 	}
 }
 
 func TestChangingThePasswordTakesTheCurrentOneAndLogsOutTheOtherSessions(t *testing.T) {
 	app := newTestApp(t)
 	laptop := app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	phone := app.visitor()
+	phone := app.client()
 	logIn(phone, "ann@example.com", "correct horse")
+	phone.Get("/settings/security")
 
 	change := map[string]any{"current_password": "wrong horse", "password": "battery staple", "password_confirmation": "battery staple"}
-	phone.visit("PUT", "/settings/password", change)
-	if r := phone.get("/settings/security"); r.errors()["current_password"] != "that isn't your password" {
-		t.Fatalf("errors %v", r.errors())
+	if errs := phone.Put("/settings/password", change).Follow().Errors(); errs["current_password"] != "that isn't your password" {
+		t.Fatalf("errors %v", errs)
 	}
 	change["current_password"] = "correct horse"
-	if r := phone.visit("PUT", "/settings/password", change); r.location != "/settings/security" {
-		t.Fatalf("changing: %d to %q", r.code, r.location)
+	r := phone.Put("/settings/password", change)
+	if r.Location() != "/settings/security" {
+		t.Fatalf("changing: %v", r)
 	}
-	if r := phone.get("/settings/security"); r.page.Component != "Settings/Security" || r.page.Flash["success"] == nil {
-		t.Errorf("this browser, after: %d to %q, flash %v", r.code, r.location, r.page.Flash)
+	if r = r.Follow(); r.Page.Component != "Settings/Security" || r.Page.Flash["success"] == nil {
+		t.Errorf("this browser, after: %v, flash %v", r, r.Page.Flash)
 	}
-	if r := laptop.get("/dashboard"); r.location != "/login" {
-		t.Errorf("the other session is still logged in: %d to %q", r.code, r.location)
+	if r := laptop.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("the other session is still logged in: %v", r)
 	}
-	if r := logIn(app.visitor(), "ann@example.com", "battery staple"); r.location != "/dashboard" {
-		t.Errorf("the new password doesn't log in: %d to %q", r.code, r.location)
+	if r := logIn(app.client(), "ann@example.com", "battery staple"); r.Location() != "/dashboard" {
+		t.Errorf("the new password doesn't log in: %v", r)
 	}
 }
 
 func TestDeletingTheAccountTakesThePassword(t *testing.T) {
 	app := newTestApp(t)
-	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	other := app.visitor()
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := app.client()
 	logIn(other, "ann@example.com", "correct horse")
 
-	v.visit("DELETE", "/settings/profile", map[string]any{"password": "wrong horse"})
-	if r := v.get("/settings/profile"); r.errors()["password"] != "that isn't your password" || r.user() == nil {
-		t.Fatalf("errors %v, user %v", r.errors(), r.user())
+	c.Get("/settings/profile")
+	if r := c.Delete("/settings/profile", map[string]any{"password": "wrong horse"}).Follow(); r.Errors()["password"] != "that isn't your password" || user(r) == nil {
+		t.Fatalf("errors %v, user %+v", r.Errors(), user(r))
 	}
-	if r := v.visit("DELETE", "/settings/profile", map[string]any{"password": "correct horse"}); r.location != "/" {
-		t.Fatalf("deleting: %d to %q", r.code, r.location)
+	r := c.Delete("/settings/profile", map[string]any{"password": "correct horse"})
+	if r.Location() != "/" {
+		t.Fatalf("deleting: %v", r)
 	}
-	r := v.get("/")
-	if r.user() != nil || r.page.Flash["success"] != "Your account is deleted." || !r.page.ClearHistory {
-		t.Errorf("after: user %v, flash %v, clearHistory %v", r.user(), r.page.Flash, r.page.ClearHistory)
+	if r = r.Follow(); user(r) != nil || r.Page.Flash["success"] != "Your account is deleted." || !r.Page.ClearHistory {
+		t.Errorf("after: user %+v, flash %v, clearHistory %v", user(r), r.Page.Flash, r.Page.ClearHistory)
 	}
-	if r := other.get("/dashboard"); r.location != "/login" {
-		t.Errorf("the other session outlived the account: %d to %q", r.code, r.location)
+	if r := other.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("the other session outlived the account: %v", r)
 	}
-	logIn(other, "ann@example.com", "correct horse")
-	if r := other.get("/login"); r.errors()["email"] != "the email and password don't match an account" {
-		t.Errorf("logging in to the deleted account: errors %v", r.errors())
+	if errs := logIn(other, "ann@example.com", "correct horse").Follow().Errors(); errs["email"] != "the email and password don't match an account" {
+		t.Errorf("logging in to the deleted account: errors %v", errs)
 	}
 	// The email is free for someone new.
-	if r := register(app.visitor(), "Ann", "ann@example.com", "correct horse"); r.location != "/dashboard" {
-		t.Errorf("registering the email again: %d to %q", r.code, r.location)
+	if r := register(app.client(), "Ann", "ann@example.com", "correct horse"); r.Location() != "/dashboard" {
+		t.Errorf("registering the email again: %v", r)
 	}
 }
 
 func TestTooManyWrongPasswordsInTheSettingsWaitAMinute(t *testing.T) {
 	app := newTestApp(t)
-	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
 	for range 5 {
-		v.visit("DELETE", "/settings/profile", map[string]any{"password": "wrong horse"})
+		c.Delete("/settings/profile", map[string]any{"password": "wrong horse"})
 	}
-	v.visit("DELETE", "/settings/profile", map[string]any{"password": "correct horse"})
-	r := v.get("/settings/profile")
-	if msg, _ := r.errors()["password"].(string); !strings.HasPrefix(msg, "too many tries: wait ") || r.user() == nil {
-		t.Errorf("errors %v, user %v", r.errors(), r.user())
+	c.Delete("/settings/profile", map[string]any{"password": "correct horse"})
+	r := c.Get("/settings/profile")
+	if msg := r.Errors()["password"]; !strings.HasPrefix(msg, "too many tries: wait ") || user(r) == nil {
+		t.Errorf("errors %v, user %+v", r.Errors(), user(r))
 	}
 }
 
 func TestSecurityIsForVerifiedEmailsAndTheProfileIsnt(t *testing.T) {
 	app := newTestApp(t)
-	v := app.visitor()
-	register(v, "Ann", "ann@example.com", "correct horse")
-	if r := v.get("/settings/security"); r.location != "/verify-email" {
-		t.Errorf("security, unverified: %d to %q", r.code, r.location)
+	c := app.client()
+	register(c, "Ann", "ann@example.com", "correct horse")
+	if r := c.Get("/settings/security"); r.Location() != "/verify-email" {
+		t.Errorf("security, unverified: %v", r)
 	}
 	// Someone who typed their email wrong can put it right.
-	if r := v.get("/settings/profile"); r.code != http.StatusOK || r.page.Component != "Settings/Profile" {
-		t.Errorf("the profile, unverified: %d to %q", r.code, r.location)
+	if r := c.Get("/settings/profile"); r.Code != http.StatusOK || r.Page.Component != "Settings/Profile" {
+		t.Errorf("the profile, unverified: %v", r)
 	}
 }

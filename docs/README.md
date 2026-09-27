@@ -21,9 +21,11 @@ has the rest of the detail.
 7. [Background jobs](jobs.md): package `queue`, for work that outlasts the
    request, and runs again when it fails, or runs on a schedule.
 8. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
-9. [Deployment](deployment.md): one binary, the Dockerfile, and the
-   environment.
-10. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen` and `tug build`, in
+9. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
+   tests of an app's pages, forms and logins.
+10. [Deployment](deployment.md): one binary, the Dockerfile, and the
+    environment.
+11. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen` and `tug build`, in
     full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,

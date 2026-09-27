@@ -2,11 +2,10 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/tugtest"
 )
 
 // build is the shape of what `npm run build` writes, so the tests run
@@ -32,238 +32,169 @@ func build() fstest.MapFS {
 	}
 }
 
-// client is Inertia's client in a browser: it keeps the session cookie,
-// and sends the build's version with each visit.
-type client struct {
-	t       *testing.T
-	app     *tug.App
-	version string
-	cookie  *http.Cookie
-}
-
-func newClient(t *testing.T) *client {
+// newClient is a browser with the example open, running the build.
+func newClient(t *testing.T) *tugtest.Client {
 	app, err := newApp(tug.Config{}, build(), "", [][]byte{bytes.Repeat([]byte{1}, 32)}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &client{t: t, app: app}
-	c.version = pageIn(t, c.first("/").Body.String()).Version
-	return c
-}
-
-func pageIn(t *testing.T, html string) inertia.Page {
-	t.Helper()
-	m := regexp.MustCompile(`<script data-page="app" type="application/json">(.*?)</script>`).FindStringSubmatch(html)
-	if m == nil {
-		t.Fatalf("no page object in %s", html)
-	}
-	var p inertia.Page
-	if err := json.Unmarshal([]byte(m[1]), &p); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-// first is a first visit, the browser loading a page whole.
-func (c *client) first(target string) *httptest.ResponseRecorder {
-	return c.send(httptest.NewRequest("GET", target, nil))
-}
-
-// visit is a visit from Inertia's client, with a JSON body when there is
-// one. headers are name, value pairs.
-func (c *client) visit(method, target, body string, headers ...string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, strings.NewReader(body))
-	req.Header.Set("X-Inertia", "true")
-	req.Header.Set("X-Inertia-Version", c.version)
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	for i := 0; i+1 < len(headers); i += 2 {
-		req.Header.Set(headers[i], headers[i+1])
-	}
-	return c.send(req)
-}
-
-func (c *client) send(req *http.Request) *httptest.ResponseRecorder {
-	if c.cookie != nil {
-		req.AddCookie(c.cookie)
-	}
-	rec := httptest.NewRecorder()
-	c.app.ServeHTTP(rec, req)
-	for _, ck := range rec.Result().Cookies() {
-		c.cookie = ck
-	}
-	return rec
-}
-
-func (c *client) page(rec *httptest.ResponseRecorder) inertia.Page {
-	c.t.Helper()
-	var p inertia.Page
-	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
-		c.t.Fatalf("%d %s: %v", rec.Code, rec.Body, err)
-	}
-	return p
+	return tugtest.New(t, app)
 }
 
 func TestTheFirstVisitLoadsTheBuildAndLeavesTheStatsForLater(t *testing.T) {
-	c := newClient(t)
-	html := c.first("/").Body.String()
+	r := newClient(t).FirstVisit("/")
 	for _, tag := range []string{
 		`<link rel="stylesheet" href="/build/assets/app-1.css">`,
 		`<script type="module" src="/build/assets/app-1.js"></script>`,
 		`<script type="module" src="/build/assets/Index-1.js"></script>`,
 	} {
-		if !strings.Contains(html, tag) {
-			t.Errorf("no %s in %s", tag, html)
+		if !strings.Contains(r.Body, tag) {
+			t.Errorf("no %s in %s", tag, r.Body)
 		}
 	}
-	p := pageIn(t, html)
-	if p.Component != "Posts/Index" || p.Props["stats"] != nil || !slices.Equal(p.DeferredProps["default"], []string{"stats"}) {
-		t.Errorf("page %+v", p)
+	if r.Page.Component != "Posts/Index" || r.Has("stats") || !slices.Equal(r.Page.DeferredProps["default"], []string{"stats"}) {
+		t.Errorf("page %+v", r.Page)
 	}
-	if len(titles(p)) != 10 || p.Props["appName"] != "tug" {
-		t.Errorf("props %v", p.Props)
+	if len(titles(r)) != 10 || tugtest.Prop[string](r, "appName") != "tug" {
+		t.Errorf("props %v", r.Page.Props)
 	}
-	if want := (inertia.ScrollMeta{PageName: "page", NextPage: 2.0, CurrentPage: 1.0}); !reflect.DeepEqual(p.ScrollProps["posts"], want) {
-		t.Errorf("scrollProps %+v", p.ScrollProps["posts"])
+	if want := (inertia.ScrollMeta{PageName: "page", NextPage: 2.0, CurrentPage: 1.0}); !reflect.DeepEqual(r.Page.ScrollProps["posts"], want) {
+		t.Errorf("scrollProps %+v", r.Page.ScrollProps["posts"])
 	}
 }
 
 // titles lists the titles of the posts on a page of the list.
-func titles(p inertia.Page) []string {
+func titles(r *tugtest.Response) []string {
 	var list []string
-	for _, post := range p.Props["posts"].(map[string]any)["data"].([]any) {
-		list = append(list, post.(map[string]any)["title"].(string))
+	for _, post := range tugtest.Prop[[]Post](r, "posts.data") {
+		list = append(list, post.Title)
 	}
 	return list
 }
 
 func TestTheListComesAPageAtATime(t *testing.T) {
 	c := newClient(t)
-	p := c.page(c.visit("GET", "/?page=3", "", "X-Inertia-Partial-Component", "Posts/Index", "X-Inertia-Partial-Data", "posts",
-		"X-Inertia-Infinite-Scroll-Merge-Intent", "append"))
-	if got := titles(p); len(got) != 5 || got[0] != "Post 21" {
+	c.Get("/")
+	r := c.Get("/?page=3", tugtest.Only("posts"), tugtest.Header("X-Inertia-Infinite-Scroll-Merge-Intent", "append"))
+	if got := titles(r); len(got) != 5 || got[0] != "Post 21" {
 		t.Errorf("page 3 has %v", got)
 	}
-	if want := (inertia.ScrollMeta{PageName: "page", PreviousPage: 2.0, CurrentPage: 3.0}); !reflect.DeepEqual(p.ScrollProps["posts"], want) {
-		t.Errorf("scrollProps %+v", p.ScrollProps["posts"])
+	if want := (inertia.ScrollMeta{PageName: "page", PreviousPage: 2.0, CurrentPage: 3.0}); !reflect.DeepEqual(r.Page.ScrollProps["posts"], want) {
+		t.Errorf("scrollProps %+v", r.Page.ScrollProps["posts"])
 	}
-	if !slices.Equal(p.MergeProps, []string{"posts.data"}) || !slices.Equal(p.MatchPropsOn, []string{"posts.data.id"}) {
-		t.Errorf("mergeProps %v, matchPropsOn %v", p.MergeProps, p.MatchPropsOn)
+	if !slices.Equal(r.Page.MergeProps, []string{"posts.data"}) || !slices.Equal(r.Page.MatchPropsOn, []string{"posts.data.id"}) {
+		t.Errorf("mergeProps %v, matchPropsOn %v", r.Page.MergeProps, r.Page.MatchPropsOn)
 	}
 }
 
 func TestTheStatsComeWithTheReloadThatAsksForThem(t *testing.T) {
 	c := newClient(t)
-	p := c.page(c.visit("GET", "/", "", "X-Inertia-Partial-Component", "Posts/Index", "X-Inertia-Partial-Data", "stats"))
-	if got, _ := p.Props["stats"].(map[string]any); got["posts"] != 25.0 || got["words"] != 160.0 {
-		t.Fatalf("stats %v", p.Props["stats"])
+	c.Get("/")
+	r := c.Reload(tugtest.Only("stats"))
+	if stats := tugtest.Prop[Stats](r, "stats"); stats != (Stats{Posts: 25, Words: 160}) {
+		t.Fatalf("stats %+v", stats)
 	}
-	if _, ok := p.Props["posts"]; ok {
+	if r.Has("posts") {
 		t.Error("the reload for the stats got the posts too")
 	}
 }
 
 func TestAPostWithoutTagsHasAnEmptyListOfThem(t *testing.T) {
-	c := newClient(t)
-	if rec := c.visit("GET", "/posts/3", ""); !strings.Contains(rec.Body.String(), `"tags":[]`) {
-		t.Fatalf("got %s", rec.Body)
+	if r := newClient(t).Get("/posts/3"); !strings.Contains(r.Body, `"tags":[]`) {
+		t.Fatalf("got %s", r.Body)
 	}
 }
 
 func TestANewPostThatDoesntValidateGoesBackToTheForm(t *testing.T) {
 	c := newClient(t)
-	rec := c.visit("POST", "/posts", `{"title":"Hello, tug","body":"Too short"}`, "Referer", "http://example.com/posts/create")
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/posts/create" {
-		t.Fatalf("got %d to %q", rec.Code, rec.Header().Get("Location"))
+	c.Get("/posts/create")
+	r := c.Post("/posts", map[string]any{"title": "Hello, tug", "body": "Too short"})
+	if r.Code != http.StatusSeeOther || r.Location() != "/posts/create" {
+		t.Fatalf("got %v", r)
 	}
-	p := c.page(c.visit("GET", "/posts/create", ""))
-	want := map[string]any{"title": "another post has that title", "body": "body must be at least 10 characters"}
-	if !reflect.DeepEqual(p.Props["errors"], want) {
-		t.Errorf("errors %v, want %v", p.Props["errors"], want)
+	want := map[string]string{"title": "another post has that title", "body": "body must be at least 10 characters"}
+	if errs := r.Follow().Errors(); !maps.Equal(errs, want) {
+		t.Errorf("errors %v, want %v", errs, want)
 	}
 }
 
 func TestANewPostIsCreatedAndThePageAfterSaysSo(t *testing.T) {
 	c := newClient(t)
-	rec := c.visit("POST", "/posts", `{"title":"Forms","body":"Validation from Go.","tags":"go, forms, go"}`)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/posts/26" {
-		t.Fatalf("got %d to %q: %s", rec.Code, rec.Header().Get("Location"), rec.Body)
+	r := c.Post("/posts", map[string]any{"title": "Forms", "body": "Validation from Go.", "tags": "go, forms, go"})
+	if r.Code != http.StatusSeeOther || r.Location() != "/posts/26" {
+		t.Fatalf("got %v", r)
 	}
-	p := c.page(c.visit("GET", "/posts/26", ""))
-	if !reflect.DeepEqual(p.Flash, map[string]any{"success": "Post created"}) {
-		t.Errorf("flash %v", p.Flash)
+	r = r.Follow()
+	if !reflect.DeepEqual(r.Page.Flash, map[string]any{"success": "Post created"}) {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
-	post := p.Props["post"].(map[string]any)
-	if post["title"] != "Forms" || !reflect.DeepEqual(post["tags"], []any{"go", "forms"}) {
-		t.Errorf("post %v", post)
+	if post := tugtest.Props(r, PostsShow).Post; post.Title != "Forms" || !slices.Equal(post.Tags, []string{"go", "forms"}) {
+		t.Errorf("post %+v", post)
 	}
 }
 
 func TestAPostKeepsItsTitleWhenEdited(t *testing.T) {
 	c := newClient(t)
 	// Its own title isn't "another post's".
-	rec := c.visit("PUT", "/posts/1", `{"title":"Hello, tug","body":"Now with forms that check themselves."}`)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/posts/1" {
-		t.Fatalf("got %d to %q", rec.Code, rec.Header().Get("Location"))
+	r := c.Put("/posts/1", map[string]any{"title": "Hello, tug", "body": "Now with forms that check themselves."})
+	if r.Code != http.StatusSeeOther || r.Location() != "/posts/1" {
+		t.Fatalf("got %v", r)
 	}
-	if p := c.page(c.visit("GET", "/posts/1", "")); !reflect.DeepEqual(p.Flash, map[string]any{"success": "Post updated"}) {
-		t.Errorf("flash %v", p.Flash)
+	if r = r.Follow(); !reflect.DeepEqual(r.Page.Flash, map[string]any{"success": "Post updated"}) {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
 }
 
 func TestAFieldIsCheckedAsItsFilledIn(t *testing.T) {
 	c := newClient(t)
-	precog := []string{"Precognition", "true", "Precognition-Validate-Only", "title", "Accept", "application/json"}
-	rec := c.visit("POST", "/posts", `{"title":"hello, TUG"}`, precog...)
-	if rec.Code != 422 || rec.Body.String() != `{"errors":{"title":"another post has that title"},"message":"another post has that title"}` {
-		t.Errorf("a taken title got %d %s", rec.Code, rec.Body)
+	c.Get("/posts/create")
+	r := c.Post("/posts", map[string]any{"title": "hello, TUG"}, tugtest.Validate("title"))
+	if r.Code != 422 || r.Body != `{"errors":{"title":"another post has that title"},"message":"another post has that title"}` {
+		t.Errorf("a taken title got %v", r)
 	}
-	if rec := c.visit("POST", "/posts", `{"title":"Fresh"}`, precog...); rec.Code != 204 {
-		t.Errorf("a fresh title got %d %s", rec.Code, rec.Body)
+	if r := c.Post("/posts", map[string]any{"title": "Fresh"}, tugtest.Validate("title")); r.Code != 204 {
+		t.Errorf("a fresh title got %v", r)
 	}
-	if p := c.page(c.visit("GET", "/?page=3", "")); len(titles(p)) != 5 {
+	if got := titles(c.Get("/?page=3")); len(got) != 5 {
 		t.Error("checking a field made a post")
 	}
 }
 
 func TestDeletingAPostGoesBackToTheListWithoutIt(t *testing.T) {
 	c := newClient(t)
-	rec := c.visit("DELETE", "/posts/3", "")
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
-		t.Fatalf("delete = %d to %q", rec.Code, rec.Header().Get("Location"))
+	r := c.Delete("/posts/3", nil)
+	if r.Code != http.StatusSeeOther || r.Location() != "/" {
+		t.Fatalf("got %v", r)
 	}
-	p := c.page(c.visit("GET", "/", ""))
-	if got := titles(p); slices.Contains(got, "Delete me") || got[2] != "Post 4" || p.Flash["success"] != "Post deleted" {
-		t.Errorf("the list starts %v after deleting post 3, flash %v", got, p.Flash)
+	r = r.Follow()
+	if got := titles(r); slices.Contains(got, "Delete me") || got[2] != "Post 4" || r.Page.Flash["success"] != "Post deleted" {
+		t.Errorf("the list starts %v after deleting post 3, flash %v", got, r.Page.Flash)
 	}
 }
 
 func TestAPostThatIsntThereShowsTheErrorPage(t *testing.T) {
 	c := newClient(t)
 	for _, path := range []string{"/posts/99", "/posts/abc", "/posts/99/edit", "/nowhere"} {
-		rec := c.visit("GET", path, "")
-		if p := c.page(rec); rec.Code != 404 || p.Component != "Error" || p.Props["status"] != 404.0 {
-			t.Errorf("%s = %d %+v", path, rec.Code, p)
+		if r := c.Get(path); r.Code != 404 || r.Page.Component != "Error" || tugtest.Prop[int](r, "status") != 404 {
+			t.Errorf("got %v, props %v", r, r.Page.Props)
 		}
 	}
-	if p := c.page(c.visit("GET", "/posts/99", "")); p.Props["message"] != "post not found" {
-		t.Errorf("message %v", p.Props["message"])
+	if msg := tugtest.Prop[string](c.Get("/posts/99"), "message"); msg != "post not found" {
+		t.Errorf("message %q", msg)
 	}
 }
 
 func TestAPageFromAnotherBuildReloads(t *testing.T) {
 	c := newClient(t)
-	c.version = "an old build"
-	if rec := c.visit("GET", "/posts/1", ""); rec.Code != http.StatusConflict || rec.Header().Get("X-Inertia-Location") != "/posts/1" {
-		t.Fatalf("got %d with %v", rec.Code, rec.Header())
+	c.Version = "an old build"
+	if r := c.Get("/posts/1"); r.Code != http.StatusConflict || r.Location() != "/posts/1" {
+		t.Fatalf("got %v with %v", r, r.Header)
 	}
 }
 
 func TestTheBuildIsServed(t *testing.T) {
-	c := newClient(t)
-	rec := c.first("/build/assets/app-1.js")
-	if rec.Code != 200 || rec.Body.String() != "createInertiaApp()" || !strings.Contains(rec.Header().Get("Cache-Control"), "immutable") {
-		t.Fatalf("got %d %q with %v", rec.Code, rec.Body, rec.Header())
+	r := newClient(t).Do(httptest.NewRequest("GET", "/build/assets/app-1.js", nil))
+	if r.Code != 200 || r.Body != "createInertiaApp()" || !strings.Contains(r.Header.Get("Cache-Control"), "immutable") {
+		t.Fatalf("got %v with %v", r, r.Header)
 	}
 }

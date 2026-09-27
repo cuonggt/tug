@@ -16,6 +16,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M8  | Background jobs         | done   |
 | M9  | Scheduled jobs          | done   |
 | M10 | Server-side rendering   | done   |
+| M11 | Testing                 | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -512,6 +513,70 @@ Choices made on the way:
 - The root template has `{{ .InertiaHead }}` before its own `<title>`:
   browsers take the first, the page's, and a page without one has the
   app's.
+
+## M11 · Testing — done
+
+A test of an app's pages talks to it as Inertia's client does: visits with
+`X-Inertia`, the session cookie kept from one to the next, and the page
+object read back. The example and both starters each had a client of
+their own for it, and dug props out of `map[string]any`, so every app
+`tug new` made started with a copy to keep up. Package `tugtest` is that
+client, in tug.
+
+- `tugtest.New(t, app)` is a browser with the app open. `Get`, `Post`,
+  `Put`, `Patch` and `Delete` are visits as Inertia's client makes them:
+  with the version of the build it runs, the page it's on as the
+  `Referer`, and the cookies the app has set. `FirstVisit` loads a page
+  whole and reads the page object out of the HTML, and `Do` sends any
+  other request.
+- A `Response` has the page it shows, where it sends the client
+  (`Location`), the validation errors it carries (`Errors`), and `Follow`,
+  which follows its redirects as the browser does, the protocol's 409s
+  included. It prints as the request and its answer: `POST /register: 303
+  to /dashboard`.
+- Props read into Go types: `tugtest.Props(r, Dashboard)` reads a page's
+  props into the struct its `tug.Page` declares, and fails the test on
+  another page; `tugtest.Prop[User](r, "auth.user")` reads one prop, by
+  its path, and `tugtest.Flash` flash data.
+- Partial reloads of the page the client is on, `Reload` with `Only`,
+  `Except` and `Reset`; error bags; and Precognition, with `Validate`.
+- `Client.Session` changes the client's session as a request would, to
+  start a test logged in without the pages it takes.
+- The example's tests, both starters' and the guide's use it, and
+  [Testing](testing.md) is its page of the guide. The auth starter's 45
+  tests are the same flows, on `tugtest`.
+
+Choices made on the way:
+
+- The client is a browser, not a mock of one: it sends the page it's on as
+  the `Referer`, so a form that doesn't validate goes back to the page it
+  was sent from, where the old clients sent the same `Referer` with every
+  request. A test that wants another sets it with `tugtest.Header`.
+- Redirects are followed only with `Follow`: where a response sends the
+  client is as often what a test checks as the page after, as Laravel's
+  tests don't follow them unless asked.
+- A client that hasn't been shown a page takes the app's version from the
+  409 its first visit gets, which the middleware already sent it in, and
+  makes the visit again: a browser has the app open before its first
+  visit, and a test shouldn't have to load the HTML to know the build.
+- The fields of package inertia's prop types hold functions, which JSON
+  can't bring back, so `Props` leaves them as they are, and `Prop` reads
+  what went out for them. The prop types could have learnt to decode
+  themselves, with a way to read the value back, but that's API on every
+  app's props for the tests' sake alone.
+- A test that asks the client for what isn't there, a prop the page
+  doesn't have, or a redirect to follow from a response that isn't one,
+  fails with `t.Fatalf`, and a message with the response: `GET /dashboard:
+  302 to /verify-email, not the page Dashboard`. The test couldn't go on
+  anyway, and the helpers would otherwise each return an error to check.
+- The client keeps cookies by name, whatever their `Secure`, `Domain` or
+  `Path`: it's one browser on one site, and the auth starter's session
+  cookie is `Secure` for its `https://` `APP_URL` while its tests' requests
+  are plain HTTP.
+- It's package `tugtest`, not a part of package `inertia`: `Props` takes
+  the `tug.PageOf` that has a page's props type, and `Session` takes
+  package session's Store. Package tug's own tests keep a small client of
+  their own, as they can't import a package that imports tug.
 
 ## Decisions
 

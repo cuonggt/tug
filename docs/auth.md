@@ -70,7 +70,8 @@ plain starter's of the same name and add the rest, and the plain
   migrations, which make the `jobs` table too. An email is unique whatever
   its case.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
-  `jobs_test.go`: a test of each flow, with the mail kept in memory.
+  `jobs_test.go`: a test of each flow, in browsers of package `tugtest`,
+  with the mail kept in memory.
 - `resources/js`: `app.tsx`, which picks each page's layout; `layouts/`,
   the app's, the login card's, and the settings'; `components/`, the app's
   own and shadcn/ui's in `components/ui`; and the pages, `Home`,
@@ -766,9 +767,16 @@ every 10 milliseconds, so a mail that failed goes again as soon as its
 wait is over. `jobs_test.go` runs `queuetest.TestStore` on the `jobs`
 table. The tests log in as a user with two-factor logins on with
 `auth.TwoFactor.Code`, a code for now and one for 30 seconds on, since a
-code works once. `oldLogin` makes a session as one logged in long ago
-would have it, with no password typed since, by logging in through a
-`session.Store` with the test's key.
+code works once.
+
+Each browser in a test is a `tugtest.Client` ([Testing](testing.md)), so
+two logins to one account are two clients. `verifiedUser` registers a
+user, follows the link mailed to them, and returns the browser they did
+it in. `oldLogin` returns one logged in long ago, with no password typed
+since, made with `Client.Session` and a `session.Store` with the test's
+key. The shared `auth.user` reads into the app's own `User`, with
+`tugtest.Prop[*User](r, "auth.user")`, and a page's props into its own
+struct, `tugtest.Props(r, Security)`.
 
 ## Before going live
 

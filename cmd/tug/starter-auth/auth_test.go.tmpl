@@ -4,93 +4,98 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/cuonggt/tug/tugtest"
 )
 
 func TestRegisteringLogsInAndAsksForTheEmailToBeVerified(t *testing.T) {
 	app := newTestApp(t)
-	v := app.visitor()
-	if r := register(v, "Ann", "ann@example.com", "correct horse"); r.code != http.StatusSeeOther || r.location != "/dashboard" {
-		t.Fatalf("registering: %d to %q", r.code, r.location)
+	c := app.client()
+	if r := register(c, "Ann", "ann@example.com", "correct horse"); r.Code != http.StatusSeeOther || r.Location() != "/dashboard" {
+		t.Fatalf("registering: %v", r)
 	}
-	if r := v.get("/dashboard"); r.location != "/verify-email" {
-		t.Fatalf("the dashboard before the email is verified: %d to %q", r.code, r.location)
+	if r := c.Get("/dashboard"); r.Location() != "/verify-email" {
+		t.Fatalf("the dashboard before the email is verified: %v", r)
 	}
-	r := v.get("/verify-email")
-	if r.page.Component != "Auth/VerifyEmail" || r.page.Flash["success"] != "Welcome, Ann!" || r.user()["emailVerifiedAt"] != nil {
-		t.Fatalf("the page after registering: %+v", r.page)
+	r := c.Get("/verify-email")
+	if u := user(r); r.Page.Component != "Auth/VerifyEmail" || r.Page.Flash["success"] != "Welcome, Ann!" || u == nil || u.EmailVerifiedAt != nil {
+		t.Fatalf("the page after registering: %v, flash %v, user %+v", r, r.Page.Flash, u)
 	}
 
 	m := app.mail()
 	if m.To[0] != "ann@example.com" || !strings.Contains(m.HTML, "Verify my email") {
 		t.Errorf("the mail to %v:\n%s", m.To, m.HTML)
 	}
-	if r := v.get(link(t, m, "/verify-email/")); r.location != "/dashboard" {
-		t.Fatalf("following the link: %d to %q", r.code, r.location)
+	if r := c.Get(link(t, m, "/verify-email/")); r.Location() != "/dashboard" {
+		t.Fatalf("following the link: %v", r)
 	}
-	r = v.get("/dashboard")
-	if user, _ := r.page.Props["user"].(map[string]any); r.page.Component != "Dashboard" || user["emailVerifiedAt"] == nil {
-		t.Fatalf("the dashboard once verified: %d %+v", r.code, r.page)
+	r = c.Get("/dashboard")
+	if u := tugtest.Props(r, Dashboard).User; u.EmailVerifiedAt == nil {
+		t.Fatalf("the dashboard once verified: %+v", u)
 	}
-	if r.page.Flash["success"] != "Thanks: your email is verified." {
-		t.Errorf("flash %v", r.page.Flash)
+	if r.Page.Flash["success"] != "Thanks: your email is verified." {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
 }
 
 func TestAVerificationLinkWorksInABrowserThatIsntLoggedIn(t *testing.T) {
 	app := newTestApp(t)
-	register(app.visitor(), "Ann", "ann@example.com", "correct horse")
-	phone := app.visitor()
-	if r := phone.get(link(t, app.mail(), "/verify-email/")); r.location != "/dashboard" {
-		t.Fatalf("following the link: %d to %q", r.code, r.location)
+	register(app.client(), "Ann", "ann@example.com", "correct horse")
+	phone := app.client()
+	if r := phone.Get(link(t, app.mail(), "/verify-email/")); r.Location() != "/dashboard" {
+		t.Fatalf("following the link: %v", r)
 	}
 	// Sent to log in, where the news is waiting.
-	if r := phone.get("/dashboard"); r.location != "/login" {
-		t.Fatalf("the dashboard: %d to %q", r.code, r.location)
+	if r := phone.Get("/dashboard"); r.Location() != "/login" {
+		t.Fatalf("the dashboard: %v", r)
 	}
-	if r := phone.get("/login"); r.page.Flash["success"] != "Thanks: your email is verified." {
-		t.Errorf("flash %v", r.page.Flash)
+	if r := phone.Get("/login"); r.Page.Flash["success"] != "Thanks: your email is verified." {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
 	logIn(phone, "ann@example.com", "correct horse")
-	if r := phone.get("/dashboard"); r.page.Component != "Dashboard" {
-		t.Errorf("verified, the dashboard is still %d to %q", r.code, r.location)
+	if r := phone.Get("/dashboard"); r.Page.Component != "Dashboard" {
+		t.Errorf("verified, the dashboard is still %v", r)
 	}
 }
 
 func TestAVerificationLinkForAnOldEmailOrTamperedWithVerifiesNothing(t *testing.T) {
 	app := newTestApp(t)
-	v := app.visitor()
-	register(v, "Ann", "ann@example.com", "correct horse")
+	c := app.client()
+	register(c, "Ann", "ann@example.com", "correct horse")
 	old := link(t, app.mail(), "/verify-email/")
-	v.visit("PATCH", "/settings/profile", map[string]any{"name": "Ann", "email": "ann@elsewhere.example"})
+	c.Patch("/settings/profile", map[string]any{"name": "Ann", "email": "ann@elsewhere.example"})
 	app.mail() // the link for the new email
 
 	for _, bad := range []string{old, old + "x", strings.Replace(old, "/verify-email/1/", "/verify-email/2/", 1)} {
-		if r := v.get(bad); r.location != "/verify-email" {
-			t.Errorf("%s: %d to %q", bad, r.code, r.location)
+		if r := c.Get(bad); r.Location() != "/verify-email" {
+			t.Errorf("%s: %v", bad, r)
 		}
-		r := v.get("/verify-email")
-		if msg, _ := r.page.Flash["error"].(string); !strings.HasPrefix(msg, "That link has expired") || r.user()["emailVerifiedAt"] != nil {
-			t.Errorf("%s: flash %v, verified %v", bad, r.page.Flash, r.user()["emailVerifiedAt"])
+		r := c.Get("/verify-email")
+		if msg, _ := r.Page.Flash["error"].(string); !strings.HasPrefix(msg, "That link has expired") {
+			t.Errorf("%s: flash %v", bad, r.Page.Flash)
+		}
+		if u := user(r); u == nil || u.EmailVerifiedAt != nil {
+			t.Errorf("%s: user %+v", bad, u)
 		}
 	}
 }
 
 func TestAnotherLinkCanBeSentOnceAMinute(t *testing.T) {
 	app := newTestApp(t)
-	v := app.visitor()
-	register(v, "Ann", "ann@example.com", "correct horse")
+	c := app.client()
+	register(c, "Ann", "ann@example.com", "correct horse")
 	app.mail()
-	from := []string{"Referer", "http://example.com/settings/profile"}
-	if r := v.visit("POST", "/verify-email", nil, from...); r.location != "/settings/profile" {
-		t.Fatalf("sending another: %d to %q, want back where it was asked for", r.code, r.location)
+	c.Get("/settings/profile")
+	if r := c.Post("/verify-email", nil); r.Location() != "/settings/profile" {
+		t.Fatalf("sending another: %v, want back where it was asked for", r)
 	}
-	if r := v.get("/settings/profile"); r.page.Flash["success"] != "A new link is on its way to ann@example.com." {
-		t.Errorf("flash %v", r.page.Flash)
+	if r := c.Get("/settings/profile"); r.Page.Flash["success"] != "A new link is on its way to ann@example.com." {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
 	link(t, app.mail(), "/verify-email/")
 
-	v.visit("POST", "/verify-email", nil, from...)
-	if msg, _ := v.get("/settings/profile").page.Flash["error"].(string); !strings.HasPrefix(msg, "A link went a moment ago") {
+	c.Post("/verify-email", nil)
+	if msg, _ := c.Get("/settings/profile").Page.Flash["error"].(string); !strings.HasPrefix(msg, "A link went a moment ago") {
 		t.Errorf("a second in the minute: flash %q", msg)
 	}
 	app.noMail()
@@ -98,41 +103,43 @@ func TestAnotherLinkCanBeSentOnceAMinute(t *testing.T) {
 
 func TestAnEmailHasOneAccount(t *testing.T) {
 	app := newTestApp(t)
-	register(app.visitor(), "Ann", "ann@example.com", "correct horse")
-	v := app.visitor()
-	if r := register(v, "Imposter", "ANN@example.com", "correct horse"); r.location != "/" {
-		t.Fatalf("registering again: %d to %q, want back to the form", r.code, r.location)
+	register(app.client(), "Ann", "ann@example.com", "correct horse")
+	c := app.client()
+	c.Get("/register")
+	r := register(c, "Imposter", "ANN@example.com", "correct horse")
+	if r.Location() != "/register" {
+		t.Fatalf("registering again: %v, want back to the form", r)
 	}
-	if r := v.get("/register"); r.errors()["email"] != "email has an account already: log in to it" || r.user() != nil {
-		t.Errorf("errors %v, user %v", r.errors(), r.user())
+	if r = r.Follow(); r.Errors()["email"] != "email has an account already: log in to it" || user(r) != nil {
+		t.Errorf("errors %v, user %+v", r.Errors(), user(r))
 	}
 }
 
 func TestRegisteringTakesThePasswordTypedTwice(t *testing.T) {
 	app := newTestApp(t)
-	v := app.visitor()
-	v.visit("POST", "/register", map[string]any{"name": "Ann", "email": "ann@example.com", "password": "correct horse", "password_confirmation": "correct hose"})
-	if r := v.get("/register"); r.errors()["password_confirmation"] != "the passwords don't match" {
-		t.Errorf("errors %v", r.errors())
+	c := app.client()
+	c.Get("/register")
+	r := c.Post("/register", map[string]any{"name": "Ann", "email": "ann@example.com", "password": "correct horse", "password_confirmation": "correct hose"})
+	if errs := r.Follow().Errors(); errs["password_confirmation"] != "the passwords don't match" {
+		t.Errorf("errors %v", errs)
 	}
-	register(v, "Ann", "ann@example.com", "short")
-	if r := v.get("/register"); r.errors()["password"] != "password must be at least 8 characters" {
-		t.Errorf("errors %v", r.errors())
+	if errs := register(c, "Ann", "ann@example.com", "short").Follow().Errors(); errs["password"] != "password must be at least 8 characters" {
+		t.Errorf("errors %v", errs)
 	}
 }
 
 func TestAGuestIsSentToLogInAndBackAfter(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v := app.visitor()
-	if r := v.get("/settings/appearance?from=menu"); r.code != http.StatusFound || r.location != "/login" {
-		t.Fatalf("a guest's settings: %d to %q", r.code, r.location)
+	c := app.client()
+	if r := c.Get("/settings/appearance?from=menu"); r.Code != http.StatusFound || r.Location() != "/login" {
+		t.Fatalf("a guest's settings: %v", r)
 	}
-	if r := logIn(v, "ann@example.com", "correct horse"); r.code != http.StatusSeeOther || r.location != "/settings/appearance?from=menu" {
-		t.Fatalf("logging in: %d to %q", r.code, r.location)
+	if r := logIn(c, "ann@example.com", "correct horse"); r.Code != http.StatusSeeOther || r.Location() != "/settings/appearance?from=menu" {
+		t.Fatalf("logging in: %v", r)
 	}
-	if r := v.get("/"); r.user()["name"] != "Ann" {
-		t.Errorf("auth.user %v", r.user())
+	if u := user(c.Get("/")); u == nil || u.Name != "Ann" {
+		t.Errorf("auth.user %+v", u)
 	}
 }
 
@@ -140,12 +147,12 @@ func TestAWrongPasswordDoesntLogIn(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
 	for _, email := range []string{"ann@example.com", "bob@example.com"} {
-		v := app.visitor()
-		logIn(v, email, "wrong horse")
-		if r := v.get("/login"); r.errors()["email"] != "the email and password don't match an account" {
-			t.Errorf("%s: errors %v", email, r.errors())
+		c := app.client()
+		c.Get("/login")
+		if errs := logIn(c, email, "wrong horse").Follow().Errors(); errs["email"] != "the email and password don't match an account" {
+			t.Errorf("%s: errors %v", email, errs)
 		}
-		if r := v.get("/dashboard"); r.location != "/login" {
+		if r := c.Get("/dashboard"); r.Location() != "/login" {
 			t.Errorf("%s: logged in with the wrong password", email)
 		}
 	}
@@ -154,14 +161,14 @@ func TestAWrongPasswordDoesntLogIn(t *testing.T) {
 func TestTooManyWrongPasswordsWaitAMinute(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v := app.visitor()
+	c := app.client()
 	for range 5 {
-		logIn(v, "ann@example.com", "wrong horse")
+		logIn(c, "ann@example.com", "wrong horse")
 	}
-	logIn(v, "ann@example.com", "correct horse")
-	r := v.get("/login")
-	if msg, _ := r.errors()["email"].(string); !strings.HasPrefix(msg, "too many tries: wait ") || r.user() != nil {
-		t.Errorf("errors %v, user %v", r.errors(), r.user())
+	logIn(c, "ann@example.com", "correct horse")
+	r := c.Get("/login")
+	if msg := r.Errors()["email"]; !strings.HasPrefix(msg, "too many tries: wait ") || user(r) != nil {
+		t.Errorf("errors %v, user %+v", r.Errors(), user(r))
 	}
 }
 
@@ -171,46 +178,47 @@ func TestRememberMeKeepsTheLoginForAMonth(t *testing.T) {
 	// As the login form sends the box: "on" when it's ticked, and nothing
 	// when it isn't.
 	for remember, maxAge := range map[string]int{"on": 30 * 24 * 60 * 60, "": 2 * 60 * 60} {
-		v := app.visitor()
+		c := app.client()
 		body := map[string]any{"email": "ann@example.com", "password": "correct horse"}
 		if remember != "" {
 			body["remember"] = remember
 		}
-		r := v.visit("POST", "/login", body)
-		if r.location != "/dashboard" || r.cookie == nil || r.cookie.MaxAge != maxAge {
-			t.Errorf("remember %q: %d to %q, cookie %v", remember, r.code, r.location, r.cookie)
+		r := c.Post("/login", body)
+		if ck := r.Cookie("tug_session"); r.Location() != "/dashboard" || ck == nil || ck.MaxAge != maxAge {
+			t.Errorf("remember %q: %v, cookie %v", remember, r, ck)
 		}
 		// And on the visits after, which start its time again.
-		if r := v.get("/dashboard"); r.cookie == nil || r.cookie.MaxAge != maxAge {
-			t.Errorf("remember %q, the next visit: cookie %v", remember, r.cookie)
+		if ck := c.Get("/dashboard").Cookie("tug_session"); ck == nil || ck.MaxAge != maxAge {
+			t.Errorf("remember %q, the next visit: cookie %v", remember, ck)
 		}
 	}
 }
 
 func TestLoggingOutEndsTheLogin(t *testing.T) {
 	app := newTestApp(t)
-	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	if r := v.visit("POST", "/logout", nil); r.location != "/" {
-		t.Fatalf("logging out: %d to %q", r.code, r.location)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	r := c.Post("/logout", nil)
+	if r.Location() != "/" {
+		t.Fatalf("logging out: %v", r)
 	}
-	r := v.get("/")
-	if r.user() != nil || r.page.Flash["success"] != "You've logged out." {
-		t.Errorf("auth.user %v, flash %v", r.user(), r.page.Flash)
+	r = r.Follow()
+	if user(r) != nil || r.Page.Flash["success"] != "You've logged out." {
+		t.Errorf("auth.user %+v, flash %v", user(r), r.Page.Flash)
 	}
-	if !r.page.EncryptHistory || !r.page.ClearHistory {
+	if !r.Page.EncryptHistory || !r.Page.ClearHistory {
 		t.Error("the history the browser keeps isn't cleared: Back could show the dashboard")
 	}
-	if r := v.get("/dashboard"); r.location != "/login" {
-		t.Errorf("the dashboard after logging out: %d to %q", r.code, r.location)
+	if r := c.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("the dashboard after logging out: %v", r)
 	}
 }
 
 func TestSomeoneLoggedInSkipsTheGuestPages(t *testing.T) {
 	app := newTestApp(t)
-	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
 	for _, page := range []string{"/login", "/register", "/forgot-password", "/two-factor-challenge"} {
-		if r := v.get(page); r.location != "/dashboard" {
-			t.Errorf("%s: %d to %q", page, r.code, r.location)
+		if r := c.Get(page); r.Location() != "/dashboard" {
+			t.Errorf("%v, want to the dashboard", r)
 		}
 	}
 }
@@ -218,8 +226,8 @@ func TestSomeoneLoggedInSkipsTheGuestPages(t *testing.T) {
 // resetLink asks for a reset link for email, and returns its path.
 func resetLink(t *testing.T, app *testApp, email string) string {
 	t.Helper()
-	if r := app.visitor().visit("POST", "/forgot-password", map[string]any{"email": email}); r.location != "/forgot-password" {
-		t.Fatalf("asking for a link: %d to %q", r.code, r.location)
+	if r := app.client().Post("/forgot-password", map[string]any{"email": email}); r.Location() != "/forgot-password" {
+		t.Fatalf("asking for a link: %v", r)
 	}
 	m := app.mail()
 	if m.To[0] != email || !strings.HasPrefix(m.Subject, "Reset your") {
@@ -228,66 +236,63 @@ func resetLink(t *testing.T, app *testApp, email string) string {
 	return link(t, m, "/reset-password/")
 }
 
-// resetPassword follows a reset link in v, and sets password with it.
-func resetPassword(t *testing.T, v *visitor, link, password string) response {
+// resetPassword follows a reset link in c, and sets password with it.
+func resetPassword(t *testing.T, c *tugtest.Client, link, password string) *tugtest.Response {
 	t.Helper()
-	r := v.get(link)
-	token, _ := r.page.Props["token"].(string)
-	if r.page.Component != "Auth/ResetPassword" || token == "" {
-		t.Fatalf("the reset page: %d %+v", r.code, r.page)
+	page := tugtest.Props(c.Get(link), ResetPassword)
+	if page.Token == "" {
+		t.Fatalf("the reset page has no token: %+v", page)
 	}
-	return v.visit("POST", "/reset-password", map[string]any{
-		"token": token, "email": r.page.Props["email"], "password": password, "password_confirmation": password,
+	return c.Post("/reset-password", map[string]any{
+		"token": page.Token, "email": page.Email, "password": password, "password_confirmation": password,
 	})
 }
 
 func TestAResetLinkSetsANewPasswordOnce(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v := app.visitor()
+	c := app.client()
 	l := resetLink(t, app, "ann@example.com")
-	if r := resetPassword(t, v, l, "battery staple"); r.location != "/dashboard" {
-		t.Fatalf("resetting: %d to %q", r.code, r.location)
+	if r := resetPassword(t, c, l, "battery staple"); r.Location() != "/dashboard" {
+		t.Fatalf("resetting: %v", r)
 	}
-	if r := v.get("/dashboard"); r.page.Flash["success"] != "Your password is reset." {
-		t.Errorf("flash %v", r.page.Flash)
+	if r := c.Get("/dashboard"); r.Page.Flash["success"] != "Your password is reset." {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
-	if r := logIn(app.visitor(), "ann@example.com", "battery staple"); r.location != "/dashboard" {
-		t.Errorf("the new password doesn't log in: %d to %q", r.code, r.location)
+	if r := logIn(app.client(), "ann@example.com", "battery staple"); r.Location() != "/dashboard" {
+		t.Errorf("the new password doesn't log in: %v", r)
 	}
-	again := app.visitor()
-	resetPassword(t, again, l, "stolen horse")
-	if r := again.get("/"); r.errors()["email"] != "this link has expired, or been used" {
-		t.Errorf("the link worked twice: errors %v", r.errors())
+	again := app.client()
+	if errs := resetPassword(t, again, l, "stolen horse").Follow().Errors(); errs["email"] != "this link has expired, or been used" {
+		t.Errorf("the link worked twice: errors %v", errs)
 	}
 }
 
 func TestResettingAPasswordLogsOutTheOtherSessions(t *testing.T) {
 	app := newTestApp(t)
 	laptop := app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	resetPassword(t, app.visitor(), resetLink(t, app, "ann@example.com"), "battery staple")
-	if r := laptop.get("/dashboard"); r.location != "/login" {
-		t.Errorf("the old login still works: %d to %q", r.code, r.location)
+	resetPassword(t, app.client(), resetLink(t, app, "ann@example.com"), "battery staple")
+	if r := laptop.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("the old login still works: %v", r)
 	}
 }
 
 func TestResettingAPasswordVerifiesTheEmailItWasSentTo(t *testing.T) {
 	app := newTestApp(t)
-	register(app.visitor(), "Ann", "ann@example.com", "correct horse")
+	register(app.client(), "Ann", "ann@example.com", "correct horse")
 	app.mail() // the verification link, left unfollowed
-	v := app.visitor()
-	resetPassword(t, v, resetLink(t, app, "ann@example.com"), "battery staple")
-	if r := v.get("/dashboard"); r.page.Component != "Dashboard" {
-		t.Errorf("the dashboard: %d to %q", r.code, r.location)
+	c := app.client()
+	resetPassword(t, c, resetLink(t, app, "ann@example.com"), "battery staple")
+	if r := c.Get("/dashboard"); r.Page.Component != "Dashboard" {
+		t.Errorf("the dashboard: %v", r)
 	}
 }
 
 func TestForgettingAPasswordSaysTheSameForAnyEmail(t *testing.T) {
 	app := newTestApp(t)
-	v := app.visitor()
-	v.visit("POST", "/forgot-password", map[string]any{"email": "nobody@example.com"})
-	if r := v.get("/forgot-password"); r.page.Flash["success"] != "If that email has an account, a link to reset its password is on its way." {
-		t.Errorf("flash %v", r.page.Flash)
+	r := app.client().Post("/forgot-password", map[string]any{"email": "nobody@example.com"}).Follow()
+	if r.Page.Flash["success"] != "If that email has an account, a link to reset its password is on its way." {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
 	app.noMail()
 }
@@ -295,40 +300,40 @@ func TestForgettingAPasswordSaysTheSameForAnyEmail(t *testing.T) {
 func TestTheSettingsAskForThePasswordOnAnOldLogin(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v := app.oldLogin("ann@example.com")
+	c := app.oldLogin("ann@example.com")
 	for _, page := range []string{"/settings/profile", "/settings/security"} {
-		if r := v.get(page); r.location != "/confirm-password" {
-			t.Errorf("%s: %d to %q", page, r.code, r.location)
+		if r := c.Get(page); r.Location() != "/confirm-password" {
+			t.Errorf("%v, want to confirm the password", r)
 		}
 	}
-	if r := v.get("/confirm-password"); r.page.Component != "Auth/ConfirmPassword" {
-		t.Fatalf("the page that asks: %d %+v", r.code, r.page)
+	if r := c.Get("/confirm-password"); r.Page.Component != "Auth/ConfirmPassword" {
+		t.Fatalf("the page that asks: %v", r)
 	}
-	v.visit("POST", "/confirm-password", map[string]any{"password": "wrong horse"})
-	if r := v.get("/confirm-password"); r.errors()["password"] != "that isn't your password" {
-		t.Errorf("errors %v", r.errors())
+	if errs := c.Post("/confirm-password", map[string]any{"password": "wrong horse"}).Follow().Errors(); errs["password"] != "that isn't your password" {
+		t.Errorf("errors %v", errs)
 	}
-	if r := v.visit("POST", "/confirm-password", map[string]any{"password": "correct horse"}); r.location != "/settings/security" {
-		t.Fatalf("confirming: %d to %q, want back to the page it was on its way to", r.code, r.location)
+	if r := c.Post("/confirm-password", map[string]any{"password": "correct horse"}); r.Location() != "/settings/security" {
+		t.Fatalf("confirming: %v, want back to the page it was on its way to", r)
 	}
-	if r := v.get("/settings/profile"); r.page.Component != "Settings/Profile" {
-		t.Errorf("the profile, confirmed: %d to %q", r.code, r.location)
+	if r := c.Get("/settings/profile"); r.Page.Component != "Settings/Profile" {
+		t.Errorf("the profile, confirmed: %v", r)
 	}
 }
 
 func TestAFormSentAfterTheConfirmationRanOutGoesBackToItsPage(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v := app.oldLogin("ann@example.com")
-	r := v.visit("PATCH", "/settings/profile", map[string]any{"name": "Mallory", "email": "ann@example.com"},
-		"Referer", "http://example.com/settings/profile")
-	if r.location != "/confirm-password" {
-		t.Fatalf("saving the profile: %d to %q", r.code, r.location)
+	c := app.oldLogin("ann@example.com")
+	// The profile was open from before the confirmation ran out.
+	r := c.Patch("/settings/profile", map[string]any{"name": "Mallory", "email": "ann@example.com"},
+		tugtest.Header("Referer", "http://example.com/settings/profile"))
+	if r.Location() != "/confirm-password" {
+		t.Fatalf("saving the profile: %v", r)
 	}
-	if r := v.visit("POST", "/confirm-password", map[string]any{"password": "correct horse"}); r.location != "/settings/profile" {
-		t.Errorf("confirming: %d to %q", r.code, r.location)
+	if r := c.Post("/confirm-password", map[string]any{"password": "correct horse"}); r.Location() != "/settings/profile" {
+		t.Errorf("confirming: %v", r)
 	}
-	if r := v.get("/settings/profile"); r.user()["name"] != "Ann" {
-		t.Errorf("the form went through unconfirmed: name %v", r.user()["name"])
+	if u := tugtest.Props(c.Get("/settings/profile"), Profile).User; u.Name != "Ann" {
+		t.Errorf("the form went through unconfirmed: name %q", u.Name)
 	}
 }

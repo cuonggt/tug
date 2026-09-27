@@ -329,35 +329,43 @@ go test ./...
 ```
 
 The starter's `main_test.go` tests the app the way Inertia's client uses
-it, without a browser or a frontend build. `newVisitor` makes the app with
-`newApp`, an empty build and a key of its own. Its `visit` sends a request
-with `X-Inertia: true`, so the app answers with the page as JSON, its
-component and props, and keeps the session cookie from one visit to the
-next, which is what carries a form's errors and flash message to the page
-after it. Two tests for the posts, in `main_test.go`:
+it, without a browser or a frontend build, with package `tugtest`.
+`newClient` makes the app with `newApp`, an empty build and a key of its
+own, and returns a `tugtest.Client`, a browser with the app open. Its
+visits get each page as JSON, its component and props, and it keeps the
+session cookie from one visit to the next, which is what carries a form's
+errors and flash message to the page after it. Two tests for the posts,
+in `main_test.go`:
 
 ```go
 func TestANewPostIsInTheList(t *testing.T) {
-	v := newVisitor(t)
-	if code, _ := v.visit("POST", "/posts", `{"title":"Hello, tug"}`); code != http.StatusSeeOther {
-		t.Fatalf("got %d, want a redirect", code)
+	c := newClient(t)
+	c.Get("/posts")
+	r := c.Post("/posts", map[string]any{"title": "Hello, tug"})
+	if r.Location() != "/posts" {
+		t.Fatalf("got %v, want back to the list", r)
 	}
-	_, p := v.visit("GET", "/posts", "")
-	posts, _ := p.Props["posts"].([]any)
-	if len(posts) != 1 || p.Flash["success"] != "Post created" {
-		t.Fatalf("posts %v, flash %v", p.Props["posts"], p.Flash)
+	r = r.Follow()
+	if posts := tugtest.Props(r, PostsIndex).Posts; len(posts) != 1 || r.Page.Flash["success"] != "Post created" {
+		t.Fatalf("posts %v, flash %v", posts, r.Page.Flash)
 	}
 }
 
 func TestAPostWithoutATitleComesBackWithWhatToFix(t *testing.T) {
-	v := newVisitor(t)
-	v.visit("POST", "/posts", `{"title":""}`)
-	_, p := v.visit("GET", "/posts", "")
-	if p.Props["errors"].(map[string]any)["title"] != "title is required" {
-		t.Fatalf("errors %v", p.Props["errors"])
+	c := newClient(t)
+	c.Get("/posts")
+	if errs := c.Post("/posts", map[string]any{"title": ""}).Follow().Errors(); errs["title"] != "title is required" {
+		t.Fatalf("errors %v", errs)
 	}
 }
 ```
+
+`c.Post` returns the app's answer, a redirect here, and `Follow` follows
+it to the page after, as the browser does: the list, or, for a post
+without a title, the page the form was sent from, with the errors.
+`tugtest.Props` reads the page's props into the `PostsIndexProps` its
+`tug.Page` declares, and fails the test on any other page.
+[Testing](testing.md) has the rest.
 
 `npm run typecheck` checks the frontend against the types `tug gen` wrote.
 

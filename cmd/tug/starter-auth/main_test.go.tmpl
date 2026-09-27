@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -17,10 +17,10 @@ import (
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
-	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/mail"
 	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/tugtest"
 )
 
 // outbox is a mailer that keeps what it's given, for the tests to read.
@@ -127,159 +127,96 @@ func link(t *testing.T, m mail.Message, path string) string {
 	return found[1]
 }
 
-// visitor is Inertia's client in a browser: it keeps the session cookie.
-// Its visits get JSON, so the tests run without a frontend build.
-type visitor struct {
-	t      *testing.T
-	app    *testApp
-	cookie *http.Cookie
+// client is a browser with the app open, which the tests use as Inertia's
+// client in it does: its visits get the pages as JSON, so the tests run
+// without a frontend build. See package tugtest.
+func (a *testApp) client() *tugtest.Client {
+	return tugtest.New(a.t, a)
 }
 
-func (a *testApp) visitor() *visitor {
-	return &visitor{t: a.t, app: a}
+// user is the auth.user every page shares: the user logged in, or nil for
+// a guest.
+func user(r *tugtest.Response) *User {
+	return tugtest.Prop[*User](r, "auth.user")
 }
 
-// response is what a visit got back.
-type response struct {
-	code     int
-	location string       // where a redirect goes
-	cookie   *http.Cookie // the session cookie it set
-	page     inertia.Page
-}
-
-// visit makes a request with body as JSON, and headers in pairs, as
-// "X-Inertia-Partial-Data", "recoveryCodes".
-func (v *visitor) visit(method, target string, body map[string]any, headers ...string) response {
-	v.t.Helper()
-	data, _ := json.Marshal(body)
-	req := httptest.NewRequest(method, target, bytes.NewReader(data))
-	req.Header.Set("X-Inertia", "true")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Referer", "http://example.com/")
-	for i := 0; i+1 < len(headers); i += 2 {
-		req.Header.Set(headers[i], headers[i+1])
-	}
-	if v.cookie != nil {
-		req.AddCookie(v.cookie)
-	}
-	rec := httptest.NewRecorder()
-	v.app.ServeHTTP(rec, req)
-	r := response{code: rec.Code, location: rec.Header().Get("Location")}
-	for _, c := range rec.Result().Cookies() {
-		v.cookie, r.cookie = c, c
-	}
-	if rec.Header().Get("X-Inertia") == "true" {
-		if err := json.Unmarshal(rec.Body.Bytes(), &r.page); err != nil {
-			v.t.Fatal(err)
-		}
-	}
-	return r
-}
-
-// get follows a link, or a redirect.
-func (v *visitor) get(target string) response {
-	v.t.Helper()
-	return v.visit("GET", target, nil)
-}
-
-// errors are the validation errors a page shows.
-func (r response) errors() map[string]any {
-	errs, _ := r.page.Props["errors"].(map[string]any)
-	return errs
-}
-
-// user is the auth.user every page shares, or nil for a guest.
-func (r response) user() map[string]any {
-	auth, _ := r.page.Props["auth"].(map[string]any)
-	u, _ := auth["user"].(map[string]any)
-	return u
-}
-
-func register(v *visitor, name, email, password string) response {
-	return v.visit("POST", "/register", map[string]any{
+func register(c *tugtest.Client, name, email, password string) *tugtest.Response {
+	return c.Post("/register", map[string]any{
 		"name": name, "email": email, "password": password, "password_confirmation": password,
 	})
 }
 
-func logIn(v *visitor, email, password string) response {
-	return v.visit("POST", "/login", map[string]any{"email": email, "password": password})
+func logIn(c *tugtest.Client, email, password string) *tugtest.Response {
+	return c.Post("/login", map[string]any{"email": email, "password": password})
 }
 
 // verifiedUser registers a user and follows the link mailed to them, and
 // returns the browser they did it in, logged in.
-func (a *testApp) verifiedUser(name, email, password string) *visitor {
+func (a *testApp) verifiedUser(name, email, password string) *tugtest.Client {
 	a.t.Helper()
-	v := a.visitor()
-	if r := register(v, name, email, password); r.location != "/dashboard" {
-		a.t.Fatalf("registering %s: %d to %q, errors %v", email, r.code, r.location, r.errors())
+	c := a.client()
+	if r := register(c, name, email, password); r.Location() != "/dashboard" {
+		a.t.Fatalf("registering %s: %v", email, r)
 	}
-	if r := v.get(link(a.t, a.mail(), "/verify-email/")); r.location != "/dashboard" {
-		a.t.Fatalf("verifying %s: %d to %q", email, r.code, r.location)
+	if r := c.Get(link(a.t, a.mail(), "/verify-email/")); r.Location() != "/dashboard" {
+		a.t.Fatalf("verifying %s: %v", email, r)
 	}
-	return v
+	return c
 }
 
 // oldLogin returns a browser logged in as the user with email, as one that
 // logged in longer ago than a confirmed password lasts: the session has
 // the login, and no password typed since.
-func (a *testApp) oldLogin(email string) *visitor {
+func (a *testApp) oldLogin(email string) *tugtest.Client {
 	a.t.Helper()
 	u, err := (&users{db: a.db}).byEmail(context.Background(), email)
 	if err != nil {
 		a.t.Fatal(err)
 	}
-	store, err := session.New(session.Config{Keys: a.keys})
+	sessions, err := session.New(session.Config{Keys: a.keys})
 	if err != nil {
 		a.t.Fatal(err)
 	}
-	rec := httptest.NewRecorder()
-	store.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth.Login(session.From(r.Context()), u.authID(), u.PasswordHash)
-		w.WriteHeader(http.StatusNoContent)
-	})).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	return &visitor{t: a.t, app: a, cookie: rec.Result().Cookies()[0]}
+	c := a.client()
+	c.Session(sessions, func(s *session.Session) { auth.Login(s, u.authID(), u.PasswordHash) })
+	return c
 }
 
 func TestEveryPageKnowsWhosLoggedIn(t *testing.T) {
 	app := newTestApp(t)
-	v := app.visitor()
-	if r := v.get("/"); r.page.Component != "Home" || r.user() != nil {
-		t.Fatalf("a guest's home: %+v", r.page)
+	c := app.client()
+	if r := c.Get("/"); r.Page.Component != "Home" || user(r) != nil {
+		t.Fatalf("a guest's home: %v, user %v", r, user(r))
 	}
-	register(v, "Ann", "ann@example.com", "correct horse")
-	if r := v.get("/nowhere"); r.code != http.StatusNotFound || r.page.Component != "Error" || r.user()["name"] != "Ann" {
-		t.Errorf("a 404 while logged in: %d %+v", r.code, r.page)
+	register(c, "Ann", "ann@example.com", "correct horse")
+	if r := c.Get("/nowhere"); r.Code != http.StatusNotFound || r.Page.Component != "Error" || user(r) == nil || user(r).Name != "Ann" {
+		t.Errorf("a 404 while logged in: %v, user %v", r, user(r))
 	}
 }
 
 func TestThePasswordHashAndTwoFactorSecretNeverReachAPage(t *testing.T) {
 	app := newTestApp(t)
-	v := app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v.visit("POST", "/settings/two-factor", nil)
-	secret := v.get("/settings/security").page.Props["setup"].(map[string]any)["secret"].(string)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c.Post("/settings/two-factor", nil)
+	secret := tugtest.Props(c.Get("/settings/security"), Security).Setup.Secret
 	code, _ := app.twoFactor().Code(secret, time.Now())
-	v.visit("POST", "/settings/two-factor/confirm", map[string]any{"code": code})
+	c.Post("/settings/two-factor/confirm", map[string]any{"code": code})
 	for _, page := range []string{"/", "/dashboard", "/settings/profile", "/settings/security"} {
-		r := v.get(page)
-		props, _ := json.Marshal(r.page.Props)
-		if r.code != http.StatusOK || bytes.Contains(props, []byte("argon2id")) || bytes.Contains(props, []byte(secret)) {
-			t.Errorf("%s: %d %s", page, r.code, props)
+		if r := c.Get(page); r.Code != http.StatusOK || strings.Contains(r.Body, "argon2id") || strings.Contains(r.Body, secret) {
+			t.Errorf("%v: %s", r, r.Body)
 		}
 	}
 }
 
 func TestTheHealthCheckSaysTheAppIsUp(t *testing.T) {
 	app := newTestApp(t)
-	rec := httptest.NewRecorder()
-	app.ServeHTTP(rec, httptest.NewRequest("GET", "/up", nil))
-	if rec.Code != http.StatusOK || rec.Body.String() != "up" {
-		t.Errorf("got %d %q", rec.Code, rec.Body)
+	c := app.client()
+	if r := c.Do(httptest.NewRequest("GET", "/up", nil)); r.Code != http.StatusOK || r.Body != "up" {
+		t.Errorf("got %v", r)
 	}
 	app.db.Close()
-	rec = httptest.NewRecorder()
-	app.ServeHTTP(rec, httptest.NewRequest("GET", "/up", nil))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("with the database gone: %d %q", rec.Code, rec.Body)
+	if r := c.Do(httptest.NewRequest("GET", "/up", nil)); r.Code != http.StatusServiceUnavailable {
+		t.Errorf("with the database gone: %v", r)
 	}
 }
 

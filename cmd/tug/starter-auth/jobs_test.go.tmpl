@@ -48,7 +48,7 @@ func TestAJobThatFailsForGoodStaysUntilItsRunAgain(t *testing.T) {
 func TestAMailThatDoesntGoIsSentAgain(t *testing.T) {
 	app := newTestApp(t)
 	app.outbox.down.Store(1)
-	register(app.visitor(), "Ann", "ann@example.com", "correct horse")
+	register(app.client(), "Ann", "ann@example.com", "correct horse")
 	if m := app.mail(); m.To[0] != "ann@example.com" || !strings.HasPrefix(m.Subject, "Verify") {
 		t.Errorf("sent again: the mail to %v, %s", m.To, m.Subject)
 	}
@@ -57,13 +57,13 @@ func TestAMailThatDoesntGoIsSentAgain(t *testing.T) {
 func TestAnAddressCanAskForFiveResetLinksAMinute(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
-	v := app.visitor()
+	c := app.client()
 	for i := range 5 {
-		v.visit("POST", "/forgot-password", map[string]any{"email": fmt.Sprintf("nobody%d@example.com", i)})
+		c.Post("/forgot-password", map[string]any{"email": fmt.Sprintf("nobody%d@example.com", i)})
 	}
-	v.visit("POST", "/forgot-password", map[string]any{"email": "ann@example.com"})
-	if r := v.get("/forgot-password"); r.page.Flash["success"] != "If that email has an account, a link to reset its password is on its way." {
-		t.Errorf("the sixth ask: flash %v, want the answer every ask gets", r.page.Flash)
+	r := c.Post("/forgot-password", map[string]any{"email": "ann@example.com"}).Follow()
+	if r.Page.Flash["success"] != "If that email has an account, a link to reset its password is on its way." {
+		t.Errorf("the sixth ask: flash %v, want the answer every ask gets", r.Page.Flash)
 	}
 	app.noMail()
 }
