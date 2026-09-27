@@ -521,7 +521,7 @@ A test of an app's pages talks to it as Inertia's client does: visits with
 object read back. The example and both starters each had a client of
 their own for it, and dug props out of `map[string]any`, so every app
 `tug new` made started with a copy to keep up. Package `tugtest` is that
-client, in tug.
+client, in tug. Released as v0.6.0.
 
 - `tugtest.New(t, app)` is a browser with the app open. `Get`, `Post`,
   `Put`, `Patch` and `Delete` are visits as Inertia's client makes them:

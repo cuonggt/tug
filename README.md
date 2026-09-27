@@ -6,10 +6,10 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.5.0 is the latest release: the framework, its CLI,
-background jobs, on a schedule too, server-side rendering, and a starter
-with accounts, from registering to two-factor logins.
-[The guide](docs/README.md) covers all of it, and
+**Status: early.** v0.6.0 is the latest release: the framework, its CLI,
+background jobs, on a schedule too, server-side rendering, tests of an
+app's pages, and a starter with accounts, from registering to two-factor
+logins. [The guide](docs/README.md) covers all of it, and
 [docs/roadmap.md](docs/roadmap.md) has what's next.
 
 ```sh
