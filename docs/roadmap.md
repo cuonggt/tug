@@ -582,7 +582,7 @@ Choices made on the way:
 ## M12 · Time zones and unique jobs — done
 
 What M9 left for later: schedules on a time zone's clock, and jobs that
-wait once however often they're pushed.
+wait once however often they're pushed. Released as v0.7.0.
 
 - `queue.CronIn(zone, expr)` is `Cron` on a zone's clock, the zone named
   as the IANA database names it, or `"Local"` for the server's own. Where

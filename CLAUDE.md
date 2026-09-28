@@ -14,7 +14,8 @@ background jobs (v0.3.0): package `queue`, which the auth starter sends
 its mail with, jobs on a schedule (v0.4.0), server-side rendering
 (v0.5.0): package `ssr`, with Node beside the app, and `tug new -ssr`,
 tests of an app's pages (v0.6.0): package `tugtest`, which the starters'
-tests use, and cron in time zones and unique jobs, in package `queue`.
+tests use, and cron in time zones and unique jobs (v0.7.0), in package
+`queue`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
