@@ -1190,8 +1190,8 @@ a minute where it should get 5, and "Before going live" warned of it.
 M17 made several instances on one database the way the starter runs past
 one machine, which left the throttles as the last of its state that
 wasn't shared, and it's the state that slows guessing a password. And tug
-had no limit for a route, as Laravel's `throttle` middleware is. To be
-released as v0.13.0.
+had no limit for a route, as Laravel's `throttle` middleware is. Released
+as v0.13.0.
 
 - **A store for the counts.** `auth.Throttle` has a `Store`, an
   `auth.ThrottleStore`: where the counts are kept, such as a table in the
