@@ -86,11 +86,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	db, err := openDB(cmp.Or(os.Getenv("DB_PATH"), "app.db"))
-	if err != nil {
-		log.Fatal(err)
+	// The database, with its tables brought up to date: db.go. tug gen,
+	// which runs main to learn the pages and routes, needs none.
+	var db *sql.DB
+	if !tug.Generating() {
+		if db, err = dbFromEnv(); err != nil {
+			log.Fatal(err)
+		}
+		defer db.Close()
 	}
-	defer db.Close()
 	// The files people upload, their photos, are kept in files/, or
 	// FILES_PATH, and served at /files by links signed with the app's key,
 	// unless FILESYSTEM_DISK=s3 keeps them in a bucket.
@@ -129,7 +133,7 @@ func command(name string, args []string) error {
 	if args[0] != "jobs" {
 		return fmt.Errorf("%s has one command, jobs, and no %q: %s jobs lists the jobs that failed for good", name, args[0], name)
 	}
-	db, err := openDB(cmp.Or(os.Getenv("DB_PATH"), "app.db"))
+	db, err := dbFromEnv()
 	if err != nil {
 		return err
 	}
@@ -140,9 +144,9 @@ func command(name string, args []string) error {
 // env is what the app is made from: main's comes from the environment, and
 // the tests make their own.
 type env struct {
-	Build  fs.FS    // the frontend's build
-	Keys   [][]byte // encrypt the sessions and two-factor secrets, and sign the links in mail and to photos
-	DB     *sql.DB
+	Build  fs.FS        // the frontend's build
+	Keys   [][]byte     // encrypt the sessions and two-factor secrets, and sign the links in mail and to photos
+	DB     *sql.DB      // nil under tug gen, which serves nothing
 	Disk   storage.Disk // keeps the files people upload: their photos
 	Mailer mail.Mailer
 
@@ -196,10 +200,15 @@ type app struct {
 // inTx runs fn in one transaction, which it commits, and then wakes the
 // queue: what fn writes through the stores in(tx) makes, and the jobs it
 // pushes about it with Kind.In(a.jobs.in(tx)), are kept together, or not
-// at all. SQLite has one writer, and the transaction takes the lock as it
-// begins, so fn writes through tx alone, as a write outside it would wait
-// for it, and does no slow work, such as hashing a password, which holds
-// up every other write.
+// at all. fn writes through tx alone, as a write outside it may wait for
+// it, and does no slow work, such as hashing a password: the transaction
+// holds what it writes until it ends,
+[[- if .SQLite ]] and in SQLite, which has one
+// writer, it takes the lock for writing as it begins, which holds up
+// every other write.
+[[- else ]] which holds up the other writes to
+// the same rows.
+[[- end ]]
 func (a *app) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -276,13 +285,13 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// The mail goes by jobs, which make each mail as it goes: in verify.go,
 	// auth.go and passkeys.go. So do the files that nothing names any more,
 	// such as a replaced photo: photos.go. Every night, a job deletes the
-	// jobs that failed for good over a month ago: jobs.go.
+	// jobs that failed for good over a month ago: prune, in jobs_db.go.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
 	a.passkeyMail = queue.Handle(e.Queue, "passkey-mail", a.mailPasskey)
 	a.deleteFile = queue.Handle(e.Queue, "delete-file", a.deleteStoredFile)
 	queue.Handle(e.Queue, "prune-jobs", a.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
-	if len(e.Keys) > 1 {
+	if len(e.Keys) > 1 && !tug.Generating() {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
 		// two-factor secrets over to the new one before it's dropped.
 		if err := a.users.resealTwoFactor(context.Background(), a.twoFactor); err != nil {

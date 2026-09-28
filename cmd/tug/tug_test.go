@@ -225,7 +225,7 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 	for _, frontend := range frontends {
 		t.Run(frontend, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "blog")
-			data := starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Frontend: frontend, Auth: true}
+			data := starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Frontend: frontend, Auth: true, Database: "sqlite"}
 			if err := writeStarter(root, data); err != nil {
 				t.Fatal(err)
 			}
@@ -233,7 +233,7 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 			if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
 				t.Errorf("main.go isn't the auth starter's:\n%s", main)
 			}
-			for _, f := range []string{"auth.go", "users.go", "jobs.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
+			for _, f := range []string{"auth.go", "users.go", "jobs.go", "db.go", "users_db.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
 				if strings.Contains(read(f), "[[ ") {
 					t.Errorf("%s has a placeholder left", f)
 				}
@@ -260,7 +260,75 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 			if !strings.Contains(read(".gitignore"), "/app.db") {
 				t.Error("the database isn't ignored")
 			}
+			if !strings.Contains(read("db.go"), `"modernc.org/sqlite"`) || strings.Contains(read(".env"), "DB_URL") {
+				t.Error("the app's database isn't SQLite")
+			}
+			if _, err := os.Stat(filepath.Join(root, "compose.yaml")); err == nil {
+				t.Error("an app on SQLite has a compose.yaml, for a database it hasn't")
+			}
 		})
+	}
+}
+
+func TestNewWithPostgresOrMySQLLaysItsSQLOverTheAuthStarter(t *testing.T) {
+	for _, c := range []struct{ database, driver, image, placeholder, devURL string }{
+		{"postgres", `"github.com/jackc/pgx/v5/stdlib"`, "image: postgres:18", "WHERE id = $1", "postgres://postgres:secret@127.0.0.1:5432/my_blog?sslmode=disable"},
+		{"mysql", `"github.com/go-sql-driver/mysql"`, "image: mysql:8.4", "WHERE id = ?", "mysql://root:secret@127.0.0.1:3306/my_blog"},
+	} {
+		t.Run(c.database, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "my-blog")
+			data := starterData{Name: "my-blog", Module: "blog", TugVersion: "v0.1.0", Frontend: "react", Auth: true, Database: c.database}
+			if err := writeStarter(root, data); err != nil {
+				t.Fatal(err)
+			}
+			read := reader(t, root)
+			if db := read("db.go"); !strings.Contains(db, c.driver) || strings.Contains(db, "sqlite") {
+				t.Errorf("db.go isn't %s's:\n%s", c.database, db)
+			}
+			if !strings.Contains(read("users_db.go"), c.placeholder) {
+				t.Errorf("users_db.go has no %q", c.placeholder)
+			}
+			// The database's name is the app's, as SQL takes it without quotes.
+			if compose := read("compose.yaml"); !strings.Contains(compose, c.image) || !strings.Contains(compose, ": my_blog\n") {
+				t.Errorf("compose.yaml:\n%s", compose)
+			}
+			if !strings.Contains(read(".env"), "\nDB_URL="+c.devURL+"\n") || !strings.Contains(read(".env.example"), "\nDB_URL="+c.devURL+"\n") {
+				t.Errorf("the .env and .env.example don't name compose.yaml's database, %s", c.devURL)
+			}
+			if !strings.Contains(read("db_test.go"), `"`+c.devURL+`"`) {
+				t.Error("the tests don't make their databases on compose.yaml's, without DB_URL")
+			}
+			for _, f := range []string{"main.go", "db.go", "users_db.go", "passkeys_db.go", "jobs_db.go", "db_test.go", "compose.yaml", "Dockerfile", "README.md", ".env.example", ".gitignore"} {
+				if got := read(f); strings.Contains(got, "[[") || strings.Contains(got, "app.db") || strings.Contains(got, "DB_PATH") {
+					t.Errorf("%s has a placeholder left, or SQLite's file:\n%s", f, got)
+				}
+			}
+		})
+	}
+	for name, want := range map[string]string{"blog": "blog", "My Blog!": "my_blog", "2048": "app_2048", "---": "app", strings.Repeat("b", 50): strings.Repeat("b", 40)} {
+		if got := (starterData{Name: name}).DBName(); got != want {
+			t.Errorf("%q's database is %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestNewTakesOneDatabaseAndOnlyWithAuth(t *testing.T) {
+	checkout, _ := filepath.Abs("../..")
+	for _, c := range []struct {
+		flags []string
+		want  string
+	}{
+		{[]string{"-postgres"}, "without -auth, the app has no database"},
+		{[]string{"-auth", "-postgres", "-mysql"}, "-postgres or -mysql, not both"},
+	} {
+		dir := filepath.Join(t.TempDir(), "blog")
+		err := runNew(append([]string{"-no-install", "-tug-dir", checkout, dir}, c.flags...))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v", c.flags, err)
+		}
+		if _, err := os.Stat(dir); err == nil {
+			t.Errorf("%v: tug new made the app", c.flags)
+		}
 	}
 }
 
@@ -296,6 +364,9 @@ func TestNewWithSSRAddsTheAppOnTheServer(t *testing.T) {
 		for _, auth := range []bool{false, true} {
 			root := filepath.Join(t.TempDir(), "blog")
 			data := starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Frontend: frontend, Auth: auth, SSR: true}
+			if auth {
+				data.Database = "sqlite"
+			}
 			if err := writeStarter(root, data); err != nil {
 				t.Fatal(err)
 			}
@@ -372,6 +443,47 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 			}
 			if slices.Contains(kind.flags, "-ssr") {
 				rendersOnTheServer(t, dir)
+			}
+		})
+	}
+}
+
+// TestANewAppOnPostgresOrMySQLPassesItsOwnTests makes an app on each of
+// the databases on a server as a person would, which writes its types
+// with none running, and runs its tests on the server TUG_TEST_POSTGRES or
+// TUG_TEST_MYSQL names, as CI's do, or else skips them. Its frontend is
+// the one the test above builds on SQLite.
+func TestANewAppOnPostgresOrMySQLPassesItsOwnTests(t *testing.T) {
+	if testing.Short() {
+		t.Skip("installs the new app's packages")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("needs npm")
+	}
+	checkout, _ := filepath.Abs("../..")
+	for _, db := range []struct{ flag, server string }{{"-postgres", "TUG_TEST_POSTGRES"}, {"-mysql", "TUG_TEST_MYSQL"}} {
+		t.Run(db.flag[1:], func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "blog")
+			if err := runNew([]string{dir, "-tug-dir", checkout, "-auth", db.flag}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "resources/js/tug/pages.ts")); err != nil {
+				t.Errorf("tug new didn't write the types: %v", err)
+			}
+			vet := exec.Command("go", "vet", "./...")
+			vet.Dir = dir
+			if out, err := vet.CombinedOutput(); err != nil {
+				t.Fatalf("go vet: %v\n%s", err, out)
+			}
+			server := os.Getenv(db.server)
+			if server == "" {
+				t.Skipf("%s names no server for the app's tests to make their databases on", db.server)
+			}
+			test := exec.Command("go", "test", "./...")
+			test.Dir = dir
+			test.Env = append(os.Environ(), "DB_URL="+server)
+			if out, err := test.CombinedOutput(); err != nil {
+				t.Errorf("go test: %v\n%s", err, out)
 			}
 		})
 	}

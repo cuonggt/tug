@@ -31,7 +31,19 @@ and the test checks the page object the frontend would be handed.
 `tugtest.New(t, handler)` takes the app, a `*tug.App` or any
 `http.Handler`, as the test makes it: the starters' tests have `newApp`
 make it with an empty build, a key of their own, and in the auth starter,
-a database in a temporary directory.
+a database of the test's own. On SQLite, that's a file in a temporary
+directory. On Postgres or MySQL, it's made on a server, the one `DB_URL`
+names, or else the one the app's `compose.yaml` runs, and dropped after:
+
+```sh
+docker compose up -d
+go test ./...
+```
+
+With no server, the tests fail, saying so, rather than skip and pass
+with nothing tested. `go test` doesn't read `.env`: a `DB_URL` for the
+tests is set where they run, as a CI job sets it to a database service
+of its own.
 
 `Get`, `Post`, `Put`, `Patch` and `Delete` are visits, as Inertia's client
 makes them: with `X-Inertia`, the version of the build the client runs,

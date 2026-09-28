@@ -273,8 +273,8 @@ func (a *App) Go(fn func(ctx context.Context) error) {
 // TUG_GEN set to a file, Run writes the TypeScript for the app's pages and
 // named routes there, and returns without serving.
 func (a *App) Run() error {
-	if path := os.Getenv("TUG_GEN"); path != "" {
-		return a.gen(path)
+	if Generating() {
+		return a.gen(os.Getenv("TUG_GEN"))
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -283,6 +283,16 @@ func (a *App) Run() error {
 		return err
 	}
 	return a.Serve(ctx, ln)
+}
+
+// Generating reports whether tug gen started the app, to learn its pages
+// and routes: Run writes their TypeScript then, and returns without
+// serving. main runs up to Run either way, and what only serving needs,
+// such as a database, it can leave alone while Generating says so, so that
+// tug gen, and tug new and tug build, which run it, need nothing else
+// running.
+func Generating() bool {
+	return os.Getenv("TUG_GEN") != ""
 }
 
 // gen writes tug gen's TypeScript for the app to the file at path: that of

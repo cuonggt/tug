@@ -2,7 +2,9 @@
 # the oldest Go that go.mod allows and on the newest. A server handles its
 # requests concurrently, so -race is the run that matters, and the shutdown
 # tests serve on a real port. Package storage's S3 runs against a MinIO
-# beside it: an S3 that isn't tug's own idea of one.
+# beside it: an S3 that isn't tug's own idea of one. And the auth starter
+# made with -postgres and -mysql runs its tests on a Postgres and a MySQL
+# beside it, the versions the guide says it's tested on.
 #
 # Then the Inertia example end to end: its TypeScript types checked against
 # the Go ones (tug gen writes them again, and they must not change), the
@@ -35,9 +37,9 @@ jobs:
       matrix:
         go: ['1.26.x', stable]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    # MinIO's own images are gone from Docker Hub; Bitnami's last is kept.
+    timeout-minutes: 20
     services:
+      # MinIO's own images are gone from Docker Hub; Bitnami's last is kept.
       minio:
         image: bitnamilegacy/minio:2025.7.23-debian-12-r5
         env:
@@ -48,8 +50,29 @@ jobs:
         options: >-
           --health-cmd "curl -fs http://localhost:9000/minio/health/live"
           --health-interval 2s --health-timeout 2s --health-retries 30
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tug
+          MYSQL_ROOT_PASSWORD: secret
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -psecret"
+          --health-interval 2s --health-timeout 2s --health-retries 30
     env:
       TUG_TEST_S3: http://tug:tug-secret-key@127.0.0.1:9000
+      TUG_TEST_POSTGRES: postgres://postgres:secret@127.0.0.1:5432/postgres?sslmode=disable
+      TUG_TEST_MYSQL: mysql://root:secret@127.0.0.1:3306/tug
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

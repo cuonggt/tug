@@ -54,10 +54,13 @@ their email, log in, with a code from an authenticator app too once they
 turn that on, reset a forgotten password with a link sent by email, and
 change their profile and photo, password and appearance in their
 settings. The users are in SQLite, in `app.db`, their photos in `files/`,
-and the frontend has Tailwind and shadcn/ui. The code is the app's own,
-the handlers in `auth.go` and the files beside it and the database in
-`users.go`, to change as the app needs. Until `MAIL_HOST` is set, mail isn't sent: it's written out with the
-app's output in `tug dev`, links and all. [Accounts](auth.md) has the
+and the frontend has Tailwind and shadcn/ui. With `-postgres` or
+`-mysql`, the users are in Postgres or MySQL instead, which the app's
+`compose.yaml` runs: `docker compose up -d` before `tug dev`. The code is
+the app's own, the handlers in `auth.go` and the files beside it, and the
+database's SQL in `db.go` and the `_db.go` files, to change as the app
+needs. Until `MAIL_HOST` is set, mail isn't sent: it's written out with
+the app's output in `tug dev`, links and all. [Accounts](auth.md) has the
 rest.
 
 For pages rendered on the server, for search engines and pages that show

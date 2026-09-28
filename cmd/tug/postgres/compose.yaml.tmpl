@@ -1,0 +1,22 @@
+# The app's database in development, on 127.0.0.1, with its data in a
+# volume: `docker compose up -d` starts it, and `docker compose down` stops
+# it, keeping the data. The .env tug new wrote names it, as DB_URL, and the
+# tests make their databases on it. A deployed app's is wherever its
+# DB_URL says.
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: [[ .DBName ]]
+      POSTGRES_PASSWORD: secret
+    ports:
+      - 127.0.0.1:5432:5432
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -U, postgres]
+      interval: 2s
+      retries: 30
+
+volumes:
+  postgres:

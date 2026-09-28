@@ -1,0 +1,93 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"strings"
+
+	"github.com/cuonggt/tug/auth"
+)
+
+// The passkeys table's queries, in SQLite.
+
+// of returns a user's passkeys, as their page lists them and as package
+// auth checks them.
+func (ps *passkeys) of(ctx context.Context, userID int64) ([]Passkey, []auth.Passkey, error) {
+	rows, err := ps.db.QueryContext(ctx, `
+		SELECT p.id, p.name, p.backed_up, p.created_at, p.last_used_at, p.credential_id, p.public_key, p.sign_count, p.transports, u.passkey_handle
+		FROM passkeys p JOIN users u ON u.id = p.user_id
+		WHERE p.user_id = ? ORDER BY p.id`, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	listed := []Passkey{}
+	var kept []auth.Passkey
+	for rows.Next() {
+		var l Passkey
+		var pk auth.Passkey
+		var lastUsed sql.NullTime
+		var transports string
+		if err := rows.Scan(&l.ID, &l.Name, &l.Synced, &l.CreatedAt, &lastUsed, &pk.ID, &pk.PublicKey, &pk.SignCount, &transports, &pk.UserHandle); err != nil {
+			return nil, nil, err
+		}
+		if lastUsed.Valid {
+			l.LastUsedAt = &lastUsed.Time
+		}
+		pk.Transports, pk.BackedUp = splitTransports(transports), l.Synced
+		listed, kept = append(listed, l), append(kept, pk)
+	}
+	return listed, kept, rows.Err()
+}
+
+// byID returns the passkey with this credential ID, and whose it is, or
+// errNoPasskey.
+func (ps *passkeys) byID(ctx context.Context, id []byte) (int64, auth.Passkey, error) {
+	var owner int64
+	var transports string
+	pk := auth.Passkey{}
+	err := ps.db.QueryRowContext(ctx, `
+		SELECT p.user_id, p.credential_id, p.public_key, p.sign_count, p.transports, p.backed_up, u.passkey_handle
+		FROM passkeys p JOIN users u ON u.id = p.user_id
+		WHERE p.credential_id = ?`, id).Scan(&owner, &pk.ID, &pk.PublicKey, &pk.SignCount, &transports, &pk.BackedUp, &pk.UserHandle)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, auth.Passkey{}, errNoPasskey
+	}
+	pk.Transports = splitTransports(transports)
+	return owner, pk, err
+}
+
+// add keeps a user's new passkey, or returns errPasskeyTaken when its ID is
+// kept already, for anyone.
+func (ps *passkeys) add(ctx context.Context, userID int64, name string, pk auth.Passkey) error {
+	res, err := ps.db.ExecContext(ctx, `
+		INSERT INTO passkeys (user_id, credential_id, public_key, sign_count, transports, backed_up, name)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (credential_id) DO NOTHING`,
+		userID, pk.ID, pk.PublicKey, pk.SignCount, strings.Join(pk.Transports, ","), pk.BackedUp, name)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return errPasskeyTaken
+	}
+	return err
+}
+
+// used keeps a passkey's count, as its login left it, and when it was used.
+func (ps *passkeys) used(ctx context.Context, pk auth.Passkey) error {
+	_, err := ps.db.ExecContext(ctx, "UPDATE passkeys SET sign_count = ?, backed_up = ?, last_used_at = CURRENT_TIMESTAMP WHERE credential_id = ?",
+		pk.SignCount, pk.BackedUp, pk.ID)
+	return err
+}
+
+// remove removes one of a user's passkeys, and says whether there was one.
+func (ps *passkeys) remove(ctx context.Context, userID, id int64) (bool, error) {
+	res, err := ps.db.ExecContext(ctx, "DELETE FROM passkeys WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}

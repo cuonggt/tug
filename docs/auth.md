@@ -22,8 +22,21 @@ tug dev
 The app is the plain starter ([Getting started](getting-started.md))
 with accounts, and `auth.user` on every page, error pages included: the
 user who's logged in, or `null`. The users are in SQLite, through
-`database/sql`. The driver is modernc.org/sqlite, which is pure Go, so `tug
-build` still makes a static binary.
+`database/sql`, or with `-postgres` or `-mysql`, in Postgres or MySQL,
+which the app's `compose.yaml` runs in development:
+
+```sh
+tug new -auth -postgres blog
+cd blog
+docker compose up -d
+tug dev
+```
+
+The database is chosen as the app is made, as `laravel new` asks, and
+the app's SQL is written for it: there's no layer between them, and no
+variable to switch it later. The drivers are pure Go, modernc.org/sqlite,
+pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
+[The database](#the-database) has what differs between them.
 
 | Route                                     | Name                                          | For |
 |-------------------------------------------|-----------------------------------------------|-----|
@@ -57,7 +70,9 @@ dashboard.
 
 `-auth` lays the auth starter over the plain one: its files replace the
 plain starter's of the same name and add the rest, and the plain
-`Layout.tsx` (`Layout.vue`, `Layout.svelte`) is left out.
+`Layout.tsx` (`Layout.vue`, `Layout.svelte`) is left out. Then its
+database's files: its SQL, which is all the Go that differs between
+them.
 
 - `main.go`: the environment, the database, and `newApp`, with the routes
   and the health check.
@@ -72,29 +87,36 @@ plain starter's of the same name and add the rest, and the plain
   which lists the ones that failed for good and runs them again. The mail
   goes by jobs, and a job every night deletes the ones that failed over a
   month ago.
-- `users.go`: `User`, the `users` table, and its queries, and the
-  migrations, which make the `jobs` table too. An email is unique whatever
+- `users.go`: `User`, and the `users` table. An email is unique whatever
   its case.
+- The database's: `db.go`, which opens it, from the environment, and has
+  the migrations that make its tables; `users_db.go`, `passkeys_db.go`
+  and `jobs_db.go`, the SQL of each table; `db_test.go`, the tests'
+  databases and the migrations' tests; and on Postgres or MySQL,
+  `compose.yaml`, which runs the database in development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
   `photos_test.go`, `jobs_test.go`: a test of each flow, in browsers of
-  package `tugtest`, with the mail kept in memory and the photos in a
-  temporary directory.
+  package `tugtest`, with the mail kept in memory, the photos in a
+  temporary directory, and a database of each test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
   page's layout; `layouts/`, the app's, the login card's, and the
   settings'; `components/`, the app's own and shadcn's in
   `components/ui`; and the pages, `Home`, `Dashboard` and `Error`, and
   those in `Auth/` and `Settings/`.
-- `.env.example`: `APP_KEY`, `APP_URL`, `DB_PATH`, `QUEUE_WORKERS`, the
-  photos' `FILESYSTEM_DISK`, `FILES_PATH` and S3's variables, and the
-  mail's, with what each is for. The `Dockerfile` keeps the database and
-  the photos in a `/data` volume.
+- `.env.example`: `APP_KEY`, `APP_URL`, the database's `DB_PATH`, or
+  `DB_URL`, `QUEUE_WORKERS`, the photos' `FILESYSTEM_DISK`, `FILES_PATH`
+  and S3's variables, and the mail's, with what each is for. The
+  `Dockerfile` keeps the photos in a `/data` volume, and SQLite's
+  database with them.
 
 ### Trying it
 
-`tug new` writes a `.env` with `APP_KEY` and `APP_DEBUG=true`, and nothing
-else. With no `APP_URL`, links start with the address the request came to;
-with no `MAIL_HOST`, mail is written out rather than sent. Register, and
-the link that verifies the email is in `tug dev`'s output, to click:
+`tug new` writes a `.env` with `APP_KEY` and `APP_DEBUG=true`, and on
+Postgres or MySQL, `DB_URL`: the database `compose.yaml` runs, which
+`docker compose up -d` starts. With no `APP_URL`, links start with the
+address the request came to; with no `MAIL_HOST`, mail is written out
+rather than sent. Register, and the link that verifies the email is in
+`tug dev`'s output, to click:
 
 ```
 app  │ mail, not sent (MAIL_HOST isn't set):
@@ -110,8 +132,8 @@ Settings, then Security, and scan the QR code with an authenticator app on
 a phone; to add a passkey, "Add a passkey" there, and the browser offers
 the laptop's, the phone's, or a password manager. Passkeys work at
 `http://localhost:8080`, where `tug dev` shows the app: browsers make them
-for a domain, not an IP address such as `127.0.0.1`. The database is `app.db`, or wherever `DB_PATH` says, and
-`.gitignore` leaves it out.
+for a domain, not an IP address such as `127.0.0.1`. SQLite's database is
+`app.db`, or wherever `DB_PATH` says, and `.gitignore` leaves it out.
 
 ## How it works
 
@@ -497,10 +519,10 @@ handler's writes in one transaction, with the stores made from it, as
 `a.users.in(tx)`, and the jobs pushed with `Kind.In(a.jobs.in(tx))`,
 commits it, and wakes the queue: the two are kept together, or neither
 is, so no account waits for a link that was never pushed, and no passkey
-is added that its owner isn't told of. SQLite has one writer, and the
-transaction holds the lock from its start, so what the handler writes
-goes through `tx`, and slow work, such as hashing a password, comes
-before it.
+is added that its owner isn't told of. A transaction holds what it
+writes until it ends, and in SQLite, which has one writer, the lock for
+writing from its start, so what the handler writes goes through `tx`,
+and slow work, such as hashing a password, comes before it.
 
 The binary has a command, which runs in place of the server, on the
 same database, and exits: `./blog jobs` lists the jobs that failed for
@@ -510,6 +532,10 @@ jobs`.
 
 ### The database
 
+`db.go` opens the database the environment names, `DB_PATH` for SQLite
+and `DB_URL` for the others, and runs the migrations it hasn't had, in
+order, before the app serves:
+
 ```go
 var migrations = []string{
     `CREATE TABLE users (...)`,
@@ -517,14 +543,62 @@ var migrations = []string{
 }
 ```
 
-`openDB` runs the migrations the database hasn't had, in order, each in a
-transaction with `PRAGMA user_version`, which counts the steps that have
-run: one that fails leaves no trace. To change the tables, add a step at
-the end, such as an `ALTER TABLE`, and never change one that has run
-somewhere, since it won't run there again. A database from a newer build
-of the app, as after a deploy is rolled back, is left as it is. The
-connection's `_txlock=immediate` takes the lock for writing as a
-transaction begins, so two starts at once take turns rather than fail.
+To change the tables, add a step at the end, such as an `ALTER TABLE`,
+and never change one that has run somewhere, since it won't run there
+again. A database from a newer build of the app, as after a deploy is
+rolled back, is left as it is. Instances starting at once take turns,
+each database in its own way:
+
+- **SQLite** counts the steps in `PRAGMA user_version`, and runs each in a
+  transaction with its count, so one that fails leaves no trace. The
+  connection's `_txlock=immediate` takes the lock for writing as a
+  transaction begins, so two starts at once take turns rather than fail.
+- **Postgres** counts them in a table, `schema_version`, and runs each in
+  a transaction with its count too, which locks the count's row as it
+  reads it: of instances starting at once, one runs the step, and the
+  others wait, then find it counted.
+- **MySQL** commits a statement that changes a table as it runs, not with
+  the rest of a transaction, so each step is one statement, which MySQL 8
+  does whole or not at all, and `schema_version` counts it after. An
+  instance holds `GET_LOCK` on one connection while it runs the steps. A
+  crash in the instant between a step and its count leaves the step run
+  and uncounted, which the next start can't tell from one that never ran:
+  `schema_version`'s `running` names it, and the app stops, saying which,
+  for someone to see whether it ran, rather than guess. Laravel's
+  migrations have the same gap on MySQL.
+
+The SQL of each table is in a file of its own, `users_db.go`,
+`passkeys_db.go` and `jobs_db.go`, beside the Go that's the same on any
+database, and it's written for its database, where they differ:
+
+| | SQLite | Postgres | MySQL |
+|---|---|---|---|
+| An email, whatever its case | a column `COLLATE NOCASE` | a unique index on `lower(email)`, which the queries compare with | a column `COLLATE utf8mb4_0900_as_ci` |
+| The row a write made | `RETURNING` | `RETURNING` | read back, by the result's `LastInsertId` |
+| A write a unique index turns away | `ON CONFLICT DO NOTHING`, `UPDATE OR IGNORE` | `ON CONFLICT DO NOTHING`, or the error, which ends the transaction | the error, 1062, after which a transaction goes on |
+| Times | `DATETIME`, in UTC | `timestamptz` | `DATETIME(6)`, in UTC, the connection's time zone |
+| Placeholders | `?` | `$1` | `?` |
+
+MySQL's email compares with `utf8mb4_0900_as_ci`: whatever its case, as
+SQLite's `NOCASE`, but not whatever its accents, as MySQL's default,
+`utf8mb4_0900_ai_ci`, would, which makes `ann@example.com` and
+`ánn@example.com` one account. Its other strings compare as they are,
+with `utf8mb4_0900_bin`. Its connections read what's committed at each
+statement, as Postgres's do, rather than what was as the transaction
+began: `READ COMMITTED`, which the driver sets as each connects, with
+the time zone. And MySQL sets an `UPDATE`'s columns in order, each from
+the row as the ones before it left it, so the one that reads the old
+email comes first.
+
+The starter is tested on Postgres 18 and MySQL 8.4, the older of MySQL's
+two long-term releases, 9.7 being the newer. MariaDB isn't: its
+collations aren't MySQL's, and an app on it picks its email column's.
+
+An app that moves to another database takes that database's files from
+an app `tug new` makes on it: `db.go`, the three `_db.go` files,
+`db_test.go` and `compose.yaml`. `go mod tidy` adds the driver, the app
+is given `DB_URL`, or `DB_PATH`, where it runs, and the data it moves
+itself.
 
 ### Health checks
 
@@ -911,7 +985,23 @@ a job sends it, so it may not be there yet when the request is answered.
 Each test app runs its own queue on its own database, asking for jobs
 every 10 milliseconds, so a mail that failed goes again as soon as its
 wait is over. `jobs_test.go` runs `queuetest.TestStore` on the `jobs`
-table. The tests log in as a user with two-factor logins on with
+table.
+
+On SQLite, a test's database is a file in its temporary directory. On
+Postgres or MySQL, `db_test.go` makes one for each test on the server
+`DB_URL` names, or else on `compose.yaml`'s, and drops it after:
+
+```sh
+docker compose up -d
+go test ./...
+```
+
+With no server to make them on, every test fails, saying so, where
+skipping would pass with nothing tested. The tests don't read `.env`: a
+`DB_URL` for them is set where they run, as CI sets it for a database of
+its own.
+
+The tests log in as a user with two-factor logins on with
 `auth.TwoFactor.Code`, a code for now and one for 30 seconds on, since a
 code works once.
 
@@ -990,6 +1080,12 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
   bucket, which all of them reach. A photo's links are signed with
   `APP_KEY`, and checked with `APP_PREVIOUS_KEYS` too, so the ones on
   pages already open still work after a new key.
+- **Where the database is**: SQLite is a file, on the image's volume, and
+  its instances share one machine. On Postgres or MySQL, `DB_URL` names
+  the database, with the driver's settings in its query, as Postgres's
+  `sslmode=require` or MySQL's `tls=true`, and instances anywhere that
+  reach it share it, and its jobs. `compose.yaml` is for development: it
+  runs the database on `127.0.0.1` with a password everyone knows.
 
 ### What the starter leaves out
 

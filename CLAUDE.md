@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M16 are done, which is
+the decisions behind it and where it stands: M1 to M17 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -21,9 +21,11 @@ the auth starter, Vue and Svelte starters (v0.9.0): `tug new -vue` and
 the queue made whole (v0.10.0): jobs pushed in the app's own transaction,
 a unique job at its latest push's time or one at a time, and the jobs
 that failed listed and run again by the auth starter's `jobs` command,
-and files (v0.11.0): package `storage`, a local disk or S3, with signed
+files (v0.11.0): package `storage`, a local disk or S3, with signed
 links, `validate`'s tags for uploads, `tugtest.File`, and the auth
-starter's profile photo.
+starter's profile photo, and Postgres and MySQL (v0.12.0): `tug new
+-auth -postgres` and `-mysql`, the auth starter's SQL in a layer per
+database, jobs claimed with `SKIP LOCKED`, and `tug.Generating`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -47,6 +49,21 @@ docker run -d --rm --name tug-minio -p 127.0.0.1:9000:9000 -e MINIO_ROOT_USER=tu
   -e MINIO_ROOT_PASSWORD=tug-secret-key bitnamilegacy/minio:2025.7.23-debian-12-r5
 TUG_TEST_S3=http://tug:tug-secret-key@127.0.0.1:9000 go test ./storage
 ```
+
+The CLI's tests make the auth starter on Postgres and on MySQL, and run
+its tests on the servers `TUG_TEST_POSTGRES` and `TUG_TEST_MYSQL` name,
+as CI's do, and skip them otherwise. Ports of their own, as this machine
+may have a MySQL on 3306:
+
+```bash
+docker run -d --rm --name tug-postgres -p 127.0.0.1:55432:5432 -e POSTGRES_PASSWORD=secret postgres:18
+docker run -d --rm --name tug-mysql -p 127.0.0.1:53306:3306 -e MYSQL_DATABASE=tug -e MYSQL_ROOT_PASSWORD=secret mysql:8.4
+TUG_TEST_POSTGRES='postgres://postgres:secret@127.0.0.1:55432/postgres?sslmode=disable' \
+  TUG_TEST_MYSQL=mysql://root:secret@127.0.0.1:53306/tug go test -run OnPostgresOrMySQL ./cmd/tug
+```
+
+An app made with `-postgres` or `-mysql` runs its own tests on the
+server its `DB_URL` names, `DB_URL=... go test ./...` in the app.
 
 The CLI, from a checkout, and in `examples/inertia`:
 
@@ -84,7 +101,9 @@ dev server that isn't there: delete it.
     methods for `Allow`) and 404s through the ErrorHandler. `Go` adds work
     to run beside the server (`background`): `Serve` starts it with a
     context canceled as shutdown begins, waits for it, and shuts down when
-    it fails first; `stopped` drops its `context.Canceled`.
+    it fails first; `stopped` drops its `context.Canceled`. `Generating`
+    says tug gen started the app (`TUG_GEN`), for `main` to leave out what
+    only serving needs, as the auth starter's database.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -207,7 +226,11 @@ dev server that isn't there: delete it.
   replacing an earlier one's of the same name: `starter/`, the Go and what
   every frontend uses, then the frontend's own, `react/`, `vue/` or
   `svelte/` (`-vue`, `-svelte`); with `-auth`, `starter-auth/`, then
-  `react-auth/`, `vue-auth/` or `svelte-auth/`. The `.tmpl` files are
+  `react-auth/`, `vue-auth/` or `svelte-auth/`, then the database's,
+  `sqlite/`, `postgres/` or `mysql/` (`-postgres`, `-mysql`), whose
+  conditions are `[[ if .SQLite ]]` and the rest; `DBName` is the app's
+  name as SQL takes it, and `DevURL` compose.yaml's database, which the
+  `.env` tug new writes names. The `.tmpl` files are
   filled in with `starterData` between `[[ ]]` (two brackets in Go, as
   `OptionalProp[[]string]`, are written by a placeholder, `[[ "[[" ]]`,
   and a bracket before an action, as `plugins: [react()`, by trimming the
@@ -227,7 +250,8 @@ dev server that isn't there: delete it.
   from (`checkoutDir`). The starters' Go files are `.tmpl` so the go tool
   doesn't build them in place; `tug_test.go` makes a real app of each
   kind, React's four and two each of Vue's and Svelte's, and runs an SSR
-  one's binary for a page rendered on the server. Every starter makes its
+  one's binary for a page rendered on the server, and one on each of
+  Postgres and MySQL, which writes its types with no database running. Every starter makes its
   app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
   `createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
   server's, call. Vue and Svelte are on TypeScript 6, as vue-tsc and
@@ -252,18 +276,33 @@ dev server that isn't there: delete it.
   transaction; `withPhoto`, which `a.user` calls, gives each page's user a
   link signed to the end of the next day, the same all day, for the
   browser's cache), its mail in `mail.go.tmpl`,
-  and its users in SQLite (modernc.org/sqlite, pure Go), with migrations
-  counted in `user_version`, in `users.go.tmpl`. Its jobs are in the same
-  database: `jobs.go.tmpl` is a `queue.ScheduleStore` and a
-  `queue.UniqueStore`, which `jobs_test.go.tmpl` runs `queuetest.TestStore`
-  on, with a `schedules` table whose upsert only moves forward, in a
-  transaction with the job, and a `unique_key` column under a partial
-  unique index, which the claim clears, and an `alone_key` column, a
-  `OneAtATime` job's key for its whole life, which `claimable`, the
-  claim's condition, checks no held job of its kind has; `jobs.in(tx)` is
-  the Store that pushes in a handler's transaction, and `jobsCommand` the
-  `jobs` command, which `main` runs in place of the server when it's
-  given one (`command`). `a.inTx` runs a handler's writes in one
+  and its users in the database its layer has, SQLite
+  (modernc.org/sqlite), Postgres (pgx) or MySQL (go-sql-driver), all pure
+  Go. `users.go.tmpl`, `passkeys.go.tmpl` and `jobs.go.tmpl` have the
+  types and the Go that's the same on each, and every layer the same
+  files of SQL: `db.go.tmpl` (`dbFromEnv`, from `DB_PATH` or `DB_URL`,
+  `openDB`, and the migrations, counted in `user_version`, or in
+  `schema_version` under Postgres's row lock or MySQL's `GET_LOCK`, with
+  `running` for the step under way, and `taken`, a unique index's error),
+  `users_db.go.tmpl`, `passkeys_db.go.tmpl`, `jobs_db.go.tmpl`,
+  `db_test.go.tmpl` (`testDB`, on a server a database per test, made on
+  `DB_URL`'s or compose's and dropped, `jobsDown`, `failedDaysAgo`, and
+  the migrations' tests), and on a server, `compose.yaml.tmpl`. The jobs
+  are in the same database: `jobs_db.go.tmpl` is a `queue.ScheduleStore`
+  and a `queue.UniqueStore`, which `jobs_test.go.tmpl` runs
+  `queuetest.TestStore` on, with a `schedules` table whose upsert only
+  moves forward, in a transaction with the job, and a `unique_key` column
+  under a unique index, which the claim clears, and an `alone_key`
+  column, a `OneAtATime` job's key for its whole life, which `claimable`,
+  the claim's condition, checks no held job of its kind has. Postgres's
+  and MySQL's claims are transactions, `FOR UPDATE SKIP LOCKED`, and lock
+  a `job_locks` row of a `OneAtATime` job's key, then look again
+  (`claim`, `again`); MySQL's connections are `READ COMMITTED` in UTC
+  (`config`), and its `PushLatest` moves a job by its ID, not by an
+  upsert, for its locks' order. `jobs.in(tx)` is the Store that pushes in
+  a handler's transaction, and `jobsCommand` the `jobs` command, which
+  `main` runs in place of the server when it's given one (`command`).
+  Under tug gen, `main` opens no database, and `env.DB` is nil. `a.inTx` runs a handler's writes in one
   transaction, through the stores' `in(tx)` (the tables' methods go
   through `dbtx`, the database or a transaction), and wakes the queue
   after the commit: registering, adding a passkey and a new email push
@@ -394,8 +433,8 @@ tug logs through `slog.Default()` and never sets it; that's the app's call.
   ones so far are go-playground/validator, behind package `validate`,
   which is also why Go 1.26 is the minimum, and golang.org/x/crypto, for
   argon2id. The starters' apps can have their own, as the auth starter's
-  SQLite driver and its npm packages (Tailwind, shadcn/ui's Radix, lucide,
-  sonner, qrcode.react) are.
+  database drivers and its npm packages (Tailwind, shadcn/ui's Radix,
+  lucide, sonner, qrcode.react) are.
 - **The decisions in `docs/roadmap.md` are settled.** Ask before reopening
   one.
 - **Commit subjects are one line**, imperative.

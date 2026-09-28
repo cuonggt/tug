@@ -1,0 +1,61 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"path/filepath"
+	"testing"
+)
+
+// testDB is a database of the test's own, with its tables made.
+func testDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := openDB(filepath.Join(t.TempDir(), "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// jobsDown has the jobs table turn every new job away, as a database can,
+// while the queue's claims go on.
+func jobsDown(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec("CREATE TRIGGER jobs_down BEFORE INSERT ON jobs BEGIN SELECT RAISE(ABORT, 'no room for the job'); END"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// failedDaysAgo has the job with id have failed days ago, by the
+// database's clock, as prune reads it.
+func failedDaysAgo(t *testing.T, db *sql.DB, id string, days int) {
+	t.Helper()
+	if _, err := db.Exec("UPDATE jobs SET failed_at = datetime('now', ?) WHERE id = ?", fmt.Sprintf("-%d days", days), id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheMigrationsRunOnceAndLeaveANewerDatabaseAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.db")
+	for range 2 {
+		db, err := openDB(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var version int
+		db.QueryRow("PRAGMA user_version").Scan(&version)
+		db.Close()
+		if version != len(migrations) {
+			t.Fatalf("user_version %d, want %d", version, len(migrations))
+		}
+	}
+	db, _ := openDB(path)
+	db.Exec("PRAGMA user_version = 1000")
+	db.Close()
+	if db, err := openDB(path); err != nil {
+		t.Errorf("a database from a newer build: %v", err)
+	} else {
+		db.Close()
+	}
+}

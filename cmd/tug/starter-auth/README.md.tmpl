@@ -8,10 +8,18 @@ email, and change their profile and photo, password and appearance in
 their settings.
 
 ```sh
+[[ if .SQLite -]]
 tug dev      # run it on http://localhost:8080, rebuilt and reloaded as it changes
 tug gen      # write the TypeScript of the pages' props and the routes
 tug build    # build it into one binary, frontend included
 go test ./...
+[[- else -]]
+docker compose up -d   # start the database, which tug dev and the tests use
+tug dev                # run it on http://localhost:8080, rebuilt and reloaded as it changes
+tug gen                # write the TypeScript of the pages' props and the routes
+tug build              # build it into one binary, frontend included
+go test ./...
+[[- end ]]
 ```
 
 - `main.go`: the server, its pages and routes, and the health check at
@@ -28,13 +36,24 @@ go test ./...
   `files/` (or `FILES_PATH`), or with `FILESYSTEM_DISK=s3` in a bucket,
   through tug's package `storage`, and shown by links signed for a day.
   `mail.go`: the mail, in plain text and HTML.
-- `users.go`: the users, in SQLite (`app.db`, or `DB_PATH`), through
+- `users.go`: the users. `jobs.go`: the background jobs, in the same
+  database, for tug's package `queue`, which runs them beside the server.
+  The mail goes by jobs, so a mail server that's down, or a restart,
+  doesn't lose any: a job that fails runs again later. Jobs can run on a
+  schedule too, as `prune-jobs` does every night. `QUEUE_WORKERS` is how
+  many run at once.
+[[- if .SQLite ]]
+- `db.go`: the database, SQLite (`app.db`, or `DB_PATH`), through
   `database/sql`, and the migrations that make and change its tables.
-- `jobs.go`: the background jobs, in the same database, for tug's package
-  `queue`, which runs them beside the server. The mail goes by jobs, so a
-  mail server that's down, or a restart, doesn't lose any: a job that
-  fails runs again later. Jobs can run on a schedule too, as `prune-jobs`
-  does every night. `QUEUE_WORKERS` is how many run at once.
+  The SQL of each table is beside the Go that's the same on any
+  database: `users_db.go`, `passkeys_db.go` and `jobs_db.go`.
+[[- else ]]
+- `db.go`: the database, [[ if .MySQL ]]MySQL[[ else ]]Postgres[[ end ]] at `DB_URL`, through `database/sql`, and
+  the migrations that make and change its tables. `compose.yaml` runs it
+  in development, and the tests make a database each on it. The SQL of
+  each table is beside the Go that's the same on any database:
+  `users_db.go`, `passkeys_db.go` and `jobs_db.go`.
+[[- end ]]
 [[- if .Vue ]]
 - `resources/js`: Vue with Tailwind and [shadcn-vue](https://www.shadcn-vue.com)
   components, which `npx shadcn-vue@latest add` adds more of.
@@ -61,14 +80,29 @@ go test ./...
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions and two-factor
   secrets and signs the links in mail and to photos, and a deployed app
   needs one of its own, set in its environment, with `APP_URL`, its own
+[[- if .SQLite ]]
   address, and `MAIL_HOST` and the rest of `.env.example` for its mail,
   and for the photos, a volume, or `FILESYSTEM_DISK=s3` and a bucket. In
   development, mail is written out where tug dev shows it, links and all.
-[[ if .SSR -]]
+[[- else ]]
+  address, `DB_URL`, its database, and `MAIL_HOST` and the rest of
+  `.env.example` for its mail, and for the photos, a volume, or
+  `FILESYSTEM_DISK=s3` and a bucket. In development, `DB_URL` is
+  compose.yaml's database, and mail is written out where tug dev shows
+  it, links and all.
+[[- end ]]
+[[ if and .SSR .SQLite -]]
 - `Dockerfile`: the app as one static binary on a distroless image with
   Node, for the pages it renders on the server, and the database and the
   photos on a volume.
-[[- else -]]
+[[- else if .SSR -]]
+- `Dockerfile`: the app as one static binary on a distroless image with
+  Node, for the pages it renders on the server, and the photos on a
+  volume. The database is wherever `DB_URL` says.
+[[- else if .SQLite -]]
 - `Dockerfile`: the app as one static binary on a distroless image, with
   the database and the photos on a volume.
+[[- else -]]
+- `Dockerfile`: the app as one static binary on a distroless image, with
+  the photos on a volume. The database is wherever `DB_URL` says.
 [[- end ]]

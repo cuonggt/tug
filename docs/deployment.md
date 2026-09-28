@@ -116,7 +116,9 @@ The auth starter reads these as well:
 | Variable            | What it does | Default | Read by |
 |---------------------|--------------|---------|---------|
 | `APP_URL`           | The app's address, such as `https://example.com`, which the links in its mail start with. With `https://`, the session cookie is for HTTPS only. | none: needed unless `APP_DEBUG` is on | its `main.go` |
-| `DB_PATH`           | The SQLite database. | `app.db`, and `/data/app.db` in its image | its `main.go` |
+| `DB_PATH`           | The SQLite database. | `app.db`, and `/data/app.db` in its image | its `db.go` |
+| `DB_URL`            | On Postgres or MySQL, the database, as `postgres://user:password@host:5432/blog?sslmode=require` or `mysql://user:password@host:3306/blog?tls=true`, with the driver's settings in its query. | none: needed, unless `DB_HOST` is set | its `db.go` |
+| `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | The database's parts, as Laravel names them, where there's no `DB_URL`. | the port is `5432` or `3306` | its `db.go` |
 | `FILES_PATH`        | The directory the photos people upload are kept in, unless `FILESYSTEM_DISK` is `s3`. | `files`, and `/data/files` in its image | its `main.go` |
 | `FILESYSTEM_DISK`   | `local`, the directory, or `s3`, a bucket, which instances on more than one machine share. | `local` | `storage.FromEnv` |
 | `AWS_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | The bucket, and the keys to it, for `FILESYSTEM_DISK=s3`: in S3, or a service that speaks its API, as [files.md](files.md#from-the-environment) has. | none, and `us-east-1` for the region | `storage.FromEnv` |
@@ -194,13 +196,13 @@ ENTRYPOINT ["/server"]
   over TLS needs, and time zone data. The app runs as its `nonroot` user.
 
 `.dockerignore` keeps `node_modules`, `public/build`, `public/hot`,
-`.tug`, `.env` and `.git` out of the build, and the auth starter's keeps a
-development `app.db` out too. So the frontend is built afresh, and the
-development `.env` never reaches the image: the variables come with
-`docker run -e`, as the Dockerfile's comment shows.
+`.tug`, `.env` and `.git` out of the build, and the auth starter's on
+SQLite keeps a development `app.db` out too. So the frontend is built
+afresh, and the development `.env` never reaches the image: the
+variables come with `docker run -e`, as the Dockerfile's comment shows.
 
-The auth starter's image keeps its database, and the photos people
-upload, in `/data`, a volume, so that they outlive the container:
+The auth starter's image, on SQLite, keeps its database, and the photos
+people upload, in `/data`, a volume, so that they outlive the container:
 
 ```dockerfile
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data
@@ -222,14 +224,41 @@ The app runs as `nonroot`, whose ID is 65532, so `/data` has to belong to
 directory when it isn't there, and, with the write-ahead log the starter
 turns on, its `-wal` and `-shm` files beside it, and the app makes
 `/data/files` as the first photo goes in. With `FILESYSTEM_DISK=s3`, the
-photos are in the bucket instead, and the volume has the database alone. The distroless image has
-no shell to make the directory in, so the `server` stage makes it and the
-copy sets its owner. A new named volume starts with the image's `/data`,
-owner and all. A directory of the host's, mounted with
-`-v /srv/blog:/data`, keeps the host's owner: make it writable by 65532.
+photos are in the bucket instead, and the volume has the database alone.
+The distroless image has no shell to make the directory in, so the
+`server` stage makes it and the copy sets its owner. A new named volume
+starts with the image's `/data`, owner and all. A directory of the
+host's, mounted with `-v /srv/blog:/data`, keeps the host's owner: make
+it writable by 65532.
 
 The SQLite driver is modernc.org/sqlite, in pure Go, so the binary is
 still static.
+
+### On Postgres or MySQL
+
+An app made with `-postgres` or `-mysql` has the same image, with `/data`
+for the photos alone: the database is wherever `DB_URL` says, with the
+driver's settings in its query, such as Postgres's `sslmode`:
+
+```sh
+docker run -p 8080:8080 -v blog-data:/data \
+  -e APP_KEY=base64:... -e APP_URL=https://example.com \
+  -e DB_URL='postgres://blog:...@db.example.com:5432/blog?sslmode=require' \
+  -e MAIL_HOST=smtp.example.com -e MAIL_FROM_ADDRESS=hello@example.com blog
+```
+
+or `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD`,
+as Laravel has them. The drivers, pgx and go-sql-driver/mysql, are pure
+Go too. The app brings the tables up to date as it starts, and
+instances starting at once take turns ([Accounts](auth.md#the-database)).
+With the photos in a bucket as well, `FILESYSTEM_DISK=s3`, an instance
+keeps nothing of its own, and as many as the database takes can run
+side by side, anywhere that reaches it. The starter is tested on
+Postgres 18 and MySQL 8.4.
+
+The app's `compose.yaml` is for development: it runs the database on
+`127.0.0.1`, with a password everyone knows. A deployed app's database is
+a managed one's, or one run apart from the app.
 
 With server-side rendering, the frontend stage's `npm run build` writes the
 SSR build to `ssr/build` too, which the Go stage copies in, to embed, and

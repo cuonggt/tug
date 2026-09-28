@@ -10,9 +10,9 @@ each time, and one that runs out of attempts is kept, with its error, for
 someone to look at. The workers run inside the app's binary, beside the
 server, and start and stop with it.
 
-The auth starter sends its mail this way, with its jobs in SQLite, and
-clears out old failed jobs every night: [auth.md](auth.md) has its side
-of it.
+The auth starter sends its mail this way, with its jobs in its database,
+SQLite, Postgres or MySQL, and clears out old failed jobs every night:
+[auth.md](auth.md) has its side of it.
 
 ## A kind of job
 
@@ -103,7 +103,9 @@ q.Wake()
 - Everything written while the transaction is open goes through it. In
   SQLite there's one writer, and a transaction that has begun writing holds
   the lock, so a write outside it, a push through the queue's own Store
-  included, waits for it until its busy timeout, and fails.
+  included, waits for it until its busy timeout, and fails. Postgres and
+  MySQL write several at once, but a write outside it, to what it has
+  written, waits for it too.
 - `In` panics when the Store isn't what the kind needs: a `UniqueStore`
   for a unique kind, as the queue's must be.
 
@@ -319,9 +321,11 @@ reindex.PushAt(ctx, time.Now().Add(time.Minute), ReindexPost{Post: p.ID}) // aft
   any unique kind, and waits for it. It needs a `queue.OneAtATimeStore`.
 
 One at a time is kept by the claim: it passes over a job whose value a
-claim holds another of, which the Store sees in the same query, so there's
-no lock to take and give back, and a job that lost its worker lets the
-next go as any claim does.
+claim holds another of, which the Store sees as it claims, so nothing
+stays locked while the job runs, and a job that lost its worker lets the
+next go as any claim does. Where claims run at once, as in Postgres and
+MySQL, those of one value take turns for the moment they claim: see the
+[auth starter's Stores there](#the-auth-starters-in-postgres-and-mysql).
 
 ## Running the jobs
 
@@ -481,8 +485,8 @@ type FailedStore interface {
 
 ### The auth starter's, in SQLite
 
-The auth starter's `jobs.go` keeps the jobs in a table that its
-migrations make:
+The auth starter keeps the jobs in a table that its migrations make, and
+its Store's SQL in `jobs_db.go`, written for its database. In SQLite:
 
 ```sql
 CREATE TABLE jobs (
@@ -580,32 +584,87 @@ A handler's transaction pushes through `jobs.in(tx)`, the same table
 through `tx`: its inserts are the transaction's, and its claims the app's,
 which see the job once `tx` has committed.
 
-### Another database
+### The auth starter's, in Postgres and MySQL
 
-A Store for another database follows the same shape. In Postgres, several
-instances claim at once, so the claim's `SELECT` skips the rows another
-claim has locked rather than wait for them:
+With `-postgres` or `-mysql`, the tables are the same, with each
+database's types, and the claims of several instances run at once. A
+claim is a transaction: its query locks the job it finds, and skips the
+ones other claims have locked rather than wait for them, and then it
+holds the job and commits. In Postgres:
 
 ```sql
-UPDATE jobs SET held_until = $2, attempts = attempts + 1, unique_key = NULL
-WHERE id = (
-	SELECT id FROM jobs WHERE failed_at IS NULL AND run_at <= $1 AND held_until <= $1
-	ORDER BY run_at, id LIMIT 1
-	FOR UPDATE SKIP LOCKED
-)
-RETURNING id, kind, payload, run_at, attempts, error
+SELECT due.id, due.kind, due.alone_key FROM jobs AS due
+WHERE due.failed_at IS NULL AND due.run_at <= $1 AND due.held_until <= $1
+AND (due.alone_key IS NULL OR NOT EXISTS (
+	SELECT 1 FROM jobs AS running
+	WHERE running.kind = due.kind AND running.alone_key = due.alone_key AND running.held_until > $1
+))
+ORDER BY due.run_at, due.id LIMIT 1
+FOR UPDATE SKIP LOCKED;
+
+UPDATE jobs SET held_until = $2, attempts = attempts + 1, unique_key = NULL WHERE id = $1
+RETURNING kind, payload, run_at, attempts, error
 ```
 
-In Postgres, the schedules' upsert names the existing row's column in its
-`WHERE`, as `schedules.run_at`: there, a bare `run_at` could be either
-row's. The partial unique index for the keys works as it does in SQLite.
-One at a time needs more care there: SQLite runs one claim at a time,
-where two Postgres claims at once can each take a job of one key, as
-neither sees the other's hold until it commits, so its claims of a
-`OneAtATime` kind's jobs have to be kept apart by their key.
-`queuetest.TestStore` is how to know such a Store keeps the promises,
-claims and pushes from many goroutines at once among them, and claims of
-one key at once.
+There's no read before it, as SQLite's has: a claim that finds nothing
+writes nothing, and a database with many writers has no one lock for it
+to take.
+
+One at a time takes one more step. Two claims at once can each take a
+job of one key, as neither sees the other's hold until it commits: so the
+claim of a `OneAtATime` kind's job locks a row of its kind and key, in a
+table of its own, and looks again once it has it.
+
+```sql
+CREATE TABLE job_locks (
+	kind      text NOT NULL,
+	alone_key text NOT NULL,
+	PRIMARY KEY (kind, alone_key)
+);
+
+INSERT INTO job_locks (kind, alone_key) VALUES ($1, $2)
+ON CONFLICT (kind, alone_key) DO UPDATE SET kind = excluded.kind;
+
+SELECT EXISTS (SELECT 1 FROM jobs WHERE kind = $1 AND alone_key = $2 AND held_until > $3)
+```
+
+The upsert locks the row, whether it makes it or finds it, until the
+claim commits, and its update changes nothing. A second claim of the key
+waits there for the first, then sees its hold, and passes over its job,
+and tries again for another. The lock lasts as long as the claim's
+transaction, not the job's run, which the hold keeps apart as before. It's
+a row rather than an advisory lock: Postgres has one that lasts as long
+as the transaction, but MySQL's lasts as long as the connection, which
+`database/sql` hands on to whoever's next. `prune-jobs` deletes the rows
+whose key no job has any more.
+
+Postgres's upserts are SQLite's, with the schedules' naming the existing
+row's column in its `WHERE`, `schedules.run_at`, as a bare `run_at` could
+be either row's. MySQL's differ more:
+
+- No `RETURNING`: the claim reads the job in its first query, and an
+  insert takes the ID it made from its result.
+- The connection reads at `READ COMMITTED`, which the app sets as it
+  connects, so the claim's second look sees what the other claim
+  committed, where MySQL's default, `REPEATABLE READ`, would see what was
+  there as the transaction began.
+- The key's row is locked with `INSERT ... ON DUPLICATE KEY UPDATE`, which
+  locks it for writing at once. An insert that met the row, then a lock
+  taken on it, would take one for reading first, which two claims could
+  both hold, each waiting for the other's to be let go.
+- A unique kind's push is a plain insert, which the unique index turns
+  away with an error, 1062, that the transaction it's in goes on after.
+  The schedules' upsert moves a run forward with `GREATEST`, and says it
+  did by the rows it changed, which MySQL counts as none when the run was
+  there already.
+- `PushLatest` finds the job that waits by its key, then moves it by its
+  ID, which locks the job's row before its key's index, as a claim does:
+  the other way round, as an upsert would, a claim of the job at the same
+  moment could wait for the push while the push waits for it.
+
+Each runs `queuetest.TestStore`, with claims and pushes from many
+goroutines at once, and claims of one key at once, on a database of its
+own on the server its tests are given.
 
 ## Several instances
 
@@ -614,7 +673,8 @@ and a claim goes to one of them; each run of a schedule is pushed once,
 whichever instances push it. The auth starter reads `QUEUE_WORKERS`,
 4 by default, and with 0 doesn't run the queue: that instance pushes jobs
 and leaves them to the others. SQLite is one file, so its instances share
-a machine; a database on a server of its own lets them be anywhere.
+a machine; on Postgres or MySQL, they're anywhere that reaches the
+database.
 
 ## What's not here yet
 

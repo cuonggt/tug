@@ -1,16 +1,30 @@
-[[ if .SSR -]]
+[[ if and .SSR .SQLite -]]
 # The app as one static binary, frontend and SSR bundle included, on an
 # image with Node, which renders the pages on the server beside it. The
 # database, and the files people upload, are in /data, a volume, so they
 # outlive the container:
-[[ else -]]
+[[ else if .SSR -]]
+# The app as one static binary, frontend and SSR bundle included, on an
+# image with Node, which renders the pages on the server beside it. The
+# database is wherever DB_URL says, and the files people upload are in
+# /data, a volume, so they outlive the container, unless they're in S3:
+[[ else if .SQLite -]]
 # The app as one static binary, frontend included, on an image with nothing
 # else in it. The database, and the files people upload, are in /data, a
 # volume, so they outlive the container:
+[[ else -]]
+# The app as one static binary, frontend included, on an image with nothing
+# else in it. The database is wherever DB_URL says, and the files people
+# upload are in /data, a volume, so they outlive the container, unless
+# they're in S3:
 [[ end -]]
 #
 #   docker build -t app . && docker run -p 8080:8080 -v app-data:/data \
+[[ if .SQLite -]]
 #     -e APP_KEY=... -e APP_URL=https://example.com \
+[[ else -]]
+#     -e APP_KEY=... -e APP_URL=https://example.com -e DB_URL=... \
+[[ end -]]
 #     -e MAIL_HOST=... -e MAIL_FROM_ADDRESS=... app
 
 FROM node:24-alpine AS frontend
@@ -38,9 +52,15 @@ ENV SSR_NODE=/nodejs/bin/node
 FROM gcr.io/distroless/static-debian12
 [[ end -]]
 COPY --from=server /server /server
+[[ if .SQLite -]]
 # 65532 is the image's nonroot user, who has to be able to write the database.
 COPY --from=server --chown=65532:65532 /data /data
 ENV DB_PATH=/data/app.db FILES_PATH=/data/files
+[[ else -]]
+# 65532 is the image's nonroot user, who has to be able to write the files.
+COPY --from=server --chown=65532:65532 /data /data
+ENV FILES_PATH=/data/files
+[[ end -]]
 # The app listens on :8080, or on the PORT a platform sets.
 EXPOSE 8080
 VOLUME /data

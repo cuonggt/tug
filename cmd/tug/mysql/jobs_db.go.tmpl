@@ -1,0 +1,273 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"strconv"
+	"time"
+
+	"github.com/cuonggt/tug/queue"
+)
+
+// The jobs tables' SQL, in MySQL, where the claims of several instances
+// run at once: a claim locks the job it takes until it commits, and skips
+// the jobs other claims have locked, rather than wait for them. MySQL has
+// no RETURNING: an insert reads the ID it made from its result, and a
+// claim reads the job it holds before it commits.
+
+func (s *jobs) Push(ctx context.Context, j *queue.Job) error {
+	_, err := insertJob(ctx, s.pushes(), j)
+	return err
+}
+
+// PushUnique pushes a unique kind's job unless one of its kind and key
+// waits: the unique index on the key lets one in, and a claim clears the
+// key, so that a job pushed while one runs goes in.
+func (s *jobs) PushUnique(ctx context.Context, j *queue.Job) (bool, error) {
+	return insertJob(ctx, s.pushes(), j)
+}
+
+// PushLatest pushes a unique kind's job, or gives the one of its kind and
+// key that waits the push's time. It finds that job by its key, and moves
+// it by its ID, which locks the job's row before its key's index, as a
+// claim does: the other way round, as an upsert would, a claim of the job
+// at the same moment could wait for the push while the push waits for
+// the claim. A job that a claim takes meanwhile has let its key go, and a
+// push of the key at the same moment can get in first: either way, it
+// looks again.
+func (s *jobs) PushLatest(ctx context.Context, j *queue.Job) error {
+	db := s.pushes()
+	for {
+		var id, runAt int64
+		err := db.QueryRowContext(ctx, "SELECT id, run_at FROM jobs WHERE kind = ? AND unique_key = ?", j.Kind, j.Key).Scan(&id, &runAt)
+		switch {
+		case err == nil && runAt == j.RunAt.UnixMilli():
+			j.ID = strconv.FormatInt(id, 10) // it waits with the push's time already
+			return nil
+		case err == nil:
+			res, err := db.ExecContext(ctx, "UPDATE jobs SET run_at = ? WHERE id = ? AND unique_key IS NOT NULL", j.RunAt.UnixMilli(), id)
+			if err != nil {
+				return err
+			}
+			if n, err := res.RowsAffected(); err != nil || n == 1 {
+				j.ID = strconv.FormatInt(id, 10)
+				return err
+			}
+		case errors.Is(err, sql.ErrNoRows):
+			if pushed, err := insertJob(ctx, db, j); err != nil || pushed {
+				return err
+			}
+		default:
+			return err
+		}
+	}
+}
+
+// PushScheduled keeps the schedule's run and pushes its job in one
+// transaction: of several instances pushing a run at once, one does, and
+// a run is never kept without its job. The upsert of a run another has
+// pushed waits for that one's transaction, then finds its run: it changes
+// no row, which MySQL counts as none affected.
+func (s *jobs) PushScheduled(ctx context.Context, schedule string, j *queue.Job) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO schedules (name, run_at) VALUES (?, ?) AS pushed
+		ON DUPLICATE KEY UPDATE run_at = GREATEST(schedules.run_at, pushed.run_at)`, schedule, j.RunAt.UnixMilli())
+	if err != nil {
+		return false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return false, err // this run, or a later one, is pushed already
+	}
+	// A unique kind's run, whose job waits already, is kept without one.
+	if _, err := insertJob(ctx, tx, j); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// insertJob inserts j, and says whether it did: a unique kind's job isn't
+// inserted while one of its kind and key waits.
+func insertJob(ctx context.Context, db dbtx, j *queue.Job) (bool, error) {
+	res, err := db.ExecContext(ctx, `
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key) VALUES (?, ?, ?, NULLIF(?, ''), ?)`,
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j))
+	if taken(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return false, err
+	}
+	j.ID = strconv.FormatInt(id, 10)
+	return true, nil
+}
+
+// claimable is what a job is for a claim to take it at the time the three
+// ? say: due, not failed, and held by no claim, and a OneAtATime kind's
+// job only while no claim holds another of its kind and key.
+const claimable = `due.failed_at IS NULL AND due.run_at <= ? AND due.held_until <= ?
+	AND (due.alone_key IS NULL OR NOT EXISTS (
+		SELECT 1 FROM jobs AS running
+		WHERE running.kind = due.kind AND running.alone_key = due.alone_key AND running.held_until > ?
+	))`
+
+// Claim holds the job due soonest that no other claim has locked, and
+// lets a unique kind's key go, in a transaction. Of a OneAtATime kind, two
+// claims at once could each take a job of one key, as neither sees the
+// other's hold until it commits: so the claim of such a job locks its key's
+// row in job_locks, and looks again once it has the lock, which waits for
+// any other claim of the key to commit. A job of a key another claim took
+// meanwhile is passed over, and the claim tries again.
+func (s *jobs) Claim(ctx context.Context, now, until time.Time) (*queue.Job, error) {
+	for {
+		j, again, err := s.claim(ctx, now, until)
+		if !again {
+			return j, err
+		}
+	}
+}
+
+// claim is one try at a claim, which says whether to try again.
+func (s *jobs) claim(ctx context.Context, now, until time.Time) (_ *queue.Job, again bool, _ error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+	j := &queue.Job{}
+	var id, runAt int64
+	var payload string
+	var lastErr, alone sql.NullString
+	at := now.UnixMilli()
+	err = tx.QueryRowContext(ctx, `
+		SELECT due.id, due.kind, due.payload, due.run_at, due.attempts, due.error, due.alone_key FROM jobs AS due WHERE `+claimable+`
+		ORDER BY due.run_at, due.id LIMIT 1
+		FOR UPDATE SKIP LOCKED`, at, at, at).Scan(&id, &j.Kind, &payload, &runAt, &j.Attempts, &lastErr, &alone)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if alone.Valid {
+		// The upsert locks the key's row, whether it makes it or finds it,
+		// until the transaction ends; its update changes nothing. An insert
+		// that met the row, then a lock taken for it, would take a lock for
+		// reading first, which two claims could both hold, each then waiting
+		// for the other's to be let go.
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO job_locks (kind, alone_key) VALUES (?, ?)
+			ON DUPLICATE KEY UPDATE kind = kind`, j.Kind, alone.String)
+		if err != nil {
+			return nil, false, err
+		}
+		var held bool
+		err = tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind = ? AND alone_key = ? AND held_until > ?)",
+			j.Kind, alone.String, at).Scan(&held)
+		if err != nil || held {
+			return nil, held, err
+		}
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE jobs SET held_until = ?, attempts = attempts + 1, unique_key = NULL WHERE id = ?", until.UnixMilli(), id)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	j.ID, j.Payload, j.RunAt, j.Error = strconv.FormatInt(id, 10), []byte(payload), time.UnixMilli(runAt), lastErr.String
+	j.Attempts++
+	return j, false, nil
+}
+
+// Done, Retry and Fail change a job only while it has the attempts the
+// claim left it with: once its hold ran out and another claim took it,
+// the job is that claim's.
+
+func (s *jobs) Done(ctx context.Context, j *queue.Job) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM jobs WHERE id = ? AND attempts = ?", jobID(j.ID), j.Attempts)
+	return err
+}
+
+func (s *jobs) Retry(ctx context.Context, j *queue.Job) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE jobs SET run_at = ?, held_until = 0, error = ? WHERE id = ? AND attempts = ?",
+		j.RunAt.UnixMilli(), j.Error, jobID(j.ID), j.Attempts)
+	return err
+}
+
+// Fail keeps the time a job failed by the database's clock, as prune
+// compares it with the database's.
+func (s *jobs) Fail(ctx context.Context, j *queue.Job) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE jobs SET failed_at = CURRENT_TIMESTAMP(6), held_until = 0, error = ? WHERE id = ? AND attempts = ?",
+		j.Error, jobID(j.ID), j.Attempts)
+	return err
+}
+
+// Failed lists the jobs that failed for good, the latest first.
+func (s *jobs) Failed(ctx context.Context) ([]*queue.Job, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, kind, payload, attempts, error, failed_at FROM jobs
+		WHERE failed_at IS NOT NULL ORDER BY failed_at DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var failed []*queue.Job
+	for rows.Next() {
+		j := &queue.Job{}
+		var id int64
+		var payload string
+		var lastErr sql.NullString
+		if err := rows.Scan(&id, &j.Kind, &payload, &j.Attempts, &lastErr, &j.FailedAt); err != nil {
+			return nil, err
+		}
+		j.ID, j.Payload, j.Error = strconv.FormatInt(id, 10), []byte(payload), lastErr.String
+		failed = append(failed, j)
+	}
+	return failed, rows.Err()
+}
+
+// RunAgain puts a failed job back to run at at, from its first attempt.
+func (s *jobs) RunAgain(ctx context.Context, id string, at time.Time) (bool, error) {
+	res, err := s.db.ExecContext(ctx, "UPDATE jobs SET failed_at = NULL, attempts = 0, run_at = ?, held_until = 0 WHERE id = ? AND failed_at IS NOT NULL",
+		at.UnixMilli(), jobID(id))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// jobID is a job's ID as the table has it, from the ID a Job has, or the
+// jobs command is given: 0, which no job has, for one that isn't a number.
+func jobID(id string) int64 {
+	n, _ := strconv.ParseInt(id, 10, 64)
+	return n
+}
+
+// prune deletes the jobs that failed for good over a month ago: long
+// enough for someone to have looked, and the table doesn't grow for ever;
+// and the rows of job_locks whose key no job has any more. It's a job
+// itself, which newApp schedules for every night.
+func (s *jobs) prune(ctx context.Context, _ struct{}) error {
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM jobs WHERE failed_at < CURRENT_TIMESTAMP(6) - INTERVAL 30 DAY"); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM job_locks WHERE NOT EXISTS (
+			SELECT 1 FROM jobs WHERE jobs.kind = job_locks.kind AND jobs.alone_key = job_locks.alone_key
+		)`)
+	return err
+}

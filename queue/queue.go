@@ -19,8 +19,9 @@
 // a handler should be safe to run twice, as a mail sent twice is.
 //
 // Where the jobs are kept is the Store's business: the auth starter, tug
-// new -auth, keeps them in SQLite. Package queuetest checks that a Store
-// keeps its promises, and has one in memory for tests.
+// new -auth, keeps them in its database, SQLite, Postgres or MySQL.
+// Package queuetest checks that a Store keeps its promises, and has one in
+// memory for tests.
 package queue
 
 import (

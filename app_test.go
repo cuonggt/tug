@@ -167,7 +167,13 @@ func TestServeHTTPAndTugGenStartNothingGoAdded(t *testing.T) {
 	app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
 
 	path := filepath.Join(t.TempDir(), "gen.json")
+	if Generating() {
+		t.Fatal("Generating says tug gen started the tests")
+	}
 	t.Setenv("TUG_GEN", path)
+	if !Generating() {
+		t.Error("Generating doesn't say tug gen started the app")
+	}
 	if err := app.Run(); err != nil {
 		t.Fatal(err)
 	}

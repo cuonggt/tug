@@ -56,20 +56,10 @@ type testApp struct {
 
 func key(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
 
+// newTestApp is the app on a database of the test's own, testDB's.
 func newTestApp(t *testing.T) *testApp {
 	t.Helper()
 	return startApp(t, testDB(t), [][]byte{key(1)})
-}
-
-// testDB is a database of the test's own, with its tables made.
-func testDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := openDB(filepath.Join(t.TempDir(), "app.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
 }
 
 // startApp makes the app on db, with keys, as a deploy does, and runs its
@@ -221,30 +211,6 @@ func TestTheHealthCheckSaysTheAppIsUp(t *testing.T) {
 	app.db.Close()
 	if r := c.Do(httptest.NewRequest("GET", "/up", nil)); r.Code != http.StatusServiceUnavailable {
 		t.Errorf("with the database gone: %v", r)
-	}
-}
-
-func TestTheMigrationsRunOnceAndLeaveANewerDatabaseAlone(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "app.db")
-	for range 2 {
-		db, err := openDB(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var version int
-		db.QueryRow("PRAGMA user_version").Scan(&version)
-		db.Close()
-		if version != len(migrations) {
-			t.Fatalf("user_version %d, want %d", version, len(migrations))
-		}
-	}
-	db, _ := openDB(path)
-	db.Exec("PRAGMA user_version = 1000")
-	db.Close()
-	if db, err := openDB(path); err != nil {
-		t.Errorf("a database from a newer build: %v", err)
-	} else {
-		db.Close()
 	}
 }
 

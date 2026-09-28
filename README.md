@@ -141,9 +141,10 @@ func showPost(c *tug.Ctx) error {
   verify their email, log in, with a code from an authenticator app too
   once they turn that on, or with a passkey and no password at all, reset
   a forgotten password by email, and change their profile and photo,
-  password and appearance in settings, with the users in SQLite and a
-  frontend of Tailwind and shadcn's components, as Laravel's starter kits
-  have, in React, Vue or Svelte. Its handlers
+  password and appearance in settings, with the users in SQLite, or with
+  `-postgres` or `-mysql`, in Postgres or MySQL, and a frontend of
+  Tailwind and shadcn's components, as Laravel's starter kits have, in
+  React, Vue or Svelte. Its handlers
   are the app's own code, on package `auth`, which has the parts where a
   slip is a security hole: argon2id password hashes, logins that end when
   the password changes, signed tokens for reset and verification links,
@@ -163,8 +164,10 @@ func showPost(c *tug.Ctx) error {
   value, however often it's pushed, at the latest push's time if it likes,
   and runs them one at a time if it likes. A job pushed in the app's own
   transaction is kept with what else it writes, or not at all. The auth
-  starter sends its mail this way, with its jobs in SQLite, and its binary
-  lists the jobs that failed for good, and runs them again: `./blog jobs`.
+  starter sends its mail this way, with its jobs in its database, where
+  on Postgres or MySQL the claims of several instances skip each other's
+  jobs rather than wait for them, and its binary lists the jobs that
+  failed for good, and runs them again: `./blog jobs`.
 - **Tests** (package `tugtest`): Inertia's client, for Go's tests of an
   app's pages, which need no browser or frontend build. Its visits keep
   the cookies the app sets and follow its redirects, upload files as the

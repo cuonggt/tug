@@ -23,7 +23,7 @@
 //
 // Finding users, by ID or by email, is the app's own business: the auth
 // starter, tug new -auth, has a whole app made of these, with its users in
-// SQLite. A request's user is found like this:
+// SQLite, Postgres or MySQL. A request's user is found like this:
 //
 //	s := session.From(r.Context())
 //	id, ok := auth.UserID(s)

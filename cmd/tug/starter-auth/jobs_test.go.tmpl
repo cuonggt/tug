@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
@@ -113,15 +112,6 @@ func TestTheJobsCommandListsTheJobsThatFailedAndRunsThemAgain(t *testing.T) {
 	}
 }
 
-// jobsDown has the jobs table turn every new job away, as a database can,
-// while the queue's claims go on.
-func jobsDown(t *testing.T, db *sql.DB) {
-	t.Helper()
-	if _, err := db.Exec("CREATE TRIGGER jobs_down BEFORE INSERT ON jobs BEGIN SELECT RAISE(ABORT, 'no room for the job'); END"); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestAMailThatDoesntGoIsSentAgain(t *testing.T) {
 	app := newTestApp(t)
 	app.outbox.down.Store(1)
@@ -148,31 +138,25 @@ func TestAnAddressCanAskForFiveResetLinksAMinute(t *testing.T) {
 func TestJobsThatFailedOverAMonthAgoArePruned(t *testing.T) {
 	s := &jobs{db: testDB(t)}
 	ctx, now := context.Background(), time.Now()
-	for _, ago := range []string{"-40 days", "-10 days"} {
+	for _, days := range []int{40, 10} {
 		s.Push(ctx, &queue.Job{Kind: "verify-mail", Payload: []byte(`{}`), RunAt: now})
 		j, err := s.Claim(ctx, now, now.Add(time.Minute))
 		if err != nil || j == nil {
 			t.Fatalf("claimed %v, %v", j, err)
 		}
-		j.Error = "failed " + ago
+		j.Error = fmt.Sprintf("failed %d days ago", days)
 		s.Fail(ctx, j)
-		s.db.Exec("UPDATE jobs SET failed_at = datetime('now', ?) WHERE id = ?", ago, j.ID)
+		failedDaysAgo(t, s.db, j.ID, days)
 	}
 	if err := s.prune(ctx, struct{}{}); err != nil {
 		t.Fatal(err)
 	}
-	var left []string
-	rows, err := s.db.Query("SELECT error FROM jobs")
+	failed, err := s.Failed(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for rows.Next() {
-		var e string
-		rows.Scan(&e)
-		left = append(left, e)
-	}
-	if len(left) != 1 || left[0] != "failed -10 days" {
-		t.Errorf("left %q, want the job that failed 10 days ago", left)
+	if len(failed) != 1 || failed[0].Error != "failed 10 days ago" {
+		t.Errorf("left %v, want the job that failed 10 days ago", failed)
 	}
 }
 

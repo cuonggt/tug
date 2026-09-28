@@ -75,6 +75,10 @@ tug new [flags] <dir>
   with a second factor if the user likes, or a passkey, resetting a
   password by email, and settings, a photo among them, with the users in
   SQLite and a frontend of Tailwind and shadcn's components.
+- `-postgres`, `-mysql`: with `-auth`, the users in Postgres or in MySQL,
+  rather than SQLite: the same app, with its SQL written for the
+  database, and a `compose.yaml` that runs it in development, which the
+  `.env` names, as `DB_URL`. An app has one of them at most.
 - `-vue`, `-svelte`: the frontend in Vue or in Svelte, rather than React:
   the same app, with its pages as `.vue` or `.svelte` components, and the
   same Go. An app has one of them at most.
@@ -95,14 +99,17 @@ is `tug new -auth blog`.
    ones before it, whose files replace theirs of the same name and add
    the rest: `cmd/tug/starter`, the Go and what every frontend uses, then
    the frontend's own, `react`, `vue` or `svelte`; and with `-auth`,
-   `starter-auth`, then `react-auth`, `vue-auth` or `svelte-auth`. The
-   directory's name is the app's: in `package.json`, the page titles, and
-   the `appName` prop;
+   `starter-auth`, then `react-auth`, `vue-auth` or `svelte-auth`, then
+   the database's, `sqlite`, `postgres` or `mysql`. The directory's name
+   is the app's: in `package.json`, the page titles, and the `appName`
+   prop, and on Postgres or MySQL, its database's, as SQL takes a name
+   without quotes;
 3. writes `.env`, readable by you alone, with `APP_KEY=base64:` and 32
-   random bytes in base64, and `APP_DEBUG=true`;
+   random bytes in base64, and `APP_DEBUG=true`, and on Postgres or
+   MySQL, `DB_URL`, the database `compose.yaml` runs;
 4. unless `-no-install` says not to, runs `go mod tidy` and
    `npm install`, then builds the app and writes its types, as `tug gen`
-   does.
+   does, which needs no database running.
 
 After `-no-install`, run `go mod tidy` before `tug dev`, as `tug new` says:
 the app doesn't build until that has filled in its `go.mod` and `go.sum`.
@@ -111,7 +118,10 @@ there, and writes the types.
 
 With `-auth`, the Go files for accounts are added, `auth.go`,
 `verify.go`, `twofactor.go`, `passkeys.go`, `settings.go`, `photos.go`,
-`mail.go`, `users.go` and `jobs.go`, with their tests, and so is a frontend of Tailwind and shadcn's components:
+`mail.go`, `users.go` and `jobs.go`, with their tests, and the database's:
+`db.go`, `users_db.go`, `passkeys_db.go`, `jobs_db.go` and `db_test.go`,
+the SQL, and on Postgres or MySQL, `compose.yaml`. So is a frontend of
+Tailwind and shadcn's components:
 its layouts, components and hooks, the pages in `resources/js/pages/Auth`
 and `resources/js/pages/Settings`, and shadcn's `components.json`. The
 plain starter's `Layout.tsx` (`Layout.vue`, `Layout.svelte`) is left out,
@@ -312,10 +322,12 @@ tug: the app stopped before writing its types (exit status 1):
 2026/09/25 16:33:11 session: APP_KEY isn't set; make one with `head -c 32 /dev/urandom | base64` and set APP_KEY=base64:<that>
 ```
 
-The auth starter's `main` also opens the SQLite database, which makes
-`app.db` when it isn't there, and its `newApp` stops without `APP_URL`
-unless `APP_DEBUG` is on. Where there's no `.env`, as in CI, set what
-`main` needs:
+What only serving needs, `main` can leave out while `tug.Generating()`
+says tug gen started the app. The auth starter's leaves its database
+alone, so tug gen needs none running, as when `tug new` makes the app, or
+`tug build` builds it in CI. Its `newApp` stops without `APP_URL` unless
+`APP_DEBUG` is on. Where there's no `.env`, as in CI, set what `main`
+needs:
 
 ```sh
 APP_KEY=base64:$(head -c 32 /dev/urandom | base64) tug gen

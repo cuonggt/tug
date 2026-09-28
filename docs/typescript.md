@@ -175,11 +175,12 @@ tug: the app stopped before writing its types (exit status 1):
 2026/09/25 15:56:12 session: APP_KEY isn't set; make one with `head -c 32 /dev/urandom | base64` and set APP_KEY=base64:<that>
 ```
 
-The auth starter also opens its SQLite database, making `app.db` when
-there isn't one, and stops without `APP_URL` unless `APP_DEBUG` is on. A
-`main` that doesn't call `Run` writes no types, and tug gen asks "does main
-call app.Run?": at once when the app exits, and after 30 seconds when it
-keeps running.
+The auth starter also stops without `APP_URL` unless `APP_DEBUG` is on.
+Its database it leaves alone while `tug.Generating()` says tug gen
+started it, so tug gen needs none running: what only serving needs,
+`main` can leave out the same way. A `main` that doesn't call `Run`
+writes no types, and tug gen asks "does main call app.Run?": at once when
+the app exits, and after 30 seconds when it keeps running.
 
 ## From Go to TypeScript
 

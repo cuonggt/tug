@@ -1,0 +1,194 @@
+package main
+
+import (
+	"cmp"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+
+	"github.com/jackc/pgx/v5/pgconn"
+	_ "github.com/jackc/pgx/v5/stdlib" // Postgres in pure Go, so the binary stays static
+)
+
+// The app's database is Postgres, at DB_URL, which compose.yaml runs in
+// development: docker compose up -d. This file opens it and makes its
+// tables, and the SQL of each is beside the Go that's the same on any
+// database: users_db.go, passkeys_db.go and jobs_db.go.
+
+// dbFromEnv opens the database the environment names, with its tables up
+// to date: DB_URL, with the driver's settings in its query, as
+//
+//	postgres://user:password@host:5432/[[ .DBName ]]?sslmode=require
+//
+// or else DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME and DB_PASSWORD, as
+// Laravel names them.
+func dbFromEnv() (*sql.DB, error) {
+	u := os.Getenv("DB_URL")
+	if u == "" && os.Getenv("DB_HOST") == "" {
+		return nil, errors.New("DB_URL isn't set: the app's database is Postgres, at a URL such as postgres://user:password@host:5432/[[ .DBName ]], or DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME and DB_PASSWORD")
+	}
+	if u == "" {
+		u = (&url.URL{
+			Scheme: "postgres",
+			User:   url.UserPassword(os.Getenv("DB_USERNAME"), os.Getenv("DB_PASSWORD")),
+			Host:   net.JoinHostPort(os.Getenv("DB_HOST"), cmp.Or(os.Getenv("DB_PORT"), "5432")),
+			Path:   os.Getenv("DB_DATABASE"),
+		}).String()
+	}
+	db, err := openDB(u)
+	var dial *net.OpError
+	if errors.As(err, &dial) && dial.Op == "dial" {
+		return nil, fmt.Errorf("%w: in development, `docker compose up -d` starts the database compose.yaml has", err)
+	}
+	return db, err
+}
+
+// migrations make the database's tables, a step at a time. Each runs once,
+// in order, and schema_version counts the steps that have. To change the
+// tables, add a step at the end, such as an ALTER TABLE: never change one
+// that has run somewhere, as it won't run there again.
+var migrations = []string{
+	// An email is unique whatever its case, Ann@example.com being
+	// ann@example.com, by the index on lower(email), which the queries
+	// compare with. passkey_handle is the random handle a user's passkeys
+	// name them by, made with their first: passkeys.go. photo_key is where
+	// their photo is kept on the app's disk: photos.go.
+	`CREATE TABLE users (
+		id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+		name              text NOT NULL,
+		email             text NOT NULL,
+		email_verified_at timestamptz,
+		password_hash     text NOT NULL,
+		two_factor_secret text,
+		recovery_codes    text,
+		two_factor_step   bigint NOT NULL DEFAULT 0,
+		passkey_handle    bytea UNIQUE,
+		photo_key         text,
+		created_at        timestamptz NOT NULL DEFAULT now()
+	);
+	CREATE UNIQUE INDEX users_email ON users (lower(email))`,
+	// Each user's passkeys: passkeys.go.
+	`CREATE TABLE passkeys (
+		id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+		user_id       bigint NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+		credential_id bytea NOT NULL UNIQUE,
+		public_key    bytea NOT NULL,
+		sign_count    bigint NOT NULL DEFAULT 0,
+		transports    text NOT NULL DEFAULT '',
+		backed_up     boolean NOT NULL DEFAULT false,
+		name          text NOT NULL,
+		created_at    timestamptz NOT NULL DEFAULT now(),
+		last_used_at  timestamptz
+	);
+	CREATE INDEX passkeys_user ON passkeys (user_id)`,
+	// The jobs waiting to run, and the ones that failed for good: jobs.go.
+	// A unique kind's job keeps its key in unique_key while it waits, and
+	// of a kind and a key, one job can; a job of a kind that runs one at a
+	// time keeps its key in alone_key all its life.
+	`CREATE TABLE jobs (
+		id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+		kind       text NOT NULL,
+		payload    text NOT NULL,
+		run_at     bigint NOT NULL,
+		held_until bigint NOT NULL DEFAULT 0,
+		attempts   integer NOT NULL DEFAULT 0,
+		error      text,
+		failed_at  timestamptz,
+		unique_key text,
+		alone_key  text,
+		created_at timestamptz NOT NULL DEFAULT now()
+	);
+	CREATE INDEX jobs_due ON jobs (run_at) WHERE failed_at IS NULL;
+	CREATE UNIQUE INDEX jobs_unique ON jobs (kind, unique_key) WHERE unique_key IS NOT NULL;
+	CREATE INDEX jobs_alone ON jobs (kind, alone_key) WHERE alone_key IS NOT NULL`,
+	// The run of each schedule pushed last, so that one instance pushes
+	// it: jobs.go.
+	`CREATE TABLE schedules (
+		name   text PRIMARY KEY,
+		run_at bigint NOT NULL
+	)`,
+	// A row for each key of a kind that runs one at a time, which a claim
+	// of one of its jobs locks, so that two claims of the key take turns:
+	// jobs_db.go.
+	`CREATE TABLE job_locks (
+		kind      text NOT NULL,
+		alone_key text NOT NULL,
+		PRIMARY KEY (kind, alone_key)
+	)`,
+}
+
+// openDB opens the Postgres database at url, and brings its tables up to
+// date.
+func openDB(url string) (*sql.DB, error) {
+	db, err := sql.Open("pgx", url)
+	if err != nil {
+		return nil, err
+	}
+	if err := migrate(context.Background(), db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+// migrate runs the steps the database hasn't had, each in a transaction
+// with the count that records it, so a step that fails leaves no trace.
+// The transaction locks the count's row as it reads it: of instances
+// starting at once, one runs the step, and the others wait for it, then
+// find it counted. A database from a newer build of the app, as after a
+// deploy is rolled back, is left as it is.
+func migrate(ctx context.Context, db *sql.DB) error {
+	// The count's table and row, which the first start makes. Two starts at
+	// once can both make the table, and one fails as the other's comes, with
+	// a unique violation or 42P07, duplicate_table, which leaves it there
+	// all the same.
+	_, err := db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_version (id integer PRIMARY KEY CHECK (id = 1), version integer NOT NULL)")
+	var pgErr *pgconn.PgError
+	if err != nil && !(errors.As(err, &pgErr) && (pgErr.Code == uniqueViolation || pgErr.Code == "42P07")) {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO schema_version (id, version) VALUES (1, 0) ON CONFLICT DO NOTHING"); err != nil {
+		return err
+	}
+	for {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		var version int
+		if err := tx.QueryRowContext(ctx, "SELECT version FROM schema_version FOR UPDATE").Scan(&version); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if version >= len(migrations) {
+			return tx.Rollback()
+		}
+		if _, err := tx.ExecContext(ctx, migrations[version]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d: %w", version+1, err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE schema_version SET version = $1", version+1); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+}
+
+// uniqueViolation is Postgres's code for a write that a unique index
+// turned away.
+const uniqueViolation = "23505"
+
+// taken says whether err is a write that a unique index turned away, as
+// for an email that has an account already. In a transaction, it ends
+// what the transaction can do: it's rolled back.
+func taken(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
+}

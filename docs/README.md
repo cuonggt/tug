@@ -21,7 +21,8 @@ the detail.
 6. [Files](files.md): uploads, checked by their size and what they are,
    kept on the app's disk or in S3 with package `storage`, and links to
    them, public or signed.
-7. [Accounts](auth.md): the auth starter, and packages `auth` and `mail`.
+7. [Accounts](auth.md): the auth starter, in SQLite, Postgres or MySQL,
+   and packages `auth` and `mail`.
 8. [Background jobs](jobs.md): package `queue`, for work that outlasts the
    request, and runs again when it fails, runs on a schedule, in a time
    zone too, or waits once however often it's asked for.

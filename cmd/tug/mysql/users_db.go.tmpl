@@ -1,0 +1,190 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+
+	"github.com/cuonggt/tug/auth"
+)
+
+// The users table's queries, in MySQL. The email column compares with
+// utf8mb4_0900_as_ci, so every query that asks for an email finds it in
+// any case. MySQL has no RETURNING: a write reads back what it wrote.
+
+// byID returns the user with this ID, or errNoUser.
+func (us *users) byID(ctx context.Context, id int64) (*User, error) {
+	return scanUser(us.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE id = ?", id))
+}
+
+// byEmail returns the user with this email, in any case, or errNoUser.
+func (us *users) byEmail(ctx context.Context, email string) (*User, error) {
+	return scanUser(us.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE email = ?", email))
+}
+
+// add adds a user, or returns errEmailTaken when the email has an account.
+func (us *users) add(ctx context.Context, name, email, passwordHash string) (*User, error) {
+	res, err := us.db.ExecContext(ctx, "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)", name, email, passwordHash)
+	if taken(err) {
+		return nil, errEmailTaken // two people registering the same email at once end here
+	}
+	if err != nil {
+		return nil, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return us.byID(ctx, id)
+}
+
+// setProfile stores a user's name and email, or returns errEmailTaken when
+// another account has the email. A new email isn't verified, whoever
+// verified the old one; the same email in another case is still the same.
+// MySQL sets the columns in order, each from the row as the ones before
+// left it, so email_verified_at compares the email before it changes.
+func (us *users) setProfile(ctx context.Context, id int64, name, email string) error {
+	_, err := us.db.ExecContext(ctx, `
+		UPDATE users
+		SET email_verified_at = CASE WHEN email = ? THEN email_verified_at END, name = ?, email = ?
+		WHERE id = ?`, email, name, email, id)
+	if taken(err) {
+		return errEmailTaken
+	}
+	return err
+}
+
+// setVerified records that the user with this ID has verified email, as
+// long as it's still theirs: a link to an email they've changed since
+// verifies nothing.
+func (us *users) setVerified(ctx context.Context, id int64, email string) error {
+	_, err := us.db.ExecContext(ctx, `
+		UPDATE users SET email_verified_at = CURRENT_TIMESTAMP(6)
+		WHERE id = ? AND email = ? AND email_verified_at IS NULL`, id, email)
+	return err
+}
+
+// passkeyHandle returns the handle a user's passkeys name them by: their
+// first passkey makes it, and the rest have the same.
+func (us *users) passkeyHandle(ctx context.Context, id int64) ([]byte, error) {
+	_, err := us.db.ExecContext(ctx, "UPDATE users SET passkey_handle = COALESCE(passkey_handle, ?) WHERE id = ?", auth.NewPasskeyHandle(), id)
+	if err != nil {
+		return nil, err
+	}
+	var handle []byte
+	err = us.db.QueryRowContext(ctx, "SELECT passkey_handle FROM users WHERE id = ?", id).Scan(&handle)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errNoUser
+	}
+	return handle, err
+}
+
+// setPassword stores a user's new password hash.
+func (us *users) setPassword(ctx context.Context, id int64, passwordHash string) error {
+	_, err := us.db.ExecContext(ctx, "UPDATE users SET password_hash = ? WHERE id = ?", passwordHash, id)
+	return err
+}
+
+// setTwoFactor turns two-factor logins on for a user, with their sealed
+// secret and recovery codes and the step of the code they set it up with,
+// or off, with all three empty.
+func (us *users) setTwoFactor(ctx context.Context, id int64, secret, recoveryCodes string, step int64) error {
+	_, err := us.db.ExecContext(ctx, `
+		UPDATE users SET two_factor_secret = ?, recovery_codes = ?, two_factor_step = ? WHERE id = ?`,
+		nullIfEmpty(secret), nullIfEmpty(recoveryCodes), step, id)
+	return err
+}
+
+// setTwoFactorStep stores the time step of the code that last worked for a
+// user, as long as it's later than the one stored: of two logins with the
+// same code at once, one gets in.
+func (us *users) setTwoFactorStep(ctx context.Context, id, step int64) (bool, error) {
+	res, err := us.db.ExecContext(ctx, "UPDATE users SET two_factor_step = ? WHERE id = ? AND two_factor_step < ?", step, id, step)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// setRecoveryCodes stores a user's new sealed recovery codes, in place of
+// the ones they had.
+func (us *users) setRecoveryCodes(ctx context.Context, id int64, codes string) error {
+	_, err := us.db.ExecContext(ctx, "UPDATE users SET recovery_codes = ? WHERE id = ? AND two_factor_secret IS NOT NULL", codes, id)
+	return err
+}
+
+// swapRecoveryCodes stores a user's sealed recovery codes, as they are
+// once one has been used, unless they're no longer was, the codes the use
+// began from: of two logins with the same code at once, one gets in.
+func (us *users) swapRecoveryCodes(ctx context.Context, id int64, was, codes string) (bool, error) {
+	res, err := us.db.ExecContext(ctx, "UPDATE users SET recovery_codes = ? WHERE id = ? AND recovery_codes = ?", codes, id, was)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// setPhoto stores where a user's photo is kept, or with "", that they have
+// none, and returns where the one it replaces was, or "", for that to be
+// deleted. In a transaction, as the handlers call it, the one it returns
+// is the one it replaces, whoever else changes it at the same time: the
+// read locks the row until the transaction ends.
+func (us *users) setPhoto(ctx context.Context, id int64, key string) (string, error) {
+	var old sql.NullString
+	err := us.db.QueryRowContext(ctx, "SELECT photo_key FROM users WHERE id = ? FOR UPDATE", id).Scan(&old)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errNoUser
+	}
+	if err != nil {
+		return "", err
+	}
+	_, err = us.db.ExecContext(ctx, "UPDATE users SET photo_key = ? WHERE id = ?", nullIfEmpty(key), id)
+	return old.String, err
+}
+
+// remove deletes a user's account, and returns where their photo is kept,
+// or "", for it to be deleted too. In a transaction, as the handler calls
+// it, the read locks the row until the delete.
+func (us *users) remove(ctx context.Context, id int64) (string, error) {
+	var photo sql.NullString
+	err := us.db.QueryRowContext(ctx, "SELECT photo_key FROM users WHERE id = ? FOR UPDATE", id).Scan(&photo)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	_, err = us.db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id)
+	return photo.String, err
+}
+
+// twoFactorSecrets returns every user's sealed two-factor secret and
+// recovery codes, for resealTwoFactor.
+func (us *users) twoFactorSecrets(ctx context.Context) ([]sealedTwoFactor, error) {
+	rows, err := us.db.QueryContext(ctx, "SELECT id, two_factor_secret, recovery_codes FROM users WHERE two_factor_secret IS NOT NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var all []sealedTwoFactor
+	for rows.Next() {
+		var s sealedTwoFactor
+		var codes sql.NullString
+		if err := rows.Scan(&s.User, &s.Secret, &codes); err != nil {
+			return nil, err
+		}
+		s.Codes = codes.String
+		all = append(all, s)
+	}
+	return all, rows.Err()
+}
+
+// swapTwoFactor stores a user's two-factor secret and recovery codes,
+// sealed again, unless the secret is no longer the one was has.
+func (us *users) swapTwoFactor(ctx context.Context, was sealedTwoFactor, secret, codes string) error {
+	_, err := us.db.ExecContext(ctx, "UPDATE users SET two_factor_secret = ?, recovery_codes = ? WHERE id = ? AND two_factor_secret = ?",
+		secret, codes, was.User, was.Secret)
+	return err
+}

@@ -209,8 +209,8 @@ func (mj *memoryJob) claimedBy(j *queue.Job) bool {
 // queue depends on, with a new, empty one for each test, and those of each
 // extra a Store may have when they have it: a ScheduleStore's, a
 // UniqueStore's, a LatestStore's, a OneAtATimeStore's and a FailedStore's.
-// A Store's own tests call it, as the auth starter's do for its tables in
-// SQLite:
+// A Store's own tests call it, as the auth starter's do for its tables,
+// in SQLite, Postgres or MySQL:
 //
 //	func TestTheJobsTableKeepsTheQueuesPromises(t *testing.T) {
 //		queuetest.TestStore(t, func(t *testing.T) queue.Store {

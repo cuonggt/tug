@@ -1,0 +1,22 @@
+# The app's database in development, on 127.0.0.1, with its data in a
+# volume: `docker compose up -d` starts it, and `docker compose down` stops
+# it, keeping the data. The .env tug new wrote names it, as DB_URL, and the
+# tests make their databases on it, as root, who can. A deployed app's is
+# wherever its DB_URL says.
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: [[ .DBName ]]
+      MYSQL_ROOT_PASSWORD: secret
+    ports:
+      - 127.0.0.1:3306:3306
+    volumes:
+      - mysql:/var/lib/mysql
+    healthcheck:
+      test: [CMD, mysqladmin, ping, -h, 127.0.0.1, -uroot, -psecret]
+      interval: 2s
+      retries: 30
+
+volumes:
+  mysql:

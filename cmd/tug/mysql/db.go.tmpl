@@ -1,0 +1,252 @@
+package main
+
+import (
+	"cmp"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/go-sql-driver/mysql" // MySQL in pure Go, so the binary stays static
+)
+
+// The app's database is MySQL, at DB_URL, which compose.yaml runs in
+// development: docker compose up -d. This file opens it and makes its
+// tables, and the SQL of each is beside the Go that's the same on any
+// database: users_db.go, passkeys_db.go and jobs_db.go.
+
+// dbFromEnv opens the database the environment names, with its tables up
+// to date: DB_URL, with the driver's settings in its query, as
+//
+//	mysql://user:password@host:3306/[[ .DBName ]]?tls=true
+//
+// or else DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME and DB_PASSWORD, as
+// Laravel names them.
+func dbFromEnv() (*sql.DB, error) {
+	u := os.Getenv("DB_URL")
+	if u == "" && os.Getenv("DB_HOST") == "" {
+		return nil, errors.New("DB_URL isn't set: the app's database is MySQL, at a URL such as mysql://user:password@host:3306/[[ .DBName ]], or DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME and DB_PASSWORD")
+	}
+	if u == "" {
+		u = (&url.URL{
+			Scheme: "mysql",
+			User:   url.UserPassword(os.Getenv("DB_USERNAME"), os.Getenv("DB_PASSWORD")),
+			Host:   net.JoinHostPort(os.Getenv("DB_HOST"), cmp.Or(os.Getenv("DB_PORT"), "3306")),
+			Path:   os.Getenv("DB_DATABASE"),
+		}).String()
+	}
+	db, err := openDB(u)
+	var dial *net.OpError
+	if errors.As(err, &dial) && dial.Op == "dial" {
+		return nil, fmt.Errorf("%w: in development, `docker compose up -d` starts the database compose.yaml has", err)
+	}
+	return db, err
+}
+
+// migrations make the database's tables, a step at a time. Each runs once,
+// in order, and schema_version counts the steps that have. Each is one
+// statement, as MySQL commits a change to a table as it makes it, and not
+// with the rest of a transaction: one statement it does whole or not at
+// all. To change the tables, add a step at the end, such as an ALTER
+// TABLE: never change one that has run somewhere, as it won't run there
+// again.
+//
+// The tables' strings compare as they are, byte for byte, as
+// utf8mb4_0900_bin has it, but for an email, which compares with
+// utf8mb4_0900_as_ci: whatever its case, as Ann@example.com is
+// ann@example.com, but not whatever its accents, as ánn@example.com isn't,
+// which MySQL's default, utf8mb4_0900_ai_ci, would make the same account.
+// Times are DATETIME(6), in UTC.
+var migrations = []string{
+	// passkey_handle is the random handle a user's passkeys name them by,
+	// made with their first: passkeys.go. photo_key is where their photo is
+	// kept on the app's disk: photos.go.
+	`CREATE TABLE users (
+		id                BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+		name              TEXT NOT NULL,
+		email             VARCHAR(254) COLLATE utf8mb4_0900_as_ci NOT NULL,
+		email_verified_at DATETIME(6),
+		password_hash     TEXT NOT NULL,
+		two_factor_secret TEXT,
+		recovery_codes    TEXT,
+		two_factor_step   BIGINT NOT NULL DEFAULT 0,
+		passkey_handle    VARBINARY(64),
+		photo_key         TEXT,
+		created_at        DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+		UNIQUE KEY users_email (email),
+		UNIQUE KEY users_passkey_handle (passkey_handle)
+	) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`,
+	// Each user's passkeys: passkeys.go.
+	`CREATE TABLE passkeys (
+		id            BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+		user_id       BIGINT NOT NULL,
+		credential_id VARBINARY(1023) NOT NULL,
+		public_key    BLOB NOT NULL,
+		sign_count    BIGINT NOT NULL DEFAULT 0,
+		transports    VARCHAR(255) NOT NULL DEFAULT '',
+		backed_up     BOOLEAN NOT NULL DEFAULT FALSE,
+		name          TEXT NOT NULL,
+		created_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+		last_used_at  DATETIME(6),
+		UNIQUE KEY passkeys_credential (credential_id),
+		KEY passkeys_user (user_id),
+		FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+	) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`,
+	// The jobs waiting to run, and the ones that failed for good: jobs.go.
+	// A unique kind's job keeps its key in unique_key while it waits, and
+	// of a kind and a key, one job can, as a unique index lets NULLs
+	// repeat; a job of a kind that runs one at a time keeps its key in
+	// alone_key all its life.
+	`CREATE TABLE jobs (
+		id         BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+		kind       VARCHAR(255) NOT NULL,
+		payload    MEDIUMTEXT NOT NULL,
+		run_at     BIGINT NOT NULL,
+		held_until BIGINT NOT NULL DEFAULT 0,
+		attempts   INT NOT NULL DEFAULT 0,
+		error      TEXT,
+		failed_at  DATETIME(6),
+		unique_key VARCHAR(255),
+		alone_key  VARCHAR(255),
+		created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+		KEY jobs_due (failed_at, run_at),
+		UNIQUE KEY jobs_unique (kind, unique_key),
+		KEY jobs_alone (kind, alone_key)
+	) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`,
+	// The run of each schedule pushed last, so that one instance pushes
+	// it: jobs.go.
+	`CREATE TABLE schedules (
+		name   VARCHAR(255) NOT NULL PRIMARY KEY,
+		run_at BIGINT NOT NULL
+	) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`,
+	// A row for each key of a kind that runs one at a time, which a claim
+	// of one of its jobs locks, so that two claims of the key take turns:
+	// jobs_db.go.
+	`CREATE TABLE job_locks (
+		kind      VARCHAR(255) NOT NULL,
+		alone_key VARCHAR(255) NOT NULL,
+		PRIMARY KEY (kind, alone_key)
+	) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`,
+}
+
+// openDB opens the MySQL database at url, a mysql:// URL, and brings its
+// tables up to date.
+func openDB(url string) (*sql.DB, error) {
+	cfg, err := config(url)
+	if err != nil {
+		return nil, err
+	}
+	connector, err := mysql.NewConnector(cfg)
+	if err != nil {
+		return nil, err
+	}
+	db := sql.OpenDB(connector)
+	// MySQL closes a connection that's been idle for a while, which the pool
+	// would find out by a query that fails: it lets them go first.
+	db.SetConnMaxLifetime(3 * time.Minute)
+	if err := migrate(context.Background(), db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+// config is the driver's config for a mysql:// URL, whose query has the
+// driver's settings, as its own DSN does. A connection's time zone is UTC,
+// for CURRENT_TIMESTAMP and the DATETIME columns, and each statement it
+// runs reads what's committed as it runs, as in Postgres, rather than what
+// was as its transaction began: READ COMMITTED. The driver writes a
+// query's arguments into it, escaped for its utf8mb4, so that it goes in
+// one round trip, rather than three, to prepare it, run it and close it.
+func config(s string) (*mysql.Config, error) {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "mysql" {
+		return nil, errors.New("the database's URL isn't a mysql:// one, such as mysql://user:password@host:3306/[[ .DBName ]]")
+	}
+	if strings.Trim(u.Path, "/") == "" {
+		return nil, errors.New("the database's URL names no database, as mysql://user:password@host:3306/[[ .DBName ]] does")
+	}
+	cfg := mysql.NewConfig()
+	cfg.User = u.User.Username()
+	cfg.Passwd, _ = u.User.Password()
+	cfg.Net, cfg.Addr, cfg.DBName = "tcp", u.Host, strings.Trim(u.Path, "/")
+	dsn := cfg.FormatDSN()
+	if u.RawQuery != "" {
+		dsn += "?" + u.RawQuery
+	}
+	if cfg, err = mysql.ParseDSN(dsn); err != nil {
+		return nil, fmt.Errorf("the database's URL: %w", err)
+	}
+	cfg.ParseTime, cfg.Loc, cfg.InterpolateParams = true, time.UTC, true
+	if cfg.Params == nil {
+		cfg.Params = map[string]string{}
+	}
+	cfg.Params["time_zone"] = "'+00:00'"
+	cfg.Params["transaction_isolation"] = "'READ-COMMITTED'"
+	return cfg, nil
+}
+
+// migrate runs the steps the database hasn't had, in order, with
+// schema_version counting each once it's done. Instances starting at once
+// take turns: each holds a lock of MySQL's, GET_LOCK's, as long as it
+// runs them, on one connection. A step that fails does nothing, but a
+// crash in the instant between a step and its count leaves the step done
+// and uncounted, which the next start can't tell from one that never ran:
+// schema_version's running says which it was, and the start stops, for
+// someone to look, rather than guess. A database from a newer build of
+// the app, as after a deploy is rolled back, is left as it is.
+func migrate(ctx context.Context, db *sql.DB) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	// The lock is the server's, by name, so the name has the database's.
+	const lock = "LEFT(CONCAT('schema_version ', DATABASE()), 64)"
+	var got int
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK("+lock+", -1)").Scan(&got); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.WithoutCancel(ctx), "DO RELEASE_LOCK("+lock+")")
+	if _, err := conn.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_version (version INT NOT NULL, running INT)"); err != nil {
+		return err
+	}
+	var version int
+	var running sql.NullInt64
+	err = conn.QueryRowContext(ctx, "SELECT version, running FROM schema_version").Scan(&version, &running)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = conn.ExecContext(ctx, "INSERT INTO schema_version (version) VALUES (0)")
+	}
+	if err != nil {
+		return err
+	}
+	if running.Valid {
+		return fmt.Errorf("migration %d was under way when the app stopped, and may have run or not: see which, then set schema_version's version to %[1]d if it ran, and its running to NULL", running.Int64)
+	}
+	for ; version < len(migrations); version++ {
+		if _, err := conn.ExecContext(ctx, "UPDATE schema_version SET running = ?", version+1); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, migrations[version]); err != nil {
+			conn.ExecContext(ctx, "UPDATE schema_version SET running = NULL")
+			return fmt.Errorf("migration %d: %w", version+1, err)
+		}
+		if _, err := conn.ExecContext(ctx, "UPDATE schema_version SET version = ?, running = NULL", version+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// taken says whether err is a write that a unique index turned away, as
+// for an email that has an account already: MySQL's error 1062. The
+// transaction it was in goes on without it.
+func taken(err error) bool {
+	var myErr *mysql.MySQLError
+	return errors.As(err, &myErr) && myErr.Number == 1062
+}

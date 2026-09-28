@@ -1,0 +1,147 @@
+package main
+
+import (
+	"cmp"
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// testServer is the Postgres the tests make their databases on: the one
+// DB_URL names, or else compose.yaml's, which `docker compose up -d`
+// starts. With none, every test fails, saying so: skipped, they would
+// pass with nothing tested.
+var testServer = sync.OnceValues(func() (*server, error) {
+	u, err := url.Parse(cmp.Or(os.Getenv("DB_URL"), "[[ .DevURL ]]"))
+	if err != nil {
+		return nil, fmt.Errorf("DB_URL isn't a URL: %w", err)
+	}
+	db, err := sql.Open("pgx", u.String())
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("the tests make their databases on a Postgres, and couldn't connect to the one at %s: start compose.yaml's with `docker compose up -d`, or name another with DB_URL: %w", u.Redacted(), err)
+	}
+	return &server{url: u, db: db}, nil
+})
+
+// server is a Postgres the tests make databases on, through db, a
+// connection to the database its url names.
+type server struct {
+	url *url.URL
+	db  *sql.DB
+}
+
+// testDB is a database of the test's own, with its tables made.
+func testDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := openDB(newTestDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// newTestDatabase makes an empty database for the test alone, which is
+// dropped once it's over, and returns its URL.
+func newTestDatabase(t *testing.T) string {
+	t.Helper()
+	s, err := testServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "[[ .DBName ]]_test_" + strings.ToLower(rand.Text()[:8])
+	if _, err := s.db.Exec("CREATE DATABASE " + name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := s.db.Exec("DROP DATABASE " + name + " WITH (FORCE)"); err != nil {
+			t.Errorf("dropping the test's database: %v", err)
+		}
+	})
+	u := *s.url
+	u.Path = "/" + name
+	return u.String()
+}
+
+// jobsDown has the jobs table turn every new job away, as a database can,
+// while the queue's claims go on.
+func jobsDown(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.Exec(`
+		CREATE FUNCTION jobs_down() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'no room for the job'; END $$ LANGUAGE plpgsql;
+		CREATE TRIGGER jobs_down BEFORE INSERT ON jobs FOR EACH ROW EXECUTE FUNCTION jobs_down()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// failedDaysAgo has the job with id have failed days ago, by the
+// database's clock, as prune reads it.
+func failedDaysAgo(t *testing.T, db *sql.DB, id string, days int) {
+	t.Helper()
+	if _, err := db.Exec("UPDATE jobs SET failed_at = now() - make_interval(days => $1) WHERE id = $2", days, jobID(id)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheMigrationsRunOnceAndLeaveANewerDatabaseAlone(t *testing.T) {
+	u := newTestDatabase(t)
+	for range 2 {
+		db, err := openDB(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var version int
+		db.QueryRow("SELECT version FROM schema_version").Scan(&version)
+		db.Close()
+		if version != len(migrations) {
+			t.Fatalf("schema_version %d, want %d", version, len(migrations))
+		}
+	}
+	db, _ := openDB(u)
+	db.Exec("UPDATE schema_version SET version = 1000")
+	db.Close()
+	if db, err := openDB(u); err != nil {
+		t.Errorf("a database from a newer build: %v", err)
+	} else {
+		db.Close()
+	}
+}
+
+func TestInstancesStartingAtOnceTakeTurnsAtTheMigrations(t *testing.T) {
+	u := newTestDatabase(t)
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			db, err := openDB(u)
+			if err != nil {
+				t.Errorf("an instance starting beside the others: %v", err)
+				return
+			}
+			db.Close()
+		})
+	}
+	wg.Wait()
+	db, err := openDB(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	if db.QueryRow("SELECT version FROM schema_version").Scan(&version); version != len(migrations) {
+		t.Errorf("schema_version %d, want %d", version, len(migrations))
+	}
+}
