@@ -93,12 +93,15 @@ app  │   From: (nobody)
 app  │   To: ann@example.com
 app  │   Subject: Verify your email for blog
 app  │   ...
-app  │   http://127.0.0.1:8080/verify-email/1/tlz8g9.TVcaDFHYjwXK12bVYHJQCw
+app  │   http://localhost:8080/verify-email/1/tlz8g9.TVcaDFHYjwXK12bVYHJQCw
 ```
 
 A reset link comes the same way. To turn two-factor logins on, go to
 Settings, then Security, and scan the QR code with an authenticator app on
-a phone. The database is `app.db`, or wherever `DB_PATH` says, and
+a phone; to add a passkey, "Add a passkey" there, and the browser offers
+the laptop's, the phone's, or a password manager. Passkeys work at
+`http://localhost:8080`, where `tug dev` shows the app: browsers make them
+for a domain, not an IP address such as `127.0.0.1`. The database is `app.db`, or wherever `DB_PATH` says, and
 `.gitignore` leaves it out.
 
 ## How it works
@@ -341,6 +344,42 @@ backup, doesn't give away the second factor along with the first. After
 `APP_KEY` changes, with the old key in `APP_PREVIOUS_KEYS`, `newApp` seals
 every user's again with the new one as the app starts (`resealTwoFactor`),
 so the old key can go without taking anyone's second factor with it.
+
+### Passkeys
+
+A passkey logs in with no email and no password: the user's phone, laptop
+or password manager keeps it, and unlocks it with their PIN, fingerprint
+or face. That's two factors, the device and what unlocks it, so a login
+with a passkey asks for no code from the phone, and counts as the
+password typed for `passwordConfirmed`. The handlers are in `passkeys.go`,
+on `auth.Passkeys`, which checks what the browser answers.
+
+- **Adding one** is on the security page, behind `passwordConfirmed`: a
+  name for it, then the browser asks where to keep it. The page fetches
+  the options, `POST /settings/passkeys/options`, which the user's first
+  passkey makes a handle for, a random one the authenticator keeps, never
+  their ID or email; the browser makes the passkey, and the page posts its
+  answer to `POST /settings/passkeys`, which keeps it in the `passkeys`
+  table, and mails the user, "A passkey was added to your account", as a
+  new way in is one its owner should hear of. An account has ten at most:
+  confirming it's the user with one keeps the IDs of all of theirs in the
+  session, which has to fit in its cookie.
+- **Logging in with one** is the login page's "Log in with a passkey", and
+  the email field's autofill, which offers the user's passkeys as it's
+  focused, in the browsers that do: `autocomplete="username webauthn"`,
+  and a request that waits in the background. The passkey says whose
+  login it is. Five tries a minute from an address, as with passwords;
+  "Remember me" counts too.
+- **Confirming it's them** takes a passkey as well as the password: the
+  page that asks has "Use a passkey", for a user who has one.
+- **Removing one** is its bin on the security page. Deleting the account
+  deletes its passkeys.
+
+The browser's side is `resources/js/lib/passkeys.ts`: the options, as
+JSON, into what `navigator.credentials` takes, and its answer back into
+JSON. A passkey is for the site's domain, from `APP_URL`, or in
+development without it, from the address the request came to, as the
+links in mail are.
 
 ### Asking for the password again
 
@@ -661,6 +700,55 @@ id, ok := auth.TwoFactorPending(s) // on the page that asks for the code
 the session isn't logged in, and keeps the ID for `TwoFactorPending` for
 ten minutes. `Login` ends the wait, once the code checks out.
 
+### Passkeys
+
+```go
+site := &auth.Passkeys{RPID: "example.com", Origin: "https://example.com", Name: "Blog"}
+
+// Adding one: the options for navigator.credentials.create, as JSON...
+options, err := site.StartRegistration(s, auth.PasskeyUser{Handle: handle, Name: u.Email, DisplayName: u.Name}, kept)
+// ...and, from the next request, the browser's answer, as JSON.
+pk, err := site.FinishRegistration(s, answer) // keep pk with the user
+
+// Logging in: options for navigator.credentials.get, any passkey of the site's...
+options, err = site.StartLogin(s, nil)
+// ...and the answer, checked against the passkey the app has with its ID.
+pk, err = site.FinishLogin(s, answer, func(id []byte) (auth.Passkey, error) { ... })
+```
+
+`Passkeys` makes the options a browser needs to make a passkey, or log in
+with one, keeps their challenge in the session, and checks the answer,
+which comes back in the next request. It knows no users: the app keeps
+each passkey with its user, as `FinishRegistration` returns it, and after
+each login as `FinishLogin` returns it, with its new count.
+
+- **The options** ask for a passkey the authenticator keeps, so a login
+  needs no email, and unlocks each time, so a passkey is two factors on
+  its own. A new passkey's user `Handle` is `NewPasskeyHandle`'s random
+  bytes, the same for each of the user's passkeys.
+- **A challenge** is 32 random bytes, in the session, answered once,
+  rightly or not, within five minutes. `Login` forgets one it finds.
+- **An answer** has to be to the challenge, for the ceremony it was asked
+  for, from the site's `Origin` exactly, for its `RPID`, with the user
+  there and the device unlocked. A login's signature has to check out with
+  the passkey's key, the passkey has to be the user's the answer names,
+  and its count has to go on from the count kept: one that goes back has
+  been copied. A passkey that syncs, as a password manager's does, counts
+  nothing, and keeps 0.
+- **Keys** are ES256 on P-256, Ed25519, or RSA of 2048 bits or more, as
+  COSE keys; a point off its curve, or any other key, is refused. The
+  attestation, which says what made a passkey, isn't checked, as the
+  options ask for none: any make of authenticator will do.
+- **CBOR**, which an authenticator's data is in, is read by a small, strict
+  reader of what WebAuthn writes, fuzzed so that no answer can crash it.
+
+Package `auth/passkeytest` is a passkey authenticator in software, for
+tests: `passkeytest.New(origin)` makes one, whose `Create` and `Get`
+answer the options as a browser does, with real keys and real
+signatures. `Clone` makes a copy, which a site that checks counts turns
+away; `Synced`, `Unverified`, `Alg` and `Origin` make the others a test
+needs.
+
 ### Throttle
 
 ```go
@@ -776,7 +864,8 @@ it in. `oldLogin` returns one logged in long ago, with no password typed
 since, made with `Client.Session` and a `session.Store` with the test's
 key. The shared `auth.user` reads into the app's own `User`, with
 `tugtest.Prop[*User](r, "auth.user")`, and a page's props into its own
-struct, `tugtest.Props(r, Security)`.
+struct, `tugtest.Props(r, Security)`. `passkeys_test.go` adds passkeys and
+logs in with them from a `passkeytest.Authenticator`, as a phone would.
 
 ## Before going live
 
@@ -839,7 +928,10 @@ struct, `tugtest.Props(r, Security)`.
 
 ### What the starter leaves out
 
-- **Passkeys**: logging in with WebAuthn, as Laravel's starter kit has.
+- **Which make of authenticator** a passkey is on, which checking its
+  attestation would say, for a site that takes only some.
+- **Accounts with a passkey and no password**: registering takes one, and
+  passkeys come after.
 - **A list of the sessions logged in**, to end one: logins live in
   cookies, so there's nothing to list. A new password ends them all but
   this browser's.

@@ -111,6 +111,9 @@ type SecurityProps struct {
 	// partial reload that asks for them, when the user wants to see them.
 	[[- /* Two brackets open tug new's placeholders, so a placeholder writes them. */]]
 	RecoveryCodes inertia.OptionalProp[[ "[[" ]]]string] `json:"recoveryCodes"`
+
+	// Passkeys are the user's passkeys, which log in with no password.
+	Passkeys []Passkey `json:"passkeys"`
 }
 
 // TwoFactorSetup is what sets up an authenticator app.
@@ -120,8 +123,13 @@ type TwoFactorSetup struct {
 }
 
 func (a *app) securityPage(c *tug.Ctx, user *User) error {
+	passkeys, _, err := a.passkeys.of(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
 	props := SecurityProps{
-		User: *user,
+		User:     *user,
+		Passkeys: passkeys,
 		RecoveryCodes: inertia.Optional(func() ([]string, error) {
 			return a.openCodes(user.RecoveryCodes)
 		}),

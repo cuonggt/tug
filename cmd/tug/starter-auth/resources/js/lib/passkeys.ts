@@ -1,0 +1,114 @@
+import { router } from '@inertiajs/react'
+
+// Passkeys in the browser. The server's options come as JSON, with
+// WebAuthn's bytes in base64url, which navigator.credentials takes as
+// bytes; its answers go back to the server as JSON the same way. The
+// server checks them: see passkeys.go. This does its own base64url, rather
+// than lean on the newest browsers' PublicKeyCredential JSON helpers.
+
+// Json is the options, and an answer: JSON with base64url for bytes.
+export type Json = Record<string, any>
+
+function bytes(s: string): ArrayBuffer {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/')
+  const binary = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0)).buffer
+}
+
+function base64url(b: ArrayBuffer): string {
+  let binary = ''
+  for (const c of new Uint8Array(b)) binary += String.fromCharCode(c)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+// passkeysWork says whether the browser has passkeys. It's false on the
+// server, so a page shows what needs one once it's in the browser.
+export function passkeysWork(): boolean {
+  return typeof window !== 'undefined' && 'PublicKeyCredential' in window
+}
+
+// autofillWorks says whether the browser offers passkeys in the autofill
+// of a field marked autocomplete="username webauthn".
+export async function autofillWorks(): Promise<boolean> {
+  return passkeysWork() && (await PublicKeyCredential.isConditionalMediationAvailable?.()) === true
+}
+
+// Refused is the server saying no to a passkey's options, with why, which
+// is for the user to read, as "An account has 10 passkeys at most".
+export class Refused extends Error {}
+
+// optionsFrom asks the server for a passkey's options. A server that wants
+// the password confirmed first sends the browser there instead, and null
+// comes back.
+export async function optionsFrom(url: string): Promise<Json | null> {
+  const res = await fetch(url, { method: 'POST', headers: { Accept: 'application/json' } })
+  if (res.redirected) {
+    router.visit(res.url)
+    return null
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Refused(body?.message ?? `The server answered ${res.status}: try again.`)
+  }
+  return res.json()
+}
+
+// createPasskey has the browser make a passkey, as the options say, and
+// returns its answer.
+export async function createPasskey(options: Json): Promise<Json> {
+  const credential = (await navigator.credentials.create({
+    publicKey: {
+      ...options,
+      challenge: bytes(options.challenge),
+      user: { ...options.user, id: bytes(options.user.id) },
+      excludeCredentials: options.excludeCredentials?.map((c: Json) => ({ ...c, id: bytes(c.id) })),
+    } as PublicKeyCredentialCreationOptions,
+  })) as PublicKeyCredential
+  const response = credential.response as AuthenticatorAttestationResponse
+  return {
+    id: credential.id,
+    rawId: base64url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: base64url(response.clientDataJSON),
+      attestationObject: base64url(response.attestationObject),
+      transports: response.getTransports?.() ?? [],
+    },
+    clientExtensionResults: credential.getClientExtensionResults(),
+    authenticatorAttachment: credential.authenticatorAttachment,
+  }
+}
+
+// getPasskey has the browser log in with a passkey the options allow, and
+// returns its answer. With autofill, it waits instead for the user to pick
+// a passkey from the email field's autofill, until autofill is aborted.
+export async function getPasskey(options: Json, autofill?: AbortSignal): Promise<Json> {
+  const credential = (await navigator.credentials.get({
+    publicKey: {
+      ...options,
+      challenge: bytes(options.challenge),
+      allowCredentials: options.allowCredentials?.map((c: Json) => ({ ...c, id: bytes(c.id) })),
+    } as PublicKeyCredentialRequestOptions,
+    ...(autofill && { mediation: 'conditional' as CredentialMediationRequirement, signal: autofill }),
+  })) as PublicKeyCredential
+  const response = credential.response as AuthenticatorAssertionResponse
+  return {
+    id: credential.id,
+    rawId: base64url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: base64url(response.clientDataJSON),
+      authenticatorData: base64url(response.authenticatorData),
+      signature: base64url(response.signature),
+      userHandle: response.userHandle ? base64url(response.userHandle) : null,
+    },
+    clientExtensionResults: credential.getClientExtensionResults(),
+    authenticatorAttachment: credential.authenticatorAttachment,
+  }
+}
+
+// dismissed says whether err is the user closing the browser's prompt, or
+// the page stopping it, which isn't a failure to show.
+export function dismissed(err: unknown): boolean {
+  return err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'AbortError')
+}

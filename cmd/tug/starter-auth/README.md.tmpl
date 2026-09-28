@@ -3,11 +3,12 @@
 A [tug](https://github.com/cuonggt/tug) app: Go handlers render React pages
 through Inertia, with no API in between. People register and verify their
 email, log in, with a code from an authenticator app too if they turn that
-on, reset a forgotten password by email, and change their profile,
-password and appearance in their settings.
+on, or with a passkey and no password, reset a forgotten password by
+email, and change their profile, password and appearance in their
+settings.
 
 ```sh
-tug dev      # run it on http://127.0.0.1:8080, rebuilt and reloaded as it changes
+tug dev      # run it on http://localhost:8080, rebuilt and reloaded as it changes
 tug gen      # write the TypeScript of the pages' props and the routes
 tug build    # build it into one binary, frontend included
 go test ./...
@@ -21,8 +22,9 @@ go test ./...
   route for users is wrapped in `usersOnly`, whose handler is handed the
   user, and in `verified` or `passwordConfirmed` for what needs them.
 - `verify.go`: verifying an email by a mailed link. `twofactor.go`:
-  two-factor logins. `settings.go`: the settings pages. `mail.go`: the
-  mail, in plain text and HTML.
+  two-factor logins. `passkeys.go`: passkeys, which browsers make at
+  `localhost` in development, not at an IP address. `settings.go`: the
+  settings pages. `mail.go`: the mail, in plain text and HTML.
 - `users.go`: the users, in SQLite (`app.db`, or `DB_PATH`), through
   `database/sql`, and the migrations that make and change its tables.
 - `jobs.go`: the background jobs, in the same database, for tug's package

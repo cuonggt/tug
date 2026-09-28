@@ -28,7 +28,9 @@ Runs the app for development: Vite's dev server, which reloads the
 frontend as it changes, and the Go server, which tug rebuilds and restarts
 when a Go file, go.mod or a template changes, writing the TypeScript types
 again and reloading the browser. The app's .env is read first, and the Go
-server listens on 127.0.0.1:8080 unless ADDR or PORT say otherwise.
+server listens on 127.0.0.1:8080 unless ADDR or PORT say otherwise, and is
+at http://localhost:8080, where browsers make passkeys, as they don't for
+an IP address.
 `)
 	}
 	if err := flags.Parse(args); err != nil {
@@ -94,7 +96,7 @@ server listens on 127.0.0.1:8080 unless ADDR or PORT say otherwise.
 			if app, err = startProc(env, appOut, bin); err != nil {
 				say("the app didn't start: %v", err)
 			} else if listening(addr, app, 10*time.Second) {
-				say("serving http://%s, built in %v", addr, time.Since(began).Round(time.Millisecond))
+				say("serving http://%s, built in %v", shown(addr), time.Since(began).Round(time.Millisecond))
 				reloadBrowser()
 			}
 		}
@@ -152,6 +154,16 @@ func devAddr(env []string, say func(string, ...any)) (string, error) {
 		}
 	}
 	return "", errors.New("ports 8080 to 8099 are all taken: set ADDR to one that isn't")
+}
+
+// shown is where to open the app listening on addr: localhost, for
+// 127.0.0.1, as browsers make passkeys for a domain and not for an IP
+// address, and localhost is one.
+func shown(addr string) string {
+	if host, port, err := net.SplitHostPort(addr); err == nil && host == "127.0.0.1" {
+		return net.JoinHostPort("localhost", port)
+	}
+	return addr
 }
 
 // free reports whether nothing listens on addr yet.

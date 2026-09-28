@@ -18,6 +18,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M10 | Server-side rendering      | done   |
 | M11 | Testing                    | done   |
 | M12 | Time zones and unique jobs | done   |
+| M13 | Passkeys                   | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -634,6 +635,67 @@ Choices made on the way:
   own `jobs.go`, from v0.6.0, still compiles.
 - Two runs of one value at once, and a push that moves a waiting job
   later, are left for later.
+
+## M13 · Passkeys — done
+
+Logging in with a passkey, which a phone, a laptop or a password manager
+keeps, and unlocks with a PIN, a fingerprint or a face: what the auth
+starter still lacked of Laravel's kit, left out of M7 as a lot of code
+where a slip is a security hole.
+
+- `auth.Passkeys`: WebAuthn, on the standard library. `StartRegistration`
+  and `StartLogin` make the options of the browser's `navigator.credentials`,
+  as JSON, and keep their challenge in the session; `FinishRegistration`
+  and `FinishLogin` check the browser's answer: the challenge, answered
+  once within five minutes, the site's origin and domain, the user there
+  and the device unlocked, the signature, and a count that goes on. Keys
+  are ES256, Ed25519 and RSA, as COSE keys, in CBOR, which a small, strict
+  reader reads, fuzzed.
+- `auth/passkeytest`, a passkey authenticator in software, for tests: real
+  keys and real signatures, a `Clone` whose count goes back, and one that
+  syncs, one the user doesn't unlock, and one on another origin.
+- The auth starter: passkeys added, listed and removed on the security
+  page; a login with one, from a button or the email field's autofill,
+  with no email or password, which asks for no code from the phone; the
+  password confirmed with one; and a mail when one is added. A `passkeys`
+  table, and a random handle for each user.
+- `tug dev` shows the app at `http://localhost`, where browsers make
+  passkeys, as they don't for an IP address; it listens on 127.0.0.1 as it
+  did.
+
+Choices made on the way:
+
+- A passkey stands for the password, not for a second factor after it:
+  it's two factors on its own, the device and what unlocks it, and the
+  options ask for it unlocked each time, so its login skips the code from
+  the phone, and confirms the password too.
+- WebAuthn is tug's own, on the standard library: `crypto/ecdsa`,
+  `crypto/ed25519` and `crypto/rsa` check the signatures, and CBOR is read
+  only as far as WebAuthn writes it, definite lengths and no tags or
+  floats, rather than by a library that reads all of it. A general WebAuthn
+  library would be the largest dependency tug has.
+- Attestation isn't checked: the options ask for none, as most sites do,
+  and an answer's attestation, whatever its format, is left alone. Which
+  make of authenticator a user has is theirs to choose.
+- A login's answer names its passkey, and the user by the handle kept with
+  it: the login asks for no email, so nothing tells whether an email has
+  an account. The handle is random, and never the user's ID or email, as
+  the authenticator keeps it where anyone who has the device can read it.
+- A passkey's count going back fails its login, as the passkey has been
+  copied. A passkey that syncs counts nothing, and keeps 0, which is let
+  be.
+- The browser's side does its own base64url, rather than lean on the
+  newest browsers' `PublicKeyCredential` JSON helpers.
+- A new passkey sends a mail: it's a way into the account that lasts, and
+  its owner should hear of one they didn't add.
+- An account has ten passkeys at most: confirming with one allows only the
+  user's own, whose IDs wait in the session, which has to fit in a cookie
+  of about 4 KB.
+- The site is `APP_URL`'s, or in development the request's, as the links
+  in mail are, so passkeys made at `http://localhost:8080` work there.
+- Tested end to end in Chrome, with its virtual authenticator standing in
+  for a phone: adding a passkey, logging in with the autofill and with
+  the button, and confirming with it.
 
 ## Decisions
 

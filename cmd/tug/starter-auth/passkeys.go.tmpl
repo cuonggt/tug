@@ -1,0 +1,378 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/validate"
+)
+
+// Passkeys: a user adds them in their security settings, and logs in with
+// one, with no email or password, or confirms it's them with one. A
+// passkey is two factors on its own, the device and the PIN, fingerprint
+// or face that unlocks it, so its login asks for no code from the phone.
+// Package auth checks what the browser answers; this file keeps the
+// passkeys, in the passkeys table, and says whose each is.
+
+// Passkey is one of a user's passkeys, as their security page lists it.
+type Passkey struct {
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Synced     bool       `json:"synced"` // by a password manager, to the user's other devices
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"` // null until it logs in
+}
+
+// maxPasskeys is how many passkeys an account can have: confirming it's
+// the user with one keeps the IDs of all of theirs in the session, which
+// has to fit in its cookie.
+const maxPasskeys = 10
+
+// tooManyPasskeys is what an account with maxPasskeys is told.
+var tooManyPasskeys = "An account has " + strconv.Itoa(maxPasskeys) + " passkeys at most: remove one to add another."
+
+// site is the site passkeys are made for: APP_URL's, or in development,
+// without it, the address the request came to, as for the links in mail.
+// Browsers make passkeys for a domain, not an IP address: in development,
+// the app is at localhost.
+func (a *app) site(c *tug.Ctx) *auth.Passkeys {
+	u, _ := url.Parse(a.base(c))
+	return &auth.Passkeys{RPID: u.Hostname(), Origin: u.Scheme + "://" + u.Host, Name: appName}
+}
+
+// newPasskeyOptions starts a new passkey for the user: the options for the
+// browser, as JSON. Their first passkey makes the handle all of theirs
+// name them by.
+func (a *app) newPasskeyOptions(c *tug.Ctx, user *User) error {
+	handle, err := a.users.passkeyHandle(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
+	_, kept, err := a.passkeys.of(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
+	if len(kept) >= maxPasskeys {
+		return tug.NewHTTPError(http.StatusUnprocessableEntity, tooManyPasskeys)
+	}
+	var exclude [][]byte
+	for _, pk := range kept {
+		exclude = append(exclude, pk.ID)
+	}
+	options, err := a.site(c).StartRegistration(c.Session(), auth.PasskeyUser{Handle: handle, Name: user.Email, DisplayName: user.Name}, exclude)
+	if err != nil {
+		return err
+	}
+	return c.Blob(http.StatusOK, "application/json", options)
+}
+
+// NewPasskeyInput is what the form that adds a passkey sends: its name,
+// and the browser's answer, as it made it.
+type NewPasskeyInput struct {
+	Name       string          `json:"name" validate:"required,max=100"`
+	Credential json.RawMessage `json:"credential" validate:"required"`
+}
+
+// addPasskey keeps the passkey the browser made, and mails the user: a
+// passkey is a way into the account, which its owner should hear of.
+func (a *app) addPasskey(c *tug.Ctx, user *User) error {
+	var in NewPasskeyInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	handle, err := a.users.passkeyHandle(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
+	pk, err := a.site(c).FinishRegistration(c.Session(), in.Credential)
+	if err == nil && !bytes.Equal(pk.UserHandle, handle) {
+		err = errors.New("the passkey was made for another user")
+	}
+	if err != nil {
+		slog.WarnContext(c.Context(), "a passkey wasn't added", "user", user.ID, "err", err)
+		return validate.Errors{"passkey": "The passkey wasn't added: try again."}
+	}
+	listed, _, err := a.passkeys.of(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
+	if len(listed) >= maxPasskeys {
+		return validate.Errors{"passkey": tooManyPasskeys}
+	}
+	name := strings.TrimSpace(in.Name)
+	if err := a.passkeys.add(c.Context(), user.ID, name, pk); errors.Is(err, errPasskeyTaken) {
+		return validate.Errors{"passkey": "That passkey is on an account already."}
+	} else if err != nil {
+		return err
+	}
+	if err := a.passkeyMail.Push(c.Context(), PasskeyMail{User: user.ID, Name: name, Base: a.base(c)}); err != nil {
+		return err
+	}
+	c.Flash("success", "Passkey added: it logs you in with no password.")
+	return c.RedirectRoute("security.edit")
+}
+
+// removePasskey removes one of the user's passkeys.
+func (a *app) removePasskey(c *tug.Ctx, user *User) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return tug.NewHTTPError(http.StatusNotFound, "passkey not found")
+	}
+	removed, err := a.passkeys.remove(c.Context(), user.ID, id)
+	if err != nil {
+		return err
+	}
+	if !removed {
+		return tug.NewHTTPError(http.StatusNotFound, "passkey not found")
+	}
+	c.Flash("success", "Passkey removed.")
+	return c.RedirectRoute("security.edit")
+}
+
+// passkeyLoginOptions starts a login with a passkey: the options for the
+// browser, as JSON, which any of the site's passkeys will do for. The
+// passkey says whose login it is.
+func (a *app) passkeyLoginOptions(c *tug.Ctx) error {
+	options, err := a.site(c).StartLogin(c.Session(), nil)
+	if err != nil {
+		return err
+	}
+	return c.Blob(http.StatusOK, "application/json", options)
+}
+
+// PasskeyInput is what a login, or a confirmation, with a passkey sends:
+// the browser's answer, and for a login, whether to remember it.
+type PasskeyInput struct {
+	Credential json.RawMessage `json:"credential" validate:"required"`
+	Remember   bool            `json:"remember"`
+}
+
+// passkeyLogin logs in the user whose passkey answered: no email, no
+// password, and no code from their phone, which the passkey stands for.
+func (a *app) passkeyLogin(c *tug.Ctx) error {
+	var in PasskeyInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	// Five tries a minute from one address, as with passwords.
+	key := "passkey|" + clientIP(c.Request())
+	if wait := a.logins.Try(key); wait > 0 {
+		return validate.Errors{"passkey": tooMany(wait)}
+	}
+	var owner int64
+	pk, err := a.site(c).FinishLogin(c.Session(), in.Credential, func(id []byte) (auth.Passkey, error) {
+		var pk auth.Passkey
+		var err error
+		owner, pk, err = a.passkeys.byID(c.Context(), id)
+		return pk, err
+	})
+	var u *User
+	if err == nil {
+		u, err = a.users.byID(c.Context(), owner)
+	}
+	if err != nil {
+		slog.WarnContext(c.Context(), "a login with a passkey didn't work", "err", err)
+		return validate.Errors{"passkey": "That passkey didn't log you in: try again, or use your password."}
+	}
+	if err := a.passkeys.used(c.Context(), pk); err != nil {
+		return err
+	}
+	a.logins.Clear(key)
+	s := c.Session()
+	if in.Remember {
+		s.SetLifetime(rememberFor)
+	} else {
+		s.SetLifetime(0)
+	}
+	auth.Login(s, u.authID(), u.PasswordHash)
+	auth.SetPasswordConfirmed(s)
+	return toIntended(c)
+}
+
+// confirmPasskeyOptions starts confirming it's the user with one of their
+// passkeys, rather than their password: the options, as JSON, which only
+// their own passkeys do for.
+func (a *app) confirmPasskeyOptions(c *tug.Ctx, user *User) error {
+	_, kept, err := a.passkeys.of(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
+	if len(kept) == 0 {
+		return tug.NewHTTPError(http.StatusNotFound, "no passkeys to confirm with")
+	}
+	options, err := a.site(c).StartLogin(c.Session(), kept)
+	if err != nil {
+		return err
+	}
+	return c.Blob(http.StatusOK, "application/json", options)
+}
+
+// confirmWithPasskey confirms it's the user with one of their passkeys, as
+// typing their password does, and goes back where they were going.
+func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
+	var in PasskeyInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	key := user.authID()
+	if wait := a.passwords.Try(key); wait > 0 {
+		return validate.Errors{"passkey": tooMany(wait)}
+	}
+	pk, err := a.site(c).FinishLogin(c.Session(), in.Credential, func(id []byte) (auth.Passkey, error) {
+		owner, pk, err := a.passkeys.byID(c.Context(), id)
+		if err == nil && owner != user.ID {
+			err = errNoPasskey
+		}
+		return pk, err
+	})
+	if err != nil {
+		slog.WarnContext(c.Context(), "a confirmation with a passkey didn't work", "user", user.ID, "err", err)
+		return validate.Errors{"passkey": "That passkey didn't confirm it's you: try again, or type your password."}
+	}
+	if err := a.passkeys.used(c.Context(), pk); err != nil {
+		return err
+	}
+	a.passwords.Clear(key)
+	auth.SetPasswordConfirmed(c.Session())
+	return toIntended(c)
+}
+
+// PasskeyMail is the job that tells a user a passkey was added to their
+// account.
+type PasskeyMail struct {
+	User int64  `json:"user"`
+	Name string `json:"name"` // the passkey's
+	Base string `json:"base"` // the address the link starts with
+}
+
+// mailPasskey runs PasskeyMail jobs.
+func (a *app) mailPasskey(ctx context.Context, job PasskeyMail) error {
+	u, err := a.users.byID(ctx, job.User)
+	if errors.Is(err, errNoUser) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	link, err := a.link(job.Base, "security.edit")
+	if err != nil {
+		return err
+	}
+	return a.mailer.Send(ctx, message{
+		To:      u,
+		Subject: "A passkey was added to your " + appName + " account",
+		Intro:   "A passkey called “" + job.Name + "” was added to your account, and logs in with no password.",
+		Action:  "See your passkeys",
+		URL:     link,
+		Outro:   "If that wasn't you, remove it there, and change your password: someone else has been in your account.",
+	}.mail())
+}
+
+var (
+	errNoPasskey    = errors.New("no such passkey")
+	errPasskeyTaken = errors.New("the passkey is on an account already")
+)
+
+// passkeys are the users' passkeys, in the database.
+type passkeys struct {
+	db *sql.DB
+}
+
+// of returns a user's passkeys, as their page lists them and as package
+// auth checks them.
+func (ps *passkeys) of(ctx context.Context, userID int64) ([]Passkey, []auth.Passkey, error) {
+	rows, err := ps.db.QueryContext(ctx, `
+		SELECT p.id, p.name, p.backed_up, p.created_at, p.last_used_at, p.credential_id, p.public_key, p.sign_count, p.transports, u.passkey_handle
+		FROM passkeys p JOIN users u ON u.id = p.user_id
+		WHERE p.user_id = ? ORDER BY p.id`, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	listed := []Passkey{}
+	var kept []auth.Passkey
+	for rows.Next() {
+		var l Passkey
+		var pk auth.Passkey
+		var lastUsed sql.NullTime
+		var transports string
+		if err := rows.Scan(&l.ID, &l.Name, &l.Synced, &l.CreatedAt, &lastUsed, &pk.ID, &pk.PublicKey, &pk.SignCount, &transports, &pk.UserHandle); err != nil {
+			return nil, nil, err
+		}
+		if lastUsed.Valid {
+			l.LastUsedAt = &lastUsed.Time
+		}
+		pk.Transports, pk.BackedUp = splitTransports(transports), l.Synced
+		listed, kept = append(listed, l), append(kept, pk)
+	}
+	return listed, kept, rows.Err()
+}
+
+// byID returns the passkey with this credential ID, and whose it is, or
+// errNoPasskey.
+func (ps *passkeys) byID(ctx context.Context, id []byte) (int64, auth.Passkey, error) {
+	var owner int64
+	var transports string
+	pk := auth.Passkey{}
+	err := ps.db.QueryRowContext(ctx, `
+		SELECT p.user_id, p.credential_id, p.public_key, p.sign_count, p.transports, p.backed_up, u.passkey_handle
+		FROM passkeys p JOIN users u ON u.id = p.user_id
+		WHERE p.credential_id = ?`, id).Scan(&owner, &pk.ID, &pk.PublicKey, &pk.SignCount, &transports, &pk.BackedUp, &pk.UserHandle)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, auth.Passkey{}, errNoPasskey
+	}
+	pk.Transports = splitTransports(transports)
+	return owner, pk, err
+}
+
+// add keeps a user's new passkey, or returns errPasskeyTaken when its ID is
+// kept already, for anyone.
+func (ps *passkeys) add(ctx context.Context, userID int64, name string, pk auth.Passkey) error {
+	res, err := ps.db.ExecContext(ctx, `
+		INSERT INTO passkeys (user_id, credential_id, public_key, sign_count, transports, backed_up, name)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (credential_id) DO NOTHING`,
+		userID, pk.ID, pk.PublicKey, pk.SignCount, strings.Join(pk.Transports, ","), pk.BackedUp, name)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return errPasskeyTaken
+	}
+	return err
+}
+
+// used keeps a passkey's count, as its login left it, and when it was used.
+func (ps *passkeys) used(ctx context.Context, pk auth.Passkey) error {
+	_, err := ps.db.ExecContext(ctx, "UPDATE passkeys SET sign_count = ?, backed_up = ?, last_used_at = CURRENT_TIMESTAMP WHERE credential_id = ?",
+		pk.SignCount, pk.BackedUp, pk.ID)
+	return err
+}
+
+// remove removes one of a user's passkeys, and says whether there was one.
+func (ps *passkeys) remove(ctx context.Context, userID, id int64) (bool, error) {
+	res, err := ps.db.ExecContext(ctx, "DELETE FROM passkeys WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+func splitTransports(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}

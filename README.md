@@ -16,7 +16,7 @@ of it, and [docs/roadmap.md](docs/roadmap.md) has what's next.
 go install github.com/cuonggt/tug/cmd/tug@latest
 tug new blog                                        # a new app, in ./blog; tug new -auth blog for accounts
 cd blog
-tug dev                                             # http://127.0.0.1:8080, rebuilt and reloaded as it changes
+tug dev                                             # http://localhost:8080, rebuilt and reloaded as it changes
 ```
 
 ```go
@@ -127,14 +127,16 @@ func showPost(c *tug.Ctx) error {
   a redirect or not, and only that one.
 - **Accounts**: `tug new -auth` makes an app where people register and
   verify their email, log in, with a code from an authenticator app too
-  once they turn that on, reset a forgotten password by email, and change
-  their profile, password and appearance in settings, with the users in
-  SQLite and a frontend of Tailwind and shadcn/ui, as Laravel's React
-  starter kit has. Its handlers are the app's own code, on package `auth`,
-  which has the parts where a slip is a security hole: argon2id password
-  hashes, logins that end when the password changes, signed tokens for
-  reset and verification links, two-factor codes and recovery codes kept
-  encrypted, asking for the password again, and a throttle on guessing.
+  once they turn that on, or with a passkey and no password at all, reset
+  a forgotten password by email, and change their profile, password and
+  appearance in settings, with the users in SQLite and a frontend of
+  Tailwind and shadcn/ui, as Laravel's React starter kit has. Its handlers
+  are the app's own code, on package `auth`, which has the parts where a
+  slip is a security hole: argon2id password hashes, logins that end when
+  the password changes, signed tokens for reset and verification links,
+  two-factor codes and recovery codes kept encrypted, passkeys, WebAuthn's
+  checks on the standard library, asking for the password again, and a
+  throttle on guessing.
 - **Mail** (package `mail`): through an SMTP server, or in development
   written out where `tug dev` shows it, links and all.
 - **Background jobs** (package `queue`): work a request starts and doesn't

@@ -101,6 +101,18 @@ func TestDevTakesTheNextPortWhenItsOwnIsTaken(t *testing.T) {
 	}
 }
 
+func TestDevShowsTheAppAtLocalhost(t *testing.T) {
+	for addr, want := range map[string]string{
+		"127.0.0.1:8080": "localhost:8080",
+		"0.0.0.0:3000":   "0.0.0.0:3000",
+		"[::1]:8080":     "[::1]:8080",
+	} {
+		if got := shown(addr); got != want {
+			t.Errorf("%s is shown as %s, want %s", addr, got, want)
+		}
+	}
+}
+
 func TestPrefixedWritesWholeLinesUnderALabel(t *testing.T) {
 	var b bytes.Buffer
 	p := &prefixed{mu: &sync.Mutex{}, w: &b, label: "app │"}

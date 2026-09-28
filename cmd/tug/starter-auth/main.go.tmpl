@@ -137,6 +137,8 @@ type app struct {
 	routes        *tug.App // for the links in mail, which jobs make with no request
 	verifyMail    *queue.Kind[VerifyMail]
 	resetMail     *queue.Kind[ResetMail]
+	passkeyMail   *queue.Kind[PasskeyMail]
+	passkeys      *passkeys
 	resets        *auth.Resets
 	verifications *auth.Verifications
 	twoFactor     *auth.TwoFactor
@@ -194,6 +196,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	}
 	a := &app{
 		users:         &users{db: e.DB},
+		passkeys:      &passkeys{db: e.DB},
 		mailer:        e.Mailer,
 		url:           e.URL,
 		resets:        &auth.Resets{Keys: e.Keys},
@@ -205,11 +208,12 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		mails:         &auth.Throttle{Max: 1, Window: time.Minute},
 		resetAsks:     &auth.Throttle{Max: 5, Window: time.Minute},
 	}
-	// The mail goes by jobs, which make each mail as it goes: in verify.go
-	// and auth.go. Every night, a job deletes the jobs that failed for good
-	// over a month ago: jobs.go.
+	// The mail goes by jobs, which make each mail as it goes: in verify.go,
+	// auth.go and passkeys.go. Every night, a job deletes the jobs that
+	// failed for good over a month ago: jobs.go.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
+	a.passkeyMail = queue.Handle(e.Queue, "passkey-mail", a.mailPasskey)
 	queue.Handle(e.Queue, "prune-jobs", (&jobs{db: e.DB}).prune).Schedule(queue.Cron("@daily"), struct{}{})
 	if len(e.Keys) > 1 {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
@@ -246,6 +250,8 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Post("/register", a.guestsOnly(a.register)).Name("register.store")
 	app.Get("/login", a.guestsOnly(loginPage)).Name("login")
 	app.Post("/login", a.guestsOnly(a.login)).Name("login.store")
+	app.Post("/login/passkey/options", a.guestsOnly(a.passkeyLoginOptions)).Name("login.passkey.options")
+	app.Post("/login/passkey", a.guestsOnly(a.passkeyLogin)).Name("login.passkey")
 	app.Get("/two-factor-challenge", a.guestsOnly(twoFactorChallengePage)).Name("two-factor.login")
 	app.Post("/two-factor-challenge", a.guestsOnly(a.twoFactorChallenge)).Name("two-factor.login.store")
 	app.Post("/logout", a.usersOnly(logout)).Name("logout")
@@ -253,14 +259,17 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Post("/forgot-password", a.guestsOnly(a.forgotPassword)).Name("password.email")
 	app.Get("/reset-password/{token}", a.guestsOnly(resetPasswordPage)).Name("password.reset")
 	app.Post("/reset-password", a.guestsOnly(a.resetPassword)).Name("password.store")
-	app.Get("/confirm-password", a.usersOnly(confirmPasswordPage)).Name("password.confirm")
+	app.Get("/confirm-password", a.usersOnly(a.confirmPasswordPage)).Name("password.confirm")
 	app.Post("/confirm-password", a.usersOnly(a.confirmPassword)).Name("password.confirm.store")
+	app.Post("/confirm-password/passkey/options", a.usersOnly(a.confirmPasskeyOptions)).Name("password.confirm.passkey.options")
+	app.Post("/confirm-password/passkey", a.usersOnly(a.confirmWithPasskey)).Name("password.confirm.passkey")
 	app.Get("/verify-email", a.usersOnly(verifyEmailPage)).Name("verification.notice")
 	app.Post("/verify-email", a.usersOnly(a.resendVerification)).Name("verification.send")
 	app.Get("/verify-email/{id}/{token}", a.verifyEmail).Name("verification.verify")
 
-	// Settings: settings.go, and two-factor logins in twofactor.go. What
-	// could hand the account to someone else asks for the password again.
+	// Settings: settings.go, two-factor logins in twofactor.go, and passkeys
+	// in passkeys.go. What could hand the account to someone else asks for
+	// the password again.
 	app.Get("/settings", toProfile).Name("settings")
 	app.Get("/settings/profile", a.usersOnly(passwordConfirmed(profilePage))).Name("profile.edit")
 	app.Patch("/settings/profile", a.usersOnly(passwordConfirmed(a.updateProfile))).Name("profile.update")
@@ -271,6 +280,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Post("/settings/two-factor/confirm", a.usersOnly(verified(passwordConfirmed(a.confirmTwoFactor)))).Name("two-factor.confirm")
 	app.Delete("/settings/two-factor", a.usersOnly(verified(passwordConfirmed(a.stopTwoFactor)))).Name("two-factor.disable")
 	app.Post("/settings/two-factor/recovery-codes", a.usersOnly(verified(passwordConfirmed(a.newRecoveryCodes)))).Name("two-factor.recovery-codes")
+	app.Post("/settings/passkeys/options", a.usersOnly(verified(passwordConfirmed(a.newPasskeyOptions)))).Name("passkeys.options")
+	app.Post("/settings/passkeys", a.usersOnly(verified(passwordConfirmed(a.addPasskey)))).Name("passkeys.store")
+	app.Delete("/settings/passkeys/{id}", a.usersOnly(verified(passwordConfirmed(a.removePasskey)))).Name("passkeys.destroy")
 	app.Get("/settings/appearance", a.usersOnly(appearancePage)).Name("appearance.edit")
 	return app, nil
 }

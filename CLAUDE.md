@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React pages with props, with no API in between. It is built
 in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M12 are done, which is the HTTP core, Inertia
+and where it stands: M1 to M13 are done, which is the HTTP core, Inertia
 pages with Vite, forms and validation, the rest of the v3 protocol, the
 CLI, v0.1.0 (the auth starter and the guide), the auth starter made whole
 (v0.2.0): email verification, remember me, password confirmation,
@@ -14,8 +14,8 @@ background jobs (v0.3.0): package `queue`, which the auth starter sends
 its mail with, jobs on a schedule (v0.4.0), server-side rendering
 (v0.5.0): package `ssr`, with Node beside the app, and `tug new -ssr`,
 tests of an app's pages (v0.6.0): package `tugtest`, which the starters'
-tests use, and cron in time zones and unique jobs (v0.7.0), in package
-`queue`.
+tests use, cron in time zones and unique jobs (v0.7.0), in package
+`queue`, and passkeys: `auth.Passkeys`, and in the auth starter.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -148,8 +148,9 @@ dev server that isn't there: delete it.
 - `cmd/tug`: the CLI, on the stdlib flag package. `gen.go` builds the app
   into `.tug/app` and runs it with TUG_GEN; `dev.go` runs Vite and the app
   as processes in their own groups (`proc`, `proc_unix.go`), polls for
-  changes (`watch`, `snapshot`), and touches `.tug/reload` for the
-  starter's Vite plugin to reload the browser; `build.go`; `new.go`
+  changes (`watch`, `snapshot`), touches `.tug/reload` for the starter's
+  Vite plugin to reload the browser, and shows 127.0.0.1 as localhost
+  (`shown`), where browsers make passkeys; `build.go`; `new.go`
   writes `starter/`, and with `-auth` lays `starter-auth/` over it (its
   files replace the ones of the same name), with the `.tmpl` files filled
   in between `[[ ]]` (two brackets in Go, as `OptionalProp[[]string]`,
@@ -169,7 +170,11 @@ dev server that isn't there: delete it.
   server's, call. The auth starter's handlers are in `auth.go.tmpl` (who's
   logged in, and the wrappers `usersOnly`, `verified`,
   `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
-  `twofactor.go.tmpl` and `settings.go.tmpl`, its mail in `mail.go.tmpl`,
+  `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the
+  handlers of adding them, logging in and confirming with them, on
+  `auth.Passkeys`, whose site is `APP_URL`'s or the request's, as mail's
+  links are; the browser's side is `resources/js/lib/passkeys.ts`) and
+  `settings.go.tmpl`, its mail in `mail.go.tmpl`,
   and its users in SQLite (modernc.org/sqlite, pure Go), with migrations
   counted in `user_version`, in `users.go.tmpl`. Its jobs are in the same
   database: `jobs.go.tmpl` is a `queue.ScheduleStore` and a
@@ -202,7 +207,14 @@ dev server that isn't there: delete it.
   secrets and recovery codes sealed with AES-GCM under an HKDF key, and
   `Stale` for rotation. `throttle.go`: counts per key in a
   map, swept as it doubles; `Try` checks and counts under one lock, so
-  tries at the same moment can't all get in.
+  tries at the same moment can't all get in. `passkeys.go`: WebAuthn, the
+  options as JSON, the challenge in the session (`tug.auth.passkey`,
+  answered once within five minutes, which `Login` drops), and the checks
+  of an answer (`checkClientData`, `checkAuthData`, the signature, the
+  count); `cose.go`, the keys (ES256, Ed25519, RSA) and their signatures;
+  `cbor.go`, a strict reader of the CBOR WebAuthn writes, fuzzed.
+  `passkeytest`: an authenticator in software, for tests, with its own
+  CBOR writer.
 - `mail`: `Message`, `SMTP` on net/smtp (STARTTLS, TLS on 465, deadlines
   from the context), `Log`, which writes mail out, and `FromEnv`.
 - `ssr`: server-side rendering through Inertia's own SSR, with no import of

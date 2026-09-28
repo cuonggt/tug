@@ -135,7 +135,7 @@ var (
 	TwoFactorChallenge = tug.Page[NoProps]("Auth/TwoFactorChallenge")
 	ForgotPassword     = tug.Page[NoProps]("Auth/ForgotPassword")
 	ResetPassword      = tug.Page[ResetPasswordProps]("Auth/ResetPassword")
-	ConfirmPassword    = tug.Page[NoProps]("Auth/ConfirmPassword")
+	ConfirmPassword    = tug.Page[ConfirmPasswordProps]("Auth/ConfirmPassword")
 )
 
 func registerPage(c *tug.Ctx) error {
@@ -400,8 +400,19 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 	return c.RedirectRoute("dashboard")
 }
 
-func confirmPasswordPage(c *tug.Ctx, _ *User) error {
-	return ConfirmPassword.Render(c, NoProps{})
+// ConfirmPasswordProps are the props of the page that asks for the
+// password again: whether the user has passkeys, which confirm it's them
+// too.
+type ConfirmPasswordProps struct {
+	Passkeys bool `json:"passkeys"`
+}
+
+func (a *app) confirmPasswordPage(c *tug.Ctx, user *User) error {
+	listed, _, err := a.passkeys.of(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
+	return ConfirmPassword.Render(c, ConfirmPasswordProps{Passkeys: len(listed) > 0})
 }
 
 // ConfirmPasswordInput is what the page that asks for the password again

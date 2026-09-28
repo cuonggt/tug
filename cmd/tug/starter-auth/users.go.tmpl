@@ -79,6 +79,23 @@ var migrations = []string{
 	// key, one job can: jobs.go.
 	`ALTER TABLE jobs ADD COLUMN unique_key TEXT;
 	CREATE UNIQUE INDEX jobs_unique ON jobs (kind, unique_key) WHERE unique_key IS NOT NULL`,
+	// Each user's passkeys, and the random handle they name the user by,
+	// made with their first: passkeys.go.
+	`ALTER TABLE users ADD COLUMN passkey_handle BLOB;
+	CREATE UNIQUE INDEX users_passkey_handle ON users (passkey_handle) WHERE passkey_handle IS NOT NULL;
+	CREATE TABLE passkeys (
+		id            INTEGER PRIMARY KEY,
+		user_id       INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+		credential_id BLOB NOT NULL UNIQUE,
+		public_key    BLOB NOT NULL,
+		sign_count    INTEGER NOT NULL DEFAULT 0,
+		transports    TEXT NOT NULL DEFAULT '',
+		backed_up     INTEGER NOT NULL DEFAULT 0,
+		name          TEXT NOT NULL,
+		created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_used_at  DATETIME
+	);
+	CREATE INDEX passkeys_user ON passkeys (user_id)`,
 }
 
 // openDB opens the SQLite database at path, making it when it's not there,
@@ -210,6 +227,18 @@ func (us *users) setVerified(ctx context.Context, id int64, email string) error 
 		UPDATE users SET email_verified_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND email = ? AND email_verified_at IS NULL`, id, email)
 	return err
+}
+
+// passkeyHandle returns the handle a user's passkeys name them by: their
+// first passkey makes it, and the rest have the same.
+func (us *users) passkeyHandle(ctx context.Context, id int64) ([]byte, error) {
+	var handle []byte
+	err := us.db.QueryRowContext(ctx, "UPDATE users SET passkey_handle = coalesce(passkey_handle, ?) WHERE id = ? RETURNING passkey_handle",
+		auth.NewPasskeyHandle(), id).Scan(&handle)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errNoUser
+	}
+	return handle, err
 }
 
 // setPassword stores a user's new password hash.

@@ -170,7 +170,7 @@ Runs the app for development. It has no flags.
    app is, and reloads the browser:
 
    ```
-   tug  │ serving http://127.0.0.1:8080, built in 268ms
+   tug  │ serving http://localhost:8080, built in 268ms
    ```
 
 5. It waits for a change, and goes back to 4.
@@ -194,6 +194,10 @@ port up to 8099, as `php artisan serve` does:
 ```
 tug  │ 127.0.0.1:8080 is taken, so the app is on 127.0.0.1:8081
 ```
+
+It listens on 127.0.0.1 alone, so nothing outside the machine reaches it,
+and it's shown at `localhost`, as `http://localhost:8080`: browsers make
+passkeys for a domain, and not for an IP address.
 
 ### What it watches
 

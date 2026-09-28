@@ -72,10 +72,10 @@ tug dev
 ```
 
 ```
-tug  │ serving http://127.0.0.1:8080, built in 268ms
+tug  │ serving http://localhost:8080, built in 268ms
 ```
 
-Open http://127.0.0.1:8080. `tug dev` runs two servers and shows their
+Open http://localhost:8080. `tug dev` runs two servers and shows their
 output with its own, each line labeled `tug`, `app` or `vite`:
 
 - **Vite's dev server**, `npm run dev`, on `localhost:5173`, which serves
@@ -190,7 +190,7 @@ Save, and `tug dev` builds the app and writes its types again:
 ```
 tug  │ main.go changed
 tug  │ wrote resources/js/tug/pages.ts, resources/js/tug/routes.ts
-tug  │ serving http://127.0.0.1:8080, built in 844ms
+tug  │ serving http://localhost:8080, built in 844ms
 ```
 
 `pages.ts` now has the page's props, in TypeScript:

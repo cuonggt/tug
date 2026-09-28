@@ -17,6 +17,9 @@
 //   - TwoFactor has two-factor logins: the codes of authenticator apps,
 //     and recovery codes. StartTwoFactor and TwoFactorPending hold a login
 //     back until the second factor comes.
+//   - Passkeys logs users in with passkeys, WebAuthn's credentials: it
+//     makes the options a browser needs, and checks what it answers.
+//     Package passkeytest has an authenticator in software, for tests.
 //
 // Finding users, by ID or by email, is the app's own business: the auth
 // starter, tug new -auth, has a whole app made of these, with its users in
@@ -68,14 +71,15 @@ var now = time.Now
 // logs out every session that logged in with the old one.
 //
 // A login starts afresh: a password confirmed before it (see
-// PasswordConfirmed), or a login waiting for its second factor (see
-// StartTwoFactor), is forgotten.
+// PasswordConfirmed), a login waiting for its second factor (see
+// StartTwoFactor), and a passkey asked for (see Passkeys), are forgotten.
 func Login(s *session.Session, id, passwordHash string) {
 	if s == nil {
 		panic("auth: Login needs a session; set tug's Config.Session")
 	}
 	s.Delete(confirmedKey)
 	s.Delete(pendingKey)
+	s.Delete(passkeyKey)
 	s.Set(idKey, id)
 	s.Set(checkKey, fingerprint(passwordHash))
 }

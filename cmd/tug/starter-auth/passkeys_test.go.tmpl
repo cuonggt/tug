@@ -1,0 +1,215 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/cuonggt/tug/auth/passkeytest"
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// addPasskey adds a passkey from key to the account logged in to c, as its
+// owner does on their security page.
+func addPasskey(t *testing.T, c *tugtest.Client, key *passkeytest.Authenticator, name string) *tugtest.Response {
+	t.Helper()
+	options := c.Post("/settings/passkeys/options", nil)
+	if options.Code != http.StatusOK {
+		t.Fatalf("the options: %v", options)
+	}
+	answer, err := key.Create([]byte(options.Body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.Post("/settings/passkeys", map[string]any{"name": name, "credential": json.RawMessage(answer)})
+}
+
+// passkeyLogin logs in with a passkey from key, as the login page does.
+func passkeyLogin(t *testing.T, c *tugtest.Client, key *passkeytest.Authenticator) *tugtest.Response {
+	t.Helper()
+	c.Get("/login")
+	answer, err := key.Get([]byte(c.Post("/login/passkey/options", nil).Body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.Post("/login/passkey", map[string]any{"credential": json.RawMessage(answer)})
+}
+
+// annWithAPasskey is Ann, verified and logged in, with a passkey on her
+// phone, which is key.
+func annWithAPasskey(t *testing.T, app *testApp) (*tugtest.Client, *passkeytest.Authenticator) {
+	t.Helper()
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	key := passkeytest.New("https://app.example")
+	if r := addPasskey(t, c, key, "Ann's phone"); r.Location() != "/settings/security" {
+		t.Fatalf("adding a passkey: %v, errors %v", r, r.Follow().Errors())
+	}
+	return c, key
+}
+
+func TestAPasskeyLogsInWithNoEmailOrPassword(t *testing.T) {
+	app := newTestApp(t)
+	c, key := annWithAPasskey(t, app)
+	passkeys := tugtest.Props(c.Get("/settings/security"), Security).Passkeys
+	if len(passkeys) != 1 || passkeys[0].Name != "Ann's phone" || passkeys[0].Synced || passkeys[0].LastUsedAt != nil {
+		t.Errorf("the passkeys listed: %+v", passkeys)
+	}
+
+	phone := app.client()
+	if r := passkeyLogin(t, phone, key); r.Location() != "/dashboard" {
+		t.Fatalf("logging in: %v, errors %v", r, r.Follow().Errors())
+	}
+	if u := user(phone.Get("/dashboard")); u == nil || u.Name != "Ann" {
+		t.Errorf("logged in as %+v", u)
+	}
+	// A passkey is as good as the password: the settings don't ask for it.
+	if r := phone.Get("/settings/security"); r.Page.Component != "Settings/Security" {
+		t.Errorf("the settings, after a passkey: %v", r)
+	}
+	if used := tugtest.Props(c.Get("/settings/security"), Security).Passkeys[0].LastUsedAt; used == nil {
+		t.Error("the passkey isn't marked as used")
+	}
+}
+
+func TestAPasskeyLoginIsRememberedWhenAsked(t *testing.T) {
+	app := newTestApp(t)
+	_, key := annWithAPasskey(t, app)
+	phone := app.client()
+	answer, _ := key.Get([]byte(phone.Post("/login/passkey/options", nil).Body))
+	r := phone.Post("/login/passkey", map[string]any{"credential": json.RawMessage(answer), "remember": "on"})
+	if ck := r.Cookie("tug_session"); r.Location() != "/dashboard" || ck == nil || ck.MaxAge != 30*24*60*60 {
+		t.Errorf("%v, cookie %v", r, ck)
+	}
+}
+
+func TestAPasskeyLoginSkipsTheCodeFromThePhone(t *testing.T) {
+	app := newTestApp(t)
+	c, key := annWithAPasskey(t, app)
+	turnOnTwoFactor(t, app, c)
+	if r := passkeyLogin(t, app.client(), key); r.Location() != "/dashboard" {
+		t.Errorf("logging in with a passkey and two-factor logins on: %v", r)
+	}
+}
+
+func TestAddingAPasskeyMailsItsOwner(t *testing.T) {
+	app := newTestApp(t)
+	annWithAPasskey(t, app)
+	m := app.mail()
+	if m.To[0] != "ann@example.com" || !strings.HasPrefix(m.Subject, "A passkey was added") || !strings.Contains(m.Text, "Ann's phone") {
+		t.Fatalf("the mail to %v: %s\n%s", m.To, m.Subject, m.Text)
+	}
+	link(t, m, "/settings/security")
+}
+
+func TestAPasskeyNeedsAPasswordConfirmedToBeAdded(t *testing.T) {
+	app := newTestApp(t)
+	app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	if r := app.oldLogin("ann@example.com").Post("/settings/passkeys/options", nil); r.Location() != "/confirm-password" {
+		t.Errorf("the options, on an old login: %v", r)
+	}
+}
+
+func TestTheConfirmationPageTakesAPasskey(t *testing.T) {
+	app := newTestApp(t)
+	_, key := annWithAPasskey(t, app)
+	old := app.oldLogin("ann@example.com")
+	old.Get("/settings/security")
+	if page := tugtest.Props(old.Get("/confirm-password"), ConfirmPassword); !page.Passkeys {
+		t.Fatal("the page doesn't offer the passkey")
+	}
+	answer, err := key.Get([]byte(old.Post("/confirm-password/passkey/options", nil).Body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := old.Post("/confirm-password/passkey", map[string]any{"credential": json.RawMessage(answer)}); r.Location() != "/settings/security" {
+		t.Errorf("confirming with the passkey: %v, errors %v", r, r.Follow().Errors())
+	}
+}
+
+func TestARemovedPasskeyNoLongerLogsIn(t *testing.T) {
+	app := newTestApp(t)
+	c, key := annWithAPasskey(t, app)
+	id := tugtest.Props(c.Get("/settings/security"), Security).Passkeys[0].ID
+	if r := c.Delete("/settings/passkeys/"+strconv.FormatInt(id, 10), nil); r.Location() != "/settings/security" {
+		t.Fatalf("removing: %v", r)
+	}
+	if passkeys := tugtest.Props(c.Get("/settings/security"), Security).Passkeys; len(passkeys) != 0 {
+		t.Errorf("still listed: %+v", passkeys)
+	}
+	r := passkeyLogin(t, app.client(), key)
+	if errs := r.Follow().Errors(); r.Location() != "/login" || !strings.HasPrefix(errs["passkey"], "That passkey didn't log you in") {
+		t.Errorf("a removed passkey: %v, errors %v", r, errs)
+	}
+}
+
+func TestAPasskeyAnsweredForAnotherSiteDoesntLogIn(t *testing.T) {
+	app := newTestApp(t)
+	_, key := annWithAPasskey(t, app)
+	key.Origin = "https://app-example.evil" // a page that looks like the app, and isn't
+	if r := passkeyLogin(t, app.client(), key); r.Location() != "/login" {
+		t.Errorf("a login from another origin: %v", r)
+	}
+}
+
+func TestACopiedPasskeyIsTurnedAway(t *testing.T) {
+	app := newTestApp(t)
+	_, key := annWithAPasskey(t, app)
+	copied := key.Clone()
+	if r := passkeyLogin(t, app.client(), key); r.Location() != "/dashboard" {
+		t.Fatalf("the original: %v", r)
+	}
+	if r := passkeyLogin(t, app.client(), copied); r.Location() != "/login" {
+		t.Errorf("the copy, whose count went back: %v", r)
+	}
+}
+
+func TestDeletingTheAccountDeletesItsPasskeys(t *testing.T) {
+	app := newTestApp(t)
+	c, key := annWithAPasskey(t, app)
+	c.Delete("/settings/profile", map[string]any{"password": "correct horse"})
+	var n int
+	app.db.QueryRow("SELECT count(*) FROM passkeys").Scan(&n)
+	if n != 0 {
+		t.Errorf("%d passkeys outlived the account", n)
+	}
+	if r := passkeyLogin(t, app.client(), key); r.Location() != "/login" {
+		t.Errorf("logging in to the deleted account: %v", r)
+	}
+}
+
+func TestAnAccountHasTenPasskeysAtMost(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	for i := range 10 {
+		if r := addPasskey(t, c, passkeytest.New("https://app.example"), "Passkey "+strconv.Itoa(i)); r.Location() != "/settings/security" {
+			t.Fatalf("passkey %d: %v", i, r)
+		}
+	}
+	// As the page's fetch asks, which shows the message.
+	req := httptest.NewRequest("POST", "/settings/passkeys/options", nil)
+	req.Header.Set("Accept", "application/json")
+	if r := c.Do(req); r.Code != http.StatusUnprocessableEntity || !strings.Contains(r.Body, `"message":"An account has 10 passkeys at most`) {
+		t.Errorf("the eleventh's options: %v", r)
+	}
+}
+
+func TestAPasskeysKeyAndHandleNeverReachAPage(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	key := passkeytest.New("https://app.example")
+	options := c.Post("/settings/passkeys/options", nil)
+	var o struct{ User struct{ ID string } }
+	json.Unmarshal([]byte(options.Body), &o)
+	answer, _ := key.Create([]byte(options.Body))
+	var a struct{ ID string }
+	json.Unmarshal(answer, &a)
+	c.Post("/settings/passkeys", map[string]any{"name": "Ann's phone", "credential": json.RawMessage(answer)})
+	for _, page := range []string{"/dashboard", "/settings/security"} {
+		if r := c.Get(page); r.Code != http.StatusOK || strings.Contains(r.Body, a.ID) || strings.Contains(r.Body, o.User.ID) {
+			t.Errorf("%v: %s", r, r.Body)
+		}
+	}
+}
