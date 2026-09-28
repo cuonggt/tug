@@ -21,6 +21,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M13 | Passkeys                   | done   |
 | M14 | Vue and Svelte starters    | done   |
 | M15 | The queue, whole           | done   |
+| M16 | Files                      | next   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -915,6 +916,97 @@ Choices made on the way:
   a passkey whose mail can't be pushed leaves nothing written. A trigger
   turns the jobs table's inserts away, as a database can, while the
   queue's claims go on.
+
+## M16 · Files — next
+
+Uploads, from an Inertia form to where they're kept and back to the page:
+what nearly every app needs, and where tug stops halfway. `c.Bind` puts an
+uploaded file in a `*multipart.FileHeader` field, as Inertia's client
+sends a form with one, but there's nowhere to keep it, no link to serve it
+back by, public or private, nothing checks its size or its type, and a
+test can't send one. To be released as v0.11.0.
+
+- **Package `storage`.** A `Disk` keeps files by key: `Put` streams one
+  in from a reader, with its size and type, `Open` reads it back, `Delete`
+  removes it, and `URL` is a link to it, which for a private disk lasts
+  until an expiry. `storage.Local` is a directory, whose files the app
+  serves at a route of its own, and `storage.S3` any service that speaks
+  S3's API: AWS, Cloudflare R2, MinIO and the rest. `storage.FromEnv`
+  picks one by the variables Laravel's filesystem reads: `FILESYSTEM_DISK`,
+  and `AWS_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ENDPOINT` and the rest for
+  S3.
+- **Private files by signed links.** A private local disk's link is signed
+  as the links in mail are, with a key derived from the app's, over the
+  file and an expiry, and its route checks it; S3's are its own presigned
+  links. A public disk's link is its base URL and the key: a CDN's, or the
+  app's route.
+- **Checking uploads.** `validate` tags for a file's size and its type,
+  the type read from the file's first bytes, not from its name or from
+  what the browser says, such as
+  `validate:"required,file_max=2MB,file_type=image/png image/jpeg"`, with
+  messages as the other tags have: "photo must be at most 2 MB", "photo
+  must be a PNG or JPEG image".
+- **tugtest.** A body with a `tugtest.File` in it goes as multipart, as
+  Inertia's client sends one, with its other values as form fields, so a
+  test uploads as a browser does.
+- **The auth starter.** A profile photo: uploaded on the profile page, with
+  the upload's progress; kept on the app's disk, a directory beside its
+  database on the image's volume, or S3; shown in the user menu in place
+  of the initials; replaced, removed, and deleted with the account. In all
+  three frontends, and in the browser suite.
+- **The guide:** a page on files, for uploads, checks, disks, links and
+  tests, and Forms, Deployment and Accounts where they meet them.
+
+Choices, to settle before any code:
+
+- **S3 on the standard library.** Its signatures, SigV4, are a chain of
+  HMACs, and a disk needs four of its calls: an object's put, get and
+  delete, and a presigned link. An AWS SDK would be tug's largest
+  dependency by far. A put streams, signed as `UNSIGNED-PAYLOAD` over TLS,
+  so a file is neither read twice to hash it nor held in memory.
+- **A small Disk.** `Put`, `Open`, `Delete` and `URL`, where Laravel's has
+  lists, copies, moves and visibility besides: what an app keeps per
+  record, a user's photo or a post's attachment, it keeps by a key beside
+  the record. More can come as apps need it.
+- **Keys are the app's, never the upload's name.** A file is kept by a
+  random key the app makes, with the extension of the type it was checked
+  as, so a name such as `../../app.db` or `photo.html` means nothing; the
+  name the user gave is the record's, to show.
+- **Types by what the file is.** The check sniffs the file's first bytes,
+  as `http.DetectContentType` does, which knows PNG, JPEG, GIF, WebP and
+  PDF among others: the type the browser sends, and the name's extension,
+  are the user's to say.
+- **What's served can't act as the app.** A local disk's files go out with
+  the type they were checked as, `X-Content-Type-Options: nosniff`, and
+  anything but an image as an attachment, so an uploaded page, or an SVG
+  with a script in it, can't run on the app's origin. The starter's photos
+  are PNG, JPEG or WebP: an SVG is a document, not a photo.
+- **The starter's photos are private.** A page gets a link to the user's
+  photo signed for a day, made as it renders, where a public disk's link
+  would let anyone who ever saw it keep fetching it.
+- **No resizing.** The starter keeps a photo as sent, up to 2 MB, and the
+  page shows it at its size. Resizing well, and reading WebP, take
+  golang.org/x/image, a dependency for one starter's feature; an app that
+  wants thumbnails has room for them.
+- **Files and transactions.** A disk has none, so a handler puts the file
+  before the transaction that writes its key, and deletes it again if the
+  transaction fails; a file the record no longer names, as a replaced
+  photo, is deleted by a job pushed in the transaction that replaces it,
+  with M15's `In`, so it goes only once the new one is kept.
+- **Too big for its field, or for the app.** A file over its field's limit
+  is that field's error, back on the form as any other; a body over
+  `Config.BodyLimit`, 32 MiB unless set, is still a 413.
+- **Multipart as Inertia's client sends it.** `Bind` reads a multipart
+  body's values by the names it reads a form's by, with lists as `tags[]`
+  and booleans as Inertia's `1` and `0`; a nested object, sent as
+  `user[name]`, isn't read, so a form with a file keeps its fields flat,
+  as the starter's are.
+- **The tests.** `storage`'s own: `Local` on a temporary directory, SigV4
+  against AWS's published examples, with no network, and `S3` against
+  MinIO, which CI runs beside the tests, as the one way to know it works
+  with an S3 that isn't tug's own idea of one. The starter's photo, in its
+  Go tests with `tugtest.File`, and in the browser suite in all three
+  frontends.
 
 ## Decisions
 
