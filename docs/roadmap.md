@@ -825,7 +825,7 @@ value that never run at once; and the jobs that failed, listed and run
 again from the app's own binary. The first was a gap in what the starter
 promised, not a feature: it added a passkey, then pushed the mail that
 tells its owner, and a push that failed there left a way into the account
-that no one heard of.
+that no one heard of. Released as v0.10.0.
 
 - **In the app's transaction.** `Kind.In(store)` is the kind, pushing to a
   Store the app gives it, as the auth starter's `jobs.in(tx)`, its jobs

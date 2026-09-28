@@ -18,9 +18,9 @@ which the starters' tests use, cron in time zones and unique jobs
 (v0.7.0), in package `queue`, passkeys (v0.8.0): `auth.Passkeys`, and in
 the auth starter, Vue and Svelte starters (v0.9.0): `tug new -vue` and
 `-svelte`, and a browser suite that drives the auth starter in each, and
-the queue made whole: jobs pushed in the app's own transaction, a unique
-job at its latest push's time or one at a time, and the jobs that failed
-listed and run again by the auth starter's `jobs` command.
+the queue made whole (v0.10.0): jobs pushed in the app's own transaction,
+a unique job at its latest push's time or one at a time, and the jobs
+that failed listed and run again by the auth starter's `jobs` command.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
