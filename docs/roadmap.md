@@ -23,6 +23,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M15 | The queue, whole           | done   |
 | M16 | Files                      | done   |
 | M17 | Postgres and MySQL         | done   |
+| M18 | Throttles across instances | next   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -1180,6 +1181,115 @@ Choices made on the way:
   health check at `/up` pings it, as before.
 - **Flags:** `-postgres` and `-mysql`, as `-vue` and `-svelte` are: one at
   most, and only with `-auth`.
+
+## M18 · Throttles across instances — next
+
+`auth.Throttle` counts tries in memory: each instance of the app counts its
+own, and a restart forgets. With four instances, a login gets 20 tries a
+minute where it should get 5, and "Before going live" warns of it. M17
+made several instances on one database the way the starter runs past one
+machine, which leaves the throttles as the last of its state that isn't
+shared, and it's the state that slows guessing a password. And tug has no
+limit for a route, as Laravel's `throttle` middleware is. To be released
+as v0.13.0.
+
+- **A store for the counts.** `auth.Throttle` gets a `Store`, an
+  `auth.ThrottleStore`: where the counts are kept, such as a table in the
+  app's database, which every instance reads and writes. Without one, the
+  counts are in memory, as now. A store counts a try, and says how many
+  the key has had in its window and when the window ends, in one step, so
+  tries at once, from any of the instances, can't all get in under `Max`;
+  it reads a key's count without adding to it, for `Wait`, and forgets it,
+  for `Clear`.
+- **The auth starter's throttles, in its database.** A `throttles` table,
+  with its SQL in each database's layer, as `throttles_db.go`, for the
+  five throttles the starter has: logins by email and address, the
+  password of someone logged in, the codes of a login waiting for its
+  second factor, mail, and the asks for a reset link. A step at the end of
+  each layer's migrations makes it.
+- **`auth/throttletest`:** `TestStore`, a store's promises as tests, as
+  `queuetest.TestStore` has a queue Store's, which the starter's tests run
+  on its table, in each database.
+- **A limit for a route.** `tug.Limit(limiter, key, handler)` counts a try
+  for each request, by a key the app makes from it, such as the address it
+  came from, and answers one over the limit with a 429, and
+  `Retry-After`, through the app's `ErrorHandler`: an Inertia visit gets
+  the error page, and an API's client JSON. `examples/api` limits its
+  writes by address.
+- **The guide:** Accounts, where the throttles are, Routing, for the limit,
+  Deployment and Testing, and "Before going live" loses its warning.
+
+Choices, to settle before any code:
+
+- **`Try`, `Wait` and `Clear` take a context and return an error.** A store
+  can fail, as a database can, and a try that can't be counted is the
+  handler's error to answer, not the throttle's to guess: let it in, and
+  the throttle stops nothing while its store is down; turn it away, and a
+  database that blinks locks everyone out. So the calls change, the
+  starter's and those of every app made from it, as
+  `wait, err := a.logins.Try(c.Context(), key)`: the release's one change
+  that breaks an app, which its notes say how to make. Methods of new names
+  beside the old would leave two ways to do one thing, for an API that's
+  still early.
+- **A throttle on a store has a name,** such as `logins`, which its keys
+  are counted under: the starter's `passwords` and `codes` both count by
+  user ID, and in one table would count as one. In memory, each throttle
+  has its own counts, and needs none.
+- **The store is given a hash, not the key:** the SHA-256 of the throttle's
+  name and the key. A key is an email, an address, or both, and a table of
+  counts has no need to show whoever reads it who tried to log in, or from
+  where; and a hash is 32 bytes whatever it's made of, for the table's
+  primary key.
+- **The window stays fixed,** from a key's first try, as now and as
+  Laravel's `RateLimiter` has it: a store keeps a count and the time the
+  window ends, which one statement moves. A sliding window needs a count
+  for each slice of it.
+- **Every try counts,** the ones turned away too, where the memory throttle
+  leaves those out: the store's one step is to add one and read back, and
+  the `Throttle` compares with `Max`, which the store needn't know. A try
+  turned away changes nothing that shows, as the window's end doesn't move
+  with it.
+- **The app's clock,** which the `Throttle` hands the store, as a queue
+  hands its Store the time it claims at: a store compares the times it's
+  given, and a test gives the ones it wants. The instances' clocks agree
+  to well under a window.
+- **The starter's table** has a row for each key, its hash, its tries, and
+  when its window ends, in Unix milliseconds, as the jobs' times are. In
+  SQLite and Postgres, the count is an upsert with `RETURNING`: a new
+  window where the old one is over, and one try more otherwise. MySQL has
+  no `RETURNING`, and sets an `UPDATE`'s columns in order: its upsert sets
+  the tries before the end, in a transaction that reads back what it
+  wrote.
+- **All five of the starter's throttles go to the table,** on SQLite as
+  well: a restart, as each deploy is, no longer gives a guesser a fresh
+  minute, and the starter has one way to count, which its tests check on
+  each database. A throttle an app wants in memory, as on a route that
+  every request takes in SQLite, where each count is a write, has no store.
+- **Pruning:** a count whose window is over is dead, and a job,
+  `prune-throttles`, deletes those rows every hour: the table has a row
+  for each address a route's limit counts, which a busy route makes many
+  of in a day.
+- **A limit is a wrapper, not middleware.** A refusal is an error for the
+  app's `ErrorHandler`, as a 404 is, with its status, where middleware
+  answers before the handler, with no `Ctx`, and could only write a
+  response of its own, which an Inertia visit shows in a modal.
+  `tug.Limit` wraps a `HandlerFunc`, as the starter's `usersOnly` does, and
+  takes a `tug.Limiter`, the one method it calls, `Try`, which
+  `*auth.Throttle` has, so the core imports no `auth`.
+- **The key is the app's,** a function of the request's `Ctx`: an address,
+  as the starter's `clientIP` reads it, or a user's ID. tug has no address
+  of its own to offer: behind a proxy, the request's is the proxy's, which
+  only the app knows to read past.
+- **`Retry-After`, alone,** in whole seconds, rounded up, which HTTP has for
+  a 429; not Laravel's `X-RateLimit-` headers, which aren't HTTP's. The
+  error says how long, as the starter's forms do: "too many requests: wait
+  30 seconds, and try again".
+- **Tests:** `throttletest.TestStore` on the memory store, in `auth`'s own
+  tests, and on the starter's table in each database, with tries at once
+  from many goroutines among them; and in the starter, two instances of
+  the app on one database, with a login's wrong passwords shared between
+  them: five across the two, and the sixth waits. tug's CI runs them on its
+  Postgres and MySQL, as it runs M17's.
 
 ## Decisions
 
