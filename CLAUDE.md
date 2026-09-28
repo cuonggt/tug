@@ -332,10 +332,11 @@ dev server that isn't there: delete it.
   CLI's default is its newer styles), with the toasts mounted by `app.ts`
   beside the app, as their Inertia has no `withApp` for a component; Vue's
   Input.vue takes the value Inertia's Form sets, and both register pages
-  drop a waiting Precognition check as they go, as their Form, in 3.7.1,
-  reads the form that's gone. An avatar is keyed by the user's photo, in
-  all three, as an avatar keeps the image it loaded once the image is
-  gone.
+  drop a waiting Precognition check as the form is sent, as `guestsOnly`
+  redirects it once registering has logged the browser in, and as they
+  go, as their Form, in 3.7.1, reads the form that's gone. An avatar is
+  keyed by the user's photo, in all three, as an avatar keeps the image it
+  loaded once the image is gone.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
 - `auth`: the parts of accounts where a slip is a security hole, with no

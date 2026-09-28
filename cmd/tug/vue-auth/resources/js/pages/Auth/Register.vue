@@ -18,13 +18,17 @@ defineOptions({
   layout: { title: 'Make an account', description: 'Your name, your email, and a password of 8 characters or more.' },
 })
 
-// A field's check can be waiting out its 300ms as the form is sent, to
-// run once the next page has taken this one's place, when Inertia's Vue
-// Form reads the form that's gone, and throws (@inertiajs/vue3 3.7.1;
-// React's Form checks for it). So it's dropped as the page goes: setting
-// the validator's timeout makes it afresh, with nothing waiting.
+// A field's check can be waiting out its 300ms as the form is sent, and
+// Inertia's Vue Form throws when it runs: after registering has logged the
+// browser in, guestsOnly redirects it, which isn't Precognition's answer,
+// and once the next page has taken this one's place, it reads the form
+// that's gone (@inertiajs/vue3 3.7.1; React's Form sets its timeout afresh
+// each time it renders, as when it's sent, and checks for the form). So
+// it's dropped as the form is sent, and as the page goes: setting the
+// validator's timeout makes it afresh, with nothing waiting.
 const form = useTemplateRef<FormComponentRef>('form')
-onBeforeUnmount(() => form.value?.validator().setTimeout(300))
+const dropCheck = () => form.value?.validator().setTimeout(300)
+onBeforeUnmount(dropCheck)
 </script>
 
 <template>
@@ -37,6 +41,7 @@ onBeforeUnmount(() => form.value?.validator().setTimeout(300))
     :reset-on-error="['password', 'password_confirmation']"
     :validation-timeout="300"
     class="flex flex-col gap-6"
+    @start="dropCheck"
   >
     <div class="grid gap-2">
       <Label for="name">Name</Label>

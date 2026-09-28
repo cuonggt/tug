@@ -150,12 +150,13 @@ func openDB(url string) (*sql.DB, error) {
 // deploy is rolled back, is left as it is.
 func migrate(ctx context.Context, db *sql.DB) error {
 	// The count's table and row, which the first start makes. Two starts at
-	// once can both make the table, and one fails as the other's comes, with
-	// a unique violation or 42P07, duplicate_table, which leaves it there
-	// all the same.
+	// once can both make the table, and one fails as the other's comes: with
+	// a unique violation, 42P07, duplicate_table, or 42710, duplicate_object,
+	// by the step at which it meets the other's table, or the table's row
+	// type. The table is there all the same.
 	_, err := db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_version (id integer PRIMARY KEY CHECK (id = 1), version integer NOT NULL)")
 	var pgErr *pgconn.PgError
-	if err != nil && !(errors.As(err, &pgErr) && (pgErr.Code == uniqueViolation || pgErr.Code == "42P07")) {
+	if err != nil && !(errors.As(err, &pgErr) && (pgErr.Code == uniqueViolation || pgErr.Code == "42P07" || pgErr.Code == "42710")) {
 		return err
 	}
 	if _, err := db.ExecContext(ctx, "INSERT INTO schema_version (id, version) VALUES (1, 0) ON CONFLICT DO NOTHING"); err != nil {

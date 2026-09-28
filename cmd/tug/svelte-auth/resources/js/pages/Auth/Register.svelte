@@ -19,10 +19,13 @@
   // auth.go answers: a taken email shows before the form is sent.
   let form: Form
 
-  // A field's check can be waiting out its 300ms as the form is sent, to
-  // run once the next page has taken this one's place, when Inertia's
-  // Svelte Form reads the form that's gone, and throws (@inertiajs/svelte
-  // 3.7.1; React's Form checks for it). So it's dropped as the page goes:
+  // A field's check can be waiting out its 300ms as the form is sent, and
+  // Inertia's Svelte Form throws when it runs: after registering has logged
+  // the browser in, guestsOnly redirects it, which isn't Precognition's
+  // answer, and once the next page has taken this one's place, it reads the
+  // form that's gone (@inertiajs/svelte 3.7.1; React's Form sets its
+  // timeout afresh each time it renders, as when it's sent, and checks for
+  // the form). So it's dropped as the form is sent, and as the page goes:
   // setting the validator's timeout makes it afresh, with nothing waiting.
   onMount(() => {
     const validator = form.validator()
@@ -37,6 +40,7 @@
   method="post"
   resetOnError={['password', 'password_confirmation']}
   validationTimeout={300}
+  onStart={() => form.validator().setTimeout(300)}
   class="flex flex-col gap-6"
 >
   {#snippet children({ errors, processing, validate, invalid })}

@@ -798,10 +798,13 @@ Choices made on the way:
   Svelte starter's components are from its classic registry, which look
   as React's and Vue's do, and the command its README gives for more
   names that registry in `COMPONENTS_REGISTRY_URL`.
-- Inertia's Vue and Svelte `Form`, in 3.7.1, read a form that's gone when
-  a field's Precognition check, waiting out its 300ms, runs after the
-  page has changed, and throw, where React's checks for it. The register
-  page drops the check as it goes.
+- Inertia's Vue and Svelte `Form`, in 3.7.1, throw when a field's
+  Precognition check, waiting out its 300ms, runs after the form is sent:
+  once registering has logged the browser in, `guestsOnly` redirects it,
+  which isn't Precognition's answer, and once the page has changed, they
+  read a form that's gone. React's sets its timeout afresh as it renders,
+  which drops the check, and checks for the form. The register page drops
+  the check as the form is sent, and as it goes.
 - The QR code for an authenticator app is qrcode.vue's in Vue, and
   `@svelte-put/qr`'s in Svelte, on Rich Harris's headless-qr: it renders
   the same SVG on the server as in the browser, where `qrcode`, the
