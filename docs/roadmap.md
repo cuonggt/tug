@@ -20,6 +20,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M12 | Time zones and unique jobs | done   |
 | M13 | Passkeys                   | done   |
 | M14 | Vue and Svelte starters    | done   |
+| M15 | The queue, whole           | next   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -814,6 +815,97 @@ Choices made on the way:
   each of their layers and both sides of `-ssr`. Eight apps, where every
   kind would be twelve. A change to one frontend is made to the three in
   the same commit, and the browser suite is what says they still match.
+
+## M15 · The queue, whole — next
+
+What the page on jobs still has as not here yet, left from M8 to M12: a
+job pushed in the app's own transaction, so that it's kept with what the
+request wrote or not at all; a push that moves a unique job later; jobs
+of one value that never run at once; and the jobs that failed, listed
+and run again from the app's own binary. The first is a gap in what the
+starter promises, not a feature: it adds a passkey, then pushes the mail
+that tells its owner, and a push that fails there leaves a way into the
+account that no one hears of. To be released as v0.10.0.
+
+- **In the app's transaction.** `Kind.In(store)` is the kind, pushing to a
+  Store the app gives it: the auth starter's `jobs.tx(tx)`, which writes
+  through the request's `*sql.Tx`, so that the job is kept with what the
+  request wrote as it commits, and with none of it as it rolls back.
+  `q.Wake()`, after the commit, has it run at once rather than at the next
+  poll. The starter pushes each of its mails in the transaction that
+  writes what the mail is about: a new user and the link that verifies
+  their email, a passkey and the mail to its owner, a new email and its
+  link.
+- **The latest push says when.** With `queue.Unique(queue.Latest())`, a
+  push of a value whose job waits gives the job its own time, so
+  `reindex.PushAt(ctx, time.Now().Add(time.Minute), v)` after each edit
+  reindexes a minute after the last. Without it, the first push keeps its
+  time, as it does now.
+- **One at a time.** With `queue.Unique(queue.OneAtATime())`, a job isn't
+  claimed while another of its kind and value runs: it runs once that one
+  is done or has failed, or its hold has run out. A push while one runs is
+  still kept, as M12 has it: the running job may have read what the push
+  is about.
+- **Failed jobs.** The auth starter's binary takes `jobs`: `./blog jobs`
+  lists the jobs that failed for good, with their errors, and
+  `./blog jobs retry 42`, or `retry all`, puts them back to run. In its
+  image, that's `docker exec <container> /server jobs`.
+- **Stores.** Each of the three is an extra a Store may have, as
+  `ScheduleStore` and `UniqueStore` are, the failed jobs' being
+  `queue.FailedStore`. `queuetest.TestStore` checks their promises of a
+  Store that has them; `Memory` has them all, and so has the auth
+  starter's SQLite, with a column for the key that one at a time checks.
+- **The guide:** Background jobs has each, with the starter's SQL, and
+  nothing left as not here yet but what M15 leaves; Accounts and
+  Deployment have the command.
+
+Choices, to settle before any code:
+
+- **A Store made from the transaction, not the transaction.** `Kind.In`
+  takes a `queue.Store`, which the app makes from its transaction, so the
+  queue stays without SQL, as M8 has it, and any database's transaction
+  works: `database/sql`'s, pgx's, an ORM's. Not a transaction carried in
+  the context, as some Go code carries one: tug keeps what a handler works
+  with in its arguments, as `usersOnly` hands it the user.
+- **What a handler writes while its transaction is open goes through
+  it.** SQLite has one writer, and the starter's transactions take the
+  lock as they begin, so a write outside the transaction, a push
+  included, would wait for it until the busy timeout, and fail. The
+  starter's handlers write in `a.inTx`, which runs a function in a
+  transaction, commits, and wakes the queue.
+- **A push in a transaction doesn't wake the queue.** Until the commit,
+  the workers' claims can't see the job, and a wake would find nothing.
+  `Wake` after the commit does; without it, the next poll finds the job,
+  within a second by default.
+- **`Latest` gives the waiting job the push's time, earlier or later:**
+  the last push says when, as the page on jobs put it. The value is the
+  same, so only the time moves. A scheduled run doesn't move a job that
+  waits: a schedule's time isn't a push's.
+- **One at a time is the claim's, not a lock's.** The claim skips a job
+  whose kind and key a live claim holds, which the Store sees in the same
+  query: no lock to take and give back, and a worker killed while it
+  runs one lets the next go once its hold runs out, as any claim does.
+  Laravel's `WithoutOverlapping` takes a lock, and puts a job back to try
+  later; here it waits where it is. The key it checks stays with a job
+  all its life, in a column of its own, where the unique key goes at the
+  claim, as M12 has it.
+- **`Latest` and `OneAtATime` are options of `Unique`**, which takes
+  them as `Unique(opts ...UniqueOption)`, as they mean something only for
+  jobs of one value; `Unique()` is as it was.
+- **Extras, not new methods, again.** An option panics as the app starts
+  on a Store that isn't the extra it needs, and an app's own `jobs.go`,
+  from v0.9.0, compiles and runs as it did.
+- **A command, not a page.** A page needs someone who may see everyone's
+  jobs, and the starter has no idea of an admin: its users are users. The
+  command is the app's, in its `main.go`, not tug's: a deployed app runs
+  as its binary, where tug isn't, with the database it's given. It runs
+  in place of the server, and exits.
+- **The tests.** The queue's own, with `Memory`; `TestStore` for each new
+  promise, which the starter's tests run on SQLite; and what `TestStore`
+  can't check, as it knows no database, in the starter's tests: a
+  transaction rolled back leaves no job, a committed one leaves its job,
+  and a registration whose push fails leaves no user. The command is
+  tested on a test database, as the flows are.
 
 ## Decisions
 
