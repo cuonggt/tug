@@ -160,6 +160,71 @@ it starts.
 `Schedule` panics when the kind has a schedule already, or once the queue
 runs.
 
+### In a time zone
+
+`queue.CronIn` reads an expression on a time zone's clock, the zone named
+as the IANA database names it, or `"Local"` for the server's own:
+
+```go
+digest.Schedule(queue.CronIn("Europe/Paris", "0 9 * * MON-FRI"), Digest{})
+```
+
+Where the clock goes forward or back, as for daylight saving, it does as
+cron does:
+
+- A fixed time, with no `*` in its minute or its hour, runs once whatever
+  the clock does. When the clock goes forward over it, it runs as the
+  clock goes: `30 2 * * *` runs at 3:00 the night Paris goes from 2:00 to
+  3:00. When the clock goes back over it, it runs the first time the
+  clock shows it, and not the second.
+- A time with `*` follows the clock, which is real time: `*/15 * * * *` is
+  every 15 minutes and `@hourly` every hour, whatever the clock shows.
+  Nothing runs in the hour the clock skips, which never happened, and the
+  hour it shows again runs again, as it did happen.
+
+Each instance of the app works the times out for itself, from the zone
+database, so they need the same one. The starters' images have one; a
+binary that imports `time/tzdata` carries its own, about 450 KB, and runs
+the same anywhere:
+
+```go
+import _ "time/tzdata"
+```
+
+A zone that doesn't load panics as the app starts, as an expression that
+isn't one does. `queue.Every` stays with UTC: `Every(24*time.Hour)` is
+midnight UTC, and midnight in Paris is `CronIn("Europe/Paris", "@daily")`.
+
+## Unique jobs
+
+Some work is the same however often it's asked for: reindexing a post,
+recounting a total. A kind handled with `queue.Unique()` has one job
+waiting for each value:
+
+```go
+reindex := queue.Handle(q, "reindex-post", a.reindexPost, queue.Unique())
+...
+reindex.Push(ctx, ReindexPost{Post: p.ID}) // after each edit
+```
+
+- While a job of the kind waits, pushing another with the same value does
+  nothing, and returns nil: the one that waits runs, once, at its own
+  time. Ten edits before it runs are one reindex.
+- Once a worker has the job, a push is pushed, and runs too: the running
+  job may have read the post before the edit that pushed it. The two can
+  run at once, on two workers.
+- A value is the same as another when its JSON is. What varies from one
+  push of the same work to the next, such as when it was asked for, stays
+  out of it.
+- A job waiting after a failed attempt no longer holds its value, which
+  its claim let go, so a push while it waits pushes one more. Jobs run at
+  least once anyway, and their handlers are safe to run twice.
+- A scheduled run of a unique kind is the job with its value that waits,
+  when one does.
+
+`Unique` needs a Store that keeps the values' keys, a `queue.UniqueStore`,
+and panics as the app starts without one.
+
 ## Running the jobs
 
 `q.Run(ctx)` runs jobs as they come due, `Workers` at a time. A job pushed
@@ -263,6 +328,24 @@ all, so of several instances pushing a run at once, one does, and a run
 is never kept without its job. `TestStore` checks these promises too, of
 a Store that's a `ScheduleStore`, and `Memory` is one.
 
+For unique kinds, a Store also keeps the key of each job that waits, its
+value's hash, which the queue puts in `Job.Key`:
+
+```go
+type UniqueStore interface {
+	Store
+	PushUnique(ctx context.Context, j *Job) (bool, error)
+}
+```
+
+`PushUnique` pushes `j` unless a job of its kind and key waits, and says
+whether it did; of several pushes of one key at once, one does. A claim
+lets its job's key go, so that a job pushed while it runs is pushed, and
+`Retry` doesn't take the key back. A `ScheduleStore` that's a
+`UniqueStore` keeps a unique kind's run without a job of its own while a
+job with its key waits. `TestStore` checks these promises of a
+`UniqueStore`, and `Memory` is one.
+
 ### The auth starter's, in SQLite
 
 The auth starter's `jobs.go` keeps the jobs in a table that its
@@ -290,7 +373,7 @@ whether any job is due, as a write, even one that changes nothing, would
 take SQLite's one lock for writing at every poll.
 
 ```sql
-UPDATE jobs SET held_until = ?2, attempts = attempts + 1
+UPDATE jobs SET held_until = ?2, attempts = attempts + 1, unique_key = NULL
 WHERE id = (
 	SELECT id FROM jobs WHERE failed_at IS NULL AND run_at <= ?1 AND held_until <= ?1
 	ORDER BY run_at, id LIMIT 1
@@ -323,6 +406,20 @@ ON CONFLICT (name) DO UPDATE SET run_at = excluded.run_at WHERE run_at < exclude
 RETURNING name
 ```
 
+A unique kind's job keeps its key in a column of its own, which a unique
+index lets one job of a kind have at a time, and which the claim clears,
+as above. An insert that meets the index does nothing and returns no
+row, which is how `PushUnique` knows it didn't push, with no lock taken
+by hand:
+
+```sql
+ALTER TABLE jobs ADD COLUMN unique_key TEXT;
+CREATE UNIQUE INDEX jobs_unique ON jobs (kind, unique_key) WHERE unique_key IS NOT NULL;
+
+INSERT INTO jobs (kind, payload, run_at, unique_key) VALUES (?, ?, ?, NULLIF(?, ''))
+ON CONFLICT DO NOTHING RETURNING id
+```
+
 ### Another database
 
 A Store for another database follows the same shape. In Postgres, several
@@ -330,7 +427,7 @@ instances claim at once, so the claim's `SELECT` skips the rows another
 claim has locked rather than wait for them:
 
 ```sql
-UPDATE jobs SET held_until = $2, attempts = attempts + 1
+UPDATE jobs SET held_until = $2, attempts = attempts + 1, unique_key = NULL
 WHERE id = (
 	SELECT id FROM jobs WHERE failed_at IS NULL AND run_at <= $1 AND held_until <= $1
 	ORDER BY run_at, id LIMIT 1
@@ -341,7 +438,7 @@ RETURNING id, kind, payload, run_at, attempts, error
 
 In Postgres, the schedules' upsert names the existing row's column in its
 `WHERE`, as `schedules.run_at`: there, a bare `run_at` could be either
-row's. `queuetest.TestStore` is how to know such a Store keeps the
+row's. The partial unique index for the keys works as it does in SQLite. `queuetest.TestStore` is how to know such a Store keeps the
 promises, claims and pushes from many goroutines at once among them.
 
 ## Several instances
@@ -355,10 +452,10 @@ a machine; a database on a server of its own lets them be anywhere.
 
 ## What's not here yet
 
-- **Time zones for `Cron`**: its times are UTC, so `0 2 * * *` is 2:00
-  UTC, whatever the server's zone.
-- **Unique jobs**, one of a kind with a key at a time. A schedule's runs
-  are unique, but no other job is.
+- **A push that moves a unique job later**, so that the last of ten edits
+  says when the reindex runs, rather than the first.
+- **Jobs of one value that never run at once**: a unique job is one
+  waiting, and a push while it runs can run beside it.
 - **Pushing in the app's own transaction**, so that a job is kept only
   with what the request wrote: `Push` goes through the Store, outside it.
 - **A page or command for failed jobs**: the auth starter's SQL above

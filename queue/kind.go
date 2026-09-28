@@ -2,6 +2,8 @@ package queue
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -12,8 +14,9 @@ import (
 // Kind is a kind of job, as Handle made it: the name its jobs are kept
 // by, and the handler that runs them. Its Push puts one on the queue.
 type Kind[T any] struct {
-	q    *Queue
-	name string
+	q      *Queue
+	name   string
+	unique bool
 }
 
 // handler runs one kind of job.
@@ -22,6 +25,7 @@ type handler struct {
 	attempts int
 	timeout  time.Duration
 	backoff  func(attempt int) time.Duration
+	unique   bool
 }
 
 // Handle gives q the handler for the jobs of kind name, which runs fn with
@@ -32,7 +36,8 @@ type handler struct {
 // find the handler by, so it stays the same from one version of the app
 // to the next: jobs one pushes, the next may run.
 //
-// Handle panics when q has a handler for name already, or once q runs.
+// Handle panics when q has a handler for name already, or once q runs, or
+// for a Unique kind when q's Store isn't a UniqueStore.
 func Handle[T any](q *Queue, name string, fn func(ctx context.Context, v T) error, opts ...Option) *Kind[T] {
 	if name == "" || fn == nil {
 		panic("queue: Handle takes a name and a function")
@@ -40,6 +45,9 @@ func Handle[T any](q *Queue, name string, fn func(ctx context.Context, v T) erro
 	h := &handler{attempts: defaultAttempts, timeout: defaultTimeout, backoff: backoff}
 	for _, opt := range opts {
 		opt(h)
+	}
+	if _, ok := q.store.(UniqueStore); h.unique && !ok {
+		panic(fmt.Sprintf("queue: the unique jobs of kind %q need a Store that keeps their keys, a UniqueStore, and the queue's %T isn't one", name, q.store))
 	}
 	h.run = func(ctx context.Context, payload []byte) error {
 		var v T
@@ -58,7 +66,7 @@ func Handle[T any](q *Queue, name string, fn func(ctx context.Context, v T) erro
 		panic(fmt.Sprintf("queue: the jobs of kind %q have a handler already", name))
 	}
 	q.handlers[name] = h
-	return &Kind[T]{q: q, name: name}
+	return &Kind[T]{q: q, name: name, unique: h.unique}
 }
 
 // Push puts a job on the queue, to run as soon as a worker is free.
@@ -67,13 +75,21 @@ func (k *Kind[T]) Push(ctx context.Context, v T) error {
 }
 
 // PushAt puts a job on the queue, to run at at, or as soon after as a
-// worker is free.
+// worker is free. For a Unique kind, it does nothing while a job with the
+// same value waits, which keeps its own time.
 func (k *Kind[T]) PushAt(ctx context.Context, at time.Time, v T) error {
 	payload, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("queue: a %s job: %w", k.name, err)
 	}
-	if err := k.q.store.Push(ctx, &Job{Kind: k.name, Payload: payload, RunAt: at}); err != nil {
+	j := &Job{Kind: k.name, Payload: payload, RunAt: at}
+	if k.unique {
+		j.Key = keyOf(payload)
+		_, err = k.q.store.(UniqueStore).PushUnique(ctx, j)
+	} else {
+		err = k.q.store.Push(ctx, j)
+	}
+	if err != nil {
 		return fmt.Errorf("queue: pushing a %s job: %w", k.name, err)
 	}
 	if !at.After(k.q.now()) {
@@ -111,7 +127,11 @@ func (k *Kind[T]) Schedule(s Schedule, v T) {
 			panic(fmt.Sprintf("queue: the jobs of kind %q have a schedule already", k.name))
 		}
 	}
-	k.q.scheduled = append(k.q.scheduled, scheduled{kind: k.name, schedule: s, payload: payload})
+	sc := scheduled{kind: k.name, schedule: s, payload: payload}
+	if k.unique {
+		sc.key = keyOf(payload)
+	}
+	k.q.scheduled = append(k.q.scheduled, sc)
 }
 
 // scheduled is a kind's schedule, and the value its runs are pushed with.
@@ -119,6 +139,15 @@ type scheduled struct {
 	kind     string
 	schedule Schedule
 	payload  []byte
+	key      string // a unique kind's
+}
+
+// keyOf is the key of a unique kind's job with payload: its SHA-256, the
+// same for the same value, as encoding/json writes a struct's fields and
+// a map's keys in one order, and short however big the value is.
+func keyOf(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
 }
 
 // call runs the handler on j, with a context done after its Timeout. A
@@ -158,6 +187,17 @@ func Timeout(d time.Duration) Option {
 		panic("queue: Timeout takes a duration over 0")
 	}
 	return func(h *handler) { h.timeout = d }
+}
+
+// Unique makes the kind's jobs unique by their value: while a job of the
+// kind waits, pushing another with the same value does nothing, and the one
+// that waits runs, at its own time. Once a worker has it, a push is pushed,
+// and runs too, maybe beside it on another worker: the running job may
+// have read what the push is about. What varies from one push of the same
+// work to the next, such as when it was asked for, stays out of the value.
+// Unique needs a Store that keeps the keys, a UniqueStore.
+func Unique() Option {
+	return func(h *handler) { h.unique = true }
 }
 
 // Backoff is how long a job waits to run again after its attempt-th

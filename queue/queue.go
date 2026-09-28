@@ -221,7 +221,7 @@ func (q *Queue) pushScheduled(ctx context.Context, scheduled []scheduled, pushed
 		if at.IsZero() {
 			continue // it never comes round again
 		}
-		_, err := q.store.(ScheduleStore).PushScheduled(ctx, sc.kind, &Job{Kind: sc.kind, Payload: sc.payload, RunAt: at})
+		_, err := q.store.(ScheduleStore).PushScheduled(ctx, sc.kind, &Job{Kind: sc.kind, Payload: sc.payload, RunAt: at, Key: sc.key})
 		if err != nil {
 			if ctx.Err() == nil {
 				slog.Error("the job queue can't push a scheduled job", "kind", sc.kind, "at", at, "err", err)

@@ -4,19 +4,20 @@ tug is built in milestones, each ending in something that runs. It targets
 the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 [the spec](https://inertiajs.com/the-protocol).
 
-|     | Milestone               | Status |
-|-----|-------------------------|--------|
-| M1  | HTTP core               | done   |
-| M2  | Inertia core + Vite     | done   |
-| M3  | Forms and validation    | done   |
-| M4  | The full v3 protocol    | done   |
-| M5  | CLI                     | done   |
-| M6  | v0.1.0                  | done   |
-| M7  | The auth starter, whole | done   |
-| M8  | Background jobs         | done   |
-| M9  | Scheduled jobs          | done   |
-| M10 | Server-side rendering   | done   |
-| M11 | Testing                 | done   |
+|     | Milestone                  | Status |
+|-----|----------------------------|--------|
+| M1  | HTTP core                  | done   |
+| M2  | Inertia core + Vite        | done   |
+| M3  | Forms and validation       | done   |
+| M4  | The full v3 protocol       | done   |
+| M5  | CLI                        | done   |
+| M6  | v0.1.0                     | done   |
+| M7  | The auth starter, whole    | done   |
+| M8  | Background jobs            | done   |
+| M9  | Scheduled jobs             | done   |
+| M10 | Server-side rendering      | done   |
+| M11 | Testing                    | done   |
+| M12 | Time zones and unique jobs | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -577,6 +578,62 @@ Choices made on the way:
   the `tug.PageOf` that has a page's props type, and `Session` takes
   package session's Store. Package tug's own tests keep a small client of
   their own, as they can't import a package that imports tug.
+
+## M12 · Time zones and unique jobs — done
+
+What M9 left for later: schedules on a time zone's clock, and jobs that
+wait once however often they're pushed.
+
+- `queue.CronIn(zone, expr)` is `Cron` on a zone's clock, the zone named
+  as the IANA database names it, or `"Local"` for the server's own. Where
+  the clock goes forward or back, it does as cron does: a fixed time, with
+  no `*` in its minute or hour, runs as the clock goes forward over it,
+  and the first time the clock shows it when it goes back; a time with
+  `*` follows the clock, so every 15 minutes stays every 15 minutes. A
+  zone that doesn't load panics as the app starts.
+- `queue.Unique()` makes a kind's jobs unique by their value: while a job
+  waits, a push of the same value does nothing, and the one that waits
+  runs, at its own time. Once a worker has it, a push is pushed.
+- `queue.UniqueStore` is a Store that keeps the keys: `PushUnique` pushes
+  a job unless one of its kind and key waits, a claim lets the key go,
+  and a unique kind's scheduled run is the job with its key that waits.
+  `queuetest.TestStore` checks it of a Store that is one, and `Memory` is.
+- The auth starter's `jobs` table keeps the key in a `unique_key` column,
+  under a partial unique index, which the claim clears.
+
+Choices made on the way:
+
+- Where the clock changes, tug follows cron's own rule, Vixie cron's,
+  which cronie keeps, rather than robfig/cron's, which Kubernetes'
+  CronJobs use, and which skips a fixed time the clock skips: a nightly
+  job shouldn't miss one night a year.
+- Within one offset from UTC, a zone's clock runs as UTC's does, so
+  `Next` searches each stretch of one offset in turn, with the offsets
+  and the changes taken from the zone: Go's `time.Date` picks a side of a
+  change without saying which. UTC keeps the search it had, so `Cron`'s
+  times are what they were.
+- `CronIn` takes a zone's name, not a `*time.Location`, so that a zone
+  that doesn't load panics as the app starts, as an expression that isn't
+  one does, and `"Local"` still names the server's. The `CRON_TZ=` some
+  crons read inside the expression isn't read: one way to say it is
+  enough.
+- tug doesn't import `time/tzdata`, 450 KB in every binary: the starters'
+  images have the zone database. An app whose instances run on different
+  machines imports it, so that they all work out the same times.
+- A job is unique while it waits, not until it's done: a push while it
+  runs is kept, as the running job may have read what the push is about.
+  Laravel's `ShouldBeUnique` holds until the job is done, and loses that
+  push; tug's is its `ShouldBeUniqueUntilProcessing`.
+- Jobs are the same when their values are: a job's key is its value's
+  SHA-256, with no key to write, and `Unique` is one of `Handle`'s options.
+  The first push wins, and keeps its time.
+- A claim clears the job's key, so that "waits" is a column an index can
+  see: "no claim holds it" depends on the time, which an index can't.
+- `UniqueStore` is an extra a Store may have, as `ScheduleStore` is, and
+  `Unique` panics as the app starts on a Store that isn't one: an app's
+  own `jobs.go`, from v0.6.0, still compiles.
+- Two runs of one value at once, and a push that moves a waiting job
+  later, are left for later.
 
 ## Decisions
 

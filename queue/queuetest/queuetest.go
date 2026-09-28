@@ -20,7 +20,8 @@ import (
 
 // Memory is a queue.Store that keeps its jobs in memory, for tests: they
 // go when the program does. It keeps schedules too, as a
-// queue.ScheduleStore. The zero value is an empty Store.
+// queue.ScheduleStore, and the keys of unique jobs, as a
+// queue.UniqueStore. The zero value is an empty Store.
 type Memory struct {
 	mu        sync.Mutex
 	last      int
@@ -51,8 +52,28 @@ func (m *Memory) PushScheduled(_ context.Context, schedule string, j *queue.Job)
 		m.schedules = make(map[string]time.Time)
 	}
 	m.schedules[schedule] = j.RunAt
+	if !m.waiting(j) {
+		m.push(j)
+	}
+	return true, nil
+}
+
+func (m *Memory) PushUnique(_ context.Context, j *queue.Job) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.waiting(j) {
+		return false, nil
+	}
 	m.push(j)
 	return true, nil
+}
+
+// waiting says whether a job of j's kind and key waits, which only such a
+// job has, as a claim lets its key go; m.mu is held.
+func (m *Memory) waiting(j *queue.Job) bool {
+	return j.Key != "" && slices.ContainsFunc(m.jobs, func(mj *memoryJob) bool {
+		return mj.Kind == j.Kind && mj.Key == j.Key
+	})
 }
 
 // push keeps j; m.mu is held.
@@ -81,6 +102,7 @@ func (m *Memory) Claim(_ context.Context, now, until time.Time) (*queue.Job, err
 	}
 	next.heldUntil = until
 	next.Attempts++
+	next.Key = ""
 	j := next.Job
 	j.Payload = bytes.Clone(next.Payload)
 	return &j, nil
@@ -122,7 +144,7 @@ func (mj *memoryJob) claimedBy(j *queue.Job) bool {
 
 // TestStore checks that the Stores open returns keep the promises package
 // queue depends on, with a new, empty one for each test, and those of a
-// ScheduleStore too when they are one. A Store's own tests call it, as the
+// ScheduleStore and a UniqueStore too when they are one. A Store's own tests call it, as the
 // auth starter's do for its tables in SQLite:
 //
 //	func TestTheJobsTableKeepsTheQueuesPromises(t *testing.T) {
@@ -390,6 +412,123 @@ func TestStore(t *testing.T, open func(t *testing.T) queue.Store) {
 		wg.Wait()
 		if n := count(t, s); won.Load() != 1 || n != 1 {
 			t.Errorf("%d pushes won, and %d jobs were pushed: want 1 of each", won.Load(), n)
+		}
+	})
+
+	// The rest are a UniqueStore's.
+	uniques := func(t *testing.T) queue.UniqueStore {
+		t.Helper()
+		s, ok := open(t).(queue.UniqueStore)
+		if !ok {
+			t.Skip("not a UniqueStore")
+		}
+		return s
+	}
+	pushKey := func(t *testing.T, s queue.UniqueStore, kind, key string, n int) bool {
+		t.Helper()
+		j := &queue.Job{Kind: kind, Key: key, Payload: []byte(`{"n":` + strconv.Itoa(n) + `}`), RunAt: t0}
+		pushed, err := s.PushUnique(ctx, j)
+		if err != nil {
+			t.Fatalf("PushUnique: %v", err)
+		}
+		if pushed && j.ID == "" {
+			t.Fatal("PushUnique pushed a job and set no ID")
+		}
+		return pushed
+	}
+
+	t.Run("a job isn't pushed while one of its kind and key waits", func(t *testing.T) {
+		s := uniques(t)
+		if !pushKey(t, s, "count", "a", 1) || pushKey(t, s, "count", "a", 2) || !pushKey(t, s, "count", "b", 3) || !pushKey(t, s, "other", "a", 4) {
+			t.Fatal("want key a pushed, then not again, and key b, and another kind's key a")
+		}
+		var pushed []int
+		for range 4 {
+			j := claim(t, s, t0, t0.Add(time.Minute))
+			if j == nil {
+				break
+			}
+			pushed = append(pushed, n(t, j))
+		}
+		slices.Sort(pushed)
+		if !slices.Equal(pushed, []int{1, 3, 4}) {
+			t.Errorf("claimed the jobs pushed with %v, want 1, 3 and 4", pushed)
+		}
+	})
+
+	t.Run("a claim lets its job's key go, and putting the job back doesn't take it back", func(t *testing.T) {
+		s := uniques(t)
+		pushKey(t, s, "count", "a", 1)
+		first := claimed(t, s, t0, t0.Add(time.Minute))
+		if first.Key != "" {
+			t.Errorf("the claimed job has its key, %q", first.Key)
+		}
+		if !pushKey(t, s, "count", "a", 2) {
+			t.Fatal("a job with the key of one that's running wasn't pushed")
+		}
+		first.RunAt, first.Error = t0, "try again"
+		if err := s.Retry(ctx, first); err != nil {
+			t.Fatal(err)
+		}
+		if pushKey(t, s, "count", "a", 3) {
+			t.Error("pushed while the job pushed as the first ran waits with the key")
+		}
+		if n := count(t, s); n != 2 {
+			t.Errorf("%d jobs, want the one put back, and the one pushed while it ran", n)
+		}
+	})
+
+	t.Run("a failed job doesn't keep its key", func(t *testing.T) {
+		s := uniques(t)
+		pushKey(t, s, "count", "a", 1)
+		j := claimed(t, s, t0, t0.Add(time.Minute))
+		j.Error = "no such post"
+		if err := s.Fail(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		if !pushKey(t, s, "count", "a", 2) {
+			t.Error("a failed job's key kept another from being pushed")
+		}
+	})
+
+	t.Run("of pushes of a key at once, one wins", func(t *testing.T) {
+		s := uniques(t)
+		var won atomic.Int32
+		var wg sync.WaitGroup
+		for i := range 8 {
+			wg.Go(func() {
+				j := &queue.Job{Kind: "count", Key: "a", Payload: []byte(`{"n":` + strconv.Itoa(i) + `}`), RunAt: t0}
+				pushed, err := s.PushUnique(ctx, j)
+				if err != nil {
+					t.Errorf("PushUnique: %v", err)
+				}
+				if pushed {
+					won.Add(1)
+				}
+			})
+		}
+		wg.Wait()
+		if n := count(t, s); won.Load() != 1 || n != 1 {
+			t.Errorf("%d pushes won, and %d jobs were pushed: want 1 of each", won.Load(), n)
+		}
+	})
+
+	t.Run("a scheduled run of a unique kind waits as the job with its key", func(t *testing.T) {
+		s := uniques(t)
+		ss, ok := s.(queue.ScheduleStore)
+		if !ok {
+			t.Skip("not a ScheduleStore")
+		}
+		pushKey(t, s, "report", "a", 1)
+		run := &queue.Job{Kind: "report", Key: "a", Payload: []byte(`{"n":2}`), RunAt: t0.Add(time.Hour)}
+		if _, err := ss.PushScheduled(ctx, "report", run); err != nil {
+			t.Fatalf("PushScheduled: %v", err)
+		}
+		if pushRun(t, ss, "report", t0.Add(time.Hour)) {
+			t.Error("the run was pushed again: it wasn't kept")
+		}
+		if n := count(t, s); n != 1 {
+			t.Errorf("%d jobs, want the one with the key, which runs for the run", n)
 		}
 	})
 }

@@ -19,7 +19,8 @@ has the rest of the detail.
    as it's left, flash messages, sessions, and CSRF.
 6. [Accounts](auth.md): the auth starter, and packages `auth` and `mail`.
 7. [Background jobs](jobs.md): package `queue`, for work that outlasts the
-   request, and runs again when it fails, or runs on a schedule.
+   request, and runs again when it fails, runs on a schedule, in a time
+   zone too, or waits once however often it's asked for.
 8. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
 9. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
    tests of an app's pages, forms and logins.

@@ -16,6 +16,12 @@ type Job struct {
 	// Payload is the value it was pushed with, as JSON.
 	Payload []byte
 
+	// Key is what makes a job of a unique kind the same as another of its
+	// kind, which a UniqueStore keeps while the job waits: its payload's
+	// hash. It's "" for the jobs of other kinds, and for a claimed job,
+	// whose key the claim let go.
+	Key string
+
 	// RunAt is when it's due: when it was pushed, or for later, and after
 	// an attempt that failed, when it's to run again.
 	RunAt time.Time
@@ -73,6 +79,22 @@ type ScheduleStore interface {
 	// due at j.RunAt, unless a run of it due then or later has been pushed
 	// already, and says whether it did. It keeps the run and pushes the job
 	// together or not at all: of several instances pushing the same run at
-	// once, one does.
+	// once, one does. In a Store that's a UniqueStore too, the run of a
+	// unique kind, whose job has a Key, is kept without a job of its own
+	// while a job of its Kind and Key waits, which runs for it.
 	PushScheduled(ctx context.Context, schedule string, j *Job) (bool, error)
+}
+
+// UniqueStore is a Store that also keeps the keys of a unique kind's jobs,
+// for Unique: while a job with a key waits, no other of its kind and key
+// is pushed.
+type UniqueStore interface {
+	Store
+
+	// PushUnique pushes j, which has a Key, unless a job of its Kind and
+	// Key waits, and says whether it did: of several pushes of one key at
+	// once, one does. A job keeps its key until a claim has it: Claim lets
+	// it go, so that a job pushed while the first runs is pushed, and Retry
+	// doesn't take it back.
+	PushUnique(ctx context.Context, j *Job) (bool, error)
 }

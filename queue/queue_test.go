@@ -612,3 +612,91 @@ func TestSchedulingAKindTwiceOrOnceTheQueueRunsPanics(t *testing.T) {
 	stop()
 	mustPanic(t, "a schedule after Run", func() { digest.Schedule(queue.Every(time.Hour), struct{}{}) })
 }
+
+func TestAUniqueJobPushedAgainWhileItWaitsRunsOnceAtItsOwnTime(t *testing.T) {
+	q, _, c := newQueue(queue.Config{})
+	var ran []string
+	reindex := queue.Handle(q, "reindex", func(_ context.Context, g greeting) error {
+		ran = append(ran, g.Name)
+		return nil
+	}, queue.Unique())
+	ctx := context.Background()
+	for _, push := range []func() error{
+		func() error { return reindex.PushAt(ctx, c.now().Add(time.Minute), greeting{Name: "Ann"}) },
+		func() error { return reindex.Push(ctx, greeting{Name: "Ann"}) }, // Ann's waits, for a minute's time
+		func() error { return reindex.Push(ctx, greeting{Name: "Bob"}) },
+		func() error { return reindex.Push(ctx, greeting{Name: "Bob"}) },
+	} {
+		if err := push(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := q.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c.add(time.Minute)
+	if err := q.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ran, []string{"Bob", "Ann"}) {
+		t.Errorf("ran for %v, want Bob's job, then Ann's a minute on", ran)
+	}
+}
+
+func TestAUniqueJobPushedWhileOneRunsRunsToo(t *testing.T) {
+	q, _, _ := newQueue(queue.Config{})
+	runs := 0
+	var reindex *queue.Kind[greeting]
+	reindex = queue.Handle(q, "reindex", func(ctx context.Context, g greeting) error {
+		runs++
+		if runs == 1 {
+			// What the job reads changes as it runs, and the change pushes it.
+			return reindex.Push(ctx, g)
+		}
+		return nil
+	}, queue.Unique())
+	ctx := context.Background()
+	reindex.Push(ctx, greeting{Name: "Ann"})
+	if err := q.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 2 {
+		t.Errorf("ran %d times, want twice: the push as it ran was lost", runs)
+	}
+}
+
+func TestAUniqueKindNeedsAStoreThatKeepsKeys(t *testing.T) {
+	q := queue.New(queue.Config{Store: plain{&queuetest.Memory{}}})
+	mustPanic(t, "a unique kind with a Store that doesn't keep keys", func() {
+		queue.Handle(q, "reindex", func(context.Context, struct{}) error { return nil }, queue.Unique())
+	})
+}
+
+func TestAScheduledRunOfAUniqueKindIsTheJobLikeItThatWaits(t *testing.T) {
+	q, _, c := newQueue(queue.Config{Poll: 10 * time.Millisecond})
+	c.add(30 * time.Second) // 12:00:30
+	ran := make(chan struct{}, 10)
+	report := queue.Handle(q, "report", func(context.Context, struct{}) error {
+		ran <- struct{}{}
+		return nil
+	}, queue.Unique())
+	report.Schedule(queue.Every(time.Minute), struct{}{})
+	run(t, q)
+	time.Sleep(50 * time.Millisecond) // for the run at 12:01 to be pushed
+	// Pushed now, it's the run that waits, which runs at its own time.
+	if err := report.Push(context.Background(), struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ran:
+		t.Fatal("ran at once, with the run like it waiting for 12:01")
+	case <-time.After(100 * time.Millisecond):
+	}
+	c.add(30 * time.Second) // 12:01
+	within(t, ran, "the run at 12:01")
+	select {
+	case <-ran:
+		t.Error("ran twice at 12:01")
+	case <-time.After(100 * time.Millisecond):
+	}
+}

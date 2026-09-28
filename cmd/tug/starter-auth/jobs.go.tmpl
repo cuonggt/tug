@@ -12,10 +12,11 @@ import (
 
 // jobs is where the app's background jobs wait, in its database, for tug's
 // package queue, which runs them beside the server: the app's mail, which
-// a mail server that's down, or the app restarting, doesn't lose, and the
-// jobs that run on a schedule. A job that fails for good stays for a
-// month, with its error and failed_at, to be looked at, and run again by
-// clearing failed_at:
+// a mail server that's down, or the app restarting, doesn't lose, the jobs
+// that run on a schedule, and those of unique kinds, whose key waits with
+// them in unique_key. A job that fails for good stays for a month, with
+// its error and failed_at, to be looked at, and run again by clearing
+// failed_at:
 //
 //	SELECT id, kind, payload, attempts, error, failed_at FROM jobs WHERE failed_at IS NOT NULL;
 //	UPDATE jobs SET failed_at = NULL, attempts = 0, run_at = 0 WHERE id = 42;
@@ -27,6 +28,14 @@ type jobs struct {
 }
 
 func (s *jobs) Push(ctx context.Context, j *queue.Job) error {
+	_, err := insertJob(ctx, s.db, j)
+	return err
+}
+
+// PushUnique pushes a unique kind's job unless one of its kind and key
+// waits: the unique index on the key lets one in, and a claim clears the
+// key, so that a job pushed while one runs goes in.
+func (s *jobs) PushUnique(ctx context.Context, j *queue.Job) (bool, error) {
 	return insertJob(ctx, s.db, j)
 }
 
@@ -50,7 +59,8 @@ func (s *jobs) PushScheduled(ctx context.Context, schedule string, j *queue.Job)
 	if err != nil {
 		return false, err
 	}
-	if err := insertJob(ctx, tx, j); err != nil {
+	// A unique kind's run, whose job waits already, is kept without one.
+	if _, err := insertJob(ctx, tx, j); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -64,18 +74,29 @@ type queryer interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func insertJob(ctx context.Context, db queryer, j *queue.Job) error {
+// insertJob inserts j, and says whether it did: a unique kind's job isn't
+// inserted while one of its kind and key waits.
+func insertJob(ctx context.Context, db queryer, j *queue.Job) (bool, error) {
 	var id int64
-	err := db.QueryRowContext(ctx, "INSERT INTO jobs (kind, payload, run_at) VALUES (?, ?, ?) RETURNING id",
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli()).Scan(&id)
+	err := db.QueryRowContext(ctx, `
+		INSERT INTO jobs (kind, payload, run_at, unique_key) VALUES (?, ?, ?, NULLIF(?, ''))
+		ON CONFLICT DO NOTHING RETURNING id`,
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
 	j.ID = strconv.FormatInt(id, 10)
-	return err
+	return true, nil
 }
 
 // Claim looks before it claims: an idle queue asks every second, and a
 // write, even one that changes nothing, would take SQLite's one lock for
 // writing each time. The claim itself is one statement, which finds the
-// job and holds it, so that two at once can't both have it.
+// job and holds it, so that two at once can't both have it, and lets a
+// unique kind's key go.
 func (s *jobs) Claim(ctx context.Context, now, until time.Time) (*queue.Job, error) {
 	var due bool
 	err := s.db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM jobs WHERE failed_at IS NULL AND run_at <= ?1 AND held_until <= ?1)",
@@ -88,7 +109,7 @@ func (s *jobs) Claim(ctx context.Context, now, until time.Time) (*queue.Job, err
 	var payload string
 	var lastErr sql.NullString
 	err = s.db.QueryRowContext(ctx, `
-		UPDATE jobs SET held_until = ?2, attempts = attempts + 1
+		UPDATE jobs SET held_until = ?2, attempts = attempts + 1, unique_key = NULL
 		WHERE id = (
 			SELECT id FROM jobs WHERE failed_at IS NULL AND run_at <= ?1 AND held_until <= ?1
 			ORDER BY run_at, id LIMIT 1
