@@ -6,11 +6,11 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.7.0 is the latest release: the framework, its CLI,
+**Status: early.** v0.8.0 is the latest release: the framework, its CLI,
 background jobs, on a schedule in any time zone too, server-side
 rendering, tests of an app's pages, and a starter with accounts, from
-registering to two-factor logins. [The guide](docs/README.md) covers all
-of it, and [docs/roadmap.md](docs/roadmap.md) has what's next.
+registering to two-factor logins and passkeys. [The guide](docs/README.md)
+covers all of it, and [docs/roadmap.md](docs/roadmap.md) has what's next.
 
 ```sh
 go install github.com/cuonggt/tug/cmd/tug@latest

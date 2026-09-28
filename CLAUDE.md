@@ -15,7 +15,7 @@ its mail with, jobs on a schedule (v0.4.0), server-side rendering
 (v0.5.0): package `ssr`, with Node beside the app, and `tug new -ssr`,
 tests of an app's pages (v0.6.0): package `tugtest`, which the starters'
 tests use, cron in time zones and unique jobs (v0.7.0), in package
-`queue`, and passkeys: `auth.Passkeys`, and in the auth starter.
+`queue`, and passkeys (v0.8.0): `auth.Passkeys`, and in the auth starter.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 

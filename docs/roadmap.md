@@ -641,7 +641,7 @@ Choices made on the way:
 Logging in with a passkey, which a phone, a laptop or a password manager
 keeps, and unlocks with a PIN, a fingerprint or a face: what the auth
 starter still lacked of Laravel's kit, left out of M7 as a lot of code
-where a slip is a security hole.
+where a slip is a security hole. Released as v0.8.0.
 
 - `auth.Passkeys`: WebAuthn, on the standard library. `StartRegistration`
   and `StartLogin` make the options of the browser's `navigator.credentials`,
