@@ -708,7 +708,7 @@ adapters read as React's does; the React refresh preamble is a template
 function an app calls or doesn't; the SSR gateway talks to Inertia's SSR
 server, whichever framework it renders; tug dev watches only the Go and
 the templates; and tug build runs whatever `npm run typecheck` is. The
-work was in the starters.
+work was in the starters. Released as v0.9.0.
 
 - `tug new -vue` and `tug new -svelte`, with `-auth` and `-ssr` as they
   are: the plain app and the app with accounts, with pages rendered on the
