@@ -22,6 +22,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M14 | Vue and Svelte starters    | done   |
 | M15 | The queue, whole           | done   |
 | M16 | Files                      | done   |
+| M17 | Postgres and MySQL         | next   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -1029,6 +1030,107 @@ Choices made on the way:
   `bitnamilegacy/minio`, pinned: MinIO all the same. The starter's photo
   in its Go tests with `tugtest.File`, and in the browser suite in all
   three frontends.
+
+## M17 · Postgres and MySQL — next
+
+The auth starter keeps its users, passkeys and jobs in SQLite, which is
+right for one machine, and where most apps start. Past one, SQLite is what
+holds the starter back: M16 put the files where several instances can
+share them, in a bucket, and the database is what's left. And the page on
+jobs warns that two claims at once in Postgres can each take a job of one
+key, without a recipe, as tug has never run on one. `tug new` asks which
+database, as `laravel new` does: SQLite, unless it's told Postgres or
+MySQL. To be released as v0.12.0.
+
+- **`tug new -auth -postgres` and `-auth -mysql`.** The same app, with its
+  users, passkeys and jobs in Postgres or in MySQL, through `database/sql`
+  and a driver of the app's own: pgx for Postgres, go-sql-driver for
+  MySQL, both pure Go, so the binary stays static. SQLite stays the
+  default, and the plain starter, which has no database, takes neither.
+- **A layer per database.** The starter's SQL moves out of the files that
+  handle requests into a layer of its own, `sqlite/`, `postgres/` or
+  `mysql/`, laid over the auth starter as a frontend's layer is: the
+  tables' queries, the migrations, the connection, and the jobs' Store.
+  The handlers, and the types they share, are the same whichever it is.
+- **Jobs on a database whose claims run at once.** Postgres's and MySQL's
+  Stores claim with `FOR UPDATE SKIP LOCKED`, so the claims of several
+  instances take different jobs without waiting on each other, and keep a
+  `OneAtATime` kind's jobs of one key apart, which SQLite, with one
+  writer, never had to. `queuetest.TestStore`, with its test of claims of
+  one key at once, runs on each.
+- **The connection, by Laravel's variables:** `DB_URL`, or `DB_HOST`,
+  `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD`. The app has
+  a `compose.yaml` that runs its database for development, which the
+  `.env` that `tug new` writes names, and SQLite's `DB_PATH` stays as it
+  is.
+- **The guide:** Accounts, Background jobs, Deployment, Testing and the
+  CLI, where they meet the databases, and the SQL of each Store, with how
+  it keeps one at a time, in place of the warning.
+
+Choices, to settle before any code:
+
+- **Chosen as the app is made, not by the environment.** The SQL is the
+  app's own, written for one database, as its handlers are its own: no
+  dialect layer or query builder, and no `DB_CONNECTION` to switch at run
+  time. An app that moves to another database takes that layer's files.
+- **tug stays without SQL.** M8's decision holds: the Stores are the
+  starter's, one in each layer, and the drivers are in the app's
+  `go.mod`, not tug's. tug's own tests make an app on each database with
+  `tug new`, and run its tests, as they do each frontend's.
+- **Postgres is close to SQLite.** `RETURNING`, `ON CONFLICT` upserts,
+  partial indexes, and steps that roll back whole all carry over. What
+  changes: `$1` placeholders, identity columns, `timestamptz` and `bytea`,
+  and an email that's unique whatever its case, by a unique index on
+  `lower(email)`, which the queries compare with. `UPDATE OR IGNORE`
+  becomes the unique violation it is.
+- **MySQL is further.** No `RETURNING`, so an insert reads its ID back,
+  and an upsert that meets a row returns that row's with
+  `LAST_INSERT_ID(id)`; `ON DUPLICATE KEY UPDATE` for upserts; no partial
+  indexes, where a unique index lets NULLs repeat anyway; `VARCHAR` for
+  what's indexed, and `DATETIME(6)` in UTC. An email's column compares
+  with `utf8mb4_0900_as_ci`: whatever its case, as SQLite's `NOCASE`, but
+  not whatever its accents, as MySQL's default collation would, which
+  makes `ann@example.com` and `ánn@example.com` one account.
+- **Migrations,** counted in a table, `schema_version`, in place of
+  SQLite's `user_version`. In Postgres, each step runs in a transaction
+  with its count, as now, which locks the count's row, so instances
+  starting at once take turns. MySQL commits each statement that changes
+  a table on its own: each step is one statement, which MySQL 8's atomic
+  DDL does whole or not at all, and instances take turns under
+  `GET_LOCK`, held on one connection for the whole run. A crash in the
+  instant between a step and its count leaves the step done and
+  uncounted, and the next start says which, rather than guess, as
+  Laravel's migrations are on MySQL too.
+- **One at a time, under claims at once.** The claim of a `OneAtATime`
+  job locks a row of its kind and key, in a `job_locks` table, before it
+  checks that no other job of the key is held, and keeps the lock until
+  it commits: a second claim of the key waits for the first, then sees
+  its hold, and passes over the job. A row rather than an advisory lock:
+  Postgres's last as long as the transaction, but MySQL's as long as the
+  connection, which `database/sql` hands on to whoever's next.
+  `prune-jobs` deletes the rows no job needs any more.
+- **Tests on a server.** On Postgres or MySQL, the starter's tests each
+  make a database of their own on the server `DB_URL` names, or else
+  `compose.yaml`'s, and drop it after; with no server they fail, saying
+  to start one, where skipping would pass with nothing tested:
+  `docker compose up -d`, then `go test ./...`. tug's CI runs a Postgres
+  and a MySQL beside the tests, and its tests of those apps are skipped
+  without them, as `storage`'s S3 is without a MinIO. The browser suite
+  stays on SQLite: the pages are the same.
+- **Versions.** CI runs Postgres 18 and MySQL 8.4, the older of MySQL's
+  two long-term releases, 9.7 being the newer, and the guide names those
+  as what's tested. MariaDB isn't: its collations aren't MySQL's, and an
+  app on it picks its email column's.
+- **`compose.yaml`, for development only.** It runs the database, on
+  127.0.0.1 with a volume, and nothing else: `tug dev` doesn't start it,
+  as a database outlives a dev server. A deployed app gets its
+  `DB_URL` from its environment, with the driver's own settings in the
+  URL's query, such as Postgres's `sslmode`.
+- **The image.** On Postgres or MySQL, the Dockerfile's `/data` volume
+  keeps the photos alone, and the database is wherever `DB_URL` says. The
+  health check at `/up` pings it, as now.
+- **Flags:** `-postgres` and `-mysql`, as `-vue` and `-svelte` are: one at
+  most, and only with `-auth`.
 
 ## Decisions
 
