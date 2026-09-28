@@ -172,7 +172,11 @@ func (a *app) passkeyLogin(c *tug.Ctx) error {
 	}
 	// Five tries a minute from one address, as with passwords.
 	key := "passkey|" + clientIP(c.Request())
-	if wait := a.logins.Try(key); wait > 0 {
+	wait, err := a.logins.Try(c.Context(), key)
+	if err != nil {
+		return err
+	}
+	if wait > 0 {
 		return validate.Errors{"passkey": tooMany(wait)}
 	}
 	var owner int64
@@ -193,7 +197,9 @@ func (a *app) passkeyLogin(c *tug.Ctx) error {
 	if err := a.passkeys.used(c.Context(), pk); err != nil {
 		return err
 	}
-	a.logins.Clear(key)
+	if err := a.logins.Clear(c.Context(), key); err != nil {
+		return err
+	}
 	s := c.Session()
 	if in.Remember {
 		s.SetLifetime(rememberFor)
@@ -231,7 +237,11 @@ func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
 		return err
 	}
 	key := user.authID()
-	if wait := a.passwords.Try(key); wait > 0 {
+	wait, err := a.passwords.Try(c.Context(), key)
+	if err != nil {
+		return err
+	}
+	if wait > 0 {
 		return validate.Errors{"passkey": tooMany(wait)}
 	}
 	pk, err := a.site(c).FinishLogin(c.Session(), in.Credential, func(id []byte) (auth.Passkey, error) {
@@ -248,7 +258,9 @@ func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
 	if err := a.passkeys.used(c.Context(), pk); err != nil {
 		return err
 	}
-	a.passwords.Clear(key)
+	if err := a.passwords.Clear(c.Context(), key); err != nil {
+		return err
+	}
 	auth.SetPasswordConfirmed(c.Session())
 	return toIntended(c)
 }

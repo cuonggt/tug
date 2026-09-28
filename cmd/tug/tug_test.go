@@ -233,7 +233,7 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 			if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
 				t.Errorf("main.go isn't the auth starter's:\n%s", main)
 			}
-			for _, f := range []string{"auth.go", "users.go", "jobs.go", "db.go", "users_db.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
+			for _, f := range []string{"auth.go", "users.go", "jobs.go", "db.go", "users_db.go", "throttles_db.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
 				if strings.Contains(read(f), "[[ ") {
 					t.Errorf("%s has a placeholder left", f)
 				}
@@ -298,7 +298,7 @@ func TestNewWithPostgresOrMySQLLaysItsSQLOverTheAuthStarter(t *testing.T) {
 			if !strings.Contains(read("db_test.go"), `"`+c.devURL+`"`) {
 				t.Error("the tests don't make their databases on compose.yaml's, without DB_URL")
 			}
-			for _, f := range []string{"main.go", "db.go", "users_db.go", "passkeys_db.go", "jobs_db.go", "db_test.go", "compose.yaml", "Dockerfile", "README.md", ".env.example", ".gitignore"} {
+			for _, f := range []string{"main.go", "db.go", "users_db.go", "passkeys_db.go", "jobs_db.go", "throttles_db.go", "db_test.go", "compose.yaml", "Dockerfile", "README.md", ".env.example", ".gitignore"} {
 				if got := read(f); strings.Contains(got, "[[") || strings.Contains(got, "app.db") || strings.Contains(got, "DB_PATH") {
 					t.Errorf("%s has a placeholder left, or SQLite's file:\n%s", f, got)
 				}

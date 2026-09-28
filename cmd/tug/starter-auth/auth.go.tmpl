@@ -225,7 +225,11 @@ func (a *app) login(c *tug.Ctx) error {
 	// before the password is checked, so that tries sent at once count too,
 	// and a login that works clears them.
 	key := strings.ToLower(in.Email) + "|" + clientIP(c.Request())
-	if wait := a.logins.Try(key); wait > 0 {
+	wait, err := a.logins.Try(c.Context(), key)
+	if err != nil {
+		return err
+	}
+	if wait > 0 {
 		return validate.Errors{"email": tooMany(wait)}
 	}
 	u, err := a.users.byEmail(c.Context(), in.Email)
@@ -241,7 +245,9 @@ func (a *app) login(c *tug.Ctx) error {
 	if !auth.CheckPassword(hash, in.Password) {
 		return validate.Errors{"email": "the email and password don't match an account"}
 	}
-	a.logins.Clear(key)
+	if err := a.logins.Clear(c.Context(), key); err != nil {
+		return err
+	}
 	if auth.NeedsRehash(u.PasswordHash) {
 		u.PasswordHash = auth.HashPassword(in.Password)
 		if err := a.users.setPassword(c.Context(), u.ID, u.PasswordHash); err != nil {
@@ -316,7 +322,14 @@ func (a *app) forgotPassword(c *tug.Ctx) error {
 	// same, and as quick, whether it has an account or not: the form can't
 	// be asked who has. Each ask is a job in the database, so an address
 	// has five a minute, and an email gets one mail a minute at most.
-	if a.resetAsks.Try(clientIP(c.Request())) == 0 && a.mails.Try("reset|"+strings.ToLower(in.Email)) == 0 {
+	wait, err := a.resetAsks.Try(c.Context(), clientIP(c.Request()))
+	if err == nil && wait == 0 {
+		wait, err = a.mails.Try(c.Context(), "reset|"+strings.ToLower(in.Email))
+	}
+	if err != nil {
+		return err
+	}
+	if wait == 0 {
 		if err := a.resetMail.Push(c.Context(), ResetMail{Email: in.Email, Base: a.base(c)}); err != nil {
 			return err
 		}
@@ -435,7 +448,7 @@ func (a *app) confirmPassword(c *tug.Ctx, user *User) error {
 	if err := c.BindValid(&in); err != nil {
 		return err
 	}
-	if err := a.checkPassword(user, "password", in.Password); err != nil {
+	if err := a.checkPassword(c.Context(), user, "password", in.Password); err != nil {
 		return err
 	}
 	auth.SetPasswordConfirmed(c.Session())
@@ -446,14 +459,17 @@ func (a *app) confirmPassword(c *tug.Ctx, user *User) error {
 // confirm it, change it, or delete their account, and returns the error
 // for field when it's wrong. Five tries a minute: whoever has their
 // browser can guess no faster than at the login page.
-func (a *app) checkPassword(user *User, field, password string) error {
+func (a *app) checkPassword(ctx context.Context, user *User, field, password string) error {
 	key := user.authID()
-	if wait := a.passwords.Try(key); wait > 0 {
+	wait, err := a.passwords.Try(ctx, key)
+	if err != nil {
+		return err
+	}
+	if wait > 0 {
 		return validate.Errors{field: tooMany(wait)}
 	}
 	if !auth.CheckPassword(user.PasswordHash, password) {
 		return validate.Errors{field: "that isn't your password"}
 	}
-	a.passwords.Clear(key)
-	return nil
+	return a.passwords.Clear(ctx, key)
 }

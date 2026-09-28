@@ -1,0 +1,84 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/auth/throttletest"
+)
+
+func TestTheThrottlesTableKeepsItsPromises(t *testing.T) {
+	throttletest.TestStore(t, func(t *testing.T) auth.ThrottleStore {
+		return &throttles{db: testDB(t)}
+	})
+}
+
+func TestTheAppsInstancesCountEachOthersTries(t *testing.T) {
+	db := testDB(t)
+	one := startApp(t, db, [][]byte{key(1)})
+	one.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := startApp(t, db, [][]byte{key(1)})
+	// Five wrong passwords from one address, to each instance in turn, as a
+	// load balancer sends them: neither has seen five.
+	for i := range 5 {
+		logIn([]*testApp{one, other}[i%2].client(), "ann@example.com", "wrong horse")
+	}
+	c := other.client()
+	logIn(c, "ann@example.com", "correct horse")
+	r := c.Get("/login")
+	if msg := r.Errors()["email"]; !strings.HasPrefix(msg, "too many tries: wait ") || user(r) != nil {
+		t.Errorf("the sixth try, to the instance that saw two: errors %v, user %+v", r.Errors(), user(r))
+	}
+}
+
+// hashed is a key as package auth hands a store one: 32 bytes.
+func hashed(key string) []byte {
+	sum := sha256.Sum256([]byte(key))
+	return sum[:]
+}
+
+func TestTheCountsThatCountNothingArePruned(t *testing.T) {
+	ts := &throttles{db: testDB(t)}
+	ctx, now := context.Background(), time.Now()
+	for key, at := range map[string]time.Time{"over": now.Add(-2 * time.Minute), "counting": now} {
+		if _, _, err := ts.Hit(ctx, hashed(key), at, time.Minute); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ts.prune(ctx, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := ts.db.QueryRow("SELECT count(*) FROM throttles").Scan(&rows); err != nil || rows != 1 {
+		t.Errorf("%d rows left, %v: want the one still counting", rows, err)
+	}
+	if tries, _, err := ts.Tries(ctx, hashed("counting"), now); tries != 1 || err != nil {
+		t.Errorf("the one still counting has %d tries, %v", tries, err)
+	}
+}
+
+func TestTheAppPrunesTheCountsEveryHour(t *testing.T) {
+	started := time.Now().UTC()
+	app := newTestApp(t)
+	var runAt int64
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		err := app.db.QueryRow("SELECT run_at FROM jobs WHERE kind = 'prune-throttles'").Scan(&runAt)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the prune job wasn't pushed: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The next hour, or the one after, should one have come round as the
+	// app started.
+	next := started.Truncate(time.Hour).Add(time.Hour)
+	if got := time.UnixMilli(runAt).UTC(); !got.Equal(next) && !got.Equal(next.Add(time.Hour)) {
+		t.Errorf("the prune job runs at %v, want the next hour, %v", got, next)
+	}
+}

@@ -189,7 +189,9 @@ type app struct {
 	// by email and address; the password of someone logged in, and the
 	// codes of a login waiting for its second factor, by user; and mail,
 	// by what it's for and to whom, so that no one's inbox can be flooded,
-	// and the asks for a reset link, which are jobs, by address.
+	// and the asks for a reset link, which are jobs, by address. They're
+	// counted in the database, where every instance of the app counts:
+	// throttles_db.go.
 	logins    *auth.Throttle
 	passwords *auth.Throttle
 	codes     *auth.Throttle
@@ -264,6 +266,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	if err != nil {
 		return nil, err
 	}
+	counts := &throttles{db: e.DB}
 	a := &app{
 		db:            e.DB,
 		queue:         e.Queue,
@@ -276,21 +279,23 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		resets:        &auth.Resets{Keys: e.Keys},
 		verifications: &auth.Verifications{Keys: e.Keys},
 		twoFactor:     &auth.TwoFactor{Keys: e.Keys, Issuer: appName},
-		logins:        &auth.Throttle{Max: 5, Window: time.Minute},
-		passwords:     &auth.Throttle{Max: 5, Window: time.Minute},
-		codes:         &auth.Throttle{Max: 5, Window: time.Minute},
-		mails:         &auth.Throttle{Max: 1, Window: time.Minute},
-		resetAsks:     &auth.Throttle{Max: 5, Window: time.Minute},
+		logins:        &auth.Throttle{Name: "logins", Max: 5, Window: time.Minute, Store: counts},
+		passwords:     &auth.Throttle{Name: "passwords", Max: 5, Window: time.Minute, Store: counts},
+		codes:         &auth.Throttle{Name: "codes", Max: 5, Window: time.Minute, Store: counts},
+		mails:         &auth.Throttle{Name: "mails", Max: 1, Window: time.Minute, Store: counts},
+		resetAsks:     &auth.Throttle{Name: "reset-asks", Max: 5, Window: time.Minute, Store: counts},
 	}
 	// The mail goes by jobs, which make each mail as it goes: in verify.go,
 	// auth.go and passkeys.go. So do the files that nothing names any more,
 	// such as a replaced photo: photos.go. Every night, a job deletes the
-	// jobs that failed for good over a month ago: prune, in jobs_db.go.
+	// jobs that failed for good over a month ago: prune, in jobs_db.go; and
+	// every hour, the throttles' counts that count nothing any more.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
 	a.passkeyMail = queue.Handle(e.Queue, "passkey-mail", a.mailPasskey)
 	a.deleteFile = queue.Handle(e.Queue, "delete-file", a.deleteStoredFile)
 	queue.Handle(e.Queue, "prune-jobs", a.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
+	queue.Handle(e.Queue, "prune-throttles", counts.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	if len(e.Keys) > 1 && !tug.Generating() {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
 		// two-factor secrets over to the new one before it's dropped.

@@ -84,7 +84,11 @@ func (a *app) resendVerification(c *tug.Ctx, user *User) error {
 	if user.EmailVerifiedAt != nil {
 		return c.RedirectRoute("dashboard")
 	}
-	if wait := a.mails.Try("verify|" + user.authID()); wait > 0 {
+	wait, err := a.mails.Try(c.Context(), "verify|"+user.authID())
+	if err != nil {
+		return err
+	}
+	if wait > 0 {
 		c.Flash("error", fmt.Sprintf("A link went a moment ago: wait %d seconds for another.", int(math.Ceil(wait.Seconds()))))
 		return c.RedirectBack()
 	}

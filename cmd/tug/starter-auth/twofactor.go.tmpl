@@ -49,7 +49,11 @@ func (a *app) twoFactorChallenge(c *tug.Ctx) error {
 	}
 	// Five tries a minute, counted before the code is checked, as the
 	// password's are: a million codes can't be tried one by one.
-	if wait := a.codes.Try(id); wait > 0 {
+	wait, err := a.codes.Try(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	if wait > 0 {
 		return validate.Errors{field: tooMany(wait)}
 	}
 	n, _ := strconv.ParseInt(id, 10, 64)
@@ -75,7 +79,9 @@ func (a *app) twoFactorChallenge(c *tug.Ctx) error {
 	if !ok {
 		return validate.Errors{"recovery_code": "that isn't one of your recovery codes, or it has been used"}
 	}
-	a.codes.Clear(id)
+	if err := a.codes.Clear(c.Context(), id); err != nil {
+		return err
+	}
 	auth.Login(s, u.authID(), u.PasswordHash)
 	auth.SetPasswordConfirmed(s)
 	return toIntended(c)

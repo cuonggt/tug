@@ -70,3 +70,22 @@ func TestAPostIDThatIsNotANumberIsNotFound(t *testing.T) {
 		t.Fatalf("show /api/posts/abc = %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestAClientThatWritesTooFastWaits(t *testing.T) {
+	c := client{newApp(tug.Config{})}
+	for i := range 60 {
+		if rec := c.do("POST", "/api/posts", `{"title":"Hello"}`); rec.Code != http.StatusCreated {
+			t.Fatalf("write %d = %d %s", i+1, rec.Code, rec.Body)
+		}
+	}
+	rec := c.do("POST", "/api/posts", `{"title":"One too many"}`)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "60" || rec.Body.String() != `{"message":"too many requests: wait 60 seconds, and try again"}` {
+		t.Fatalf("write 61 = %d, Retry-After %q: %s", rec.Code, rec.Header().Get("Retry-After"), rec.Body)
+	}
+	if rec := c.do("GET", "/api/posts/61", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("the write turned away was made: %d %s", rec.Code, rec.Body)
+	}
+	if rec := c.do("GET", "/api/posts", ""); rec.Code != http.StatusOK {
+		t.Errorf("reading waits too: %d", rec.Code)
+	}
+}

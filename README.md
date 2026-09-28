@@ -149,8 +149,8 @@ func showPost(c *tug.Ctx) error {
   slip is a security hole: argon2id password hashes, logins that end when
   the password changes, signed tokens for reset and verification links,
   two-factor codes and recovery codes kept encrypted, passkeys, WebAuthn's
-  checks on the standard library, asking for the password again, and a
-  throttle on guessing.
+  checks on the standard library, asking for the password again, and
+  throttles on guessing, whose counts every instance of the app shares.
 - **Mail** (package `mail`): through an SMTP server, or in development
   written out where `tug dev` shows it, links and all.
 - **Background jobs** (package `queue`): work a request starts and doesn't
@@ -181,7 +181,8 @@ func showPost(c *tug.Ctx) error {
   middleware, and named routes with `app.URL("posts.show", 42)`. Paths match
   exactly, so `/` is only the home page, and `{name...}` takes everything
   under a path. A trailing slash redirects to the route without it, and a
-  wrong method is a 405 with `Allow`.
+  wrong method is a 405 with `Allow`. `tug.Limit` puts a limit on a route,
+  by address or user: a 429, with `Retry-After`, past it.
 - **Handlers return errors.** `tug.NewHTTPError(404, "post not found")`
   picks the status. Any other error is a 500 whose details stay in the log,
   or show in the response with `APP_DEBUG=true`. A panic is a 500 with its

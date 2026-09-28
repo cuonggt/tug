@@ -1,6 +1,7 @@
 // Command api is a small JSON API on tug: posts kept in memory, behind
-// named routes in a group, with the usual middleware, and errors that come
-// back as JSON to a client that asks for it.
+// named routes in a group, with the usual middleware, errors that come
+// back as JSON to a client that asks for it, and a limit on how fast a
+// client writes.
 //
 //	ADDR=127.0.0.1:8080 go run ./examples/api
 //	curl -s localhost:8080/api/posts -H 'Accept: application/json' \
@@ -10,11 +11,14 @@ package main
 import (
 	"cmp"
 	"log"
+	"net"
 	"net/http"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/middleware"
 )
 
@@ -35,13 +39,29 @@ func newApp(cfg tug.Config) *tug.App {
 	app := tug.New(cfg)
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 
+	// An address writes 60 times a minute at most: past that, a 429, with
+	// Retry-After. The counts are in memory, this process's own; give the
+	// Throttle a Store for instances that share them.
+	writes := &auth.Throttle{Name: "writes", Max: 60, Window: time.Minute}
+
 	api := app.Group("/api")
 	api.Get("/posts", p.index).Name("posts.index")
-	api.Post("/posts", p.store).Name("posts.store")
+	api.Post("/posts", tug.Limit(writes, byAddress, p.store)).Name("posts.store")
 	api.Get("/posts/{id}", p.show).Name("posts.show")
-	api.Put("/posts/{id}", p.update).Name("posts.update")
-	api.Delete("/posts/{id}", p.destroy).Name("posts.destroy")
+	api.Put("/posts/{id}", tug.Limit(writes, byAddress, p.update)).Name("posts.update")
+	api.Delete("/posts/{id}", tug.Limit(writes, byAddress, p.destroy)).Name("posts.destroy")
 	return app
+}
+
+// byAddress is the address a request came from, which the limit counts by.
+// Behind a proxy, it's the proxy's: read the client's from the header the
+// proxy sets, once only the proxy can reach the app.
+func byAddress(c *tug.Ctx) string {
+	host, _, err := net.SplitHostPort(c.Request().RemoteAddr)
+	if err != nil {
+		return c.Request().RemoteAddr
+	}
+	return host
 }
 
 // posts is the store behind the routes.

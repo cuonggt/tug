@@ -29,6 +29,8 @@ go test ./...
   the page that asks for the password again, on tug's package `auth`. A
   route for users is wrapped in `usersOnly`, whose handler is handed the
   user, and in `verified` or `passwordConfirmed` for what needs them.
+  Logging in, codes, and mail are throttled, with counts in the database
+  that every instance of the app shares.
 - `verify.go`: verifying an email by a mailed link. `twofactor.go`:
   two-factor logins. `passkeys.go`: passkeys, which browsers make at
   `localhost` in development, not at an IP address. `settings.go`: the
@@ -46,13 +48,14 @@ go test ./...
 - `db.go`: the database, SQLite (`app.db`, or `DB_PATH`), through
   `database/sql`, and the migrations that make and change its tables.
   The SQL of each table is beside the Go that's the same on any
-  database: `users_db.go`, `passkeys_db.go` and `jobs_db.go`.
+  database: `users_db.go`, `passkeys_db.go`, `jobs_db.go` and
+  `throttles_db.go`.
 [[- else ]]
 - `db.go`: the database, [[ if .MySQL ]]MySQL[[ else ]]Postgres[[ end ]] at `DB_URL`, through `database/sql`, and
   the migrations that make and change its tables. `compose.yaml` runs it
   in development, and the tests make a database each on it. The SQL of
   each table is beside the Go that's the same on any database:
-  `users_db.go`, `passkeys_db.go` and `jobs_db.go`.
+  `users_db.go`, `passkeys_db.go`, `jobs_db.go` and `throttles_db.go`.
 [[- end ]]
 [[- if .Vue ]]
 - `resources/js`: Vue with Tailwind and [shadcn-vue](https://www.shadcn-vue.com)

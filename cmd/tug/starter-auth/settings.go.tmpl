@@ -88,7 +88,7 @@ func (a *app) deleteAccount(c *tug.Ctx, user *User) error {
 	if err := c.BindValid(&in); err != nil {
 		return err
 	}
-	if err := a.checkPassword(user, "password", in.Password); err != nil {
+	if err := a.checkPassword(c.Context(), user, "password", in.Password); err != nil {
 		return err
 	}
 	// The account, and the job that deletes its photo, go together.
@@ -164,7 +164,7 @@ func (a *app) updatePassword(c *tug.Ctx, user *User) error {
 	if err := c.BindValid(&in, confirmed(&in.Password, &in.PasswordConfirmation)); err != nil {
 		return err
 	}
-	if err := a.checkPassword(user, "current_password", in.CurrentPassword); err != nil {
+	if err := a.checkPassword(c.Context(), user, "current_password", in.CurrentPassword); err != nil {
 		return err
 	}
 	hash := auth.HashPassword(in.Password)

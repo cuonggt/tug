@@ -262,6 +262,41 @@ carries the ID, and `Logger` before `Recover`, so a panic is logged as the
   isn't one, such as `admin.example.com` without its scheme, so that a
   mistyped setting stops the app as it starts. See [forms.md](forms.md).
 
+### A limit for a route
+
+```go
+searches := &auth.Throttle{Name: "searches", Max: 30, Window: time.Minute}
+app.Get("/search", tug.Limit(searches, byAddress, search)).Name("search")
+
+// byAddress is the address a request came from, as the app reads it.
+func byAddress(c *tug.Ctx) string {
+    host, _, _ := net.SplitHostPort(c.Request().RemoteAddr)
+    return host
+}
+```
+
+`tug.Limit(limiter, key, handler)` counts a try for each request, by the
+key the function makes of it, and one over the limit doesn't reach the
+handler: it's a 429 for the `ErrorHandler`, as a 404 is, with
+`Retry-After`, the wait in seconds, rounded up, and "too many requests:
+wait 30 seconds, and try again". So an Inertia visit gets the error page,
+and an API's client JSON. A limiter's error, as when the database that
+counts is down, is as though the handler had returned it.
+
+It's a wrapper around a handler, as the auth starter's `usersOnly` is,
+rather than middleware: middleware answers before the handler, with no
+`Ctx`, and could only write a response of its own, which an Inertia visit
+shows in a modal. The limiter is anything with `Try`, a `tug.Limiter`,
+as an `auth.Throttle` is ([Accounts](auth.md#throttle)): in memory, this
+process's own counts, or with a `Store`, counts that every instance of
+the app shares.
+
+The key is the app's: tug has no address of its own to offer, as behind
+a proxy the request's is the proxy's, which only the app knows to read
+past (see [Deployment](deployment.md#behind-a-proxy)). A key can be a
+user's ID instead, for a limit per account. A throttle used on more than
+one route counts them together, unless the key says which.
+
 ## Handlers and `Ctx`
 
 ```go

@@ -1,0 +1,72 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+// throttles are the throttles' counts, in the database, where every
+// instance of the app counts the tries it's made: an auth.ThrottleStore,
+// for the auth.Throttles newApp makes. A row is a key's tries, and when
+// their window ends, in Unix milliseconds, as a job's times are. The key
+// is the SHA-256 package auth makes of a throttle's name and what it
+// counts by, so the table keeps no email or address.
+type throttles struct {
+	db *sql.DB
+}
+
+// Hit counts a try: a new window where the key's is over, and one try more
+// in the window otherwise. MySQL has no RETURNING, so a transaction reads
+// back the row its upsert wrote, which the upsert keeps locked until then.
+// MySQL sets an UPDATE's columns in order, each from the row as the ones
+// before left it: the tries, which read the end, go first.
+func (ts *throttles) Hit(ctx context.Context, key []byte, now time.Time, window time.Duration) (int, time.Time, error) {
+	tx, err := ts.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO throttles (key_hash, tries, ends_at) VALUES (?, 1, ?) AS hit
+		ON DUPLICATE KEY UPDATE
+			tries = IF(throttles.ends_at <= ?, 1, throttles.tries + 1),
+			ends_at = IF(throttles.ends_at <= ?, hit.ends_at, throttles.ends_at)`,
+		key, now.Add(window).UnixMilli(), now.UnixMilli(), now.UnixMilli())
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	var tries int
+	var ends int64
+	if err := tx.QueryRowContext(ctx, "SELECT tries, ends_at FROM throttles WHERE key_hash = ?", key).Scan(&tries, &ends); err != nil {
+		return 0, time.Time{}, err
+	}
+	return tries, time.UnixMilli(ends), tx.Commit()
+}
+
+func (ts *throttles) Tries(ctx context.Context, key []byte, now time.Time) (int, time.Time, error) {
+	var tries int
+	var ends int64
+	err := ts.db.QueryRowContext(ctx, "SELECT tries, ends_at FROM throttles WHERE key_hash = ? AND ends_at > ?", key, now.UnixMilli()).Scan(&tries, &ends)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, time.Time{}, nil
+	}
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	return tries, time.UnixMilli(ends), nil
+}
+
+func (ts *throttles) Clear(ctx context.Context, key []byte) error {
+	_, err := ts.db.ExecContext(ctx, "DELETE FROM throttles WHERE key_hash = ?", key)
+	return err
+}
+
+// prune deletes the rows whose window is over, which count nothing any
+// more: a limit on a route has one for each address it has seen. It's a
+// job, which newApp schedules for every hour.
+func (ts *throttles) prune(ctx context.Context, _ struct{}) error {
+	_, err := ts.db.ExecContext(ctx, "DELETE FROM throttles WHERE ends_at <= ?", time.Now().UnixMilli())
+	return err
+}

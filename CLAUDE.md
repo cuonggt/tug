@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M17 are done, which is
+the decisions behind it and where it stands: M1 to M18 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -23,9 +23,12 @@ a unique job at its latest push's time or one at a time, and the jobs
 that failed listed and run again by the auth starter's `jobs` command,
 files (v0.11.0): package `storage`, a local disk or S3, with signed
 links, `validate`'s tags for uploads, `tugtest.File`, and the auth
-starter's profile photo, and Postgres and MySQL (v0.12.0): `tug new
+starter's profile photo, Postgres and MySQL (v0.12.0): `tug new
 -auth -postgres` and `-mysql`, the auth starter's SQL in a layer per
-database, jobs claimed with `SKIP LOCKED`, and `tug.Generating`.
+database, jobs claimed with `SKIP LOCKED`, and `tug.Generating`, and
+throttles across instances (v0.13.0): `auth.ThrottleStore`, the auth
+starter's throttles counted in its database, and `tug.Limit`, a limit
+for a route.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -130,6 +133,10 @@ dev server that isn't there: delete it.
     client, unless Debug is showing a 500's details. `adapt` in app.go
     recovers handler panics into `*PanicError`, and re-panics
     `http.ErrAbortHandler`.
+  - `limit.go`: `Limit`, a HandlerFunc wrapper, not middleware, so a
+    refusal is a 429 `*HTTPError` for the ErrorHandler, with
+    `Retry-After`; it takes a `Limiter`, the `Try` `*auth.Throttle` has,
+    so the core imports no auth.
   - `pages.go`: `Page[P]`, which declares a component with its props
     type in the registry tug gen reads (`declare`, `declaredPages`) and
     returns a `PageOf[P]` that renders only those props, `Ctx.Inertia`
@@ -308,6 +315,12 @@ dev server that isn't there: delete it.
   after the commit: registering, adding a passkey and a new email push
   their mail in the transaction that writes what it's about;
   `prune-jobs` runs every night and deletes jobs that failed a month ago.
+  Its five `auth.Throttle`s, each named, count in the database: every
+  layer's `throttles_db.go` is `throttles`, an `auth.ThrottleStore` (an
+  upsert with `RETURNING`, or in MySQL a transaction that reads back),
+  whose `prune` runs every hour as `prune-throttles`; `throttles_test.go`
+  runs `throttletest.TestStore` on it, and two instances on one database
+  share a login's count.
   The mail goes by jobs (`VerifyMail` in `verify.go.tmpl`, `ResetMail` in
   `auth.go.tmpl`) that carry IDs and make the mail, token and all, as they
   run; `main` runs the queue with `app.Go`, unless `QUEUE_WORKERS` is 0,
@@ -338,9 +351,14 @@ dev server that isn't there: delete it.
   the password hash) and `verify.go` (the ID and the email) use it.
   `twofactor.go`: TOTP (RFC 6238, the last step used kept by the app),
   secrets and recovery codes sealed with AES-GCM under an HKDF key, and
-  `Stale` for rotation. `throttle.go`: counts per key in a
-  map, swept as it doubles; `Try` checks and counts under one lock, so
-  tries at the same moment can't all get in. `passkeys.go`: WebAuthn, the
+  `Stale` for rotation. `throttle.go`: `Throttle`, whose `Try`, `Wait`
+  and `Clear` take a context and return the store's error, over a
+  `ThrottleStore` (`Hit` counts and reads back in one step, `Tries`,
+  `Clear`), given the SHA-256 of the throttle's `Name` and the key
+  (`hash`), and the app's clock; without a `Store`, `memoryThrottles`, a
+  map swept as it doubles. Every try counts, the refused too: the store
+  needn't know `Max`. `throttletest`: `TestStore`, which auth's own
+  tests run on the memory store (`export_test.go`). `passkeys.go`: WebAuthn, the
   options as JSON, the challenge in the session (`tug.auth.passkey`,
   answered once within five minutes, which `Login` drops), and the checks
   of an answer (`checkClientData`, `checkAuthData`, the signature, the
@@ -412,7 +430,8 @@ dev server that isn't there: delete it.
   tug's own tests can't use it, as it imports tug. `upload.go`: `File`,
   which makes a map body a multipart form (`multipartBody`), written as
   Inertia's client's objectToFormData writes one (`writeForm`).
-- `examples/api`: a JSON API on the core. Its tests are the end to end check.
+- `examples/api`: a JSON API on the core, its writes limited by address
+  with `tug.Limit`. Its tests are the end to end check.
 - `examples/inertia`: React pages on tug. `main.go` embeds `app.html` and
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
   before one). `main_test.go` runs on tugtest without Node, against a fake

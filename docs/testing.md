@@ -43,7 +43,9 @@ go test ./...
 With no server, the tests fail, saying so, rather than skip and pass
 with nothing tested. `go test` doesn't read `.env`: a `DB_URL` for the
 tests is set where they run, as a CI job sets it to a database service
-of its own.
+of its own. A test's database has its throttles' counts too, so each
+test starts with no tries counted against it, and two instances of the
+app on one database, as a test can start, count each other's.
 
 `Get`, `Post`, `Put`, `Patch` and `Delete` are visits, as Inertia's client
 makes them: with `X-Inertia`, the version of the build the client runs,

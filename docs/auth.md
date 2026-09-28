@@ -90,12 +90,13 @@ them.
 - `users.go`: `User`, and the `users` table. An email is unique whatever
   its case.
 - The database's: `db.go`, which opens it, from the environment, and has
-  the migrations that make its tables; `users_db.go`, `passkeys_db.go`
-  and `jobs_db.go`, the SQL of each table; `db_test.go`, the tests'
-  databases and the migrations' tests; and on Postgres or MySQL,
-  `compose.yaml`, which runs the database in development.
+  the migrations that make its tables; `users_db.go`, `passkeys_db.go`,
+  `jobs_db.go` and `throttles_db.go`, the SQL of each table; `db_test.go`,
+  the tests' databases and the migrations' tests; and on Postgres or
+  MySQL, `compose.yaml`, which runs the database in development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
-  `photos_test.go`, `jobs_test.go`: a test of each flow, in browsers of
+  `passkeys_test.go`, `photos_test.go`, `jobs_test.go`,
+  `throttles_test.go`: a test of each flow, in browsers of
   package `tugtest`, with the mail kept in memory, the photos in a
   temporary directory, and a database of each test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
@@ -280,7 +281,11 @@ for a guest, where "your email is verified" waits.
 
 ```go
 key := strings.ToLower(in.Email) + "|" + clientIP(c.Request())
-if wait := a.logins.Try(key); wait > 0 {
+wait, err := a.logins.Try(c.Context(), key)
+if err != nil {
+    return err
+}
+if wait > 0 {
     return validate.Errors{"email": tooMany(wait)}
 }
 u, err := a.users.byEmail(c.Context(), in.Email)
@@ -294,13 +299,18 @@ if u != nil {
 if !auth.CheckPassword(hash, in.Password) {
     return validate.Errors{"email": "the email and password don't match an account"}
 }
-a.logins.Clear(key)
+if err := a.logins.Clear(c.Context(), key); err != nil {
+    return err
+}
 ```
 
 - Five tries a minute for an email from one address, and the next waits
   for the minute to be up. `a.logins` is an `auth.Throttle`, whose `Try`
   counts a try before the password is checked, so tries sent at the same
-  moment count too; a login that works clears them.
+  moment count too; a login that works clears them. The tries are counted
+  in the database, in the `throttles` table, so every instance of the
+  app counts them together, and a restart forgets none: see
+  [Throttles](#throttles).
 - With no user, the password is checked against no hash, which takes as
   long as a real check, and the answer is a wrong password's: neither it
   nor its timing says which emails have accounts. A handler can return
@@ -459,7 +469,14 @@ someone's browser can guess no faster than at the login page.
 ### A forgotten password
 
 ```go
-if a.resetAsks.Try(clientIP(c.Request())) == 0 && a.mails.Try("reset|"+strings.ToLower(in.Email)) == 0 {
+wait, err := a.resetAsks.Try(c.Context(), clientIP(c.Request()))
+if err == nil && wait == 0 {
+    wait, err = a.mails.Try(c.Context(), "reset|"+strings.ToLower(in.Email))
+}
+if err != nil {
+    return err
+}
+if wait == 0 {
     if err := a.resetMail.Push(c.Context(), ResetMail{Email: in.Email, Base: a.base(c)}); err != nil {
         return err
     }
@@ -568,8 +585,9 @@ each database in its own way:
   migrations have the same gap on MySQL.
 
 The SQL of each table is in a file of its own, `users_db.go`,
-`passkeys_db.go` and `jobs_db.go`, beside the Go that's the same on any
-database, and it's written for its database, where they differ:
+`passkeys_db.go`, `jobs_db.go` and `throttles_db.go`, beside the Go
+that's the same on any database, and it's written for its database, where
+they differ:
 
 | | SQLite | Postgres | MySQL |
 |---|---|---|---|
@@ -595,10 +613,48 @@ two long-term releases, 9.7 being the newer. MariaDB isn't: its
 collations aren't MySQL's, and an app on it picks its email column's.
 
 An app that moves to another database takes that database's files from
-an app `tug new` makes on it: `db.go`, the three `_db.go` files,
+an app `tug new` makes on it: `db.go`, the `_db.go` files,
 `db_test.go` and `compose.yaml`. `go mod tidy` adds the driver, the app
 is given `DB_URL`, or `DB_PATH`, where it runs, and the data it moves
 itself.
+
+### Throttles
+
+The starter's five throttles count in the database, in a `throttles`
+table, whose SQL is in `throttles_db.go`: every instance of the app
+counts the tries made at any of them, and a restart, as each deploy is,
+forgets none.
+
+```go
+counts := &throttles{db: e.DB}
+a := &app{
+    logins: &auth.Throttle{Name: "logins", Max: 5, Window: time.Minute, Store: counts},
+    ...
+}
+```
+
+| Throttle     | Counts                                                                    | By |
+|--------------|---------------------------------------------------------------------------|----|
+| `logins`     | logins with a password, and with a passkey, five a minute                 | the email and the address, or the address |
+| `passwords`  | the password of someone logged in, as they confirm, change it or delete their account, five a minute | the user |
+| `codes`      | the codes of a login waiting for its second factor, five a minute         | the user |
+| `mails`      | reset links and verification links, one a minute                          | the email, or the user |
+| `reset-asks` | asks for a reset link, five a minute                                      | the address |
+
+A row is a key's tries, and when their window ends. The key is the
+SHA-256 package `auth` makes of the throttle's name and what it counts
+by, so the table keeps no email or address, and the `passwords` and
+`codes` of one user count apart. A try is one statement, an upsert that
+counts one more, or starts a new window where the last is over, and reads
+back the count: of tries at once, from any of the instances, each gets a
+count of its own, and five get in. MySQL has no `RETURNING`, so there
+it's a transaction that reads back what the upsert wrote. Every hour, a
+scheduled job, `prune-throttles`, deletes the rows whose window is over.
+
+A throttle that can't count, as when the database is down, has an error
+for the handler to return, as any of the database's: the login is a 500,
+rather than let in unthrottled, or turned away as though it had tried too
+often.
 
 ### Health checks
 
@@ -884,24 +940,63 @@ needs.
 ### Throttle
 
 ```go
-logins := &auth.Throttle{Max: 5, Window: time.Minute}
+logins := &auth.Throttle{Name: "logins", Max: 5, Window: time.Minute, Store: counts}
 
-if wait := logins.Try(key); wait > 0 {
+wait, err := logins.Try(ctx, key)
+if err != nil {
+    return err
+}
+if wait > 0 {
     // too many; try again in wait
 }
 // ... the try: a wrong password counts
-logins.Clear(key) // after one that works
+err = logins.Clear(ctx, key) // after one that works
 ```
 
 `Throttle` counts tries by a key, as `login` above counts them by email
 and address. `Try` counts one and returns 0, until the key has had `Max`
 (default 5) within `Window` (default a minute, from the first); then it
-returns what's left of the window, and the try, which shouldn't be made,
-doesn't count. Checking and counting are one step, so tries sent at the
-same moment can't all get in under `Max`. `Wait` returns the same wait
-without counting a try, and `Clear` forgets the key, as after a login that
-succeeds. The zero value is ready to use; share one by pointer. The counts
-are in memory, this process's own, and start again when it restarts.
+returns what's left of the window, and the try shouldn't be made. Checking
+and counting are one step, so tries sent at the same moment can't all get
+in under `Max`. `Wait` returns the same wait without counting a try, and
+`Clear` forgets the key, as after a login that succeeds. The zero value is
+ready to use; share one by pointer.
+
+Without a `Store`, the counts are in memory, this process's own, and
+start again when it restarts. A `ThrottleStore` keeps them where every
+instance of the app counts, as the starter's table does:
+
+```go
+type ThrottleStore interface {
+    Hit(ctx context.Context, key []byte, now time.Time, window time.Duration) (tries int, ends time.Time, err error)
+    Tries(ctx context.Context, key []byte, now time.Time) (tries int, ends time.Time, err error)
+    Clear(ctx context.Context, key []byte) error
+}
+```
+
+- `Hit` counts a try and returns the tries in the key's window, this one
+  included, and when the window ends, starting one at `now` when the
+  key's has ended, all in one step: of tries at once, each gets a count of
+  its own. A try turned away counts too, and changes nothing that shows,
+  as the window's end doesn't move with it.
+- `Tries` reads a key's count without adding to it, for `Wait`, and
+  `Clear` forgets it.
+- A key is 32 bytes, the SHA-256 of the throttle's `Name` and the key it
+  counts by: a store keeps no email or address, and two throttles on one
+  store count apart, as the starter's `passwords` and `codes` do, which
+  both count by user. The times are the app's clock, which the `Throttle`
+  passes in.
+- A store's error is `Try`'s, `Wait`'s and `Clear`'s: a try that can't be
+  counted is the caller's to answer, rather than the throttle's to let in,
+  and stop nothing while its store is down, or turn away, and lock
+  everyone out when a database blinks.
+
+Package `throttletest` checks that a store keeps these promises: a
+store's tests run `throttletest.TestStore`, with a new, empty store for
+each, as the starter's do on its table in each database.
+
+A throttle on a route, rather than in a handler, is `tug.Limit`
+([Routing](routing.md#a-limit-for-a-route)).
 
 ## Package mail
 
@@ -1050,10 +1145,10 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
   encrypts for a page served over HTTPS, or from `localhost`: over plain
   HTTP elsewhere, Inertia's client keeps the history unencrypted, and says
   so in the console. See [History encryption](pages.md#history-encryption).
-- **The throttles count per process**: each instance of the app counts its
-  own, and a restart forgets. The login's counts by email and address, so
-  it slows guessing one account's password, not trying one password on
-  many.
+- **The login's throttle counts by email and address**, so it slows
+  guessing one account's password, not trying one password on many
+  accounts, which takes a limit by address alone, as `tug.Limit` puts on a
+  route ([Routing](routing.md#a-limit-for-a-route)).
 - **Registering says who has an account**: the register form turns away an
   email that has one, as the field is left, with no throttle, and so does
   the profile. Logging in and a forgotten password don't say.

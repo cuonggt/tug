@@ -253,7 +253,9 @@ Go too. The app brings the tables up to date as it starts, and
 instances starting at once take turns ([Accounts](auth.md#the-database)).
 With the photos in a bucket as well, `FILESYSTEM_DISK=s3`, an instance
 keeps nothing of its own, and as many as the database takes can run
-side by side, anywhere that reaches it. The starter is tested on
+side by side, anywhere that reaches it: the jobs, the throttles' counts
+of the tries at logging in, and the sessions, in their cookies, are the
+same whichever instance a request reaches. The starter is tested on
 Postgres 18 and MySQL 8.4.
 
 The app's `compose.yaml` is for development: it runs the database on
@@ -306,9 +308,10 @@ Behind a proxy, `r.RemoteAddr` is the proxy's address. The auth starter
 counts failed logins by email and address, and takes the address from
 `r.RemoteAddr` in its `clientIP`, so there every client counts as one:
 five wrong passwords for an email, from anyone, make everyone wait out
-the minute for it. Once only the proxy can reach the app, read the
-client's address from the header the proxy sets. For one proxy that adds
-the address it sees to `X-Forwarded-For`:
+the minute for it. A limit on a route by address, with `tug.Limit`, has
+the same trouble: its key is the app's to make. Once only the proxy can
+reach the app, read the client's address from the header the proxy sets.
+For one proxy that adds the address it sees to `X-Forwarded-For`:
 
 ```go
 // clientIP is the address a request came from. Behind one proxy, which adds
