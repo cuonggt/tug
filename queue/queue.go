@@ -221,7 +221,7 @@ func (q *Queue) pushScheduled(ctx context.Context, scheduled []scheduled, pushed
 		if at.IsZero() {
 			continue // it never comes round again
 		}
-		_, err := q.store.(ScheduleStore).PushScheduled(ctx, sc.kind, &Job{Kind: sc.kind, Payload: sc.payload, RunAt: at, Key: sc.key})
+		_, err := q.store.(ScheduleStore).PushScheduled(ctx, sc.kind, &Job{Kind: sc.kind, Payload: sc.payload, RunAt: at, Key: sc.key, OneAtATime: sc.oneAtATime})
 		if err != nil {
 			if ctx.Err() == nil {
 				slog.Error("the job queue can't push a scheduled job", "kind", sc.kind, "at", at, "err", err)
@@ -271,7 +271,7 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		slog.Info("a job was stopped with the job queue, and will run again", "kind", j.Kind, "job", j.ID)
 		return q.store.Retry(sctx, j)
 	case errors.As(err, new(permanentError)) || j.Attempts >= h.attempts:
-		j.Error = err.Error()
+		j.Error, j.FailedAt = err.Error(), q.now()
 		slog.Error("a job failed, and won't run again", "kind", j.Kind, "job", j.ID, "attempts", j.Attempts, "err", err)
 		return q.store.Fail(sctx, j)
 	default:
@@ -285,6 +285,14 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		}
 		return nil
 	}
+}
+
+// Wake has Run look for jobs that are due at once, rather than at its next
+// Poll, as a push through the queue does: for the jobs a transaction of
+// the app's pushed with Kind.In, once it has committed, as the workers
+// couldn't see them as they were pushed.
+func (q *Queue) Wake() {
+	q.poke()
 }
 
 // poke wakes Run, if it's waiting, to claim a job that's due.

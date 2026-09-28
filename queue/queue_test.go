@@ -700,3 +700,134 @@ func TestAScheduledRunOfAUniqueKindIsTheJobLikeItThatWaits(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+func TestAJobPushedInAStoreOfItsOwnGoesThereAndDoesntWakeTheQueue(t *testing.T) {
+	q, s, _ := newQueue(queue.Config{Poll: time.Hour})
+	ran := make(chan string, 10)
+	greet := queue.Handle(q, "greet", func(_ context.Context, g greeting) error {
+		ran <- g.Name
+		return nil
+	})
+
+	// A transaction of the app's that's still open: the queue's Store
+	// doesn't have the job, and the Store of the transaction does.
+	tx := &queuetest.Memory{}
+	if err := greet.In(tx).Push(ctx, greeting{Name: "Ann"}); err != nil {
+		t.Fatal(err)
+	}
+	if j, _ := s.Claim(ctx, time.Now().Add(time.Hour), time.Now().Add(2*time.Hour)); j != nil {
+		t.Fatalf("the queue's Store has %+v, pushed in another", j)
+	}
+	if j, _ := tx.Claim(ctx, time.Now().Add(time.Hour), time.Now().Add(2*time.Hour)); j == nil {
+		t.Fatal("the Store the job was pushed in doesn't have it")
+	}
+
+	// One that has committed: its job is where the queue can see it, and
+	// runs once the queue is woken, and not before its next poll without.
+	run(t, q)
+	time.Sleep(20 * time.Millisecond) // Run is waiting for its next poll, an hour on
+	if err := greet.In(s).Push(ctx, greeting{Name: "Bob"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case name := <-ran:
+		t.Fatalf("ran for %s as it was pushed, before its transaction could commit", name)
+	case <-time.After(100 * time.Millisecond):
+	}
+	q.Wake()
+	if name := within(t, ran, "the job, once the queue was woken"); name != "Bob" {
+		t.Errorf("ran for %s, want Bob", name)
+	}
+}
+
+func TestInPanicsForAStoreThatIsntWhatTheKindNeeds(t *testing.T) {
+	q, _, _ := newQueue(queue.Config{})
+	reindex := queue.Handle(q, "reindex", func(context.Context, struct{}) error { return nil }, queue.Unique())
+	mustPanic(t, "a unique kind in a Store that doesn't keep keys", func() { reindex.In(plain{&queuetest.Memory{}}) })
+	mustPanic(t, "a kind in no Store", func() { reindex.In(nil) })
+}
+
+func TestTheLatestPushOfAUniqueJobSaysWhenItRuns(t *testing.T) {
+	q, _, c := newQueue(queue.Config{})
+	ran := 0
+	reindex := queue.Handle(q, "reindex", func(context.Context, greeting) error {
+		ran++
+		return nil
+	}, queue.Unique(queue.Latest()))
+	// An edit, and another two minutes on, each pushing the reindex for a
+	// minute after it.
+	reindex.PushAt(ctx, c.now().Add(time.Minute), greeting{Name: "Ann"})
+	c.add(2 * time.Minute)
+	reindex.PushAt(ctx, c.now().Add(time.Minute), greeting{Name: "Ann"})
+	q.Drain(ctx)
+	if ran != 0 {
+		t.Fatal("ran at the time the first push said, which the second moved")
+	}
+	c.add(time.Minute)
+	q.Drain(ctx)
+	if ran != 1 {
+		t.Errorf("ran %d times a minute after the last push, want once", ran)
+	}
+}
+
+func TestUniqueJobsOfOneValueRunOneAtATime(t *testing.T) {
+	q, _, _ := newQueue(queue.Config{Workers: 4, Poll: 10 * time.Millisecond})
+	started, finish := make(chan string, 10), make(chan struct{})
+	reindex := queue.Handle(q, "reindex", func(_ context.Context, g greeting) error {
+		started <- g.Name
+		<-finish
+		return nil
+	}, queue.Unique(queue.OneAtATime()))
+	run(t, q)
+	reindex.Push(ctx, greeting{Name: "Ann"})
+	within(t, started, "Ann's first job")
+	// Pushed as the first runs, whose claim let its value go, it waits for
+	// the first, where Bob's, of another value, runs beside it.
+	reindex.Push(ctx, greeting{Name: "Ann"})
+	reindex.Push(ctx, greeting{Name: "Bob"})
+	if name := within(t, started, "Bob's job"); name != "Bob" {
+		t.Fatalf("started %s's job beside Ann's first, want Bob's", name)
+	}
+	select {
+	case name := <-started:
+		t.Fatalf("started %s's job while Ann's first ran", name)
+	case <-time.After(100 * time.Millisecond):
+	}
+	finish <- struct{}{} // one of the two ends
+	finish <- struct{}{} // and the other
+	if name := within(t, started, "Ann's second job"); name != "Ann" {
+		t.Errorf("started %s's job once Ann's first was done, want Ann's second", name)
+	}
+	close(finish)
+}
+
+// uniqueOnly is a UniqueStore and no more: no LatestStore or
+// OneAtATimeStore.
+type uniqueOnly struct{ queue.UniqueStore }
+
+func TestTheUniqueOptionsNeedTheirStores(t *testing.T) {
+	q := queue.New(queue.Config{Store: uniqueOnly{&queuetest.Memory{}}})
+	noop := func(context.Context, struct{}) error { return nil }
+	mustPanic(t, "Latest with a Store that doesn't move jobs", func() {
+		queue.Handle(q, "reindex", noop, queue.Unique(queue.Latest()))
+	})
+	mustPanic(t, "OneAtATime with a Store that doesn't keep keys as jobs run", func() {
+		queue.Handle(q, "recount", noop, queue.Unique(queue.OneAtATime()))
+	})
+}
+
+func TestAJobThatFailsForGoodIsKeptWithWhenItFailed(t *testing.T) {
+	q, s, c := newQueue(queue.Config{})
+	greet := queue.Handle(q, "greet", func(context.Context, greeting) error {
+		return queue.Permanent(errors.New("no such person"))
+	})
+	greet.Push(ctx, greeting{Name: "Ann"})
+	q.Drain(ctx)
+	failed, err := s.Failed(ctx)
+	if err != nil || len(failed) != 1 {
+		t.Fatalf("listed %v, %v, want the job that failed", failed, err)
+	}
+	if j := failed[0]; !j.FailedAt.Equal(c.now()) || j.Error != "no such person" {
+		t.Errorf("listed %+v: want it failed at %v, with its error", j, c.now())
+	}
+}

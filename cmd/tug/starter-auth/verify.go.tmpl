@@ -29,9 +29,16 @@ func verifyEmailPage(c *tug.Ctx, user *User) error {
 	return VerifyEmail.Render(c, NoProps{})
 }
 
+// verification is the job that mails u the link that verifies their
+// email, which sendVerification pushes, or a handler in the transaction
+// that writes the email.
+func (a *app) verification(c *tug.Ctx, u *User) VerifyMail {
+	return VerifyMail{User: u.ID, Email: u.Email, Base: a.base(c)}
+}
+
 // sendVerification mails u the link that verifies their email, by a job.
 func (a *app) sendVerification(c *tug.Ctx, u *User) error {
-	return a.verifyMail.Push(c.Context(), VerifyMail{User: u.ID, Email: u.Email, Base: a.base(c)})
+	return a.verifyMail.Push(c.Context(), a.verification(c, u))
 }
 
 // VerifyMail is the job that mails a user the link that verifies their

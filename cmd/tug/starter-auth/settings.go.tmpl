@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"strings"
 
@@ -54,20 +55,23 @@ func (a *app) updateProfile(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
-	err = a.users.setProfile(c.Context(), user.ID, in.Name, in.Email)
+	// A new email and the mail that verifies it are kept together.
+	changed := newEmail()
+	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
+		if err := a.users.in(tx).setProfile(c.Context(), user.ID, in.Name, in.Email); err != nil || !changed {
+			return err
+		}
+		return a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), a.verification(c, &User{ID: user.ID, Name: in.Name, Email: in.Email}))
+	})
 	if errors.Is(err, errEmailTaken) {
 		return validate.Errors{"email": "email has an account already"}
 	}
 	if err != nil {
 		return err
 	}
-	if !newEmail() {
+	if !changed {
 		c.Flash("success", "Profile saved.")
 		return c.RedirectRoute("profile.edit")
-	}
-	user.Name, user.Email = in.Name, in.Email
-	if err := a.sendVerification(c, user); err != nil {
-		return err
 	}
 	c.Flash("success", "Profile saved. We've mailed a link to "+in.Email+" to verify it.")
 	return c.RedirectRoute("profile.edit")

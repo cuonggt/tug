@@ -33,6 +33,16 @@ type Job struct {
 	// Error is what its latest attempt failed with, for Retry and Fail to
 	// keep, and for someone to read.
 	Error string
+
+	// OneAtATime keeps the job from running beside another of its Kind and
+	// Key, as a OneAtATime kind's jobs are kept: a OneAtATimeStore keeps
+	// their key for it as long as it keeps the job, where Key goes at the
+	// claim.
+	OneAtATime bool
+
+	// FailedAt is when the job failed for good, which Fail keeps and a
+	// FailedStore lists; zero for a job that hasn't.
+	FailedAt time.Time
 }
 
 // Store keeps a Queue's jobs, from Push until they're done, or kept as
@@ -63,8 +73,9 @@ type Store interface {
 	// Retry puts a job back to run again, due at its RunAt, with its Error.
 	Retry(ctx context.Context, j *Job) error
 
-	// Fail keeps a job that won't run again, with its Error, where no claim
-	// finds it.
+	// Fail keeps a job that won't run again, with its Error, and its
+	// FailedAt or the time by the Store's own clock, where no claim finds
+	// it.
 	Fail(ctx context.Context, j *Job) error
 }
 
@@ -97,4 +108,44 @@ type UniqueStore interface {
 	// it go, so that a job pushed while the first runs is pushed, and Retry
 	// doesn't take it back.
 	PushUnique(ctx context.Context, j *Job) (bool, error)
+}
+
+// LatestStore is a UniqueStore that also moves a job that waits to the
+// time of a push of its key, for Latest.
+type LatestStore interface {
+	UniqueStore
+
+	// PushLatest pushes j, which has a Key, or, when a job of its Kind and
+	// Key waits, gives that job j's RunAt in place of its own, and sets
+	// j.ID to the job that waits, either way. Of several pushes of one key
+	// at once, one job waits, with one of their times.
+	PushLatest(ctx context.Context, j *Job) error
+}
+
+// OneAtATimeStore is a UniqueStore that also keeps a unique kind's jobs of
+// one key from running at once, for OneAtATime. Its pushes keep a job's
+// OneAtATime, and with it its Key, for as long as it keeps the job, where
+// the Key a claim lets go goes: Claim doesn't return such a job while a
+// claim holds another of its Kind and key that has it too.
+type OneAtATimeStore interface {
+	UniqueStore
+
+	// KeepsOneAtATime does nothing. It says that the Store keeps the
+	// promise, which is in its pushes and its claims, for Handle to know.
+	KeepsOneAtATime()
+}
+
+// FailedStore is a Store that also lists the jobs that failed for good, and
+// puts them back to run, for a command of the app's to look at them with.
+type FailedStore interface {
+	Store
+
+	// Failed returns the jobs that failed for good, with their Error and
+	// FailedAt, the latest first.
+	Failed(ctx context.Context) ([]*Job, error)
+
+	// RunAgain puts the failed job with the ID back to run, due at at, with
+	// no attempts, and says whether there was one: a job that isn't there,
+	// or hasn't failed, is left alone.
+	RunAgain(ctx context.Context, id string, at time.Time) (bool, error)
 }

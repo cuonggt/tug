@@ -110,13 +110,18 @@ func (a *app) addPasskey(c *tug.Ctx, user *User) error {
 	if len(listed) >= maxPasskeys {
 		return validate.Errors{"passkey": tooManyPasskeys}
 	}
+	// The passkey and the mail that tells its owner of it are kept
+	// together: a way into the account no one hears of is worse than none.
 	name := strings.TrimSpace(in.Name)
-	if err := a.passkeys.add(c.Context(), user.ID, name, pk); errors.Is(err, errPasskeyTaken) {
+	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
+		if err := a.passkeys.in(tx).add(c.Context(), user.ID, name, pk); err != nil {
+			return err
+		}
+		return a.passkeyMail.In(a.jobs.in(tx)).Push(c.Context(), PasskeyMail{User: user.ID, Name: name, Base: a.base(c)})
+	})
+	if errors.Is(err, errPasskeyTaken) {
 		return validate.Errors{"passkey": "That passkey is on an account already."}
 	} else if err != nil {
-		return err
-	}
-	if err := a.passkeyMail.Push(c.Context(), PasskeyMail{User: user.ID, Name: name, Base: a.base(c)}); err != nil {
 		return err
 	}
 	c.Flash("success", "Passkey added: it logs you in with no password.")
@@ -286,7 +291,13 @@ var (
 
 // passkeys are the users' passkeys, in the database.
 type passkeys struct {
-	db *sql.DB
+	db dbtx
+}
+
+// in is the passkeys as tx reads and writes them, for a handler that
+// writes in one transaction: see inTx.
+func (ps *passkeys) in(tx *sql.Tx) *passkeys {
+	return &passkeys{db: tx}
 }
 
 // of returns a user's passkeys, as their page lists them and as package

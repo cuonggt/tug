@@ -65,8 +65,10 @@ plain starter's of the same name and add the rest, and the plain
 - `verify.go`: verifying an email. `twofactor.go`: two-factor logins.
   `settings.go`: the settings pages. `mail.go`: the mail the app sends.
 - `jobs.go`: the background jobs, in tables of their own, for package
-  `queue`, which runs them beside the server. The mail goes by jobs, and
-  a job every night deletes the ones that failed over a month ago.
+  `queue`, which runs them beside the server, and the `jobs` command,
+  which lists the ones that failed for good and runs them again. The mail
+  goes by jobs, and a job every night deletes the ones that failed over a
+  month ago.
 - `users.go`: `User`, the `users` table, and its queries, and the
   migrations, which make the `jobs` table too. An email is unique whatever
   its case.
@@ -472,6 +474,24 @@ a job that fails runs again, 10 times over about four hours, and then
 stays in the table as failed, with its error, for a month: a scheduled
 job, `prune-jobs`, deletes older ones every night. `main` runs the jobs
 beside the server with `app.Go`. [jobs.md](jobs.md) has the queue.
+
+A mail about what a handler writes is pushed in the same transaction:
+the account and the mail that verifies its email, a passkey and the mail
+that tells its owner of it, a new email and its link. `a.inTx` runs the
+handler's writes in one transaction, with the stores made from it, as
+`a.users.in(tx)`, and the jobs pushed with `Kind.In(a.jobs.in(tx))`,
+commits it, and wakes the queue: the two are kept together, or neither
+is, so no account waits for a link that was never pushed, and no passkey
+is added that its owner isn't told of. SQLite has one writer, and the
+transaction holds the lock from its start, so what the handler writes
+goes through `tx`, and slow work, such as hashing a password, comes
+before it.
+
+The binary has a command, which runs in place of the server, on the
+same database, and exits: `./blog jobs` lists the jobs that failed for
+good, with their errors, and `./blog jobs retry 42`, or `retry all`,
+runs them again. In the image, it's `docker exec <container> /server
+jobs`.
 
 ### The database
 

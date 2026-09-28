@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -164,7 +165,17 @@ func (a *app) register(c *tug.Ctx) error {
 	if err != nil {
 		return err
 	}
-	u, err := a.users.add(c.Context(), in.Name, in.Email, auth.HashPassword(in.Password))
+	// The account and the mail that verifies its email are kept together:
+	// an account with no link on its way would wait for one for ever.
+	hash := auth.HashPassword(in.Password)
+	var u *User
+	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
+		var err error
+		if u, err = a.users.in(tx).add(c.Context(), in.Name, in.Email, hash); err != nil {
+			return err
+		}
+		return a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), a.verification(c, u))
+	})
 	if errors.Is(err, errEmailTaken) {
 		return validate.Errors{"email": "email has an account already: log in to it"}
 	}
@@ -174,9 +185,6 @@ func (a *app) register(c *tug.Ctx) error {
 	s := c.Session()
 	auth.Login(s, u.authID(), u.PasswordHash)
 	auth.SetPasswordConfirmed(s)
-	if err := a.sendVerification(c, u); err != nil {
-		return err
-	}
 	c.Flash("success", "Welcome, "+u.Name+"!")
 	// The dashboard is for verified users, so this is the page that asks
 	// them to follow the link, until they have.

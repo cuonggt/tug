@@ -150,8 +150,11 @@ func showPost(c *tug.Ctx) error {
   run on a schedule too, with `Every` or a cron expression, on UTC's
   clock or a time zone's, through its daylight saving as cron goes, once
   across all instances. A unique kind keeps one job waiting for each
-  value, however often it's pushed. The auth starter sends its mail this
-  way, with its jobs in SQLite.
+  value, however often it's pushed, at the latest push's time if it likes,
+  and runs them one at a time if it likes. A job pushed in the app's own
+  transaction is kept with what else it writes, or not at all. The auth
+  starter sends its mail this way, with its jobs in SQLite, and its binary
+  lists the jobs that failed for good, and runs them again: `./blog jobs`.
 - **Tests** (package `tugtest`): Inertia's client, for Go's tests of an
   app's pages, which need no browser or frontend build. Its visits keep
   the cookies the app sets and follow its redirects, and a page's props

@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -57,6 +58,15 @@ var ssrBuild embed.FS
 [[- end ]]
 
 func main() {
+	// With a command, as in ./blog jobs, the binary runs it in place of the
+	// server, on the same database, and exits.
+	if len(os.Args) > 1 {
+		if err := command(os.Args[0], os.Args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	keys, err := session.KeysFromEnv()
 	if err != nil {
 		log.Fatal(err)
@@ -105,6 +115,20 @@ func main() {
 	}
 }
 
+// command runs one of the app's commands, which work on its database
+// rather than serve: jobs, for the jobs that failed for good.
+func command(name string, args []string) error {
+	if args[0] != "jobs" {
+		return fmt.Errorf("%s has one command, jobs, and no %q: %s jobs lists the jobs that failed for good", name, args[0], name)
+	}
+	db, err := openDB(cmp.Or(os.Getenv("DB_PATH"), "app.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return jobsCommand(context.Background(), &jobs{db: db}, name, args[1:], os.Stdout)
+}
+
 // env is what the app is made from: main's comes from the environment, and
 // the tests make their own.
 type env struct {
@@ -131,6 +155,9 @@ type env struct {
 
 // app is what the handlers share.
 type app struct {
+	db            *sql.DB
+	queue         *queue.Queue
+	jobs          *jobs
 	users         *users
 	mailer        mail.Mailer
 	url           string
@@ -153,6 +180,29 @@ type app struct {
 	codes     *auth.Throttle
 	mails     *auth.Throttle
 	resetAsks *auth.Throttle
+}
+
+// inTx runs fn in one transaction, which it commits, and then wakes the
+// queue: what fn writes through the stores in(tx) makes, and the jobs it
+// pushes about it with Kind.In(a.jobs.in(tx)), are kept together, or not
+// at all. SQLite has one writer, and the transaction takes the lock as it
+// begins, so fn writes through tx alone, as a write outside it would wait
+// for it, and does no slow work, such as hashing a password, which holds
+// up every other write.
+func (a *app) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	a.queue.Wake()
+	return nil
 }
 
 // newApp puts the app together: its pages, sessions, middleware and routes.
@@ -195,6 +245,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		return nil, err
 	}
 	a := &app{
+		db:            e.DB,
+		queue:         e.Queue,
+		jobs:          &jobs{db: e.DB},
 		users:         &users{db: e.DB},
 		passkeys:      &passkeys{db: e.DB},
 		mailer:        e.Mailer,
@@ -214,7 +267,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
 	a.passkeyMail = queue.Handle(e.Queue, "passkey-mail", a.mailPasskey)
-	queue.Handle(e.Queue, "prune-jobs", (&jobs{db: e.DB}).prune).Schedule(queue.Cron("@daily"), struct{}{})
+	queue.Handle(e.Queue, "prune-jobs", a.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
 	if len(e.Keys) > 1 {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
 		// two-factor secrets over to the new one before it's dropped.
@@ -315,7 +368,7 @@ func dashboard(c *tug.Ctx, user *User) error {
 func (a *app) up(c *tug.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
 	defer cancel()
-	if err := a.users.db.PingContext(ctx); err != nil {
+	if err := a.db.PingContext(ctx); err != nil {
 		return &tug.HTTPError{Code: http.StatusServiceUnavailable, Message: "the database isn't answering", Err: err}
 	}
 	return c.String(http.StatusOK, "up")

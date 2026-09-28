@@ -14,18 +14,41 @@ import (
 // Kind is a kind of job, as Handle made it: the name its jobs are kept
 // by, and the handler that runs them. Its Push puts one on the queue.
 type Kind[T any] struct {
-	q      *Queue
-	name   string
-	unique bool
+	q    *Queue
+	name string
+	h    *handler
+
+	// store is where its jobs are pushed: the queue's Store, or one In
+	// made from a transaction of the app's, which Push doesn't wake the
+	// queue for, as its workers can't see the job until the commit.
+	store Store
+	in    bool
 }
 
 // handler runs one kind of job.
 type handler struct {
-	run      func(ctx context.Context, payload []byte) error
-	attempts int
-	timeout  time.Duration
-	backoff  func(attempt int) time.Duration
-	unique   bool
+	run        func(ctx context.Context, payload []byte) error
+	attempts   int
+	timeout    time.Duration
+	backoff    func(attempt int) time.Duration
+	unique     bool
+	latest     bool
+	oneAtATime bool
+}
+
+// needs panics unless s is the Store the kind named name needs: one that
+// keeps keys for a Unique kind, and moves its jobs or keeps them from
+// running at once for its options.
+func (h *handler) needs(name string, s Store) {
+	if _, ok := s.(UniqueStore); h.unique && !ok {
+		panic(fmt.Sprintf("queue: the unique jobs of kind %q need a Store that keeps their keys, a UniqueStore, and %T isn't one", name, s))
+	}
+	if _, ok := s.(LatestStore); h.latest && !ok {
+		panic(fmt.Sprintf("queue: the jobs of kind %q move to the latest push's time, which needs a Store that moves them, a LatestStore, and %T isn't one", name, s))
+	}
+	if _, ok := s.(OneAtATimeStore); h.oneAtATime && !ok {
+		panic(fmt.Sprintf("queue: the jobs of kind %q run one at a time, which needs a Store that keeps them from running at once, a OneAtATimeStore, and %T isn't one", name, s))
+	}
 }
 
 // Handle gives q the handler for the jobs of kind name, which runs fn with
@@ -37,7 +60,8 @@ type handler struct {
 // to the next: jobs one pushes, the next may run.
 //
 // Handle panics when q has a handler for name already, or once q runs, or
-// for a Unique kind when q's Store isn't a UniqueStore.
+// for a Unique kind when q's Store isn't a UniqueStore, or isn't the extra
+// that the kind's UniqueOptions need.
 func Handle[T any](q *Queue, name string, fn func(ctx context.Context, v T) error, opts ...Option) *Kind[T] {
 	if name == "" || fn == nil {
 		panic("queue: Handle takes a name and a function")
@@ -46,9 +70,7 @@ func Handle[T any](q *Queue, name string, fn func(ctx context.Context, v T) erro
 	for _, opt := range opts {
 		opt(h)
 	}
-	if _, ok := q.store.(UniqueStore); h.unique && !ok {
-		panic(fmt.Sprintf("queue: the unique jobs of kind %q need a Store that keeps their keys, a UniqueStore, and the queue's %T isn't one", name, q.store))
-	}
+	h.needs(name, q.store)
 	h.run = func(ctx context.Context, payload []byte) error {
 		var v T
 		if err := json.Unmarshal(payload, &v); err != nil {
@@ -66,7 +88,7 @@ func Handle[T any](q *Queue, name string, fn func(ctx context.Context, v T) erro
 		panic(fmt.Sprintf("queue: the jobs of kind %q have a handler already", name))
 	}
 	q.handlers[name] = h
-	return &Kind[T]{q: q, name: name, unique: h.unique}
+	return &Kind[T]{q: q, name: name, h: h, store: q.store}
 }
 
 // Push puts a job on the queue, to run as soon as a worker is free.
@@ -76,26 +98,51 @@ func (k *Kind[T]) Push(ctx context.Context, v T) error {
 
 // PushAt puts a job on the queue, to run at at, or as soon after as a
 // worker is free. For a Unique kind, it does nothing while a job with the
-// same value waits, which keeps its own time.
+// same value waits, which keeps its own time, or with Latest, gives that
+// job its own time.
 func (k *Kind[T]) PushAt(ctx context.Context, at time.Time, v T) error {
 	payload, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("queue: a %s job: %w", k.name, err)
 	}
-	j := &Job{Kind: k.name, Payload: payload, RunAt: at}
-	if k.unique {
+	j := &Job{Kind: k.name, Payload: payload, RunAt: at, OneAtATime: k.h.oneAtATime}
+	switch {
+	case k.h.latest:
 		j.Key = keyOf(payload)
-		_, err = k.q.store.(UniqueStore).PushUnique(ctx, j)
-	} else {
-		err = k.q.store.Push(ctx, j)
+		err = k.store.(LatestStore).PushLatest(ctx, j)
+	case k.h.unique:
+		j.Key = keyOf(payload)
+		_, err = k.store.(UniqueStore).PushUnique(ctx, j)
+	default:
+		err = k.store.Push(ctx, j)
 	}
 	if err != nil {
 		return fmt.Errorf("queue: pushing a %s job: %w", k.name, err)
 	}
-	if !at.After(k.q.now()) {
+	if !k.in && !at.After(k.q.now()) {
 		k.q.poke()
 	}
 	return nil
+}
+
+// In is the kind, pushing its jobs to s rather than to the queue's Store:
+// one the app makes from a transaction of its own, as the auth starter's
+// jobs.in does, so that a job is kept with what else the transaction
+// writes, as it commits, or not at all, as it rolls back. The queue's
+// workers can't see such a job until the commit, so its Push doesn't wake
+// them: the queue's Wake, after the commit, does, or else the next Poll
+// finds the job.
+//
+// In panics when s isn't what the kind needs of a Store, as Handle does
+// of the queue's: a UniqueStore for a Unique kind, say.
+func (k *Kind[T]) In(s Store) *Kind[T] {
+	if s == nil {
+		panic(fmt.Sprintf("queue: In(nil) for the jobs of kind %q: they need a Store to go in", k.name))
+	}
+	k.h.needs(k.name, s)
+	in := *k
+	in.store, in.in = s, true
+	return &in
 }
 
 // Schedule runs a job of this kind on its own, with v, at each time s
@@ -127,8 +174,8 @@ func (k *Kind[T]) Schedule(s Schedule, v T) {
 			panic(fmt.Sprintf("queue: the jobs of kind %q have a schedule already", k.name))
 		}
 	}
-	sc := scheduled{kind: k.name, schedule: s, payload: payload}
-	if k.unique {
+	sc := scheduled{kind: k.name, schedule: s, payload: payload, oneAtATime: k.h.oneAtATime}
+	if k.h.unique {
 		sc.key = keyOf(payload)
 	}
 	k.q.scheduled = append(k.q.scheduled, sc)
@@ -136,10 +183,11 @@ func (k *Kind[T]) Schedule(s Schedule, v T) {
 
 // scheduled is a kind's schedule, and the value its runs are pushed with.
 type scheduled struct {
-	kind     string
-	schedule Schedule
-	payload  []byte
-	key      string // a unique kind's
+	kind       string
+	schedule   Schedule
+	payload    []byte
+	key        string // a unique kind's
+	oneAtATime bool
 }
 
 // keyOf is the key of a unique kind's job with payload: its SHA-256, the
@@ -192,12 +240,41 @@ func Timeout(d time.Duration) Option {
 // Unique makes the kind's jobs unique by their value: while a job of the
 // kind waits, pushing another with the same value does nothing, and the one
 // that waits runs, at its own time. Once a worker has it, a push is pushed,
-// and runs too, maybe beside it on another worker: the running job may
-// have read what the push is about. What varies from one push of the same
-// work to the next, such as when it was asked for, stays out of the value.
-// Unique needs a Store that keeps the keys, a UniqueStore.
-func Unique() Option {
-	return func(h *handler) { h.unique = true }
+// and runs too, maybe beside it on another worker, unless OneAtATime says
+// otherwise: the running job may have read what the push is about. What
+// varies from one push of the same work to the next, such as when it was
+// asked for, stays out of the value. Unique needs a Store that keeps the
+// keys, a UniqueStore, and its options their own extras.
+func Unique(opts ...UniqueOption) Option {
+	return func(h *handler) {
+		h.unique = true
+		for _, opt := range opts {
+			opt(h)
+		}
+	}
+}
+
+// UniqueOption changes how a Unique kind's jobs of one value go, for Unique.
+type UniqueOption func(*handler)
+
+// Latest has the latest push of a value say when its job runs: a push
+// while the job waits gives it the push's time, earlier or later, where
+// without Latest the first push keeps its own. A reindex pushed for a
+// minute on at each edit runs a minute after the last. A scheduled run
+// doesn't move a job that waits, as a schedule's time isn't a push's.
+// Latest needs a Store that moves the jobs that wait, a LatestStore.
+func Latest() UniqueOption {
+	return func(h *handler) { h.latest = true }
+}
+
+// OneAtATime keeps the kind's jobs of one value from running at once: one
+// isn't claimed while another of the value runs, and runs once that one is
+// done, or has failed, or has lost its worker and its hold has run out. A
+// push while one runs is still pushed, as for any Unique kind, and waits
+// for it. OneAtATime needs a Store that keeps the jobs' keys while they
+// run, a OneAtATimeStore.
+func OneAtATime() UniqueOption {
+	return func(h *handler) { h.oneAtATime = true }
 }
 
 // Backoff is how long a job waits to run again after its attempt-th

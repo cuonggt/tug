@@ -96,6 +96,11 @@ var migrations = []string{
 		last_used_at  DATETIME
 	);
 	CREATE INDEX passkeys_user ON passkeys (user_id)`,
+	// A job of a kind that runs one at a time keeps its key all its life,
+	// where a claim lets unique_key go, for a claim to see whether another
+	// of the key runs: jobs.go.
+	`ALTER TABLE jobs ADD COLUMN alone_key TEXT;
+	CREATE INDEX jobs_alone ON jobs (kind, alone_key) WHERE alone_key IS NOT NULL`,
 }
 
 // openDB opens the SQLite database at path, making it when it's not there,
@@ -154,7 +159,21 @@ var (
 
 // users are the app's users, in the database.
 type users struct {
-	db *sql.DB
+	db dbtx
+}
+
+// in is the users as tx reads and writes them, for a handler that writes
+// in one transaction: see inTx.
+func (us *users) in(tx *sql.Tx) *users {
+	return &users{db: tx}
+}
+
+// dbtx is the database, or a transaction in it, which the tables' methods
+// read and write through.
+type dbtx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 const userColumns = "id, name, email, email_verified_at, password_hash, two_factor_secret, recovery_codes, two_factor_step, created_at"

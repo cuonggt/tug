@@ -101,6 +101,19 @@ func TestAnotherLinkCanBeSentOnceAMinute(t *testing.T) {
 	app.noMail()
 }
 
+func TestARegistrationWhoseMailCantBePushedMakesNoAccount(t *testing.T) {
+	app := newTestApp(t)
+	jobsDown(t, app.db)
+	if r := register(app.client(), "Ann", "ann@example.com", "correct horse"); r.Code != http.StatusInternalServerError {
+		t.Fatalf("registering with the jobs table down: %v", r)
+	}
+	var n int
+	app.db.QueryRow("SELECT count(*) FROM users").Scan(&n)
+	if n != 0 {
+		t.Errorf("%d users, made with no mail on its way to verify the email", n)
+	}
+}
+
 func TestAnEmailHasOneAccount(t *testing.T) {
 	app := newTestApp(t)
 	register(app.client(), "Ann", "ann@example.com", "correct horse")

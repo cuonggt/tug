@@ -341,6 +341,11 @@ period. [jobs.md](jobs.md) has the rest. The Node of an app with
 server-side rendering stops the same way, with the renders it has, and
 five seconds to.
 
+The auth starter's binary lists the jobs that failed for good, and runs
+them again, with its `jobs` command, which runs in place of the server,
+on the same database, and exits. In a container, it runs beside the
+server: `docker exec <container> /server jobs`.
+
 ## Health checks
 
 The auth starter answers `GET /up` with 200 and `up` while the app is

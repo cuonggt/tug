@@ -104,6 +104,20 @@ func TestAddingAPasskeyMailsItsOwner(t *testing.T) {
 	link(t, m, "/settings/security")
 }
 
+func TestAPasskeyWhoseMailCantBePushedIsntAdded(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	jobsDown(t, app.db)
+	if r := addPasskey(t, c, passkeytest.New("https://app.example"), "Ann's phone"); r.Code != http.StatusInternalServerError {
+		t.Fatalf("adding a passkey with the jobs table down: %v", r)
+	}
+	var n int
+	app.db.QueryRow("SELECT count(*) FROM passkeys").Scan(&n)
+	if n != 0 {
+		t.Errorf("%d passkeys, added with no mail on its way to tell their owner", n)
+	}
+}
+
 func TestAPasskeyNeedsAPasswordConfirmedToBeAdded(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")

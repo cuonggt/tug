@@ -66,6 +66,52 @@ for an instance that has one.
 `Handle` panics when the kind has a handler already, or once the queue
 runs: give the queue its handlers first, as with routes.
 
+## Pushing in a transaction
+
+A job about what a request writes belongs with it: a mail that tells a
+user of a new passkey is no use for a passkey that wasn't added, and a
+passkey no one is told of is worse than none. `Push` goes through the
+queue's Store on its own, so a request that writes, then pushes, can keep
+the one and lose the other. `In` pushes through a Store the app makes from
+its own transaction instead, so that the job is kept with what else the
+transaction writes as it commits, or not at all:
+
+```go
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+	return err
+}
+defer tx.Rollback()
+if err := passkeys.in(tx).add(ctx, user.ID, name, pk); err != nil {
+	return err
+}
+if err := passkeyMail.In(jobs.in(tx)).Push(ctx, PasskeyMail{User: user.ID}); err != nil {
+	return err
+}
+if err := tx.Commit(); err != nil {
+	return err
+}
+q.Wake()
+```
+
+- The Store `In` takes is the app's, as the queue has no idea of SQL: the
+  auth starter's `jobs.in(tx)` is its jobs table, written through `tx`. A
+  Store that's pgx's or an ORM's is made the same way.
+- The queue's workers can't see the job until the commit, so a push
+  through `In` doesn't wake them. `q.Wake()` after the commit does; without
+  it, the next `Poll` finds the job.
+- Everything written while the transaction is open goes through it. In
+  SQLite there's one writer, and a transaction that has begun writing holds
+  the lock, so a write outside it, a push through the queue's own Store
+  included, waits for it until its busy timeout, and fails.
+- `In` panics when the Store isn't what the kind needs: a `UniqueStore`
+  for a unique kind, as the queue's must be.
+
+The auth starter runs a handler's writes in `a.inTx`, which begins the
+transaction, commits it, and wakes the queue. Registering keeps the account
+and the mail that verifies its email together, adding a passkey the
+passkey and the mail to its owner, and a new email the email and its link.
+
 ## When a job fails
 
 A handler that returns an error has its job run again later, and so does
@@ -110,6 +156,32 @@ queue.Handle(q, "report", makeReport,
 | `Attempts` | How many times a job may run, the first included. | 10 |
 | `Backoff`  | How long a job waits after its attempt-th attempt failed. | attempt⁴ seconds and a tenth at most, a day at most |
 | `Timeout`  | How long an attempt may run: its context is done after it. | a minute |
+
+### The jobs that failed
+
+A job that fails for good stays in the Store, with its error, and a Store
+that's a `queue.FailedStore` lists them and runs them again. The auth
+starter's binary does with its `jobs` command, which runs in place of the
+server, on its database, and exits:
+
+```
+$ ./blog jobs
+1 job failed for good, and is kept for a month:
+
+  42  verify-mail, which failed at 2026-09-28 10:02:03 UTC after 10 attempts
+      {"user":7,"email":"ann@example.com","base":"https://example.com"}
+      dial tcp 10.0.0.5:587: connect: connection refused
+
+./blog jobs retry <id> runs one again, and ./blog jobs retry all runs them all.
+$ ./blog jobs retry 42
+1 job back to run, as the app's queue finds it.
+```
+
+A job run again starts from its first attempt, due at once, and the queue
+of the app that's serving finds it at its next poll. In the starter's
+image, the binary is `/server`: `docker exec <container> /server jobs`. The
+command is the app's own, in its `main.go` and `jobs.go`, rather than
+tug's: a deployed app runs as its binary, where tug isn't.
 
 ## Jobs on a schedule
 
@@ -224,6 +296,32 @@ reindex.Push(ctx, ReindexPost{Post: p.ID}) // after each edit
 
 `Unique` needs a Store that keeps the values' keys, a `queue.UniqueStore`,
 and panics as the app starts without one.
+
+### The latest push, and one at a time
+
+`Unique` takes options, each of which needs an extra of the Store's, and
+panics as the app starts without it:
+
+```go
+reindex := queue.Handle(q, "reindex-post", a.reindexPost, queue.Unique(queue.Latest(), queue.OneAtATime()))
+...
+reindex.PushAt(ctx, time.Now().Add(time.Minute), ReindexPost{Post: p.ID}) // after each edit
+```
+
+- `queue.Latest()`: a push of a value whose job waits gives the job the
+  push's time, earlier or later, where without it the first push keeps its
+  own. Pushed for a minute on at each edit, the reindex runs a minute after
+  the last. A scheduled run doesn't move a job that waits: a schedule's
+  time isn't a push's. It needs a `queue.LatestStore`.
+- `queue.OneAtATime()`: a job isn't claimed while another of its kind and
+  value runs, and runs once that one is done, has failed, or has lost its
+  worker and its hold has run out. A push while one runs is pushed, as for
+  any unique kind, and waits for it. It needs a `queue.OneAtATimeStore`.
+
+One at a time is kept by the claim: it passes over a job whose value a
+claim holds another of, which the Store sees in the same query, so there's
+no lock to take and give back, and a job that lost its worker lets the
+next go as any claim does.
 
 ## Running the jobs
 
@@ -346,6 +444,41 @@ lets its job's key go, so that a job pushed while it runs is pushed, and
 job with its key waits. `TestStore` checks these promises of a
 `UniqueStore`, and `Memory` is one.
 
+Three more extras are for `Latest`, `OneAtATime`, and the command that
+lists the jobs that failed:
+
+```go
+type LatestStore interface {
+	UniqueStore
+	PushLatest(ctx context.Context, j *Job) error
+}
+
+type OneAtATimeStore interface {
+	UniqueStore
+	KeepsOneAtATime()
+}
+
+type FailedStore interface {
+	Store
+	Failed(ctx context.Context) ([]*Job, error)
+	RunAgain(ctx context.Context, id string, at time.Time) (bool, error)
+}
+```
+
+- `PushLatest` pushes `j`, or gives the job of its kind and key that waits
+  `j`'s `RunAt`, and sets `j.ID` to the job that waits either way.
+- A `OneAtATimeStore` keeps a job's `OneAtATime`, and with it its key, for
+  as long as it keeps the job, from each of its pushes: `Claim` doesn't
+  return such a job while a claim holds another of its kind and key that
+  has it too. `KeepsOneAtATime` does nothing: it's how the queue knows the
+  Store keeps the promise, which is in its pushes and its claims.
+- `Failed` lists the jobs that failed for good, with their `Error` and
+  `FailedAt`, the latest first, and `RunAgain` puts one back to run, due at
+  `at`, with no attempts, and says whether there was one.
+
+`TestStore` checks each extra's promises of a Store that has it, and
+`Memory` has them all.
+
 ### The auth starter's, in SQLite
 
 The auth starter's `jobs.go` keeps the jobs in a table that its
@@ -375,20 +508,29 @@ take SQLite's one lock for writing at every poll.
 ```sql
 UPDATE jobs SET held_until = ?2, attempts = attempts + 1, unique_key = NULL
 WHERE id = (
-	SELECT id FROM jobs WHERE failed_at IS NULL AND run_at <= ?1 AND held_until <= ?1
-	ORDER BY run_at, id LIMIT 1
+	SELECT due.id FROM jobs AS due
+	WHERE due.failed_at IS NULL AND due.run_at <= ?1 AND due.held_until <= ?1
+	AND (due.alone_key IS NULL OR NOT EXISTS (
+		SELECT 1 FROM jobs AS running
+		WHERE running.kind = due.kind AND running.alone_key = due.alone_key AND running.held_until > ?1
+	))
+	ORDER BY due.run_at, due.id LIMIT 1
 )
 RETURNING id, kind, payload, run_at, attempts, error
 ```
 
 A job that failed for good stays in the table, with `failed_at` and its
-error, and runs again once `failed_at` is cleared. Every night at
-midnight UTC, a scheduled job of the starter's, `prune-jobs`, deletes the
-ones that failed over a month ago.
+error, which `./blog jobs` lists, and runs again once `failed_at` is
+cleared, as `./blog jobs retry` does. Every night at midnight UTC, a
+scheduled job of the starter's, `prune-jobs`, deletes the ones that failed
+over a month ago.
 
 ```sql
-SELECT id, kind, payload, attempts, error, failed_at FROM jobs WHERE failed_at IS NOT NULL;
-UPDATE jobs SET failed_at = NULL, attempts = 0, run_at = 0 WHERE id = 42;
+SELECT id, kind, payload, attempts, error, failed_at FROM jobs
+WHERE failed_at IS NOT NULL ORDER BY failed_at DESC, id DESC;
+
+UPDATE jobs SET failed_at = NULL, attempts = 0, run_at = ?, held_until = 0
+WHERE id = ? AND failed_at IS NOT NULL;
 ```
 
 Its schedules are a table too, of each one's run pushed last, which an
@@ -410,15 +552,33 @@ A unique kind's job keeps its key in a column of its own, which a unique
 index lets one job of a kind have at a time, and which the claim clears,
 as above. An insert that meets the index does nothing and returns no
 row, which is how `PushUnique` knows it didn't push, with no lock taken
-by hand:
+by hand; `PushLatest`'s updates the job it meets instead:
 
 ```sql
 ALTER TABLE jobs ADD COLUMN unique_key TEXT;
 CREATE UNIQUE INDEX jobs_unique ON jobs (kind, unique_key) WHERE unique_key IS NOT NULL;
 
-INSERT INTO jobs (kind, payload, run_at, unique_key) VALUES (?, ?, ?, NULLIF(?, ''))
+INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key) VALUES (?, ?, ?, NULLIF(?, ''), ?)
 ON CONFLICT DO NOTHING RETURNING id
+
+INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key) VALUES (?, ?, ?, NULLIF(?, ''), ?)
+ON CONFLICT (kind, unique_key) WHERE unique_key IS NOT NULL DO UPDATE SET run_at = excluded.run_at
+RETURNING id
 ```
+
+A `OneAtATime` kind's job keeps its key in `alone_key` for as long as it's
+kept, where the claim clears `unique_key`, and the claim above passes over
+a job whose `alone_key` a held job of its kind has, with the `NOT EXISTS`
+in its `WHERE`, which the read before it has too:
+
+```sql
+ALTER TABLE jobs ADD COLUMN alone_key TEXT;
+CREATE INDEX jobs_alone ON jobs (kind, alone_key) WHERE alone_key IS NOT NULL;
+```
+
+A handler's transaction pushes through `jobs.in(tx)`, the same table
+through `tx`: its inserts are the transaction's, and its claims the app's,
+which see the job once `tx` has committed.
 
 ### Another database
 
@@ -438,8 +598,14 @@ RETURNING id, kind, payload, run_at, attempts, error
 
 In Postgres, the schedules' upsert names the existing row's column in its
 `WHERE`, as `schedules.run_at`: there, a bare `run_at` could be either
-row's. The partial unique index for the keys works as it does in SQLite. `queuetest.TestStore` is how to know such a Store keeps the
-promises, claims and pushes from many goroutines at once among them.
+row's. The partial unique index for the keys works as it does in SQLite.
+One at a time needs more care there: SQLite runs one claim at a time,
+where two Postgres claims at once can each take a job of one key, as
+neither sees the other's hold until it commits, so its claims of a
+`OneAtATime` kind's jobs have to be kept apart by their key.
+`queuetest.TestStore` is how to know such a Store keeps the promises,
+claims and pushes from many goroutines at once among them, and claims of
+one key at once.
 
 ## Several instances
 
@@ -452,11 +618,8 @@ a machine; a database on a server of its own lets them be anywhere.
 
 ## What's not here yet
 
-- **A push that moves a unique job later**, so that the last of ten edits
-  says when the reindex runs, rather than the first.
-- **Jobs of one value that never run at once**: a unique job is one
-  waiting, and a push while it runs can run beside it.
-- **Pushing in the app's own transaction**, so that a job is kept only
-  with what the request wrote: `Push` goes through the Store, outside it.
-- **A page or command for failed jobs**: the auth starter's SQL above
-  reads and runs them again.
+- **A page for the jobs that failed**: the auth starter has a command,
+  `./blog jobs`, as a page needs someone who may see every user's jobs, and
+  the starter's users are users.
+- **A limit on the jobs of a kind at once**, other than one of each value:
+  a kind's jobs share the `Workers`.
