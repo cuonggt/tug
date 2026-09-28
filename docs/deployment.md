@@ -108,7 +108,7 @@ behind: delete it.
 | `ADDR`              | Where the app listens, as `host:port`. | `:8080`, every interface | `tug.ConfigFromEnv` |
 | `PORT`              | The port, when `ADDR` isn't set, as Cloud Run and Fly.io set it. | none | `tug.ConfigFromEnv` |
 | `APP_DEBUG`         | `true` or `1` puts a 500's error, and a panic's stack, in the response. Leave it off in production. | off | `tug.ConfigFromEnv` |
-| `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail. | none: the starters stop without it | `session.KeysFromEnv` |
+| `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail and to its photos. | none: the starters stop without it | `session.KeysFromEnv` |
 | `APP_PREVIOUS_KEYS` | Keys being rotated out, comma separated. They still decrypt sessions and check links. | none | `session.KeysFromEnv` |
 
 The auth starter reads these as well:
@@ -117,6 +117,9 @@ The auth starter reads these as well:
 |---------------------|--------------|---------|---------|
 | `APP_URL`           | The app's address, such as `https://example.com`, which the links in its mail start with. With `https://`, the session cookie is for HTTPS only. | none: needed unless `APP_DEBUG` is on | its `main.go` |
 | `DB_PATH`           | The SQLite database. | `app.db`, and `/data/app.db` in its image | its `main.go` |
+| `FILES_PATH`        | The directory the photos people upload are kept in, unless `FILESYSTEM_DISK` is `s3`. | `files`, and `/data/files` in its image | its `main.go` |
+| `FILESYSTEM_DISK`   | `local`, the directory, or `s3`, a bucket, which instances on more than one machine share. | `local` | `storage.FromEnv` |
+| `AWS_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | The bucket, and the keys to it, for `FILESYSTEM_DISK=s3`: in S3, or a service that speaks its API, as [files.md](files.md#from-the-environment) has. | none, and `us-east-1` for the region | `storage.FromEnv` |
 | `QUEUE_WORKERS`     | How many background jobs, such as mail, run at once. With `0`, this instance runs none and leaves its jobs to the others on the database. | `4` | its `main.go` |
 | `MAIL_HOST`         | The SMTP server. Without it, mail is written to the standard error instead of sent. | none | `mail.FromEnv` |
 | `MAIL_PORT`         | The server's port. On 465 the connection is TLS from the start; on another, it uses STARTTLS when the server offers it. | `587` | `mail.FromEnv` |
@@ -196,8 +199,8 @@ development `app.db` out too. So the frontend is built afresh, and the
 development `.env` never reaches the image: the variables come with
 `docker run -e`, as the Dockerfile's comment shows.
 
-The auth starter's image keeps its database in `/data`, a volume, so that
-it outlives the container:
+The auth starter's image keeps its database, and the photos people
+upload, in `/data`, a volume, so that they outlive the container:
 
 ```dockerfile
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data
@@ -206,7 +209,7 @@ FROM gcr.io/distroless/static-debian12
 COPY --from=server /server /server
 # 65532 is the image's nonroot user, who has to be able to write the database.
 COPY --from=server --chown=65532:65532 /data /data
-ENV DB_PATH=/data/app.db
+ENV DB_PATH=/data/app.db FILES_PATH=/data/files
 # The app listens on :8080, or on the PORT a platform sets.
 EXPOSE 8080
 VOLUME /data
@@ -217,7 +220,9 @@ ENTRYPOINT ["/server"]
 The app runs as `nonroot`, whose ID is 65532, so `/data` has to belong to
 65532. Owning the file isn't enough: SQLite makes the database in that
 directory when it isn't there, and, with the write-ahead log the starter
-turns on, its `-wal` and `-shm` files beside it. The distroless image has
+turns on, its `-wal` and `-shm` files beside it, and the app makes
+`/data/files` as the first photo goes in. With `FILESYSTEM_DISK=s3`, the
+photos are in the bucket instead, and the volume has the database alone. The distroless image has
 no shell to make the directory in, so the `server` stage makes it and the
 copy sets its owner. A new named volume starts with the image's `/data`,
 owner and all. A directory of the host's, mounted with
@@ -369,8 +374,9 @@ over as people use the app. A session that goes unused for its lifetime,
 2 hours unless `session.Config.Lifetime` says otherwise, has ended anyway,
 so once that long has passed, drop the old key. In the auth starter, a
 login that ticked "Remember me" lasts a month without a visit, so keep the
-old key for a month there. Its reset links, which last an hour, and its
-verification links, a day, are checked against every key too. Its
+old key for a month there. Its reset links, which last an hour, its
+verification links, a day, and the links to the photos on its own disk,
+two days at most, are checked against every key too. Its
 two-factor secrets are sealed with the key: as the app starts with more
 than one key, it seals every user's again with the new one, so none of
 them is lost when the old key goes.

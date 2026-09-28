@@ -73,8 +73,8 @@ tug new [flags] <dir>
 
 - `-auth`: with accounts: registering and verifying an email, logging in
   with a second factor if the user likes, or a passkey, resetting a
-  password by email, and settings, with the users in SQLite and a frontend
-  of Tailwind and shadcn's components.
+  password by email, and settings, a photo among them, with the users in
+  SQLite and a frontend of Tailwind and shadcn's components.
 - `-vue`, `-svelte`: the frontend in Vue or in Svelte, rather than React:
   the same app, with its pages as `.vue` or `.svelte` components, and the
   same Go. An app has one of them at most.
@@ -110,8 +110,8 @@ the app doesn't build until that has filled in its `go.mod` and `go.sum`.
 there, and writes the types.
 
 With `-auth`, the Go files for accounts are added, `auth.go`,
-`verify.go`, `twofactor.go`, `settings.go`, `mail.go` and `users.go`, with
-their tests, and so is a frontend of Tailwind and shadcn's components:
+`verify.go`, `twofactor.go`, `passkeys.go`, `settings.go`, `photos.go`,
+`mail.go`, `users.go` and `jobs.go`, with their tests, and so is a frontend of Tailwind and shadcn's components:
 its layouts, components and hooks, the pages in `resources/js/pages/Auth`
 and `resources/js/pages/Settings`, and shadcn's `components.json`. The
 plain starter's `Layout.tsx` (`Layout.vue`, `Layout.svelte`) is left out,

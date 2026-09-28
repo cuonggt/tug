@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M15 are done, which is
+the decisions behind it and where it stands: M1 to M16 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -20,7 +20,10 @@ the auth starter, Vue and Svelte starters (v0.9.0): `tug new -vue` and
 `-svelte`, and a browser suite that drives the auth starter in each, and
 the queue made whole (v0.10.0): jobs pushed in the app's own transaction,
 a unique job at its latest push's time or one at a time, and the jobs
-that failed listed and run again by the auth starter's `jobs` command.
+that failed listed and run again by the auth starter's `jobs` command,
+and files (v0.11.0): package `storage`, a local disk or S3, with signed
+links, `validate`'s tags for uploads, `tugtest.File`, and the auth
+starter's profile photo.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -33,6 +36,16 @@ go test -race ./...                        # what CI runs; a server is concurren
 go test -run '^$' -bench . -benchmem .     # tug next to ServeMux alone
 go vet ./... && gofmt -l .
 ADDR=127.0.0.1:8080 go run ./examples/api
+```
+
+Package storage's S3 tests run against a MinIO when `TUG_TEST_S3` names
+one, as CI's does, and are skipped otherwise. MinIO's own images are
+gone from Docker Hub, and Bitnami's last is kept:
+
+```bash
+docker run -d --rm --name tug-minio -p 127.0.0.1:9000:9000 -e MINIO_ROOT_USER=tug \
+  -e MINIO_ROOT_PASSWORD=tug-secret-key bitnamilegacy/minio:2025.7.23-debian-12-r5
+TUG_TEST_S3=http://tug:tug-secret-key@127.0.0.1:9000 go test ./storage
 ```
 
 The CLI, from a checkout, and in `examples/inertia`:
@@ -142,9 +155,35 @@ dev server that isn't there: delete it.
   session a lifetime of its own, kept in the payload (`l`), which `Clear`
   drops.
 - `validate`: `Struct` over one go-playground validator that names fields
-  by json tag; `path` turns its namespace into dotted paths, and `message`
-  its tags into sentences. `Errors` is `map[string]string`, first message
-  per field.
+  by json tag, or else form tag; `path` turns its namespace into dotted
+  paths, and `message` its tags into sentences. `Errors` is
+  `map[string]string`, first message per field. Two tags are tug's own,
+  for a `*multipart.FileHeader` (`uploaded`): `file_max` (`sizeLimit`
+  reads `2MB` and says it `2 MB`) and `file_type`, the type by the file's
+  first bytes; a type sniffing can't tell, a size that isn't one, or a
+  field that isn't an upload panics.
+- `storage`: files, with no import of tug. `storage.go`: `Disk` (`Put`,
+  `Open`, `Delete`, `URL`), `checkKey` (an `fs.ValidPath`, no backslash),
+  `PutUpload`, which keeps an upload under a random key with its sniffed
+  type's extension, and `exactly`, which fails a put whose bytes don't all
+  come. `local.go`: `Local`, a directory, through an `os.Root`, put by a
+  temp file, synced and renamed; its `ServeHTTP` is the route, which checks
+  a private link's signature (`sign`, HMAC with an HKDF key over the
+  route's path, the key and the expiry, like auth's tokens) and serves the
+  file as its sniffed type, with nosniff, `Content-Security-Policy:
+  sandbox`, and anything but an image as an attachment. `s3.go`: `S3`,
+  SigV4 on the standard library (`sign`, the Authorization header, every
+  header signed; `presign`, the query), a put streamed as
+  UNSIGNED-PAYLOAD, `failure` reading S3's XML errors; a private link is
+  presigned for the seven days that end at its expiry, so the same expiry
+  makes the same link. `env.go`: `FromEnv`, Laravel's variables. Its tests
+  check SigV4 against AWS's published examples (`sigv4_test.go`), and run
+  against a MinIO (`minio` in `s3_test.go`) when `TUG_TEST_S3` names one.
+- `internal/filetype`: what a file is by its first 512 bytes, as
+  `http.DetectContentType` says, without parameters (`Sniff`, `Of`), and
+  what's known of each type it tells (`kinds`): its name for a message
+  (`Names`: "a PNG or JPEG image"), its extension, and whether it's an
+  image a browser shows. validate and storage share it.
 - `vite`: dev-server tags while the hot file exists (read on each render),
   manifest tags otherwise, `Version` from the manifest's hash, `ServeHTTP`
   for the build, and `DevServer`, the dev server's URL, for package ssr.
@@ -204,8 +243,15 @@ dev server that isn't there: delete it.
   `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the
   handlers of adding them, logging in and confirming with them, on
   `auth.Passkeys`, whose site is `APP_URL`'s or the request's, as mail's
-  links are; the browser's side is `resources/js/lib/passkeys.ts`) and
-  `settings.go.tmpl`, its mail in `mail.go.tmpl`,
+  links are; the browser's side is `resources/js/lib/passkeys.ts`),
+  `settings.go.tmpl` and `photos.go.tmpl` (a user's photo, on the disk
+  `main` makes with `storage.FromEnv`: `files/`, or `FILES_PATH`, served
+  at `/files` by its own route, or S3; `updatePhoto` puts the file before
+  the transaction that names it, and deletes it when that fails, and the
+  photo it replaces goes by a `delete-file` job pushed in that
+  transaction; `withPhoto`, which `a.user` calls, gives each page's user a
+  link signed to the end of the next day, the same all day, for the
+  browser's cache), its mail in `mail.go.tmpl`,
   and its users in SQLite (modernc.org/sqlite, pure Go), with migrations
   counted in `user_version`, in `users.go.tmpl`. Its jobs are in the same
   database: `jobs.go.tmpl` is a `queue.ScheduleStore` and a
@@ -235,7 +281,9 @@ dev server that isn't there: delete it.
   beside the app, as their Inertia has no `withApp` for a component; Vue's
   Input.vue takes the value Inertia's Form sets, and both register pages
   drop a waiting Precognition check as they go, as their Form, in 3.7.1,
-  reads the form that's gone.
+  reads the form that's gone. An avatar is keyed by the user's photo, in
+  all three, as an avatar keeps the image it loaded once the image is
+  gone.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
 - `auth`: the parts of accounts where a slip is a security hole, with no
@@ -322,7 +370,9 @@ dev server that isn't there: delete it.
   types; `valuesOnly` drops what went out for inertia's prop types, which
   hold functions, so a page's own props struct takes the rest. It fails
   the test itself, with t.Fatalf, when asked for what isn't there. Package
-  tug's own tests can't use it, as it imports tug.
+  tug's own tests can't use it, as it imports tug. `upload.go`: `File`,
+  which makes a map body a multipart form (`multipartBody`), written as
+  Inertia's client's objectToFormData writes one (`writeForm`).
 - `examples/api`: a JSON API on the core. Its tests are the end to end check.
 - `examples/inertia`: React pages on tug. `main.go` embeds `app.html` and
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile

@@ -1,0 +1,192 @@
+package main
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// photo is a PNG, as far as its first bytes say, which is as far as the app
+// looks.
+var photo = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR Ann's photo")
+
+func uploadPhoto(c *tugtest.Client, name string, content []byte) *tugtest.Response {
+	return c.Post("/settings/profile/photo", map[string]any{"photo": tugtest.File{Name: name, Type: "image/png", Content: content}})
+}
+
+// photos lists the photos on the app's disk.
+func (a *testApp) photos() []string {
+	entries, _ := os.ReadDir(filepath.Join(a.files, "photos"))
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// photosLeft waits until the jobs that delete photos have left n on the
+// app's disk, and returns them.
+func (a *testApp) photosLeft(n int) []string {
+	a.t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		names := a.photos()
+		if len(names) == n {
+			return names
+		}
+		if time.Now().After(deadline) {
+			a.t.Fatalf("the photos on the disk: %v, not %d", names, n)
+		}
+	}
+}
+
+// fetch gets link as a browser does, for an <img>.
+func fetch(c *tugtest.Client, link string) *tugtest.Response {
+	return c.Do(httptest.NewRequest(http.MethodGet, link, nil))
+}
+
+func TestAPhotoIsShownByALinkSignedForIt(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c.Get("/settings/profile")
+	r := uploadPhoto(c, "../../app.db", photo)
+	if r.Location() != "/settings/profile" {
+		t.Fatalf("uploading: %v, errors %v", r, r.Follow().Errors())
+	}
+	r = r.Follow()
+	u := user(r)
+	if r.Page.Flash["success"] != "Photo saved." || u.Photo == nil || !strings.HasPrefix(*u.Photo, "/files/photos/") {
+		t.Fatalf("flash %v, user %+v", r.Page.Flash, u)
+	}
+	// Kept by a name of the app's, with the extension of what it is.
+	if names := app.photos(); len(names) != 1 || !regexp.MustCompile(`^[a-z2-7]{26}\.png$`).MatchString(names[0]) {
+		t.Errorf("on the disk: %v", names)
+	}
+	if p := tugtest.Props(r, Profile).User.Photo; p == nil || *p != *u.Photo {
+		t.Errorf("the profile's user's photo: %v", p)
+	}
+	got := fetch(app.client(), *u.Photo)
+	if got.Code != http.StatusOK || got.Body != string(photo) || got.Header.Get("Content-Type") != "image/png" {
+		t.Errorf("the photo: %v %v", got, got.Header)
+	}
+	// A link is good for the photo it's signed for, and no other.
+	if got := fetch(c, strings.Replace(*u.Photo, "/photos/", "/photos/x", 1)); got.Code != http.StatusForbidden {
+		t.Errorf("another photo by its link: %v", got)
+	}
+	if got := fetch(c, strings.Split(*u.Photo, "?")[0]); got.Code != http.StatusForbidden {
+		t.Errorf("the photo with no signature: %v", got)
+	}
+	// The link is the same on every page, all day, so the browser keeps the
+	// photo cached.
+	if again := user(c.Get("/dashboard")); again.Photo == nil || *again.Photo != *u.Photo {
+		t.Errorf("the dashboard's link: %v", again.Photo)
+	}
+}
+
+func TestANewPhotoReplacesTheOldOne(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c.Get("/settings/profile")
+	uploadPhoto(c, "ann.png", photo)
+	first := app.photosLeft(1)
+	jpeg := []byte("\xff\xd8\xff\xe0 Ann's new photo")
+	if r := c.Post("/settings/profile/photo", map[string]any{"photo": tugtest.File{Name: "ann.jpg", Content: jpeg}}); r.Location() != "/settings/profile" {
+		t.Fatalf("replacing: %v, errors %v", r, r.Follow().Errors())
+	}
+	left := app.photosLeft(1)
+	if left[0] == first[0] || !strings.HasSuffix(left[0], ".jpg") {
+		t.Errorf("on the disk: %v, and before %v", left, first)
+	}
+	u := user(c.Get("/settings/profile"))
+	if got := fetch(c, *u.Photo); got.Body != string(jpeg) || got.Header.Get("Content-Type") != "image/jpeg" {
+		t.Errorf("the photo: %v %v", got, got.Header)
+	}
+}
+
+func TestARemovedPhotoIsDeleted(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c.Get("/settings/profile")
+	uploadPhoto(c, "ann.png", photo)
+	app.photosLeft(1)
+	r := c.Delete("/settings/profile/photo", nil)
+	if r.Location() != "/settings/profile" {
+		t.Fatalf("removing: %v", r)
+	}
+	if r = r.Follow(); r.Page.Flash["success"] != "Photo removed." || user(r).Photo != nil {
+		t.Errorf("flash %v, photo %v", r.Page.Flash, user(r).Photo)
+	}
+	app.photosLeft(0)
+}
+
+func TestWhatIsntAPhotoIsTurnedAway(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	for _, tc := range []struct {
+		name string
+		file tugtest.File
+		want string
+	}{
+		{"none", tugtest.File{}, "photo is required"},
+		{"a page named as a photo", tugtest.File{Name: "ann.png", Type: "image/png", Content: []byte("<!DOCTYPE html><script>alert(document.cookie)</script>")}, "photo must be a PNG, JPEG or WebP image"},
+		{"an SVG", tugtest.File{Name: "ann.svg", Type: "image/svg+xml", Content: []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)}, "photo must be a PNG, JPEG or WebP image"},
+		{"too big", tugtest.File{Name: "ann.png", Type: "image/png", Content: append(photo, make([]byte, 2<<20)...)}, "photo must be at most 2 MB"},
+	} {
+		c.Get("/settings/profile")
+		r := c.Post("/settings/profile/photo", map[string]any{"photo": tc.file})
+		if errs := r.Follow().Errors(); errs["photo"] != tc.want {
+			t.Errorf("%s: %v, errors %v", tc.name, r, errs)
+		}
+	}
+	if names := app.photos(); len(names) != 0 {
+		t.Errorf("kept: %v", names)
+	}
+}
+
+func TestAPhotoWhoseRecordIsntKeptIsntKeptEither(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c.Get("/settings/profile")
+	uploadPhoto(c, "ann.png", photo)
+	first := app.photosLeft(1)
+	// The job that would delete the old photo can't be pushed, so the new
+	// one isn't named, and goes again.
+	jobsDown(t, app.db)
+	if r := uploadPhoto(c, "new.png", photo); r.Code != http.StatusInternalServerError {
+		t.Fatalf("replacing the photo with the jobs table down: %v", r)
+	}
+	if left := app.photos(); len(left) != 1 || left[0] != first[0] {
+		t.Errorf("on the disk: %v, and before %v", left, first)
+	}
+	if u := user(c.Get("/settings/profile")); u.Photo == nil || !strings.Contains(*u.Photo, first[0]) {
+		t.Errorf("the photo now: %v", u.Photo)
+	}
+}
+
+func TestDeletingAnAccountDeletesItsPhoto(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c.Get("/settings/profile")
+	uploadPhoto(c, "ann.png", photo)
+	app.photosLeft(1)
+	if r := c.Delete("/settings/profile", map[string]any{"password": "correct horse"}); r.Location() != "/" {
+		t.Fatalf("deleting the account: %v", r)
+	}
+	app.photosLeft(0)
+}
+
+func TestAGuestHasNoPhotoToUpload(t *testing.T) {
+	app := newTestApp(t)
+	if r := uploadPhoto(app.client(), "ann.png", photo); r.Location() != "/login" {
+		t.Errorf("a guest's upload: %v", r)
+	}
+	if names := app.photos(); len(names) != 0 {
+		t.Errorf("kept: %v", names)
+	}
+}

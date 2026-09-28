@@ -1,7 +1,8 @@
 # Runs on every push: vet, format, and the suite with the race detector, on
 # the oldest Go that go.mod allows and on the newest. A server handles its
 # requests concurrently, so -race is the run that matters, and the shutdown
-# tests serve on a real port.
+# tests serve on a real port. Package storage's S3 runs against a MinIO
+# beside it: an S3 that isn't tug's own idea of one.
 #
 # Then the Inertia example end to end: its TypeScript types checked against
 # the Go ones (tug gen writes them again, and they must not change), the
@@ -35,6 +36,20 @@ jobs:
         go: ['1.26.x', stable]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # MinIO's own images are gone from Docker Hub; Bitnami's last is kept.
+    services:
+      minio:
+        image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+        env:
+          MINIO_ROOT_USER: tug
+          MINIO_ROOT_PASSWORD: tug-secret-key
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -fs http://localhost:9000/minio/health/live"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    env:
+      TUG_TEST_S3: http://tug:tug-secret-key@127.0.0.1:9000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

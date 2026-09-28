@@ -3,8 +3,8 @@
 `tug new -auth` makes an app with accounts, complete enough to ship: people
 register and verify their email, log in, with a code from an authenticator
 app too once they turn that on, reset a forgotten password with a link sent
-by email, and change their profile, email, password and appearance in their
-settings, or delete their account. The handlers are the app's own code, to
+by email, and change their profile, email, photo, password and appearance
+in their settings, or delete their account. The handlers are the app's own code, to
 change as the app does. They stand on package `auth`, which has the parts
 where a slip is a security hole, and package `mail`, which sends the links.
 The frontend is React with Tailwind and shadcn/ui, as Laravel's React
@@ -29,6 +29,7 @@ build` still makes a static binary.
 |-------------------------------------------|-----------------------------------------------|-----|
 | `GET /`                                   | `home`                                        | everyone |
 | `GET /up`                                 |                                               | health checks |
+| `GET /files/{key...}`                     |                                               | anyone with a signed link |
 | `GET /dashboard`                          | `dashboard`                                   | verified users |
 | `GET`, `POST /register`                   | `register`, `register.store`                  | guests |
 | `GET`, `POST /login`                      | `login`, `login.store`                        | guests |
@@ -42,6 +43,7 @@ build` still makes a static binary.
 | `GET /verify-email/{id}/{token}`          | `verification.verify`                         | anyone with the link |
 | `GET /settings`                           | `settings`                                    | goes to the profile |
 | `GET`, `PATCH`, `DELETE /settings/profile` | `profile.edit`, `profile.update`, `profile.destroy` | users, password confirmed |
+| `POST`, `DELETE /settings/profile/photo`  | `profile.photo.update`, `profile.photo.destroy` | users, password confirmed |
 | `GET /settings/security`                  | `security.edit`                               | verified users, password confirmed |
 | `PUT /settings/password`                  | `user-password.update`                        | verified users, password confirmed |
 | `POST`, `DELETE /settings/two-factor`     | `two-factor.enable`, `two-factor.disable`     | verified users, password confirmed |
@@ -63,7 +65,8 @@ plain starter's of the same name and add the rest, and the plain
   logging in and out, a forgotten password, and asking for the password
   again.
 - `verify.go`: verifying an email. `twofactor.go`: two-factor logins.
-  `settings.go`: the settings pages. `mail.go`: the mail the app sends.
+  `settings.go`: the settings pages. `photos.go`: a user's photo, on the
+  app's disk. `mail.go`: the mail the app sends.
 - `jobs.go`: the background jobs, in tables of their own, for package
   `queue`, which runs them beside the server, and the `jobs` command,
   which lists the ones that failed for good and runs them again. The mail
@@ -73,16 +76,18 @@ plain starter's of the same name and add the rest, and the plain
   migrations, which make the `jobs` table too. An email is unique whatever
   its case.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
-  `jobs_test.go`: a test of each flow, in browsers of package `tugtest`,
-  with the mail kept in memory.
+  `photos_test.go`, `jobs_test.go`: a test of each flow, in browsers of
+  package `tugtest`, with the mail kept in memory and the photos in a
+  temporary directory.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
   page's layout; `layouts/`, the app's, the login card's, and the
   settings'; `components/`, the app's own and shadcn's in
   `components/ui`; and the pages, `Home`, `Dashboard` and `Error`, and
   those in `Auth/` and `Settings/`.
-- `.env.example`: `APP_KEY`, `APP_URL`, `DB_PATH`, `QUEUE_WORKERS` and the
-  mail's variables, with what each is for. The `Dockerfile` keeps the
-  database in a `/data` volume.
+- `.env.example`: `APP_KEY`, `APP_URL`, `DB_PATH`, `QUEUE_WORKERS`, the
+  photos' `FILESYSTEM_DISK`, `FILES_PATH` and S3's variables, and the
+  mail's, with what each is for. The `Dockerfile` keeps the database and
+  the photos in a `/data` volume.
 
 ### Trying it
 
@@ -401,10 +406,20 @@ sent again for them: they go back to the page it was on, which
 
 - **Profile**: the name and email. A new email is mailed a link, and isn't
   verified until it's followed; one another account has is turned away.
+- **Photo**: a PNG, JPEG or WebP of 2 MB at most, told by its bytes, which
+  the user menu shows in place of the initials, uploaded with its progress
+  shown. `photos.go` keeps it on the app's disk with package `storage`:
+  `files/`, or `FILES_PATH`, or with `FILESYSTEM_DISK=s3`, a bucket. The
+  photos are private: `a.user` gives each page's user a link to theirs,
+  signed until the end of the next day, which is the same link all day so
+  the browser keeps it cached, and served at `/files` by that link alone.
+  A new photo replaces the old, and removing it brings the initials back;
+  the file that nothing names any more is deleted by a job, `delete-file`,
+  pushed in the transaction that drops it. See [Files](files.md).
 - **Delete your account**: a dialog that takes the password once more,
-  since it can't be undone. The row goes, this browser is logged out and
-  its history cleared, and the user's other sessions end at their next
-  request, which finds no user.
+  since it can't be undone. The row goes, and its photo with it, this
+  browser is logged out and its history cleared, and the user's other
+  sessions end at their next request, which finds no user.
 - **Security**: a new password, which takes the current one. The new hash
   ends every login made with the old one, which is how to end a login on a
   lost laptop, and this browser logs in again with it. Then two-factor
@@ -965,9 +980,16 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
   then is worth doing.
 - **Mail that keeps failing**: a mail job runs 10 times over about four
   hours, then stays in the `jobs` table as failed for a month, with an
-  error in the log. [jobs.md](jobs.md) has the SQL that finds failed jobs
-  and runs them again. And now and then a mail goes twice: a job runs at least once, and
-  again when the app is killed as it sends.
+  error in the log. `./blog jobs` lists the jobs that failed, and runs them
+  again: see [jobs.md](jobs.md). And now and then a mail goes twice: a job
+  runs at least once, and again when the app is killed as it sends.
+- **Where the photos are kept**: in `files/` beside the binary, or
+  `FILES_PATH`, which the image sets to `/data/files`, on its volume, so
+  they outlive the container. Instances of the app on more than one
+  machine don't share a directory: give them `FILESYSTEM_DISK=s3` and a
+  bucket, which all of them reach. A photo's links are signed with
+  `APP_KEY`, and checked with `APP_PREVIOUS_KEYS` too, so the ones on
+  pages already open still work after a new key.
 
 ### What the starter leaves out
 

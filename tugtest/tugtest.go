@@ -176,7 +176,9 @@ func (c *Client) Delete(target string, body any, opts ...Option) *Response {
 // the page the client is on as the Referer. body, unless it's nil, goes as
 // JSON: encoded with encoding/json, or as it is when it's a string or a
 // []byte. Inertia's <Form> sends each value as a string, "on" for a ticked
-// box and "42" from a number input, which a body can do too.
+// box and "42" from a number input, which a body can do too. A map with a
+// File in it goes as a multipart form, as the client sends an upload: see
+// File.
 func (c *Client) Visit(method, target string, body any, opts ...Option) *Response {
 	c.t.Helper()
 	req, ok := c.newRequest(method, target, body)
@@ -278,7 +280,8 @@ type request struct {
 	body   []byte
 }
 
-// newRequest is a request to target, with body as JSON.
+// newRequest is a request to target, with body as JSON, or as a multipart
+// form when it has a File in it.
 func (c *Client) newRequest(method, target string, body any) (*request, bool) {
 	c.t.Helper()
 	target, _, _ = strings.Cut(target, "#") // a browser keeps the fragment to itself
@@ -288,6 +291,7 @@ func (c *Client) newRequest(method, target string, body any) (*request, bool) {
 		return nil, false
 	}
 	req := &request{method: method, path: u.RequestURI(), host: cmp.Or(u.Host, "example.com"), header: http.Header{}}
+	contentType := "application/json"
 	switch b := body.(type) {
 	case nil:
 	case string:
@@ -295,13 +299,21 @@ func (c *Client) newRequest(method, target string, body any) (*request, bool) {
 	case []byte:
 		req.body = b
 	default:
-		if req.body, err = json.Marshal(body); err != nil {
-			c.t.Fatalf("%s %s: the body isn't JSON: %v", method, target, err)
+		var form bool
+		if req.body, contentType, form, err = multipartBody(body); err != nil {
+			c.t.Fatalf("%s %s: the body can't be a form: %v", method, target, err)
 			return nil, false
+		}
+		if !form {
+			contentType = "application/json"
+			if req.body, err = json.Marshal(body); err != nil {
+				c.t.Fatalf("%s %s: the body isn't JSON: %v", method, target, err)
+				return nil, false
+			}
 		}
 	}
 	if req.body != nil {
-		req.header.Set("Content-Type", "application/json")
+		req.header.Set("Content-Type", contentType)
 	}
 	return req, true
 }

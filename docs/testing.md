@@ -40,7 +40,8 @@ the cookies the app has set, and the page the client is on as the
 encoding/json, or a string or `[]byte` as it is. Inertia's `<Form>` sends
 each of its values as a string, `"on"` for a ticked box and `"42"` from a
 number input, and `Bind` reads them as it reads a form's values, so a
-test's body can be either.
+test's body can be either. A map with a file in it goes as a multipart
+form, as the client sends an upload: see [Uploads](#uploads).
 
 Each returns a `*tugtest.Response`: its `Code`, `Header` and `Body`, and
 `Page`, the page it shows, an `inertia.Page` with the component, props,
@@ -130,6 +131,31 @@ if r.Code != http.StatusUnprocessableEntity || r.Errors()["title"] != "title is 
 	t.Errorf("got %v", r)
 }
 ```
+
+## Uploads
+
+```go
+r := c.Post("/settings/profile/photo", map[string]any{
+	"photo": tugtest.File{Name: "ann.png", Type: "image/png", Content: png},
+})
+```
+
+A `tugtest.File` in a body, a map's value, makes the visit a
+`multipart/form-data` one, as Inertia's client sends a form with a file
+in it: the file as a part of its own, with its `Name` and its `Type`, or
+`application/octet-stream`, which is what the browser would say, and the
+map's other values as the form's fields, written as the client writes
+them. A string goes as it is, a number as its digits, `true` and `false`
+as `1` and `0`, `nil` as empty, a list's items each under `tags[]`, and a
+nested map's values under `user[name]`. A `File` with no `Name` is a file
+input left empty, which `Bind` takes as none.
+
+What a file is, the app tells from its bytes, so a test of `file_type`
+sends the bytes it means: a PNG's first eight, `"\x89PNG\r\n\x1a\n"`, are
+enough to be one, and a page named `ann.png` is still a page. The auth
+starter's tests upload a photo so, and read the disk, a `storage.Local`
+in the test's temporary directory, to see that a replaced one is gone.
+See [Files](files.md#tests).
 
 ## Partial reloads
 
@@ -238,7 +264,5 @@ check.
 - The client doesn't keep once props, or merge a partial reload into the
   page it has: each Response is what the app sent. A test of a once prop
   sends `X-Inertia-Except-Once-Props` itself, with `tugtest.Header`.
-- Bodies go as JSON. A form with files, which Inertia sends as multipart,
-  goes with `c.Do` and a request of the test's own.
 - None of the frontend runs: what the pages do with their props is for
   the browser tests, as `examples/inertia`'s Playwright tests are.

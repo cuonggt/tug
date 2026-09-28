@@ -1,8 +1,14 @@
 package validate
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"mime/multipart"
+	"net/http/httptest"
+	"net/textproto"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -129,5 +135,103 @@ func TestAStructThatCantBeCheckedIsAnErrorOfItsOwn(t *testing.T) {
 	var errs Errors
 	if err == nil || errors.As(err, &errs) {
 		t.Fatalf("got %v, want an error that isn't Errors", err)
+	}
+}
+
+// upload is a file as a form sends it, named and typed as the browser
+// says.
+func upload(t *testing.T, name, contentType string, content []byte) *multipart.FileHeader {
+	t.Helper()
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	part, _ := w.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="file"; filename="` + name + `"`},
+		"Content-Type":        {contentType},
+	})
+	part.Write(content)
+	w.Close()
+	r := httptest.NewRequest("POST", "/", &body)
+	r.Header.Set("Content-Type", w.FormDataContentType())
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		t.Fatal(err)
+	}
+	return r.MultipartForm.File["file"][0]
+}
+
+var png = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+
+type PhotoInput struct {
+	Photo   *multipart.FileHeader   `form:"photo" validate:"required,file_max=1KB,file_type=image/png image/jpeg"`
+	Scans   []*multipart.FileHeader `form:"scans" validate:"max=2,dive,file_type=application/pdf"`
+	Banner  *multipart.FileHeader   `form:"banner" validate:"omitempty,file_max=2MB,file_type=image/png image/webp image/gif"`
+	Caption string                  `form:"caption" validate:"max=10"`
+}
+
+func TestAnUploadIsCheckedBySizeAndByWhatItIs(t *testing.T) {
+	pdf := upload(t, "scan.pdf", "application/pdf", []byte("%PDF-1.7"))
+	for _, c := range []struct {
+		name string
+		in   PhotoInput
+		want Errors
+	}{
+		{"a PNG", PhotoInput{Photo: upload(t, "ann.png", "image/png", png), Scans: []*multipart.FileHeader{pdf}}, nil},
+		{"none", PhotoInput{}, Errors{"photo": "photo is required"}},
+		{"too big", PhotoInput{Photo: upload(t, "ann.png", "image/png", append(png, make([]byte, 1024)...))}, Errors{"photo": "photo must be at most 1 KB"}},
+		{"a page named as a PNG", PhotoInput{Photo: upload(t, "ann.png", "image/png", []byte("<!DOCTYPE html><script>"))}, Errors{"photo": "photo must be a PNG or JPEG image"}},
+		{"an SVG", PhotoInput{Photo: upload(t, "ann.svg", "image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))}, Errors{"photo": "photo must be a PNG or JPEG image"}},
+		{"a list", PhotoInput{Photo: upload(t, "ann.png", "image/png", png), Scans: []*multipart.FileHeader{pdf, upload(t, "b.pdf", "application/pdf", png)}}, Errors{"scans.1": "scans[1] must be a PDF file"}},
+		{"too many", PhotoInput{Photo: upload(t, "ann.png", "image/png", png), Scans: []*multipart.FileHeader{pdf, pdf, pdf}}, Errors{"scans": "scans must have at most 2 items"}},
+		{"an optional one", PhotoInput{Photo: upload(t, "ann.png", "image/png", png), Banner: upload(t, "b.jpg", "image/jpeg", []byte("\xff\xd8\xff\xe0"))}, Errors{"banner": "banner must be a PNG, WebP or GIF image"}},
+	} {
+		err := Struct(&c.in)
+		var errs Errors
+		if c.want == nil && err != nil || c.want != nil && (!errors.As(err, &errs) || !reflect.DeepEqual(errs, c.want)) {
+			t.Errorf("%s: got %v, want %v", c.name, err, c.want)
+		}
+	}
+}
+
+func TestAFileTagsSizeIsSaidAsItsWritten(t *testing.T) {
+	for p, want := range map[string]struct {
+		bytes int64
+		words string
+	}{
+		"2MB":    {2 << 20, "2 MB"},
+		"500 kb": {500 << 10, "500 KB"},
+		"1.5MB":  {3 << 19, "1.5 MB"},
+		"1GB":    {1 << 30, "1 GB"},
+		"100B":   {100, "100 bytes"},
+		"1":      {1, "1 byte"},
+	} {
+		if n, words := sizeLimit(p); n != want.bytes || words != want.words {
+			t.Errorf("%s: %d, %q", p, n, words)
+		}
+	}
+}
+
+func TestAFileTagThatCantWorkPanics(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"a type sniffing can't tell", &struct {
+			F *multipart.FileHeader `validate:"file_type=image/svg+xml"`
+		}{upload(t, "a.svg", "image/svg+xml", nil)}, "image/svg+xml isn't a type a file's first bytes tell"},
+		{"a size that isn't one", &struct {
+			F *multipart.FileHeader `validate:"file_max=2 megs"`
+		}{upload(t, "a.png", "image/png", png)}, "file_max=2 megs isn't a size"},
+		{"a field that isn't an upload", &struct {
+			F string `validate:"file_max=2MB"`
+		}{"a.png"}, "file_max is for an upload, a *multipart.FileHeader, and F is a string"},
+	} {
+		func() {
+			defer func() {
+				if v := recover(); v == nil || !strings.Contains(fmt.Sprint(v), c.want) {
+					t.Errorf("%s: panicked with %v", c.name, v)
+				}
+			}()
+			Struct(c.in)
+		}()
 	}
 }

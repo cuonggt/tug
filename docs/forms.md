@@ -66,7 +66,8 @@ export default function Create() {
 ```
 
 `<Form>` sends its inputs by their `name`s, the names in the json tags, as
-JSON with every value a string. `Bind` reads a string where the struct has
+JSON with every value a string, or with a file in it, as a multipart form
+([Files](files.md)). `Bind` reads a string where the struct has
 a bool, a number or a `time.Time` as it reads a form's value, so a
 checkbox's `"on"` fills a `bool`, a number input's `"42"` an `int`, and an
 input left empty leaves its field alone ([Routing](routing.md#binding) has
@@ -137,7 +138,9 @@ separated by commas. `omitempty` skips the rest for an empty value. A field
 that's a struct is checked by its own fields' tags, and a list of structs
 needs `dive` for its items to be checked. tug writes a sentence for these
 tags, and "*field* is invalid" for any other. The limits count characters
-for text, items for a list or map, and the value itself for a number:
+for text, items for a list or map, and the value itself for a number.
+`file_max` and `file_type` are tug's own, for an upload: its size, and
+what it is by its first bytes ([Files](files.md#checking-uploads)):
 
 | Tags | Message |
 |------|---------|
@@ -157,6 +160,7 @@ for text, items for a list or map, and the value itself for a number:
 | `contains`; `excludes` | password must contain "!"; username must not contain "@" |
 | `startswith`; `endswith` | handle must start with "@"; domain must end with ".com" |
 | `unique` | tags must not repeat a value |
+| `file_max`; `file_type` | photo must be at most 2 MB; photo must be a PNG or JPEG image |
 
 Fields are named as the client named them: by the json tag, or by the Go
 name when there's none. A nested field is named by its dotted path, a

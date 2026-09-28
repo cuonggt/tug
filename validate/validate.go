@@ -8,21 +8,28 @@
 //
 //	err := validate.Struct(in) // Errors{"title": "title is required", ...}
 //
-// The rules are those of github.com/go-playground/validator. Fields are
-// named as their json tags name them, the way the client sent them, and a
-// nested field by its path: "author.name", "items.0.price".
+// The rules are those of github.com/go-playground/validator, and two of
+// tug's own for uploads, a *multipart.FileHeader's: file_max, its size at
+// most, and file_type, what it is, told from its first bytes:
+//
+//	Photo *multipart.FileHeader `form:"photo" validate:"required,file_max=2MB,file_type=image/png image/jpeg"`
+//
+// Fields are named as their json tags name them, the way the client sent
+// them, and a nested field by its path: "author.name", "items.0.price".
 package validate
 
 import (
 	"errors"
 	"fmt"
 	"maps"
+	"mime/multipart"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/cuonggt/tug/internal/filetype"
 	"github.com/go-playground/validator/v10"
 )
 
@@ -83,13 +90,19 @@ func validatorFor() *validator.Validate {
 	once.Do(func() {
 		checks = validator.New(validator.WithRequiredStructEnabled())
 		checks.RegisterTagNameFunc(jsonName)
+		checks.RegisterValidation("file_max", fileMax)
+		checks.RegisterValidation("file_type", fileType)
 	})
 	return checks
 }
 
-// jsonName is a field's name as the client knows it: its json tag's.
+// jsonName is a field's name as the client knows it: its json tag's, or
+// else its form tag's, as an upload's field may have alone.
 func jsonName(f reflect.StructField) string {
 	name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+	if name == "" {
+		name = f.Tag.Get("form")
+	}
 	switch name {
 	case "-":
 		return ""
@@ -191,6 +204,11 @@ func message(fe validator.FieldError, root reflect.Type) string {
 		return f + " must end with " + strconv.Quote(p)
 	case "unique":
 		return f + " must not repeat a value"
+	case "file_max":
+		_, words := sizeLimit(p)
+		return f + " must be at most " + words
+	case "file_type":
+		return f + " must be " + filetype.Names(fileTypes(p))
 	}
 	return f + " is invalid"
 }
@@ -236,4 +254,71 @@ func sibling(root reflect.Type, structNamespace, goName string) string {
 		}
 	}
 	return strings.ToLower(goName)
+}
+
+// fileMax checks that an upload is no bigger than the tag's size, such as
+// 2MB.
+func fileMax(fl validator.FieldLevel) bool {
+	limit, _ := sizeLimit(fl.Param())
+	return uploaded(fl, "file_max").Size <= limit
+}
+
+// fileType checks that an upload is one of the tag's types, such as
+// "image/png image/jpeg", by its first bytes, as http.DetectContentType
+// tells them: what its name and the browser say are the user's to say.
+func fileType(fl validator.FieldLevel) bool {
+	types := fileTypes(fl.Param())
+	t, err := filetype.OfUpload(uploaded(fl, "file_type"))
+	return err == nil && slices.Contains(types, t)
+}
+
+// uploaded is the upload a file tag checks. A field of another type is the
+// program's mistake, which a test finds.
+func uploaded(fl validator.FieldLevel, tag string) *multipart.FileHeader {
+	v := fl.Field()
+	if v.Type() != reflect.TypeFor[multipart.FileHeader]() {
+		panic(fmt.Sprintf("validate: %s is for an upload, a *multipart.FileHeader, and %s is a %s", tag, fl.FieldName(), v.Type()))
+	}
+	if v.CanAddr() {
+		return v.Addr().Interface().(*multipart.FileHeader)
+	}
+	fh := v.Interface().(multipart.FileHeader)
+	return &fh
+}
+
+// sizeLimit reads file_max's size, a number of bytes, KB, MB or GB, each
+// 1024 of the one before, such as 2MB or 1.5 MB, and returns it in bytes,
+// and in words for a message: "2 MB".
+func sizeLimit(p string) (int64, string) {
+	s := strings.TrimSpace(p)
+	i := strings.IndexFunc(s, func(r rune) bool { return (r < '0' || r > '9') && r != '.' })
+	if i < 0 {
+		i = len(s)
+	}
+	num, unit := s[:i], strings.ToUpper(strings.TrimSpace(s[i:]))
+	n, err := strconv.ParseFloat(num, 64)
+	scale := map[string]float64{"": 1, "B": 1, "KB": 1 << 10, "MB": 1 << 20, "GB": 1 << 30}[unit]
+	if err != nil || n < 0 || scale == 0 {
+		panic(fmt.Sprintf("validate: file_max=%s isn't a size, such as 500KB or 2MB", p))
+	}
+	words := num + " " + unit
+	if scale == 1 {
+		words = num + " " + plural(num, "byte", "bytes")
+	}
+	return int64(n * scale), words
+}
+
+// fileTypes reads file_type's types. One that sniffing can't tell, such as
+// image/svg+xml, would turn away every file: that's the program's mistake.
+func fileTypes(p string) []string {
+	types := strings.Fields(p)
+	if len(types) == 0 {
+		panic("validate: file_type names no types, such as file_type=image/png image/jpeg")
+	}
+	for _, t := range types {
+		if !filetype.Known(t) {
+			panic(fmt.Sprintf("validate: file_type=%s: %s isn't a type a file's first bytes tell; they tell %s", p, t, strings.Join(slices.Sorted(slices.Values(filetype.All())), ", ")))
+		}
+	}
+	return types
 }

@@ -128,13 +128,21 @@ func showPost(c *tug.Ctx) error {
 - **Sessions** (package `session`): in an encrypted cookie, keyed by
   `APP_KEY`, with flash data. `c.Flash` reaches the next page shown, after
   a redirect or not, and only that one.
+- **Files** (package `storage`): uploads, from an Inertia form with its
+  progress, kept in a directory the app serves, or in S3 or any service
+  that speaks its API, Cloudflare R2 and MinIO among them, with S3's
+  signatures on the standard library. `validate` checks an upload's size
+  and what it is, from its first bytes rather than its name, and a page
+  gets a link to it, public or signed until it expires. What's served
+  can't run as the app: its type is its bytes', and anything but an image
+  is a download.
 - **Accounts**: `tug new -auth` makes an app where people register and
   verify their email, log in, with a code from an authenticator app too
   once they turn that on, or with a passkey and no password at all, reset
-  a forgotten password by email, and change their profile, password and
-  appearance in settings, with the users in SQLite and a frontend of
-  Tailwind and shadcn's components, as Laravel's starter kits have, in
-  React, Vue or Svelte. Its handlers
+  a forgotten password by email, and change their profile and photo,
+  password and appearance in settings, with the users in SQLite and a
+  frontend of Tailwind and shadcn's components, as Laravel's starter kits
+  have, in React, Vue or Svelte. Its handlers
   are the app's own code, on package `auth`, which has the parts where a
   slip is a security hole: argon2id password hashes, logins that end when
   the password changes, signed tokens for reset and verification links,
@@ -158,9 +166,10 @@ func showPost(c *tug.Ctx) error {
   lists the jobs that failed for good, and runs them again: `./blog jobs`.
 - **Tests** (package `tugtest`): Inertia's client, for Go's tests of an
   app's pages, which need no browser or frontend build. Its visits keep
-  the cookies the app sets and follow its redirects, and a page's props
-  read into the struct its `tug.Page` declares:
-  `tugtest.Props(r, Dashboard).User`. The starters' tests use it.
+  the cookies the app sets and follow its redirects, upload files as the
+  browser does, and a page's props read into the struct its `tug.Page`
+  declares: `tugtest.Props(r, Dashboard).User`. The starters' tests use
+  it.
 - **Vite** (package `vite`): tags from the dev server while it runs, with
   the React refresh preamble, and from the build's manifest otherwise, with
   CSS and preloads. The built files are served, and cached for a year.

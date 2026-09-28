@@ -3,6 +3,8 @@ package tugtest_test
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -399,5 +401,54 @@ func TestAskingForWhatIsntThereFailsTheTest(t *testing.T) {
 				t.Errorf("failed with %q, want %q", f.msg, tc.want)
 			}
 		})
+	}
+}
+
+type UploadInput struct {
+	Title  string                `json:"title" validate:"required"`
+	Tags   []string              `json:"tags"`
+	Public bool                  `json:"public"`
+	Photo  *multipart.FileHeader `form:"photo" validate:"required,file_type=image/png"`
+}
+
+func TestABodyWithAFileGoesAsAFormWithTheFileInIt(t *testing.T) {
+	app := newApp(t)
+	var got UploadInput
+	var contentType, fileType string
+	var content []byte
+	app.Post("/uploads", func(c *tug.Ctx) error {
+		contentType = c.Request().Header.Get("Content-Type")
+		if err := c.BindValid(&got); err != nil {
+			return err
+		}
+		fileType = got.Photo.Header.Get("Content-Type")
+		f, _ := got.Photo.Open()
+		defer f.Close()
+		content, _ = io.ReadAll(f)
+		return c.Redirect("/posts/1")
+	})
+	png := []byte("\x89PNG\r\n\x1a\n a photo")
+	c := tugtest.New(t, app)
+	c.Get("/posts/create")
+	r := c.Post("/uploads", map[string]any{
+		"title": "Ann", "tags": []string{"go", "tug"}, "public": true, "draft": nil,
+		"photo": tugtest.File{Name: "ann.png", Type: "image/png", Content: png},
+	})
+	if r.Location() != "/posts/1" {
+		t.Fatalf("uploading: %v, errors %v", r, r.Follow().Errors())
+	}
+	if !strings.HasPrefix(contentType, "multipart/form-data; boundary=") || got.Title != "Ann" || !slices.Equal(got.Tags, []string{"go", "tug"}) || !got.Public ||
+		got.Photo.Filename != "ann.png" || fileType != "image/png" || !bytes.Equal(content, png) {
+		t.Errorf("sent as %s: %+v, a %s of %q", contentType, got, fileType, content)
+	}
+
+	c.Get("/posts/create")
+	r = c.Post("/uploads", map[string]any{"title": "Ann", "photo": tugtest.File{Name: "ann.png", Content: []byte("<p>not a photo")}})
+	if errs := r.Follow().Errors(); errs["photo"] != "photo must be a PNG image" || r.Follow().Page.Component != "Posts/Create" {
+		t.Errorf("a file that isn't what it says: %v", errs)
+	}
+	c.Post("/uploads", map[string]any{"title": "Ann"})
+	if !strings.HasPrefix(contentType, "application/json") {
+		t.Errorf("a body with no file goes as %s", contentType)
 	}
 }

@@ -23,6 +23,12 @@ type User struct {
 	TwoFactor       bool       `json:"twoFactor"`       // whether logging in takes a code from their phone too
 	CreatedAt       time.Time  `json:"createdAt"`
 
+	// Photo is a link to the user's photo, signed for a page to show it, or
+	// null when they have none: see photos.go. PhotoKey is where the photo
+	// is kept on the app's disk.
+	Photo    *string `json:"photo"`
+	PhotoKey string  `json:"-"`
+
 	PasswordHash string `json:"-"`
 
 	// The two-factor secret and recovery codes, sealed by auth.TwoFactor,
@@ -101,6 +107,8 @@ var migrations = []string{
 	// of the key runs: jobs.go.
 	`ALTER TABLE jobs ADD COLUMN alone_key TEXT;
 	CREATE INDEX jobs_alone ON jobs (kind, alone_key) WHERE alone_key IS NOT NULL`,
+	// Where each user's photo is kept on the app's disk: photos.go.
+	`ALTER TABLE users ADD COLUMN photo_key TEXT`,
 }
 
 // openDB opens the SQLite database at path, making it when it's not there,
@@ -176,13 +184,13 @@ type dbtx interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-const userColumns = "id, name, email, email_verified_at, password_hash, two_factor_secret, recovery_codes, two_factor_step, created_at"
+const userColumns = "id, name, email, email_verified_at, password_hash, two_factor_secret, recovery_codes, two_factor_step, photo_key, created_at"
 
 func scanUser(row *sql.Row) (*User, error) {
 	u := &User{}
 	var verified sql.NullTime
-	var secret, codes sql.NullString
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &verified, &u.PasswordHash, &secret, &codes, &u.TwoFactorStep, &u.CreatedAt)
+	var secret, codes, photo sql.NullString
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &verified, &u.PasswordHash, &secret, &codes, &u.TwoFactorStep, &photo, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errNoUser
 	}
@@ -192,7 +200,7 @@ func scanUser(row *sql.Row) (*User, error) {
 	if verified.Valid {
 		u.EmailVerifiedAt = &verified.Time
 	}
-	u.TwoFactorSecret, u.RecoveryCodes = secret.String, codes.String
+	u.TwoFactorSecret, u.RecoveryCodes, u.PhotoKey = secret.String, codes.String, photo.String
 	u.TwoFactor = u.TwoFactorSecret != ""
 	return u, nil
 }
@@ -307,10 +315,32 @@ func (us *users) swapRecoveryCodes(ctx context.Context, id int64, was, codes str
 	return n == 1, err
 }
 
-// remove deletes a user's account.
-func (us *users) remove(ctx context.Context, id int64) error {
-	_, err := us.db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id)
-	return err
+// setPhoto stores where a user's photo is kept, or with "", that they have
+// none, and returns where the one it replaces was, or "", for that to be
+// deleted. In a transaction, as the handlers call it, the one it returns
+// is the one it replaces, whoever else changes it at the same time.
+func (us *users) setPhoto(ctx context.Context, id int64, key string) (string, error) {
+	var old sql.NullString
+	err := us.db.QueryRowContext(ctx, "SELECT photo_key FROM users WHERE id = ?", id).Scan(&old)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errNoUser
+	}
+	if err != nil {
+		return "", err
+	}
+	_, err = us.db.ExecContext(ctx, "UPDATE users SET photo_key = ? WHERE id = ?", nullIfEmpty(key), id)
+	return old.String, err
+}
+
+// remove deletes a user's account, and returns where their photo is kept,
+// or "", for it to be deleted too.
+func (us *users) remove(ctx context.Context, id int64) (string, error) {
+	var photo sql.NullString
+	err := us.db.QueryRowContext(ctx, "DELETE FROM users WHERE id = ? RETURNING photo_key", id).Scan(&photo)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return photo.String, err
 }
 
 // resealTwoFactor seals again, with tf's first key, the two-factor secrets

@@ -91,7 +91,15 @@ func (a *app) deleteAccount(c *tug.Ctx, user *User) error {
 	if err := a.checkPassword(user, "password", in.Password); err != nil {
 		return err
 	}
-	if err := a.users.remove(c.Context(), user.ID); err != nil {
+	// The account, and the job that deletes its photo, go together.
+	err := a.inTx(c.Context(), func(tx *sql.Tx) error {
+		photo, err := a.users.in(tx).remove(c.Context(), user.ID)
+		if err != nil || photo == "" {
+			return err
+		}
+		return a.deleteFile.In(a.jobs.in(tx)).Push(c.Context(), DeleteFile{Key: photo})
+	})
+	if err != nil {
 		return err
 	}
 	// The user's other sessions end at their next request, which finds no

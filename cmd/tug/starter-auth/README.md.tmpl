@@ -4,8 +4,8 @@ A [tug](https://github.com/cuonggt/tug) app: Go handlers render [[ .Framework ]]
 through Inertia, with no API in between. People register and verify their
 email, log in, with a code from an authenticator app too if they turn that
 on, or with a passkey and no password, reset a forgotten password by
-email, and change their profile, password and appearance in their
-settings.
+email, and change their profile and photo, password and appearance in
+their settings.
 
 ```sh
 tug dev      # run it on http://localhost:8080, rebuilt and reloaded as it changes
@@ -24,7 +24,10 @@ go test ./...
 - `verify.go`: verifying an email by a mailed link. `twofactor.go`:
   two-factor logins. `passkeys.go`: passkeys, which browsers make at
   `localhost` in development, not at an IP address. `settings.go`: the
-  settings pages. `mail.go`: the mail, in plain text and HTML.
+  settings pages. `photos.go`: a user's photo, which they upload, kept in
+  `files/` (or `FILES_PATH`), or with `FILESYSTEM_DISK=s3` in a bucket,
+  through tug's package `storage`, and shown by links signed for a day.
+  `mail.go`: the mail, in plain text and HTML.
 - `users.go`: the users, in SQLite (`app.db`, or `DB_PATH`), through
   `database/sql`, and the migrations that make and change its tables.
 - `jobs.go`: the background jobs, in the same database, for tug's package
@@ -56,15 +59,16 @@ go test ./...
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions and two-factor
-  secrets and signs the links in mail, and a deployed app needs one of its
-  own, set in its environment, with `APP_URL`, its own address, and
-  `MAIL_HOST` and the rest of `.env.example` for its mail. In development,
-  mail is written out where tug dev shows it, links and all.
+  secrets and signs the links in mail and to photos, and a deployed app
+  needs one of its own, set in its environment, with `APP_URL`, its own
+  address, and `MAIL_HOST` and the rest of `.env.example` for its mail,
+  and for the photos, a volume, or `FILESYSTEM_DISK=s3` and a bucket. In
+  development, mail is written out where tug dev shows it, links and all.
 [[ if .SSR -]]
 - `Dockerfile`: the app as one static binary on a distroless image with
-  Node, for the pages it renders on the server, and the database on a
-  volume.
+  Node, for the pages it renders on the server, and the database and the
+  photos on a volume.
 [[- else -]]
 - `Dockerfile`: the app as one static binary on a distroless image, with
-  the database on a volume.
+  the database and the photos on a volume.
 [[- end ]]

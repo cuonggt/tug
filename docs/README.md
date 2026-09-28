@@ -18,16 +18,19 @@ the detail.
    first visit, by Node beside the app, and package `ssr`.
 5. [Forms and sessions](forms.md): validation, forms that check each field
    as it's left, flash messages, sessions, and CSRF.
-6. [Accounts](auth.md): the auth starter, and packages `auth` and `mail`.
-7. [Background jobs](jobs.md): package `queue`, for work that outlasts the
+6. [Files](files.md): uploads, checked by their size and what they are,
+   kept on the app's disk or in S3 with package `storage`, and links to
+   them, public or signed.
+7. [Accounts](auth.md): the auth starter, and packages `auth` and `mail`.
+8. [Background jobs](jobs.md): package `queue`, for work that outlasts the
    request, and runs again when it fails, runs on a schedule, in a time
    zone too, or waits once however often it's asked for.
-8. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
-9. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
-   tests of an app's pages, forms and logins.
-10. [Deployment](deployment.md): one binary, the Dockerfile, and the
+9. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
+10. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
+    tests of an app's pages, forms, uploads and logins.
+11. [Deployment](deployment.md): one binary, the Dockerfile, and the
     environment.
-11. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen` and `tug build`, in
+12. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen` and `tug build`, in
     full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,

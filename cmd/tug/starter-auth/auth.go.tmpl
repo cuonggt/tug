@@ -49,6 +49,7 @@ func (a *app) user(r *http.Request) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
+	a.withPhoto(r.Context(), u)
 	return u, nil
 }
 

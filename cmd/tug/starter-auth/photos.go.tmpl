@@ -1,0 +1,100 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+	"mime/multipart"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/storage"
+)
+
+// A user's photo, which they upload on the profile page, and which the user
+// menu shows in place of their initials. It's kept on the app's disk: a
+// directory, files/ or FILES_PATH, or with FILESYSTEM_DISK=s3, a bucket,
+// as main has it. The photos are private: a page has a link to one that
+// works for a day or two, signed as the page renders.
+
+// PhotoInput is what the photo form sends: a PNG, JPEG or WebP of 2 MB at
+// most. What it is is told from its bytes, not its name: an SVG, which can
+// hold a script, isn't a photo, whatever it's called.
+type PhotoInput struct {
+	Photo *multipart.FileHeader `form:"photo" validate:"required,file_max=2MB,file_type=image/png image/jpeg image/webp"`
+}
+
+// updatePhoto keeps a user's new photo in place of the one they had. A
+// disk has no transactions, so the file goes on it first, under a key of
+// the app's making, and is deleted again when what names it isn't kept.
+// The photo it replaces is deleted by a job pushed in the transaction that
+// replaces it, so it goes once the new one is kept, and not before.
+func (a *app) updatePhoto(c *tug.Ctx, user *User) error {
+	var in PhotoInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	key, err := storage.PutUpload(c.Context(), a.disk, "photos", in.Photo)
+	if err != nil {
+		return err
+	}
+	if err := a.replacePhoto(c.Context(), user.ID, key); err != nil {
+		if err := a.disk.Delete(context.WithoutCancel(c.Context()), key); err != nil {
+			slog.ErrorContext(c.Context(), "a photo that nothing names couldn't be deleted", "key", key, "err", err)
+		}
+		return err
+	}
+	c.Flash("success", "Photo saved.")
+	return c.RedirectRoute("profile.edit")
+}
+
+// removePhoto takes a user's photo away, and their initials are back.
+func (a *app) removePhoto(c *tug.Ctx, user *User) error {
+	if err := a.replacePhoto(c.Context(), user.ID, ""); err != nil {
+		return err
+	}
+	c.Flash("success", "Photo removed.")
+	return c.RedirectRoute("profile.edit")
+}
+
+// replacePhoto stores where a user's photo is kept, or that they have none,
+// and pushes the job that deletes the one before, in one transaction.
+func (a *app) replacePhoto(ctx context.Context, id int64, key string) error {
+	return a.inTx(ctx, func(tx *sql.Tx) error {
+		old, err := a.users.in(tx).setPhoto(ctx, id, key)
+		if err != nil || old == "" {
+			return err
+		}
+		return a.deleteFile.In(a.jobs.in(tx)).Push(ctx, DeleteFile{Key: old})
+	})
+}
+
+// DeleteFile is the job that deletes a file from the app's disk once
+// nothing names it: a photo that's been replaced, or removed, or whose
+// account is gone. A disk that's down for a moment has it run again.
+type DeleteFile struct {
+	Key string `json:"key"`
+}
+
+// deleteStoredFile runs DeleteFile jobs.
+func (a *app) deleteStoredFile(ctx context.Context, job DeleteFile) error {
+	return a.disk.Delete(ctx, job.Key)
+}
+
+// withPhoto gives u, as the pages show them, a link to their photo. It's
+// signed to work until the end of the next day, in UTC, which is the same
+// link all day, so the browser keeps the photo cached from page to page,
+// where a link made afresh each time would be fetched afresh too. A link
+// that can't be made shows as no photo.
+func (a *app) withPhoto(ctx context.Context, u *User) {
+	if u.PhotoKey == "" {
+		return
+	}
+	expires := time.Now().UTC().Truncate(24 * time.Hour).Add(48 * time.Hour)
+	link, err := a.disk.URL(u.PhotoKey, expires)
+	if err != nil {
+		slog.ErrorContext(ctx, "a link to a user's photo couldn't be made", "user", u.ID, "err", err)
+		return
+	}
+	u.Photo = &link
+}

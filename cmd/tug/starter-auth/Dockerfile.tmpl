@@ -1,11 +1,12 @@
 [[ if .SSR -]]
 # The app as one static binary, frontend and SSR bundle included, on an
 # image with Node, which renders the pages on the server beside it. The
-# database is in /data, a volume, so it outlives the container:
+# database, and the files people upload, are in /data, a volume, so they
+# outlive the container:
 [[ else -]]
 # The app as one static binary, frontend included, on an image with nothing
-# else in it. The database is in /data, a volume, so it outlives the
-# container:
+# else in it. The database, and the files people upload, are in /data, a
+# volume, so they outlive the container:
 [[ end -]]
 #
 #   docker build -t app . && docker run -p 8080:8080 -v app-data:/data \
@@ -39,7 +40,7 @@ FROM gcr.io/distroless/static-debian12
 COPY --from=server /server /server
 # 65532 is the image's nonroot user, who has to be able to write the database.
 COPY --from=server --chown=65532:65532 /data /data
-ENV DB_PATH=/data/app.db
+ENV DB_PATH=/data/app.db FILES_PATH=/data/files
 # The app listens on :8080, or on the PORT a platform sets.
 EXPOSE 8080
 VOLUME /data

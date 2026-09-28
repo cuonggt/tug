@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import { Form, Head, Link } from '@inertiajs/vue3'
+import { Form, Head, Link, router } from '@inertiajs/vue3'
 import DeleteAccount from '@/components/DeleteAccount.vue'
 import Heading from '@/components/Heading.vue'
 import InputError from '@/components/InputError.vue'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { initials } from '@/lib/utils'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
-// Profile changes the user's name and email. A new email is mailed a link,
-// and isn't verified until it's followed: updateProfile in settings.go.
+// Profile changes the user's name and email, and their photo. A new email
+// is mailed a link, and isn't verified until it's followed: updateProfile
+// in settings.go. The photo goes up as the form's file, with its progress
+// shown, and replaces the one before: updatePhoto in photos.go.
 defineProps<Pages['Settings/Profile'] & SharedProps>()
 </script>
 
@@ -60,6 +64,50 @@ defineProps<Pages['Settings/Profile'] & SharedProps>()
       </div>
       <Button type="submit" :disabled="processing">Save</Button>
     </Form>
+  </section>
+  <section class="space-y-6">
+    <Heading small title="Photo" description="Shown in place of your initials: a PNG, JPEG or WebP, of 2 MB at most." />
+    <div class="flex items-start gap-6">
+      <Avatar :key="user.photo ?? ''" class="size-16">
+        <AvatarImage v-if="user.photo" :src="user.photo" alt="Your photo" />
+        <AvatarFallback class="text-lg font-medium">{{ initials(user.name) }}</AvatarFallback>
+      </Avatar>
+      <Form
+        v-slot="{ errors, processing, progress }"
+        :action="route('profile.photo.update')"
+        method="post"
+        :options="{ preserveScroll: true }"
+        reset-on-success
+        class="grid flex-1 gap-2"
+      >
+        <Label for="photo">Choose a photo</Label>
+        <Input
+          id="photo"
+          name="photo"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          required
+          :aria-invalid="!!errors.photo"
+        />
+        <InputError :message="errors.photo" />
+        <progress
+          v-if="progress"
+          :value="progress.percentage"
+          max="100"
+          aria-label="Uploading"
+          class="w-full accent-primary"
+        />
+        <div class="flex gap-2">
+          <Button type="submit" :disabled="processing">Upload</Button>
+          <Button
+            v-if="user.photo"
+            type="button"
+            variant="outline"
+            @click="router.delete(route('profile.photo.destroy'), { preserveScroll: true })"
+          >Remove</Button>
+        </div>
+      </Form>
+    </div>
   </section>
   <DeleteAccount />
 </template>

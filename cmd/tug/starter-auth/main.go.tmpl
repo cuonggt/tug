@@ -1,7 +1,7 @@
 // Command [[ .Name ]] is a tug app: Go handlers, [[ .Framework ]] pages, and Inertia in
 // between, with accounts. People register and verify their email, log in,
 // with a code from their phone too once they turn that on, and change
-// their profile, password and appearance in their settings.
+// their profile and photo, password and appearance in their settings.
 //
 //	tug dev      run it, rebuilt and reloaded as it changes
 //	tug build    build it into one binary, frontend and all
@@ -32,6 +32,7 @@ import (
 [[- if .SSR ]]
 	"github.com/cuonggt/tug/ssr"
 [[- end ]]
+	"github.com/cuonggt/tug/storage"
 	"github.com/cuonggt/tug/vite"
 )
 
@@ -90,13 +91,20 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
+	// The files people upload, their photos, are kept in files/, or
+	// FILES_PATH, and served at /files by links signed with the app's key,
+	// unless FILESYSTEM_DISK=s3 keeps them in a bucket.
+	disk, err := storage.FromEnv(&storage.Local{Dir: cmp.Or(os.Getenv("FILES_PATH"), "files"), BaseURL: "/files", Keys: keys})
+	if err != nil {
+		log.Fatal(err)
+	}
 	workers, err := strconv.Atoi(cmp.Or(os.Getenv("QUEUE_WORKERS"), "4"))
 	if err != nil || workers < 0 {
 		log.Fatal("QUEUE_WORKERS is how many jobs the app runs at once, such as 4, or 0 for none")
 	}
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers})
 	app, err := newApp(tug.ConfigFromEnv(), env{
-		Build: build, Keys: keys, DB: db, Mailer: mailer, URL: os.Getenv("APP_URL"), Queue: q,
+		Build: build, Keys: keys, DB: db, Disk: disk, Mailer: mailer, URL: os.Getenv("APP_URL"), Queue: q,
 [[- if .SSR ]]
 		SSR: bundle,
 [[- end ]]
@@ -133,8 +141,9 @@ func command(name string, args []string) error {
 // the tests make their own.
 type env struct {
 	Build  fs.FS    // the frontend's build
-	Keys   [][]byte // encrypt the sessions and two-factor secrets, and sign the links in mail
+	Keys   [][]byte // encrypt the sessions and two-factor secrets, and sign the links in mail and to photos
 	DB     *sql.DB
+	Disk   storage.Disk // keeps the files people upload: their photos
 	Mailer mail.Mailer
 
 	// URL is the app's own address, APP_URL, which the links in its mail
@@ -159,12 +168,14 @@ type app struct {
 	queue         *queue.Queue
 	jobs          *jobs
 	users         *users
+	disk          storage.Disk
 	mailer        mail.Mailer
 	url           string
 	routes        *tug.App // for the links in mail, which jobs make with no request
 	verifyMail    *queue.Kind[VerifyMail]
 	resetMail     *queue.Kind[ResetMail]
 	passkeyMail   *queue.Kind[PasskeyMail]
+	deleteFile    *queue.Kind[DeleteFile]
 	passkeys      *passkeys
 	resets        *auth.Resets
 	verifications *auth.Verifications
@@ -250,6 +261,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		jobs:          &jobs{db: e.DB},
 		users:         &users{db: e.DB},
 		passkeys:      &passkeys{db: e.DB},
+		disk:          e.Disk,
 		mailer:        e.Mailer,
 		url:           e.URL,
 		resets:        &auth.Resets{Keys: e.Keys},
@@ -262,11 +274,13 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		resetAsks:     &auth.Throttle{Max: 5, Window: time.Minute},
 	}
 	// The mail goes by jobs, which make each mail as it goes: in verify.go,
-	// auth.go and passkeys.go. Every night, a job deletes the jobs that
-	// failed for good over a month ago: jobs.go.
+	// auth.go and passkeys.go. So do the files that nothing names any more,
+	// such as a replaced photo: photos.go. Every night, a job deletes the
+	// jobs that failed for good over a month ago: jobs.go.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
 	a.passkeyMail = queue.Handle(e.Queue, "passkey-mail", a.mailPasskey)
+	a.deleteFile = queue.Handle(e.Queue, "delete-file", a.deleteStoredFile)
 	queue.Handle(e.Queue, "prune-jobs", a.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
 	if len(e.Keys) > 1 {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
@@ -294,6 +308,12 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 	app.Get("/up", a.up)
+	// The files on the app's own disk, at the path its links start with,
+	// served only by a link that's signed: photos.go. A bucket serves its
+	// own.
+	if files, ok := e.Disk.(*storage.Local); ok {
+		app.Get("/files/{key...}", tug.WrapHandler(files))
+	}
 
 	app.Get("/", home).Name("home")
 	app.Get("/dashboard", a.usersOnly(verified(dashboard))).Name("dashboard")
@@ -327,6 +347,8 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Get("/settings/profile", a.usersOnly(passwordConfirmed(profilePage))).Name("profile.edit")
 	app.Patch("/settings/profile", a.usersOnly(passwordConfirmed(a.updateProfile))).Name("profile.update")
 	app.Delete("/settings/profile", a.usersOnly(passwordConfirmed(a.deleteAccount))).Name("profile.destroy")
+	app.Post("/settings/profile/photo", a.usersOnly(passwordConfirmed(a.updatePhoto))).Name("profile.photo.update")
+	app.Delete("/settings/profile/photo", a.usersOnly(passwordConfirmed(a.removePhoto))).Name("profile.photo.destroy")
 	app.Get("/settings/security", a.usersOnly(verified(passwordConfirmed(a.securityPage)))).Name("security.edit")
 	app.Put("/settings/password", a.usersOnly(verified(passwordConfirmed(a.updatePassword)))).Name("user-password.update")
 	app.Post("/settings/two-factor", a.usersOnly(verified(passwordConfirmed(a.startTwoFactor)))).Name("two-factor.enable")

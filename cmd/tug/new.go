@@ -117,8 +117,9 @@ checks itself, a React frontend built by Vite, or with -vue or -svelte a
 Vue or Svelte one, and a .env with a fresh APP_KEY. With -auth, people
 register for accounts and verify their email, log in, with a code from
 their phone too if they like, or with a passkey, reset a forgotten
-password by email, and change their profile, password and appearance in
-settings; its frontend has Tailwind and shadcn's components. With -ssr, a
+password by email, and change their profile and photo, password and
+appearance in settings; its frontend has Tailwind and shadcn's
+components. With -ssr, a
 first visit's page is rendered on the server as well as in the browser, by
 Node running beside the app. Then it installs the Go and frontend packages
 and writes the TypeScript types, so that "tug dev" runs it.
@@ -297,7 +298,7 @@ func writeStarter(root string, data starterData) error {
 	rand.Read(key)
 	uses := "encrypts the sessions"
 	if data.Auth {
-		uses = "encrypts the sessions and two-factor secrets, and signs the links in mail"
+		uses = "encrypts the sessions and two-factor secrets, and signs the links in mail and to photos"
 	}
 	env := "# Read by tug dev, and not committed. APP_KEY " + uses + ".\n" +
 		"APP_KEY=base64:" + base64.StdEncoding.EncodeToString(key) + "\nAPP_DEBUG=true\n"

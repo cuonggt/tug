@@ -1,19 +1,8 @@
-<script module lang="ts">
-  // initials are the first letters of a name's first and last words: "AL"
-  // for Ann Lee.
-  export function initials(name: string) {
-    const words = name.trim().split(/\s+/)
-    const first = words[0]?.charAt(0) ?? ''
-    const last = words.length > 1 ? words[words.length - 1].charAt(0) : ''
-    return (first + last).toUpperCase()
-  }
-</script>
-
 <script lang="ts">
   import { Link } from '@inertiajs/svelte'
   import LogOut from '@lucide/svelte/icons/log-out'
   import Settings from '@lucide/svelte/icons/settings'
-  import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+  import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
   import { Button } from '@/components/ui/button'
   import {
     DropdownMenu,
@@ -23,6 +12,7 @@
     DropdownMenuSeparator,
     DropdownMenuTrigger,
   } from '@/components/ui/dropdown-menu'
+  import { initials } from '@/lib/utils'
   import type { User } from '@/tug/pages'
   import { route } from '@/tug/routes'
 
@@ -36,9 +26,15 @@
   <DropdownMenuTrigger>
     {#snippet child({ props })}
       <Button {...props} variant="ghost" class="h-9 gap-2 px-2" aria-label="Your account">
-        <Avatar class="size-7">
-          <AvatarFallback class="text-xs font-medium">{initials(user.name)}</AvatarFallback>
-        </Avatar>
+        <!-- A new photo, or none, is a new avatar: one keeps the image it loaded. -->
+        {#key user.photo}
+          <Avatar class="size-7">
+            {#if user.photo}
+              <AvatarImage src={user.photo} alt="" />
+            {/if}
+            <AvatarFallback class="text-xs font-medium">{initials(user.name)}</AvatarFallback>
+          </Avatar>
+        {/key}
         <span class="hidden max-w-40 truncate sm:inline">{user.name}</span>
       </Button>
     {/snippet}

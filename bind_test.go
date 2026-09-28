@@ -8,7 +8,9 @@ import (
 	"mime/multipart"
 	"net/http/httptest"
 	"net/netip"
+	"net/textproto"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -177,6 +179,45 @@ func TestAMultipartFormBindsItsFieldsAndFiles(t *testing.T) {
 	}
 	if got.Title != "Hi" || got.Photo == nil || got.Photo.Filename != "cat.jpg" || got.Photo.Size != 4 {
 		t.Fatalf("bound title %q and photo %+v", got.Title, got.Photo)
+	}
+}
+
+func TestAMultipartFormBindsAsInertiasClientSendsIt(t *testing.T) {
+	// A form with a file goes as FormData, written by the client's
+	// objectToFormData: a list's items each under tags[], true and false as
+	// 1 and 0, a nested object's values under author[name], and a file
+	// input left empty as a file with no name.
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("title", "Hi")
+	mw.WriteField("tags[]", "go")
+	mw.WriteField("tags[]", "tug")
+	mw.WriteField("public", "1")
+	mw.WriteField("draft", "0")
+	mw.WriteField("author[name]", "Ann")
+	empty, _ := mw.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="photo"; filename=""`},
+		"Content-Type":        {"application/octet-stream"},
+	})
+	empty.Write(nil)
+	mw.Close()
+
+	type input struct {
+		Title  string   `json:"title"`
+		Tags   []string `json:"tags"`
+		Public bool     `json:"public"`
+		Draft  bool     `json:"draft"`
+		Author struct {
+			Name string `json:"name"`
+		} `json:"author"`
+		Photo *multipart.FileHeader `form:"photo"`
+	}
+	got, err := bind[input](t, "/", "POST", "/", mw.FormDataContentType(), body.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Hi" || !slices.Equal(got.Tags, []string{"go", "tug"}) || !got.Public || got.Draft || got.Author.Name != "" || got.Photo != nil {
+		t.Errorf("bound %+v", got)
 	}
 }
 

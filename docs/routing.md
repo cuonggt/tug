@@ -358,9 +358,14 @@ In a query or a form, a key that repeats, or ends in `[]`, fills a slice:
 `tags=a&tags=b`, or `tags[]=a&tags[]=b`. An empty value leaves its field
 alone, since an empty input means no value rather than zero. A multipart
 form's files go to fields of type `*multipart.FileHeader`, or
-`[]*multipart.FileHeader` for several. Up to 32 MiB of files is held in
-memory, and the rest in temporary files, which net/http removes after the
-request.
+`[]*multipart.FileHeader` for several, and a file input left empty, sent
+as a file with no name, leaves its field nil. Up to 32 MiB of files is
+held in memory, and the rest in temporary files, which net/http removes
+after the request. Inertia's client sends a form with a file in it as a
+multipart form, with a list's items under `tags[]`, true and false as `1`
+and `0`, which bind, and a nested object's values under `user[name]`,
+which don't: a form with a file keeps its fields flat. See
+[Files](files.md).
 
 Values from the path, the query and forms fill strings, bools, ints, uints,
 floats, `[]byte`, `time.Time`, any type with an `UnmarshalText` method, such

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3'
 import { LogOut, Settings } from '@lucide/vue'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -11,28 +11,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { initials } from '@/lib/utils'
 import type { User } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
 // UserMenu is who's logged in, in the header, and what's theirs to do:
 // their settings, and logging out.
 defineProps<{ user: User }>()
-
-// initials are the first letters of a name's first and last words: "AL"
-// for Ann Lee.
-function initials(name: string) {
-  const words = name.trim().split(/\s+/)
-  const first = words[0]?.charAt(0) ?? ''
-  const last = words.length > 1 ? words[words.length - 1].charAt(0) : ''
-  return (first + last).toUpperCase()
-}
 </script>
 
 <template>
   <DropdownMenu>
     <DropdownMenuTrigger as-child>
       <Button variant="ghost" class="h-9 gap-2 px-2" aria-label="Your account">
-        <Avatar class="size-7">
+        <!-- A new photo, or none, is a new avatar: one keeps the image it loaded. -->
+        <Avatar :key="user.photo ?? ''" class="size-7">
+          <AvatarImage v-if="user.photo" :src="user.photo" alt="" />
           <AvatarFallback class="text-xs font-medium">{{ initials(user.name) }}</AvatarFallback>
         </Avatar>
         <span class="hidden max-w-40 truncate sm:inline">{{ user.name }}</span>

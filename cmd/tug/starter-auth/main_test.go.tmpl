@@ -20,6 +20,7 @@ import (
 	"github.com/cuonggt/tug/mail"
 	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/storage"
 	"github.com/cuonggt/tug/tugtest"
 )
 
@@ -42,13 +43,14 @@ func (o *outbox) Send(ctx context.Context, m mail.Message) error {
 	}
 }
 
-// testApp is the app with a database of its own, and mail that goes into
-// its outbox.
+// testApp is the app with a database and a disk of its own, and mail that
+// goes into its outbox.
 type testApp struct {
 	*tug.App
 	t      *testing.T
 	db     *sql.DB
 	keys   [][]byte
+	files  string // the directory the app's disk keeps its files in
 	outbox *outbox
 }
 
@@ -77,7 +79,9 @@ func startApp(t *testing.T, db *sql.DB, keys [][]byte) *testApp {
 	t.Helper()
 	out := &outbox{sent: make(chan mail.Message, 20)}
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Poll: 10 * time.Millisecond})
-	app, err := newApp(tug.Config{}, env{Build: fstest.MapFS{}, Keys: keys, DB: db, Mailer: out, URL: "https://app.example", Queue: q})
+	files := filepath.Join(t.TempDir(), "files")
+	disk := &storage.Local{Dir: files, BaseURL: "/files", Keys: keys}
+	app, err := newApp(tug.Config{}, env{Build: fstest.MapFS{}, Keys: keys, DB: db, Disk: disk, Mailer: out, URL: "https://app.example", Queue: q})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +95,7 @@ func startApp(t *testing.T, db *sql.DB, keys [][]byte) *testApp {
 		stop()
 		<-ran
 	})
-	return &testApp{App: app, t: t, db: db, keys: keys, outbox: out}
+	return &testApp{App: app, t: t, db: db, keys: keys, files: files, outbox: out}
 }
 
 // mail returns the next mail the app sent. A job sends it, so it may not
