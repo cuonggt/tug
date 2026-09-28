@@ -1040,7 +1040,7 @@ can share them, in a bucket, and the database was what was left. And the
 page on jobs warned that two claims at once in Postgres can each take a
 job of one key, without a recipe, as tug had never run on one. `tug new`
 asks which database, as `laravel new` does: SQLite, unless it's told
-Postgres or MySQL. To be released as v0.12.0.
+Postgres or MySQL. Released as v0.12.0.
 
 - **`tug new -auth -postgres` and `-auth -mysql`.** The same app, with its
   users, passkeys and jobs in Postgres or in MySQL, through `database/sql`

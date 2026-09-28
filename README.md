@@ -6,12 +6,12 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.11.0 is the latest release: the framework, its CLI,
+**Status: early.** v0.12.0 is the latest release: the framework, its CLI,
 background jobs, on a schedule in any time zone too, and pushed in the
 app's own transactions, server-side rendering, tests of an app's pages,
 uploads kept on the app's disk or in S3, and starters in React, Vue or
 Svelte, one with accounts, from registering to two-factor logins,
-passkeys and a profile photo.
+passkeys and a profile photo, in SQLite, Postgres or MySQL.
 [The guide](docs/README.md) covers all of it, and
 [docs/roadmap.md](docs/roadmap.md) has what's next.
 
