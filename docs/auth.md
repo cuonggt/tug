@@ -8,7 +8,8 @@ settings, or delete their account. The handlers are the app's own code, to
 change as the app does. They stand on package `auth`, which has the parts
 where a slip is a security hole, and package `mail`, which sends the links.
 The frontend is React with Tailwind and shadcn/ui, as Laravel's React
-starter kit has it.
+starter kit has it, or with `-vue` or `-svelte`, Vue or Svelte with
+shadcn's components for them, as Laravel's Vue and Svelte kits have them.
 
 ## The auth starter
 
@@ -54,7 +55,7 @@ dashboard.
 
 `-auth` lays the auth starter over the plain one: its files replace the
 plain starter's of the same name and add the rest, and the plain
-`Layout.tsx` is left out.
+`Layout.tsx` (`Layout.vue`, `Layout.svelte`) is left out.
 
 - `main.go`: the environment, the database, and `newApp`, with the routes
   and the health check.
@@ -72,10 +73,11 @@ plain starter's of the same name and add the rest, and the plain
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
   `jobs_test.go`: a test of each flow, in browsers of package `tugtest`,
   with the mail kept in memory.
-- `resources/js`: `app.tsx`, which picks each page's layout; `layouts/`,
-  the app's, the login card's, and the settings'; `components/`, the app's
-  own and shadcn/ui's in `components/ui`; and the pages, `Home`,
-  `Dashboard` and `Error`, and those in `Auth/` and `Settings/`.
+- `resources/js`: `inertia.tsx`, which makes the app and picks each
+  page's layout; `layouts/`, the app's, the login card's, and the
+  settings'; `components/`, the app's own and shadcn's in
+  `components/ui`; and the pages, `Home`, `Dashboard` and `Error`, and
+  those in `Auth/` and `Settings/`.
 - `.env.example`: `APP_KEY`, `APP_URL`, `DB_PATH`, `QUEUE_WORKERS` and the
   mail's variables, with what each is for. The `Dockerfile` keeps the
   database in a `/data` volume.
@@ -503,17 +505,38 @@ Radix, and lucide's icons. `components.json` is shadcn's, so
 fits the rest. The theme is in `resources/css/app.css`: colours as
 variables, one set for light and one for dark.
 
-`app.tsx` picks each page's layout by its name: `layouts/auth-layout.tsx`,
-the card around a form, for `Auth/...`; `layouts/settings-layout.tsx`
-inside `layouts/app-layout.tsx` for `Settings/...`; `app-layout` for the
-rest; and none for `Home`, the landing page. A page names its card's title
-with a static `layout`, as `Login.layout = { title: 'Log in', ... }`.
+`inertia.tsx` picks each page's layout by its name:
+`layouts/auth-layout.tsx`, the card around a form, for `Auth/...`;
+`layouts/settings-layout.tsx` inside `layouts/app-layout.tsx` for
+`Settings/...`; `app-layout` for the rest; and none for `Home`, the
+landing page. A page names its card's title with a static `layout`, as
+`Login.layout = { title: 'Log in', ... }`.
 
 What a handler flashes with `c.Flash("success", ...)` or `"error"` shows
 as a toast, with sonner. `app.tsx` listens for Inertia's `flash` event from
 the start, so the flash that comes with the first page, as after following
 a link in the app's mail, shows too. `types.ts` types the flash, with the
 recovery codes as well.
+
+With `-vue`, `resources/js` is the same app in Vue: shadcn-vue's
+components, on Reka UI, `@lucide/vue`'s icons and vue-sonner's toasts,
+and `npx shadcn-vue@latest add` for more. With `-svelte`, it's Svelte 5:
+shadcn-svelte's components, on Bits UI, in the classic style that
+shadcn/ui's have in React, `@lucide/svelte`'s icons and svelte-sonner's
+toasts. shadcn-svelte's CLI adds its newer styles unless it's pointed at
+the classic registry, so more are added with
+`COMPONENTS_REGISTRY_URL=https://shadcn-svelte.com/registry npx shadcn-svelte@latest add`.
+
+The pages have the same names, props and words in each, but for the
+frontend's own name and files where the landing page and the dashboard
+say them, so the Go and its tests are the same whichever it is, and
+`lib/passkeys.ts`, `types.ts` and `app.css` are the same files. A Vue page
+names its card's title with
+`defineOptions({ layout: { title: 'Log in', ... } })`, and a Svelte page
+with `export const layout = { title: 'Log in', ... }` in its
+`<script module>`. Neither Inertia has a place for the toasts at the root
+of the app, as React's `withApp` is, so `app.ts` mounts them on their own
+beside it, in the browser, where they outlive each page.
 
 ## Package auth
 

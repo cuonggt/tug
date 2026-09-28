@@ -3,19 +3,21 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
-handlers render React pages with props, with no API in between. It is built
-in milestones, and `docs/roadmap.md` has the plan, the decisions behind it
-and where it stands: M1 to M13 are done, which is the HTTP core, Inertia
-pages with Vite, forms and validation, the rest of the v3 protocol, the
-CLI, v0.1.0 (the auth starter and the guide), the auth starter made whole
-(v0.2.0): email verification, remember me, password confirmation,
-two-factor logins, settings, and a Tailwind and shadcn/ui frontend, and
-background jobs (v0.3.0): package `queue`, which the auth starter sends
-its mail with, jobs on a schedule (v0.4.0), server-side rendering
-(v0.5.0): package `ssr`, with Node beside the app, and `tug new -ssr`,
-tests of an app's pages (v0.6.0): package `tugtest`, which the starters'
-tests use, cron in time zones and unique jobs (v0.7.0), in package
-`queue`, and passkeys (v0.8.0): `auth.Passkeys`, and in the auth starter.
+handlers render React, Vue or Svelte pages with props, with no API in
+between. It is built in milestones, and `docs/roadmap.md` has the plan,
+the decisions behind it and where it stands: M1 to M14 are done, which is
+the HTTP core, Inertia pages with Vite, forms and validation, the rest of
+the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
+auth starter made whole (v0.2.0): email verification, remember me,
+password confirmation, two-factor logins, settings, and a Tailwind and
+shadcn/ui frontend, and background jobs (v0.3.0): package `queue`, which
+the auth starter sends its mail with, jobs on a schedule (v0.4.0),
+server-side rendering (v0.5.0): package `ssr`, with Node beside the app,
+and `tug new -ssr`, tests of an app's pages (v0.6.0): package `tugtest`,
+which the starters' tests use, cron in time zones and unique jobs
+(v0.7.0), in package `queue`, passkeys (v0.8.0): `auth.Passkeys`, and in
+the auth starter, and Vue and Svelte starters: `tug new -vue` and
+`-svelte`, and a browser suite that drives the auth starter in each.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -40,6 +42,14 @@ go run ../../cmd/tug dev                  # Vite and the app, rebuilt as it chan
 npm install
 npm run typecheck && npm run build
 npx playwright test                        # after a build; uses the installed Chrome
+```
+
+The browser suite of the auth starter, in `cmd/tug/e2e`, which makes an
+app of each frontend with tug new and runs it as it's deployed:
+
+```bash
+npm install && npx playwright test                           # minutes the first time: it makes three apps
+TUG_E2E_DIR=/tmp/tug-e2e FRONTENDS=vue npx playwright test   # keeps the apps for the next run; one frontend
 ```
 
 Manual runs should set `ADDR=127.0.0.1:...`: the default `:8080` listens on
@@ -151,24 +161,42 @@ dev server that isn't there: delete it.
   changes (`watch`, `snapshot`), touches `.tug/reload` for the starter's
   Vite plugin to reload the browser, and shows 127.0.0.1 as localhost
   (`shown`), where browsers make passkeys; `build.go`; `new.go`
-  writes `starter/`, and with `-auth` lays `starter-auth/` over it (its
-  files replace the ones of the same name), with the `.tmpl` files filled
-  in between `[[ ]]` (two brackets in Go, as `OptionalProp[[]string]`,
-  are written by a placeholder, `[[ "[[" ]]`); `notInAuth` lists the plain
+  (`writeStarter`) lays directories over each other, a later one's files
+  replacing an earlier one's of the same name: `starter/`, the Go and what
+  every frontend uses, then the frontend's own, `react/`, `vue/` or
+  `svelte/` (`-vue`, `-svelte`); with `-auth`, `starter-auth/`, then
+  `react-auth/`, `vue-auth/` or `svelte-auth/`. The `.tmpl` files are
+  filled in with `starterData` between `[[ ]]` (two brackets in Go, as
+  `OptionalProp[[]string]`, are written by a placeholder, `[[ "[[" ]]`,
+  and a bracket before an action, as `plugins: [react()`, by trimming the
+  space between them, `[ [[- .Frontend ]]()`); `notInAuth` lists the plain
   starter's files an auth app leaves out, and `onlySSR` those only an app
-  with `-ssr` has. `-ssr` is `[[ if .SSR ]]` in the templates, written
-  `[[- if ]]` before an indented line, as `-]]` would eat its indent.
+  with `-ssr` has, by the frontend's extensions (`Script`, `Component`).
+  `-ssr` is `[[ if .SSR ]]` in the templates, and a frontend
+  `[[ if .Vue ]]`, written `[[- if ]]` before an indented line, as `-]]`
+  would eat its indent. A shared file that differs between frontends by a
+  line takes a condition, as `app.html` (`viteReactRefresh` is React's
+  alone) and `vite.config.ts` do; one that's a frontend's own is in its
+  layer.
   `tug dev` gives the app `TUG_DEV=1`, so an SSR app leaves rendering to
   Vite. An app requires the tug that made it when that's a release or was
   fetched by the go command (`release`, `fetched`: the build's module
   checksum), and otherwise `replace`s it with the checkout it was built
   from (`checkoutDir`). The starters' Go files are `.tmpl` so the go tool
   doesn't build them in place; `tug_test.go` makes a real app of each
-  kind, and runs an SSR one's binary for a page rendered on the server.
-  Both starters make their app in `resources/js/inertia.tsx`
-  (`createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
-  server's, call. The auth starter's handlers are in `auth.go.tmpl` (who's
-  logged in, and the wrappers `usersOnly`, `verified`,
+  kind, React's four and two each of Vue's and Svelte's, and runs an SSR
+  one's binary for a page rendered on the server. Every starter makes its
+  app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
+  `createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
+  server's, call. Vue and Svelte are on TypeScript 6, as vue-tsc and
+  svelte-check need its compiler API, which 7 hasn't; a Vue page's props
+  are `defineProps<Pages['Name'] & SharedProps>()`, as Vue's compiler
+  can't resolve `PageProps<'Name'>`. `e2e/` is one Playwright suite for
+  the auth starter in every frontend (`setup.ts` makes the apps with tug
+  new and runs them, their mail in `app.log`; `apps.ts` has the ports):
+  the three are one app, word for word, so a change to one frontend is
+  made to all three. The auth starter's handlers are in `auth.go.tmpl`
+  (who's logged in, and the wrappers `usersOnly`, `verified`,
   `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
   `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the
   handlers of adding them, logging in and confirming with them, on
@@ -188,8 +216,14 @@ dev server that isn't there: delete it.
   run; `main` runs the queue with `app.Go`, unless `QUEUE_WORKERS` is 0,
   and the tests on their own, with an `outbox` that can be down. Its
   frontend is Tailwind and shadcn/ui: the registry's components in
-  `components/ui`, layouts picked by page name in `app.tsx`, toasts from
-  the flash event.
+  `components/ui`, layouts picked by page name in `inertia.tsx`, toasts
+  from the flash event. Vue's and Svelte's are shadcn-vue's and
+  shadcn-svelte's (its classic registry, `COMPONENTS_REGISTRY_URL`, as the
+  CLI's default is its newer styles), with the toasts mounted by `app.ts`
+  beside the app, as their Inertia has no `withApp` for a component; Vue's
+  Input.vue takes the value Inertia's Form sets, and both register pages
+  drop a waiting Precognition check as they go, as their Form, in 3.7.1,
+  reads the form that's gone.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
 - `auth`: the parts of accounts where a slip is a security hole, with no

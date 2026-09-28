@@ -1,0 +1,54 @@
+<script lang="ts">
+  import { Link, page } from '@inertiajs/svelte'
+  import type { Snippet } from 'svelte'
+  import AppLogo from '@/components/AppLogo.svelte'
+  import UserMenu from '@/components/UserMenu.svelte'
+  import { buttonVariants } from '@/components/ui/button'
+  import { cn } from '@/lib/utils'
+  import { route } from '@/tug/routes'
+
+  // nav is the app's own pages, for users who've logged in: add each page to
+  // it as the app grows.
+  const nav = [{ title: 'Dashboard', href: route('dashboard') }]
+
+  // AppLayout is around the app's pages: its name, where to go, and who's
+  // logged in, or the way in for a guest, as on an error page. A link that
+  // looks like a button is Inertia's Link with the button's classes, as
+  // shadcn-svelte's Button makes a plain <a>, which loads the whole page.
+  let { children }: { children: Snippet } = $props()
+  let user = $derived(page.props.auth.user)
+</script>
+
+<div class="flex min-h-svh flex-col">
+  <header class="border-b">
+    <div class="mx-auto flex h-14 w-full max-w-6xl items-center gap-6 px-4">
+      <Link href={user ? route('dashboard') : route('home')} class="rounded-md">
+        <AppLogo />
+      </Link>
+      {#if user}
+        <nav aria-label="Main" class="flex items-center gap-1 text-sm">
+          {#each nav as item (item.href)}
+            <Link
+              href={item.href}
+              class={cn(
+                'rounded-md px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground',
+                page.url.startsWith(item.href) && 'bg-accent text-accent-foreground',
+              )}
+            >
+              {item.title}
+            </Link>
+          {/each}
+        </nav>
+      {/if}
+      <div class="ml-auto flex items-center gap-2">
+        {#if user}
+          <UserMenu {user} />
+        {:else}
+          <Link href={route('login')} class={buttonVariants({ variant: 'ghost', size: 'sm' })}>Log in</Link>
+          <Link href={route('register')} class={buttonVariants({ size: 'sm' })}>Register</Link>
+        {/if}
+      </div>
+    </div>
+  </header>
+  <main class="mx-auto w-full max-w-6xl flex-1 px-4 py-8">{@render children()}</main>
+</div>

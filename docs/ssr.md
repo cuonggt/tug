@@ -8,10 +8,11 @@ page shows before its scripts run. The browser then hydrates it, as React
 calls taking over HTML it rendered elsewhere, and from there the app is as
 it always is.
 
-Inertia renders pages on the server with the same React components, in
-JavaScript, so it takes Node: tug runs it beside the app, as a process of
-its own. It's optional, and a page that isn't rendered on the server, as
-when Node isn't there, renders in the browser as it would without it.
+Inertia renders pages on the server with the same components, React's,
+Vue's or Svelte's, in JavaScript, so it takes Node: tug runs it beside the
+app, as a process of its own. It's optional, and a page that isn't
+rendered on the server, as when Node isn't there, renders in the browser
+as it would without it.
 
 ## Turning it on
 
@@ -21,9 +22,12 @@ tug new -ssr blog          # or: tug new -auth -ssr blog
 
 An app made with `-ssr` has, beyond the rest:
 
-- `resources/js/ssr.tsx`: the app on the server, Inertia's SSR server.
-  Like `app.tsx`, the app in the browser, it makes the app with
-  `createApp` from `resources/js/inertia.tsx`, which every app has.
+- `resources/js/ssr.tsx`, or `ssr.ts` in Vue and Svelte: the app on the
+  server, Inertia's SSR server. Like `app.tsx`, the app in the browser, it
+  makes the app with `createApp` from `resources/js/inertia.tsx`, which
+  every app has. Vue's hands it Vue's `renderToString`, from
+  `vue/server-renderer`, and Svelte's hands it Svelte's `render`, from
+  `svelte/server`, where React's has `react-dom/server`'s.
 - `@inertiajs/vite` in `vite.config.ts`, which renders pages through the
   dev server, and builds `ssr.tsx` with `vite build --ssr`: `npm run build`
   runs both builds.
@@ -194,8 +198,6 @@ renders in the browser too. Package `inertia` has no idea it's Node.
 
 ## What's not here yet
 
-- **Vue and Svelte**: the starters are React's, though Inertia's SSR, and
-  `@inertiajs/vite`, render Vue and Svelte too.
 - **Streaming**: Inertia renders a page to a string, and sends it whole.
 - **More than one Node**: Inertia's SSR server can run a process per CPU,
   its cluster mode, where tug runs one.

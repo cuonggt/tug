@@ -19,7 +19,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M11 | Testing                    | done   |
 | M12 | Time zones and unique jobs | done   |
 | M13 | Passkeys                   | done   |
-| M14 | Vue and Svelte starters    | next   |
+| M14 | Vue and Svelte starters    | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -698,17 +698,17 @@ Choices made on the way:
   for a phone: adding a passkey, logging in with the autofill and with
   the button, and confirming with it.
 
-## M14 · Vue and Svelte starters — next
+## M14 · Vue and Svelte starters — done
 
 The last of what v0.1 left for later, after SSR and passkeys: `tug new`
 makes the same apps with Vue or Svelte in place of React, as Laravel's
-starter kits come in all three. tug itself needs nothing for it:
-tug gen's types extend `@inertiajs/core`, which Inertia's Vue and Svelte
+starter kits come in all three. tug itself needed nothing for it: tug
+gen's types extend `@inertiajs/core`, which Inertia's Vue and Svelte
 adapters read as React's does; the React refresh preamble is a template
 function an app calls or doesn't; the SSR gateway talks to Inertia's SSR
 server, whichever framework it renders; tug dev watches only the Go and
 the templates; and tug build runs whatever `npm run typecheck` is. The
-work is in the starters. To be released as v0.9.0.
+work was in the starters.
 
 - `tug new -vue` and `tug new -svelte`, with `-auth` and `-ssr` as they
   are: the plain app and the app with accounts, with pages rendered on the
@@ -716,78 +716,104 @@ work is in the starters. To be released as v0.9.0.
   `-vue` with `-svelte` is an error.
 - Vue apps: Vue 3.5, pages as single-file components with
   `<script setup lang="ts">`, built by `@vitejs/plugin-vue` and checked by
-  vue-tsc in `npm run typecheck`. The auth starter's components are
-  shadcn-vue's, on reka-ui, with `@lucide/vue`'s icons and vue-sonner's
-  toasts, as Laravel's Vue kit has them.
-- Svelte apps: Svelte 5, which Inertia's Svelte adapter requires, with
-  runes, built by `@sveltejs/vite-plugin-svelte` and checked by
-  svelte-check. The auth starter's components are shadcn-svelte's, on
-  bits-ui, with `@lucide/svelte` and svelte-sonner, as Laravel's Svelte
-  kit has them.
+  vue-tsc. The auth starter's components are shadcn-vue's, on Reka UI, with
+  `@lucide/vue`'s icons, vue-sonner's toasts and qrcode.vue, as Laravel's
+  Vue kit has them.
+- Svelte apps: Svelte 5, with runes, built by
+  `@sveltejs/vite-plugin-svelte` and checked by svelte-check. The auth
+  starter's components are shadcn-svelte's, on Bits UI, with
+  `@lucide/svelte`'s icons, svelte-sonner's toasts and `@svelte-put/qr`.
 - The same app in each: the pages have the same names, props, labels and
-  toasts, so the Go is the same, and so are its tests. What isn't a
-  component is written once: `lib/passkeys.ts`, which can take Inertia's
-  router from `@inertiajs/core`, where every adapter's comes from; the
-  flash types in `types.ts`; the Tailwind theme in `app.css`; and the root
+  words, but for the frontend's own name and files where the landing page
+  and the dashboard say them, so the Go is the same, and so are its
+  tests. What isn't a component is written once: `lib/passkeys.ts`, the
+  flash types in `types.ts`, the Tailwind theme in `app.css`, and the root
   template's script that picks light or dark before the page paints.
 - Pages rendered on the server: an `ssr.ts` for each, on
   `@inertiajs/vue3/server` with Vue's `renderToString`, and on
   `@inertiajs/svelte/server` with Svelte's `render`. The bundle is still
   `ssr/build/ssr.mjs`, so `ssr.Server` and the Dockerfile are as they are.
+- `cmd/tug/e2e`: one Playwright suite for the auth starter in every
+  frontend, which makes an app of each with tug new and runs it as it's
+  deployed, rendered on the server: registering and verifying the email
+  by the mailed link, logging in and out, a forgotten password, two-factor
+  logins with a code and a recovery code, passkeys from the email field's
+  autofill and from the button, through Chrome's virtual authenticator,
+  the settings, the appearance, and deleting the account. CI runs it.
 - The guide: getting started and the CLI have the flags, TypeScript shows
-  a page's props in Vue and Svelte, and SSR no longer has them as not here
-  yet. Its other examples, and `examples/inertia`, stay React's, as the
-  decisions put React first.
+  a page's props in Vue and Svelte, SSR no longer has them as not here
+  yet, and Accounts has their frontends. Its other examples, and
+  `examples/inertia`, stay React's, as the decisions put React first.
 
-Choices, to settle before any code:
+Choices made on the way:
 
-- **Layers.** `tug new` lays up to four directories, each over the one
-  before, as it lays `starter-auth` over `starter` now: `starter`, then
-  the frontend's own, `react`, `vue` or `svelte`; with `-auth`,
-  `starter-auth`, then `react-auth`, `vue-auth` or `svelte-auth`. A
-  frontend's layers have its components, pages and layouts, and its own
-  configuration: `package.json`, `tsconfig.json`, `components.json`, and
-  Svelte's `svelte.config.js`. React's files move there as they are.
-  What every frontend uses stays in `starter` and `starter-auth`, and a
-  file that differs by a line or two takes a condition, as `-ssr`'s
-  files do: `app.html` by the entry's extension and `viteReactRefresh`,
-  which only React's has, and `vite.config.ts` by its plugin.
-  `notInAuth` and `onlySSR` name each frontend's files.
-- **The flags** are `-vue` and `-svelte`, not `-frontend vue`: they read
-  as `-auth` and `-ssr` do.
-- **TypeScript 6 for Vue and Svelte.** The React starter has TypeScript 7,
-  which is tsc rewritten in Go, and has no compiler API for other tools
-  to call. vue-tsc and svelte-check are built on that API, and Vue's
-  compiler reads a type imported from another file through it: with
-  TypeScript 7, neither checker starts, and a Vue page whose props are
-  tug gen's types doesn't build. So the Vue and Svelte starters have
-  TypeScript 6, the last with the API, until their tools run on 7. As
-  tried in September 2026, with vue-tsc 3.3, svelte-check 4.7 and Vue 3.5.
-- **A Vue page's props** are `defineProps<Pages['Home'] & SharedProps>()`,
+- `tug new` lays up to four directories, each over the ones before, as it
+  laid `starter-auth` over `starter`: `starter`, then the frontend's own,
+  `react`, `vue` or `svelte`; with `-auth`, `starter-auth`, then
+  `react-auth`, `vue-auth` or `svelte-auth`. React's files moved as they
+  were, and its apps come out as they did, byte for byte. A file every
+  frontend has, but for a line or two, takes a condition, as `-ssr`'s
+  files do: `app.html` has the entry's extension, and `viteReactRefresh`
+  for React alone, and `vite.config.ts` the frontend's plugin.
+- The flags are `-vue` and `-svelte`, not `-frontend vue`: they read as
+  `-auth` and `-ssr` do.
+- The Vue and Svelte starters have TypeScript 6, where React's has 7,
+  which is tsc rewritten in Go, and has no compiler API for other tools to
+  call. vue-tsc and svelte-check are built on that API, and Vue's compiler
+  reads a type imported from another file through it: with TypeScript 7,
+  neither checker starts, and a Vue page whose props are tug gen's types
+  doesn't build. As tried in September 2026, with vue-tsc 3.3,
+  svelte-check 4.7 and Vue 3.5.
+- A Vue page's props are `defineProps<Pages['Home'] & SharedProps>()`,
   not `defineProps<PageProps<'Home'>>()`. Vue's compiler turns the type
   into the component's runtime props, and can't work out `Pages[C]` for a
   type parameter, in 3.5 or in 3.6's release candidate: the page
   type-checks, and doesn't build. Spelled out, it builds, to the same
-  props, and tug gen stays the same for every frontend. It could write a
-  type per page for Vue instead, but every app would have them, React's
-  and Svelte's too. A Svelte page takes `PageProps<'Home'>` from
-  `$props()`, as a React page takes it.
-- **The tests.** A new app of each kind is made and built, as now, but
-  not every kind in every frontend: React keeps its four, and Vue and
-  Svelte make two each, the plain app without SSR and the auth app with
-  it, which builds each of their layers and both sides of `-ssr`, and has
-  Node render a page. Eight apps, where every kind would be twelve. tug
-  new's own tests check that each frontend's app has its files and none
-  of another's. The auth starter's Go tests are one file for every
-  frontend: they talk to the app as Inertia's client does.
-- **One browser suite for the three.** M13's flows were walked through in
-  Chrome by hand. Three frontends of one app are where they drift apart,
-  so a Playwright suite in tug's repo drives an auth app of each frontend
-  by the same roles and labels: registering and verifying the email,
-  logging in with a code and with a passkey, through Chrome's virtual
-  authenticator, the settings and the appearance. CI runs it, as it runs
-  `examples/inertia`'s, and a change to one frontend is made to the three
-  in the same commit.
+  props, and tug gen stays the same for every frontend. A Svelte page
+  takes `PageProps<'Home'>` from `$props()`, as a React page takes it.
+- The toasts are mounted once in the browser, on an element of their own
+  beside the app, in Vue and in Svelte, where React's `withApp` puts them
+  at the app's root: Vue's and Svelte's Inertia have no place there for a
+  component, and in a layout they'd go as a flash arrives with a change of
+  layout, as "You've logged out." does, on the landing page.
+- Svelte's Inertia has no `Head`, and no title callback, so the Svelte
+  starters' pages have a `Head.svelte` of their own, which gives the title
+  as React's and Vue's do, with the app's name after it, through
+  `<svelte:head>`.
+- `lib/passkeys.ts` is a template for the one line that differs, the
+  frontend's import of Inertia's router, rather than importing it from
+  `@inertiajs/core`, which the apps don't install themselves.
+- shadcn's components are as each registry has them, with shadcn/ui's
+  changes made in each: the toaster takes the app's appearance. Where the
+  registries' components differ, they differ: shadcn-vue's card titles are
+  headings, and Bits UI doesn't hide the page behind a dialog from a
+  screen reader as Radix does. Vue's input is changed too: Inertia's
+  `Form` empties a field without the input event its `v-model` listens
+  for, and it put a wrong password back.
+- shadcn-svelte's CLI adds its newer styles by default, from 1.2, so the
+  Svelte starter's components are from its classic registry, which look
+  as React's and Vue's do, and the command its README gives for more
+  names that registry in `COMPONENTS_REGISTRY_URL`.
+- Inertia's Vue and Svelte `Form`, in 3.7.1, read a form that's gone when
+  a field's Precognition check, waiting out its 300ms, runs after the
+  page has changed, and throw, where React's checks for it. The register
+  page drops the check as it goes.
+- The QR code for an authenticator app is qrcode.vue's in Vue, and
+  `@svelte-put/qr`'s in Svelte, on Rich Harris's headless-qr: it renders
+  the same SVG on the server as in the browser, where `qrcode`, the
+  package every framework could share, is CommonJS, with yargs and pngjs.
+- The browser suite runs the apps as they're deployed, rendered on the
+  server, and fails a test whose page says anything in the console, where
+  a page that doesn't hydrate as it was rendered says so. Chrome's virtual
+  authenticator answers the login page's passkey autofill at once, as a
+  person would pick their passkey from it, so the button's test turns
+  autofill off.
+- A new app of each kind is made and built, as before, but not every kind
+  in every frontend: React keeps its four, and Vue and Svelte make two
+  each, the plain app without SSR and the auth app with it, which builds
+  each of their layers and both sides of `-ssr`. Eight apps, where every
+  kind would be twelve. A change to one frontend is made to the three in
+  the same commit, and the browser suite is what says they still match.
 
 ## Decisions
 

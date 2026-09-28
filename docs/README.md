@@ -1,11 +1,12 @@
 # The tug guide
 
 tug is a web framework for Go apps whose frontend is
-[Inertia.js](https://inertiajs.com): Go handlers render React pages with
-props, with no API in between, and the whole app ships as one binary. This
-guide goes from a new app to a deployed one. Each package's own
-documentation, on [pkg.go.dev](https://pkg.go.dev/github.com/cuonggt/tug),
-has the rest of the detail.
+[Inertia.js](https://inertiajs.com): Go handlers render React, Vue or
+Svelte pages with props, with no API in between, and the whole app ships
+as one binary. This guide goes from a new app to a deployed one. Each
+package's own documentation, on
+[pkg.go.dev](https://pkg.go.dev/github.com/cuonggt/tug), has the rest of
+the detail.
 
 1. [Getting started](getting-started.md): install tug, make an app, run
    it, and add a page and a form.

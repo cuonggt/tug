@@ -1,6 +1,6 @@
 # [[ .Name ]]
 
-A [tug](https://github.com/cuonggt/tug) app: Go handlers render React pages
+A [tug](https://github.com/cuonggt/tug) app: Go handlers render [[ .Framework ]] pages
 through Inertia, with no API in between.
 
 ```sh
@@ -12,10 +12,10 @@ go test ./...
 
 - `main.go`: the server, its pages and routes. A page is declared with
   `tug.Page[Props]("Name")`, and its component is
-  `resources/js/pages/Name.tsx`.
-- `resources/js/app.tsx`: the app in the browser, which `inertia.tsx`
+  `resources/js/pages/Name.[[ .Component ]]`.
+- `resources/js/app.[[ .Script ]]`: the app in the browser, which `inertia.[[ .Script ]]`
 [[- if .SSR ]]
-  makes, and `ssr.tsx`, the app on the server. A first visit's page
+  makes, and `ssr.[[ .Script ]]`, the app on the server. A first visit's page
   renders there first, with Node, which the app runs beside it from the
   SSR build in `ssr/build`; under tug dev, Vite renders it.
 [[- else ]]

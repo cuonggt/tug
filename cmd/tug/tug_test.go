@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -123,82 +124,143 @@ func TestPrefixedWritesWholeLinesUnderALabel(t *testing.T) {
 	}
 }
 
-func TestNewFillsInTheStarter(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "blog")
-	data := starterData{Name: "blog", Module: "example.com/blog", TugVersion: "v0.0.0", TugDir: "/src/tug"}
-	if err := writeStarter(root, data); err != nil {
+// frontends are the frontends tug new makes an app with, and ownFiles the
+// extension of the files that only an app with each has: its pages and
+// components.
+var (
+	frontends = []string{"react", "vue", "svelte"}
+	ownFiles  = map[string]string{"react": ".tsx", "vue": ".vue", "svelte": ".svelte"}
+)
+
+// othersFiles are the files in root that are another frontend's than
+// frontend: a .vue file in React's app, say.
+func othersFiles(t *testing.T, root, frontend string) []string {
+	t.Helper()
+	var found []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		for f, ext := range ownFiles {
+			if err == nil && f != frontend && strings.HasSuffix(path, ext) {
+				rel, _ := filepath.Rel(root, path)
+				found = append(found, rel)
+			}
+		}
+		return err
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	read := func(name string) string {
+	return found
+}
+
+// reader returns what reads the files of the app in root, failing the test
+// on one that isn't there.
+func reader(t *testing.T, root string) func(name string) string {
+	return func(name string) string {
+		t.Helper()
 		b, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)
 		}
 		return string(b)
 	}
-	if mod := read("go.mod"); !strings.HasPrefix(mod, "module example.com/blog\n") || !strings.Contains(mod, "replace github.com/cuonggt/tug => /src/tug") {
-		t.Errorf("go.mod:\n%s", mod)
-	}
-	if html := read("app.html"); !strings.Contains(html, "<title data-inertia>blog</title>") || !strings.Contains(html, "{{ .Inertia }}") {
-		t.Errorf("app.html should have the name, and keep its own template: %s", html)
-	}
-	for _, f := range []string{"main.go", "main_test.go", "package.json", "resources/js/app.tsx", ".gitignore", "public/.gitkeep"} {
-		if strings.Contains(read(f), "[[") {
-			t.Errorf("%s has a placeholder left", f)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(root, "main.go.tmpl")); err == nil {
-		t.Error("a .tmpl file was copied as it was")
-	}
-	if _, err := os.Stat(filepath.Join(root, "auth.go")); err == nil {
-		t.Error("an app without -auth has auth.go")
-	}
-	for _, f := range onlySSR {
-		if _, err := os.Stat(filepath.Join(root, f)); err == nil {
-			t.Errorf("an app without -ssr has %s", f)
-		}
-	}
-	if strings.Contains(read("main.go"), "ssr") || strings.Contains(read("package.json"), "--ssr") {
-		t.Error("an app without -ssr renders on the server")
-	}
-	env := read(".env")
-	key, _, _ := strings.Cut(strings.SplitAfter(env, "APP_KEY=base64:")[1], "\n")
-	if k, err := base64.StdEncoding.DecodeString(key); err != nil || len(k) != 32 {
-		t.Errorf("the .env's key %q isn't 32 bytes of base64", key)
+}
+
+func TestNewFillsInTheStarter(t *testing.T) {
+	for _, frontend := range frontends {
+		t.Run(frontend, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "blog")
+			data := starterData{Name: "blog", Module: "example.com/blog", TugVersion: "v0.0.0", TugDir: "/src/tug", Frontend: frontend}
+			if err := writeStarter(root, data); err != nil {
+				t.Fatal(err)
+			}
+			read := reader(t, root)
+			if mod := read("go.mod"); !strings.HasPrefix(mod, "module example.com/blog\n") || !strings.Contains(mod, "replace github.com/cuonggt/tug => /src/tug") {
+				t.Errorf("go.mod:\n%s", mod)
+			}
+			html := read("app.html")
+			if !strings.Contains(html, "<title data-inertia>blog</title>") || !strings.Contains(html, "{{ .Inertia }}") {
+				t.Errorf("app.html should have the name, and keep its own template: %s", html)
+			}
+			if want := `{{ vite "resources/js/app.` + data.Script() + `" (printf "resources/js/pages/%s.` + data.Component() + `" .Page.Component) }}`; !strings.Contains(html, want) {
+				t.Errorf("app.html doesn't load the app and its page from %s's files: %s", data.Framework(), html)
+			}
+			if strings.Contains(html, "viteReactRefresh") != data.React() {
+				t.Errorf("app.html has React's refresh preamble in a %s app, or not in React's: %s", data.Framework(), html)
+			}
+			for _, f := range []string{"main.go", "main_test.go", "package.json", "vite.config.ts", "README.md", "resources/js/app." + data.Script(), "resources/js/pages/Home." + data.Component(), ".gitignore", "public/.gitkeep"} {
+				if strings.Contains(read(f), "[[") {
+					t.Errorf("%s has a placeholder left", f)
+				}
+			}
+			if !strings.Contains(read("package.json"), `"`+data.Adapter()+`"`) {
+				t.Errorf("package.json doesn't have %s, Inertia for %s", data.Adapter(), data.Framework())
+			}
+			if others := othersFiles(t, root, frontend); len(others) > 0 {
+				t.Errorf("a %s app has another frontend's files: %v", data.Framework(), others)
+			}
+			if _, err := os.Stat(filepath.Join(root, "main.go.tmpl")); err == nil {
+				t.Error("a .tmpl file was copied as it was")
+			}
+			if _, err := os.Stat(filepath.Join(root, "auth.go")); err == nil {
+				t.Error("an app without -auth has auth.go")
+			}
+			for _, f := range onlySSR(data) {
+				if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+					t.Errorf("an app without -ssr has %s", f)
+				}
+			}
+			if strings.Contains(read("main.go"), "ssr") || strings.Contains(read("package.json"), "--ssr") {
+				t.Error("an app without -ssr renders on the server")
+			}
+			env := read(".env")
+			key, _, _ := strings.Cut(strings.SplitAfter(env, "APP_KEY=base64:")[1], "\n")
+			if k, err := base64.StdEncoding.DecodeString(key); err != nil || len(k) != 32 {
+				t.Errorf("the .env's key %q isn't 32 bytes of base64", key)
+			}
+		})
 	}
 }
 
 func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "blog")
-	if err := writeStarter(root, starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Auth: true}); err != nil {
-		t.Fatal(err)
-	}
-	read := func(name string) string {
-		b, err := os.ReadFile(filepath.Join(root, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(b)
-	}
-	if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
-		t.Errorf("main.go isn't the auth starter's:\n%s", main)
-	}
-	for _, f := range []string{"auth.go", "users.go", "jobs.go", "resources/js/pages/Auth/Login.tsx", "resources/js/pages/Dashboard.tsx", "resources/js/app.tsx"} {
-		if strings.Contains(read(f), "[[ ") {
-			t.Errorf("%s has a placeholder left", f)
-		}
-	}
-	if !strings.Contains(read("settings.go"), "inertia.OptionalProp[[]string]") {
-		t.Error("settings.go's two brackets, which a placeholder writes, didn't come out as Go's")
-	}
-	if read("go.mod") == "" || read("public/.gitkeep") != "" {
-		t.Error("the plain starter's files didn't come along")
-	}
-	if _, err := os.Stat(filepath.Join(root, "resources/js/Layout.tsx")); err == nil {
-		t.Error("the plain starter's Layout.tsx came along, which the auth starter's layouts replace")
-	}
-	if !strings.Contains(read(".gitignore"), "/app.db") {
-		t.Error("the database isn't ignored")
+	for _, frontend := range frontends {
+		t.Run(frontend, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "blog")
+			data := starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Frontend: frontend, Auth: true}
+			if err := writeStarter(root, data); err != nil {
+				t.Fatal(err)
+			}
+			read := reader(t, root)
+			if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
+				t.Errorf("main.go isn't the auth starter's:\n%s", main)
+			}
+			for _, f := range []string{"auth.go", "users.go", "jobs.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
+				if strings.Contains(read(f), "[[ ") {
+					t.Errorf("%s has a placeholder left", f)
+				}
+			}
+			if !strings.Contains(read("settings.go"), "inertia.OptionalProp[[]string]") {
+				t.Error("settings.go's two brackets, which a placeholder writes, didn't come out as Go's")
+			}
+			// Passkeys in the browser are one file for every frontend, with
+			// Inertia's router from the frontend's own package.
+			if !strings.Contains(read("resources/js/lib/passkeys.ts"), "import { router } from '"+data.Adapter()+"'") {
+				t.Errorf("lib/passkeys.ts doesn't take the router from %s", data.Adapter())
+			}
+			if read("go.mod") == "" || read("public/.gitkeep") != "" {
+				t.Error("the plain starter's files didn't come along")
+			}
+			for _, f := range notInAuth(data) {
+				if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+					t.Errorf("the plain starter's %s came along, which the auth starter's layouts replace", f)
+				}
+			}
+			if others := othersFiles(t, root, frontend); len(others) > 0 {
+				t.Errorf("a %s app has another frontend's files: %v", data.Framework(), others)
+			}
+			if !strings.Contains(read(".gitignore"), "/app.db") {
+				t.Error("the database isn't ignored")
+			}
+		})
 	}
 }
 
@@ -217,34 +279,43 @@ func TestNewTakesItsFlagsBeforeAndAfterTheDirectory(t *testing.T) {
 	}
 }
 
+func TestNewMakesAnAppWithOneFrontend(t *testing.T) {
+	checkout, _ := filepath.Abs("../..")
+	dir := filepath.Join(t.TempDir(), "both")
+	err := runNew([]string{"-no-install", "-vue", "-svelte", "-tug-dir", checkout, dir})
+	if err == nil || !strings.Contains(err.Error(), "-vue or -svelte, not both") {
+		t.Errorf("-vue with -svelte: %v", err)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Error("tug new made an app with two frontends")
+	}
+}
+
 func TestNewWithSSRAddsTheAppOnTheServer(t *testing.T) {
-	for _, auth := range []bool{false, true} {
-		root := filepath.Join(t.TempDir(), "blog")
-		if err := writeStarter(root, starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Auth: auth, SSR: true}); err != nil {
-			t.Fatal(err)
-		}
-		read := func(name string) string {
-			b, err := os.ReadFile(filepath.Join(root, name))
-			if err != nil {
+	for _, frontend := range frontends {
+		for _, auth := range []bool{false, true} {
+			root := filepath.Join(t.TempDir(), "blog")
+			data := starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Frontend: frontend, Auth: auth, SSR: true}
+			if err := writeStarter(root, data); err != nil {
 				t.Fatal(err)
 			}
-			return string(b)
-		}
-		for _, f := range onlySSR {
-			read(f)
-		}
-		for f, want := range map[string]string{
-			"main.go":        "ssr.Gateway{DevServer: assets.DevServer",
-			"package.json":   `"build": "vite build && vite build --ssr"`,
-			"vite.config.ts": "outDir: 'ssr/build'",
-			"app.html":       "{{ .InertiaHead }}",
-			"Dockerfile":     "FROM gcr.io/distroless/nodejs24-debian12",
-			".gitignore":     "/ssr/build/",
-			".dockerignore":  "ssr/build",
-			".env.example":   "SSR_URL=",
-		} {
-			if got := read(f); !strings.Contains(got, want) || strings.Contains(got, "[[") {
-				t.Errorf("auth %v: %s has no %q, or a placeholder left:\n%s", auth, f, want, got)
+			read := reader(t, root)
+			for _, f := range onlySSR(data) {
+				read(f)
+			}
+			for f, want := range map[string]string{
+				"main.go":        "ssr.Gateway{DevServer: assets.DevServer",
+				"package.json":   `"build": "vite build && vite build --ssr"`,
+				"vite.config.ts": "input: 'resources/js/ssr." + data.Script() + "'",
+				"app.html":       "{{ .InertiaHead }}",
+				"Dockerfile":     "FROM gcr.io/distroless/nodejs24-debian12",
+				".gitignore":     "/ssr/build/",
+				".dockerignore":  "ssr/build",
+				".env.example":   "SSR_URL=",
+			} {
+				if got := read(f); !strings.Contains(got, want) || strings.Contains(got, "[[") {
+					t.Errorf("%s, auth %v: %s has no %q, or a placeholder left:\n%s", data.Framework(), auth, f, want, got)
+				}
 			}
 		}
 	}
@@ -270,6 +341,13 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 		{"auth", []string{"-auth"}},
 		{"plain with SSR", []string{"-ssr"}},
 		{"auth with SSR", []string{"-auth", "-ssr"}},
+		// Vue's and Svelte's apps have the same Go as React's, so two
+		// kinds of each build each of their layers, and both sides of
+		// -ssr, rather than every kind again.
+		{"Vue", []string{"-vue"}},
+		{"Vue auth with SSR", []string{"-vue", "-auth", "-ssr"}},
+		{"Svelte", []string{"-svelte"}},
+		{"Svelte auth with SSR", []string{"-svelte", "-auth", "-ssr"}},
 	} {
 		t.Run(kind.name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "blog")

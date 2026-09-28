@@ -19,32 +19,85 @@ import (
 	"text/template"
 )
 
-// starters are the apps tug new makes: starter, and with -auth, starter
-// with starter-auth laid over it, whose files replace the ones of the same
-// name and add the rest. Files ending in .tmpl are templates, filled in
-// with the app's name and module between [[ and ]], which leaves the {{ }}
-// of Go's own templates, such as app.html's, alone; the rest are copied as
-// they are.
+// starters are the apps tug new makes, in layers, each laid over the ones
+// before it, whose files it replaces where they have the same name: the
+// plain app, in starter, and its frontend's, in react, vue or svelte; then
+// with -auth, the app with accounts, in starter-auth, and its frontend's,
+// in react-auth, vue-auth or svelte-auth. starter and starter-auth have
+// the Go and what every frontend uses. Files ending in .tmpl are
+// templates, filled in with starterData between [[ and ]], which leaves
+// the {{ }} of Go's own templates, such as app.html's, alone; the rest are
+// copied as they are.
 //
-//go:embed all:starter all:starter-auth
+//go:embed all:starter all:starter-auth all:react all:react-auth all:vue all:vue-auth all:svelte all:svelte-auth
 var starters embed.FS
 
-// notInAuth are the plain starter's files that an app with -auth has no
-// use for, and leaves out: its layouts, in resources/js/layouts, take
-// Layout.tsx's place.
-var notInAuth = []string{"resources/js/Layout.tsx"}
+// notInAuth are the plain app's files that an app with -auth has no use
+// for, and leaves out: its layouts, in resources/js/layouts, take the
+// plain Layout's place.
+func notInAuth(data starterData) []string {
+	return []string{"resources/js/Layout." + data.Component()}
+}
 
 // onlySSR are the files that only an app with -ssr has: the app on the
 // server, and the directory its build goes in.
-var onlySSR = []string{"resources/js/ssr.tsx", "ssr/.gitkeep"}
+func onlySSR(data starterData) []string {
+	return []string{"resources/js/ssr." + data.Script(), "ssr/.gitkeep"}
+}
 
 type starterData struct {
 	Name       string // the directory's name
 	Module     string // the Go module path
 	TugVersion string // the tug module version go.mod requires
 	TugDir     string // a tug checkout go.mod replaces it with, when tug isn't a release
+	Frontend   string // react, vue or svelte: the layers of the frontend's own files
 	Auth       bool   // with accounts: starter-auth over starter
 	SSR        bool   // with pages rendered on the server too
+}
+
+// React, Vue and Svelte say which frontend the app has, for the
+// templates' conditions, as [[ if .React ]].
+func (d starterData) React() bool  { return d.Frontend == "react" }
+func (d starterData) Vue() bool    { return d.Frontend == "vue" }
+func (d starterData) Svelte() bool { return d.Frontend == "svelte" }
+
+// Framework is the frontend's name, as a sentence has it.
+func (d starterData) Framework() string {
+	return map[string]string{"react": "React", "vue": "Vue", "svelte": "Svelte"}[d.Frontend]
+}
+
+// Script is the extension of the frontend's app.tsx or app.ts, and its
+// ssr's: TSX in React, TypeScript in the others.
+func (d starterData) Script() string {
+	if d.React() {
+		return "tsx"
+	}
+	return "ts"
+}
+
+// Component is the extension of a page's file: Home.tsx, Home.vue or
+// Home.svelte.
+func (d starterData) Component() string {
+	if d.React() {
+		return "tsx"
+	}
+	return d.Frontend
+}
+
+// Adapter is the npm package of Inertia's adapter for the frontend.
+func (d starterData) Adapter() string {
+	return map[string]string{"react": "@inertiajs/react", "vue": "@inertiajs/vue3", "svelte": "@inertiajs/svelte"}[d.Frontend]
+}
+
+// AppearanceFile is the auth starter's file that keeps the appearance a
+// user chose, in the browser, which the files every frontend shares point
+// to.
+func (d starterData) AppearanceFile() string {
+	return map[string]string{
+		"react":  "resources/js/hooks/use-appearance.ts",
+		"vue":    "resources/js/composables/useAppearance.ts",
+		"svelte": "resources/js/lib/appearance.svelte.ts",
+	}[d.Frontend]
 }
 
 func runNew(args []string) error {
@@ -52,20 +105,23 @@ func runNew(args []string) error {
 	module := flags.String("module", "", "the app's Go module path (default: the directory's name)")
 	tugDir := flags.String("tug-dir", "", "a checkout of tug to build the app against, rather than a release")
 	noInstall := flags.Bool("no-install", false, "don't install the app's packages or write its types")
-	withAuth := flags.Bool("auth", false, "with accounts: registering, verifying an email, logging in with two factors, resetting a password, and settings, with the users in SQLite")
+	withAuth := flags.Bool("auth", false, "with accounts: registering, verifying an email, logging in with two factors or a passkey, resetting a password, and settings, with the users in SQLite")
 	withSSR := flags.Bool("ssr", false, "with server-side rendering: a first visit's page renders on the server too, with Node, which runs beside the app")
+	withVue := flags.Bool("vue", false, "with a Vue frontend, rather than React's")
+	withSvelte := flags.Bool("svelte", false, "with a Svelte frontend, rather than React's")
 	flags.Usage = func() {
 		fmt.Fprint(flags.Output(), `usage: tug new [flags] <dir>
 
 Makes a new tug app in dir: a Go server with an Inertia page, a form that
-checks itself, a React frontend built by Vite, and a .env with a fresh
-APP_KEY. With -auth, people register for accounts and verify their email,
-log in, with a code from their phone too if they like, reset a forgotten
+checks itself, a React frontend built by Vite, or with -vue or -svelte a
+Vue or Svelte one, and a .env with a fresh APP_KEY. With -auth, people
+register for accounts and verify their email, log in, with a code from
+their phone too if they like, or with a passkey, reset a forgotten
 password by email, and change their profile, password and appearance in
-settings; its frontend has Tailwind and shadcn/ui. With -ssr, a first
-visit's page is rendered on the server as well as in the browser, by Node
-running beside the app. Then it installs the Go and frontend packages and
-writes the TypeScript types, so that "tug dev" runs it.
+settings; its frontend has Tailwind and shadcn's components. With -ssr, a
+first visit's page is rendered on the server as well as in the browser, by
+Node running beside the app. Then it installs the Go and frontend packages
+and writes the TypeScript types, so that "tug dev" runs it.
 
 `)
 		flags.PrintDefaults()
@@ -97,7 +153,15 @@ writes the TypeScript types, so that "tug dev" runs it.
 	if entries, err := os.ReadDir(abs); err == nil && len(entries) > 0 {
 		return fmt.Errorf("%s isn't empty: tug new makes a directory of its own", dir)
 	}
-	data := starterData{Name: filepath.Base(abs), Module: *module, Auth: *withAuth, SSR: *withSSR}
+	data := starterData{Name: filepath.Base(abs), Module: *module, Frontend: "react", Auth: *withAuth, SSR: *withSSR}
+	switch {
+	case *withVue && *withSvelte:
+		return errors.New("an app has one frontend: -vue or -svelte, not both")
+	case *withVue:
+		data.Frontend = "vue"
+	case *withSvelte:
+		data.Frontend = "svelte"
+	}
 	if data.Module == "" {
 		data.Module = data.Name
 	}
@@ -177,9 +241,9 @@ func checkoutDir() string {
 }
 
 func writeStarter(root string, data starterData) error {
-	dirs := []string{"starter"}
+	dirs := []string{"starter", data.Frontend}
 	if data.Auth {
-		dirs = append(dirs, "starter-auth")
+		dirs = append(dirs, "starter-auth", data.Frontend+"-auth")
 	}
 	files := map[string][]byte{} // by their path in the app
 	for _, dir := range dirs {
@@ -211,12 +275,12 @@ func writeStarter(root string, data starterData) error {
 		}
 	}
 	if data.Auth {
-		for _, rel := range notInAuth {
+		for _, rel := range notInAuth(data) {
 			delete(files, rel)
 		}
 	}
 	if !data.SSR {
-		for _, rel := range onlySSR {
+		for _, rel := range onlySSR(data) {
 			delete(files, rel)
 		}
 	}

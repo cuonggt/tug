@@ -72,9 +72,12 @@ tug new [flags] <dir>
 ```
 
 - `-auth`: with accounts: registering and verifying an email, logging in
-  with a second factor if the user likes, resetting a password by email,
-  and settings, with the users in SQLite and a frontend of Tailwind and
-  shadcn/ui.
+  with a second factor if the user likes, or a passkey, resetting a
+  password by email, and settings, with the users in SQLite and a frontend
+  of Tailwind and shadcn's components.
+- `-vue`, `-svelte`: the frontend in Vue or in Svelte, rather than React:
+  the same app, with its pages as `.vue` or `.svelte` components, and the
+  same Go. An app has one of them at most.
 - `-ssr`: with server-side rendering: a first visit's page is rendered on
   the server as well as in the browser, by Node, which runs beside the app.
 - `-module path`: the app's Go module path. Default: the directory's name.
@@ -88,10 +91,13 @@ is `tug new -auth blog`.
 `tug new` stops when `dir` is there and isn't empty. Otherwise it:
 
 1. works out which tug the app requires (below);
-2. writes the starter, `cmd/tug/starter` in tug's source, and with `-auth`
-   `cmd/tug/starter-auth` over it, whose files replace the plain starter's
-   of the same name and add the rest. The directory's name is the app's:
-   in `package.json`, the page titles, and the `appName` prop;
+2. writes the starter, from layers in tug's source, each laid over the
+   ones before it, whose files replace theirs of the same name and add
+   the rest: `cmd/tug/starter`, the Go and what every frontend uses, then
+   the frontend's own, `react`, `vue` or `svelte`; and with `-auth`,
+   `starter-auth`, then `react-auth`, `vue-auth` or `svelte-auth`. The
+   directory's name is the app's: in `package.json`, the page titles, and
+   the `appName` prop;
 3. writes `.env`, readable by you alone, with `APP_KEY=base64:` and 32
    random bytes in base64, and `APP_DEBUG=true`;
 4. unless `-no-install` says not to, runs `go mod tidy` and
@@ -105,16 +111,18 @@ there, and writes the types.
 
 With `-auth`, the Go files for accounts are added, `auth.go`,
 `verify.go`, `twofactor.go`, `settings.go`, `mail.go` and `users.go`, with
-their tests, and so is a frontend of Tailwind and shadcn/ui: its layouts,
-components and hooks, the pages in `resources/js/pages/Auth` and
-`resources/js/pages/Settings`, and shadcn's `components.json`. The plain
-starter's `Layout.tsx` is left out, and most of its other files are the
-auth starter's own: `main.go`, `main_test.go`, `app.html`, `package.json`,
-`vite.config.ts`, `tsconfig.json`, `app.tsx`, `app.css`, the pages it has,
+their tests, and so is a frontend of Tailwind and shadcn's components:
+its layouts, components and hooks, the pages in `resources/js/pages/Auth`
+and `resources/js/pages/Settings`, and shadcn's `components.json`. The
+plain starter's `Layout.tsx` (`Layout.vue`, `Layout.svelte`) is left out,
+and most of its other files are the auth starter's own: `main.go`,
+`main_test.go`, `app.html`, `package.json`, `vite.config.ts`,
+`tsconfig.json`, `app.tsx` (`app.ts`), `app.css`, the pages it has,
 `Dockerfile`, `.env.example`, `.gitignore`, `.dockerignore` and
 `README.md`. [Accounts](auth.md) goes through them.
 
-With `-ssr`, either starter gets `resources/js/ssr.tsx` and `ssr/.gitkeep`,
+With `-ssr`, either starter gets `resources/js/ssr.tsx` (`ssr.ts` in Vue
+and Svelte) and `ssr/.gitkeep`,
 and its `main.go`, `main_test.go`, `app.html`, `package.json`,
 `vite.config.ts`, `Dockerfile`, `.env.example`, `.gitignore`,
 `.dockerignore` and `README.md` render pages on the server too.

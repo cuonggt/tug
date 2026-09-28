@@ -87,7 +87,8 @@ func showPost(c *tug.Ctx) error {
 ## What's here
 
 - **The CLI**, `tug`: `tug new` makes an app, ready to run, with a .env
-  and a fresh APP_KEY. `tug dev` runs it with Vite: Go is rebuilt and
+  and a fresh APP_KEY, and a frontend of React, or with `-vue` or
+  `-svelte`, of Vue or Svelte. `tug dev` runs it with Vite: Go is rebuilt and
   restarted as it changes, and the browser reloaded. `tug gen` writes the
   TypeScript of each page's props and of the named routes, with a typed
   `route()`, so the frontend is checked against the Go. `tug build` makes
@@ -130,7 +131,8 @@ func showPost(c *tug.Ctx) error {
   once they turn that on, or with a passkey and no password at all, reset
   a forgotten password by email, and change their profile, password and
   appearance in settings, with the users in SQLite and a frontend of
-  Tailwind and shadcn/ui, as Laravel's React starter kit has. Its handlers
+  Tailwind and shadcn's components, as Laravel's starter kits have, in
+  React, Vue or Svelte. Its handlers
   are the app's own code, on package `auth`, which has the parts where a
   slip is a security hole: argon2id password hashes, logins that end when
   the password changes, signed tokens for reset and verification links,

@@ -62,8 +62,12 @@ rest.
 
 For pages rendered on the server, for search engines and pages that show
 before their scripts run, add `-ssr`, to either: Node renders them, beside
-the app. [Server-side rendering](ssr.md) has the rest. This page goes on
-with the plain starter.
+the app. [Server-side rendering](ssr.md) has the rest.
+
+The frontend is React, or with `-vue` or `-svelte`, Vue or Svelte: the
+same app, with the same Go, and its pages as `.vue` or `.svelte`
+components where React's are `.tsx`, which `-auth` and `-ssr` go with as
+well. This page goes on with the plain starter, in React.
 
 ## Run it
 

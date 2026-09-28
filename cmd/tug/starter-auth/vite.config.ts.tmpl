@@ -4,7 +4,13 @@ import tailwindcss from '@tailwindcss/vite'
 [[- if .SSR ]]
 import inertia from '@inertiajs/vite'
 [[- end ]]
+[[- if .Vue ]]
+import vue from '@vitejs/plugin-vue'
+[[- else if .Svelte ]]
+import { svelte } from '@sveltejs/vite-plugin-svelte'
+[[- else ]]
 import react from '@vitejs/plugin-react'
+[[- end ]]
 import { defineConfig, type Plugin } from 'vite'
 
 const devServer = 'http://localhost:5173'
@@ -12,7 +18,7 @@ const devServer = 'http://localhost:5173'
 // The Go server serves the build from public/build under /build/, and
 // finds the dev server through public/hot.
 [[- if .SSR ]]
-// `vite build --ssr` builds ssr.tsx into ssr/build, which the Go server
+// `vite build --ssr` builds ssr.[[ .Script ]] into ssr/build, which the Go server
 // embeds, and runs with Node to render pages on the server; under tug dev,
 // @inertiajs/vite has the dev server render them.
 export default defineConfig(({ command, isSsrBuild }) => ({
@@ -23,11 +29,15 @@ export default defineConfig(({ command }) => ({
   // public/ is the Go server's to serve; the build goes inside it.
   publicDir: false,
 [[- if .SSR ]]
-  plugins: [react(), tailwindcss(), inertia({ ssr: { sourcemap: false } }), tug()],
+  plugins: [ [[- .Frontend ]](), tailwindcss(), inertia({ ssr: { sourcemap: false } }), tug()],
 [[- else ]]
-  plugins: [react(), tailwindcss(), tug()],
+  plugins: [ [[- .Frontend ]](), tailwindcss(), tug()],
 [[- end ]]
+[[- if .React ]]
   // @/components/ui/button is resources/js/components/ui/button.tsx, as
+[[- else ]]
+  // @/components/ui/button is resources/js/components/ui/button/index.ts, as
+[[- end ]]
   // tsconfig.json's paths say too, and as shadcn's components import them.
   resolve: {
     alias: { '@': fileURLToPath(new URL('./resources/js', import.meta.url)) },
@@ -38,7 +48,7 @@ export default defineConfig(({ command }) => ({
         outDir: 'ssr/build',
         emptyOutDir: true,
         rolldownOptions: {
-          input: 'resources/js/ssr.tsx',
+          input: 'resources/js/ssr.[[ .Script ]]',
           output: { entryFileNames: '[name].mjs', chunkFileNames: '[name]-[hash].mjs' },
         },
       }
@@ -46,7 +56,7 @@ export default defineConfig(({ command }) => ({
         manifest: true,
         outDir: 'public/build',
         emptyOutDir: true,
-        rolldownOptions: { input: 'resources/js/app.tsx' },
+        rolldownOptions: { input: 'resources/js/app.[[ .Script ]]' },
       },
   // The SSR bundle takes its packages with it, to run where node_modules
   // isn't, as in the app's image.
@@ -56,7 +66,7 @@ export default defineConfig(({ command }) => ({
     manifest: true,
     outDir: 'public/build',
     emptyOutDir: true,
-    rolldownOptions: { input: 'resources/js/app.tsx' },
+    rolldownOptions: { input: 'resources/js/app.[[ .Script ]]' },
   },
 [[- end ]]
   server: {

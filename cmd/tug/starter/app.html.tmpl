@@ -10,9 +10,11 @@
 [[- end ]]
     <title data-inertia>[[ .Name ]]</title>
     <link rel="icon" href="data:,">
+[[- if .React ]]
     {{ viteReactRefresh }}
+[[- end ]]
     {{/* The page's own component loads alongside the app, not after it. */}}
-    {{ vite "resources/js/app.tsx" (printf "resources/js/pages/%s.tsx" .Page.Component) }}
+    {{ vite "resources/js/app.[[ .Script ]]" (printf "resources/js/pages/%s.[[ .Component ]]" .Page.Component) }}
   </head>
   <body>
     {{ .Inertia }}

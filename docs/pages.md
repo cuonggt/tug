@@ -1,11 +1,12 @@
 # Pages
 
-A page is a React component that a Go handler renders with props. A first
-visit gets HTML with the page in it; after that, Inertia's client makes
-each visit itself and gets the next page as JSON. Package `inertia` is the
-server side of that protocol, Inertia v3, and package `vite` loads the
-frontend. [`examples/inertia`](../examples/inertia/main.go) uses most of
-what's here.
+A page is a React component, or a Vue or Svelte one, that a Go handler
+renders with props; this guide's are React's. A first visit gets HTML with
+the page in it; after that, Inertia's client makes each visit itself and
+gets the next page as JSON. Package `inertia` is the server side of that
+protocol, Inertia v3, and package `vite` loads the frontend.
+[`examples/inertia`](../examples/inertia/main.go) uses most of what's
+here.
 
 ## Setting up
 
@@ -108,9 +109,10 @@ different props panics. A page without a props type goes through
 string keys, and tug gen doesn't know its props.
 
 A component's name is its file's path under `resources/js/pages`, without
-`.tsx`: `"Posts/Index"` is `resources/js/pages/Posts/Index.tsx`, for
-`resolve` in the starter's `resources/js/app.tsx` and for the root
-template. A name with no file is an error that names the file.
+`.tsx` (`.vue`, `.svelte`): `"Posts/Index"` is
+`resources/js/pages/Posts/Index.tsx`, for `resolve` in the starter's
+`resources/js/inertia.tsx` and for the root template. A name with no file
+is an error that names the file.
 
 A first visit, a browser loading the page whole, gets the root template's
 HTML with the page object in it:
@@ -436,12 +438,13 @@ dev server writes its URL to while it runs.
 
 While the hot file is there, `vite` loads each entry from the dev server,
 after its client, which does the hot reloading, and `viteReactRefresh`
-adds the preamble `@vitejs/plugin-react` needs. A plugin in the starter's
-`vite.config.ts` writes `public/hot` when the dev server starts and deletes
-it when it stops; `tug dev` runs both ([cli.md](cli.md)). The file is read
-at each render, so the pages switch over without a restart. A `public/hot`
-left behind by a Vite that didn't exit cleanly points them at a dev server
-that isn't there: delete it.
+adds the preamble `@vitejs/plugin-react` needs, which Vue's and Svelte's
+plugins don't, so their apps' root templates leave it out. A plugin in the
+starter's `vite.config.ts` writes `public/hot` when the dev server starts
+and deletes it when it stops; `tug dev` runs both ([cli.md](cli.md)). The
+file is read at each render, so the pages switch over without a restart. A
+`public/hot` left behind by a Vite that didn't exit cleanly points them at
+a dev server that isn't there: delete it.
 
 Otherwise the tags come from the build's manifest: each entry's script, its
 CSS and that of the chunks it imports, and a `modulepreload` for each of

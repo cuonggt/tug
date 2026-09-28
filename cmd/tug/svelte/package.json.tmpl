@@ -1,0 +1,28 @@
+{
+  "name": "[[ .Name ]]",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+[[- if .SSR ]]
+    "build": "vite build && vite build --ssr",
+[[- else ]]
+    "build": "vite build",
+[[- end ]]
+    "typecheck": "svelte-check"
+  },
+  "dependencies": {
+    "@inertiajs/svelte": "^3.7.1",
+    "svelte": "^5.57.1"
+  },
+  "devDependencies": {
+[[- if .SSR ]]
+    "@inertiajs/vite": "^3.7.1",
+[[- end ]]
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^24.0.0",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.1"
+  }
+}

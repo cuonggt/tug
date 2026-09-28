@@ -1,0 +1,28 @@
+{
+  "name": "[[ .Name ]]",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+[[- if .SSR ]]
+    "build": "vite build && vite build --ssr",
+[[- else ]]
+    "build": "vite build",
+[[- end ]]
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@inertiajs/vue3": "^3.7.1",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+[[- if .SSR ]]
+    "@inertiajs/vite": "^3.7.1",
+[[- end ]]
+    "@types/node": "^24.0.0",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.1",
+    "vue-tsc": "^3.3.11"
+  }
+}

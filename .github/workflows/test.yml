@@ -8,6 +8,10 @@
 # frontend type-checked and built, served by its Go server, and driven in
 # Chromium with Inertia's real client. That's what catches an Inertia
 # release that changes the protocol.
+#
+# And the auth starter in each frontend, React, Vue and Svelte, made by tug
+# new, served as it's deployed, and driven by one suite: the same steps, by
+# the same labels, so the three stay one app.
 name: test
 
 on:
@@ -74,4 +78,27 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+
+  starters:
+    name: e2e (the starters)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: cmd/tug/e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: cmd/tug/e2e/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx playwright install --with-deps chromium
+      # setup.ts makes an app of each frontend with tug new, and runs them.
       - run: npx playwright test

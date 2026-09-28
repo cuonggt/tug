@@ -1,6 +1,6 @@
 # [[ .Name ]]
 
-A [tug](https://github.com/cuonggt/tug) app: Go handlers render React pages
+A [tug](https://github.com/cuonggt/tug) app: Go handlers render [[ .Framework ]] pages
 through Inertia, with no API in between. People register and verify their
 email, log in, with a code from an authenticator app too if they turn that
 on, or with a passkey and no password, reset a forgotten password by
@@ -16,7 +16,7 @@ go test ./...
 
 - `main.go`: the server, its pages and routes, and the health check at
   `/up`. A page is declared with `tug.Page[Props]("Name")`, and its
-  component is `resources/js/pages/Name.tsx`.
+  component is `resources/js/pages/Name.[[ .Component ]]`.
 - `auth.go`: registering, logging in and out, a forgotten password, and
   the page that asks for the password again, on tug's package `auth`. A
   route for users is wrapped in `usersOnly`, whose handler is handed the
@@ -32,15 +32,26 @@ go test ./...
   mail server that's down, or a restart, doesn't lose any: a job that
   fails runs again later. Jobs can run on a schedule too, as `prune-jobs`
   does every night. `QUEUE_WORKERS` is how many run at once.
+[[- if .Vue ]]
+- `resources/js`: Vue with Tailwind and [shadcn-vue](https://www.shadcn-vue.com)
+  components, which `npx shadcn-vue@latest add` adds more of.
+[[- else if .Svelte ]]
+- `resources/js`: Svelte with Tailwind and
+  [shadcn-svelte](https://shadcn-svelte.com) components, in the classic
+  style that shadcn/ui's have in React. Its CLI adds more of them from the
+  classic registry, as its default is its newer styles:
+  `COMPONENTS_REGISTRY_URL=https://shadcn-svelte.com/registry npx shadcn-svelte@latest add table`.
+[[- else ]]
 - `resources/js`: React with Tailwind and [shadcn/ui](https://ui.shadcn.com)
-  components, which `npx shadcn@latest add` adds more of. The layouts are
-  in `layouts/`, and `inertia.tsx`, which makes the app, says which page
+  components, which `npx shadcn@latest add` adds more of.
+[[- end ]] The layouts are
+  in `layouts/`, and `inertia.[[ .Script ]]`, which makes the app, says which page
   has which.
-[[- if .SSR ]] `app.tsx` is the app in the browser, and `ssr.tsx`
+[[- if .SSR ]] `app.[[ .Script ]]` is the app in the browser, and `ssr.[[ .Script ]]`
   the app on the server: a first visit's page renders there first, with
   Node, which the app runs beside it from the SSR build in `ssr/build`,
   or under tug dev, with Vite.
-[[- else ]] `app.tsx` is the app in the browser.
+[[- else ]] `app.[[ .Script ]]` is the app in the browser.
 [[- end ]]
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.

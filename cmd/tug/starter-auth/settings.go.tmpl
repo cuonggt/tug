@@ -170,7 +170,7 @@ func (a *app) updatePassword(c *tug.Ctx, user *User) error {
 
 // appearancePage is where a user picks light, dark, or what their system
 // says. The choice is the browser's to keep: see
-// resources/js/hooks/use-appearance.ts.
+// [[ .AppearanceFile ]].
 func appearancePage(c *tug.Ctx, _ *User) error {
 	return Appearance.Render(c, NoProps{})
 }

@@ -79,8 +79,64 @@ these doesn't compile:
 When a Go field is renamed, removed or given another type, the next
 `tug gen` changes its interface, and every component that uses the old
 field stops compiling. `tug build` type-checks before it builds, with the
-app's `typecheck` script (`tsc --noEmit` in the starters); Vite's build
-alone doesn't check types.
+app's `typecheck` script (`tsc --noEmit` in React's starters, vue-tsc in
+Vue's and svelte-check in Svelte's); Vite's build alone doesn't check
+types.
+
+## Vue and Svelte
+
+The types are the same for every frontend: `pages.ts` extends
+`@inertiajs/core`, which Inertia's Vue and Svelte adapters read as React's
+does. A Svelte page takes its props as a React one does:
+
+```svelte
+<script lang="ts">
+  import { Link } from '@inertiajs/svelte'
+  import type { PageProps } from '../../tug/pages'
+  import { route } from '../../tug/routes'
+
+  let { post, appName }: PageProps<'Posts/Show'> = $props()
+</script>
+
+<article>
+  <h1>{post.title}</h1>
+  <p>{post.body}</p>
+  <Link href={route('posts.edit', { id: post.id })}>Edit</Link>
+  <footer>{appName}</footer>
+</article>
+```
+
+A Vue page spells its props out:
+
+```vue
+<script setup lang="ts">
+import { Link } from '@inertiajs/vue3'
+import type { Pages, SharedProps } from '../../tug/pages'
+import { route } from '../../tug/routes'
+
+defineProps<Pages['Posts/Show'] & SharedProps>()
+</script>
+
+<template>
+  <article>
+    <h1>{{ post.title }}</h1>
+    <p>{{ post.body }}</p>
+    <Link :href="route('posts.edit', { id: post.id })">Edit</Link>
+    <footer>{{ appName }}</footer>
+  </article>
+</template>
+```
+
+Vue's compiler makes the component's props, as they are when it runs, from
+the type `defineProps` is given, and it can't work out `PageProps<'...'>`,
+whose `Pages[C]` has a type parameter for a key: the page type-checks, and
+then doesn't build. `Pages['Posts/Show'] & SharedProps` is the same props,
+which it can.
+
+vue-tsc and svelte-check are built on TypeScript's compiler API, as is
+Vue's compiler when it reads a type from another file. TypeScript 7, which
+is tsc rewritten in Go, has none yet, so the Vue and Svelte starters have
+TypeScript 6, where React's have 7.
 
 ## How tug gen learns the app
 

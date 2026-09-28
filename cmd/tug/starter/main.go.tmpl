@@ -1,4 +1,4 @@
-// Command [[ .Name ]] is a tug app: Go handlers, React pages, and Inertia in
+// Command [[ .Name ]] is a tug app: Go handlers, [[ .Framework ]] pages, and Inertia in
 // between.
 //
 //	tug dev      run it, rebuilt and reloaded as it changes
@@ -119,7 +119,7 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 	return app, nil
 }
 
-// HomeProps are the props of the home page, resources/js/pages/Home.tsx,
+// HomeProps are the props of the home page, resources/js/pages/Home.[[ .Component ]],
 // which tug gen writes the TypeScript of.
 type HomeProps struct {
 	Greeting string `json:"greeting"`
