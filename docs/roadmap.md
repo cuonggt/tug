@@ -924,7 +924,7 @@ what nearly every app needs, and where tug stopped halfway. `c.Bind` put an
 uploaded file in a `*multipart.FileHeader` field, as Inertia's client
 sends a form with one, but there was nowhere to keep it, no link to serve
 it back by, public or private, nothing checked its size or its type, and a
-test couldn't send one. To be released as v0.11.0.
+test couldn't send one. Released as v0.11.0.
 
 - **Package `storage`.** A `Disk` keeps files by key: `Put` streams one
   in from a reader, with its size and type, `Open` reads it back, `Delete`
