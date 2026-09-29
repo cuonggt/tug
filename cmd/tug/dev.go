@@ -336,7 +336,7 @@ func snapshot(root string) map[string]stamp {
 			}
 			return nil
 		}
-		if !watched(name) {
+		if !watched(root, path) {
 			return nil
 		}
 		if info, err := d.Info(); err == nil {
@@ -347,10 +347,17 @@ func snapshot(root string) map[string]stamp {
 	return files
 }
 
-func watched(name string) bool {
+// watched reports whether the file at path, under root, is one the Go
+// server is built from: Go, go.mod and go.sum, templates, and the
+// languages in lang/, which the binary embeds.
+func watched(root, path string) bool {
+	name := filepath.Base(path)
 	switch filepath.Ext(name) {
 	case ".go", ".html", ".tmpl", ".gohtml":
 		return true
+	case ".json":
+		rel, err := filepath.Rel(root, path)
+		return err == nil && filepath.Dir(rel) == "lang"
 	}
 	return name == "go.mod" || name == "go.sum"
 }

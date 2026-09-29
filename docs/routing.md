@@ -47,6 +47,8 @@ Every field has a default, so the zero `Config` works:
 | `Session`         | none                  | Keeps each visitor's session, which carries flash data and validation errors to the next page. See [forms.md](forms.md). |
 | `URL`             | none                  | The app's own address, as `https://example.com`, which the links that leave the app begin with. See [Whole links, and signed ones](#whole-links-and-signed-ones). |
 | `Keys`            | none                  | The app's keys, which sign the links `SignedURL` makes. |
+| `Lang`            | none: English         | The app's languages, which what tug says, and `c.T`, are said in. See [Languages](languages.md). |
+| `Locale`          | none                  | The language the app has chosen for a request, as a user's, before the browser's `Accept-Language`. See [Languages](languages.md#the-requests-language). |
 
 `ConfigFromEnv` reads `ADDR`, the address to listen on, such as
 `127.0.0.1:8080`; or else `PORT`, as platforms such as Cloud Run and Fly.io
@@ -410,6 +412,7 @@ as a goroutine that outlives the handler would.
 | `Param(name)` | The value of the path wildcard `{name}`. |
 | `Query(name)` | The first value of the query parameter `name`. |
 | `IP()`        | The address the request came from, without its port: the client's, behind the proxies `TrustProxies` names. |
+| `Locale()`    | The request's language, as `"vi"`: the app's choice for it, or else the browser's, or else the app's default. `c.T` and `c.Choice` say texts in it ([Languages](languages.md)). |
 | `Written()`   | Whether the response has started. After that, its status and headers can't change. |
 
 The responses set the status and the `Content-Type`, and write the body.

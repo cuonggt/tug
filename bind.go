@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cuonggt/tug/internal/label"
 )
 
 // Bind fills the struct dst points to from the request. Each field's tags
@@ -50,8 +52,14 @@ import (
 // naming the field. The fields after it are still bound, so that checking
 // them, as BindValid does, finds what's really wrong with them rather than
 // what's missing. A body over Config.BodyLimit is a 413, and a body Bind
-// can't read is a 415.
+// can't read is a 415. The messages are in the request's language (see
+// Ctx.Locale), and name a field by its label tag, or else by its key made
+// into words.
 func (c *Ctx) Bind(dst any) error {
+	return c.said(c.bind(dst))
+}
+
+func (c *Ctx) bind(dst any) error {
 	v := reflect.ValueOf(dst)
 	if v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("tug: Bind needs a pointer to a struct, not %T", dst)
@@ -71,7 +79,7 @@ func (c *Ctx) Bind(dst any) error {
 			continue
 		}
 		if err := setValues(v.FieldByIndex(f.index), lookup(c.queryValues(), f.query)); err != nil {
-			err = bindFailed(http.StatusBadRequest, f.query, err)
+			err = bindFailed(http.StatusBadRequest, f.query, f.label, err)
 			if !isBindError(err) {
 				return err
 			}
@@ -83,11 +91,44 @@ func (c *Ctx) Bind(dst any) error {
 			continue
 		}
 		if err := setValues(v.FieldByIndex(f.index), []string{c.r.PathValue(f.path)}); err != nil {
-			return bindFailed(http.StatusNotFound, f.path, err) // no such page, whatever else is wrong
+			return bindFailed(http.StatusNotFound, f.path, f.label, err) // no such page, whatever else is wrong
 		}
 	}
 	return first
 }
+
+// said has the message of an error Bind returns in the request's language:
+// a value that didn't parse, or a body that isn't JSON.
+func (c *Ctx) said(err error) error {
+	var he *HTTPError
+	if err == nil || !errors.As(err, &he) || he.Message == "" {
+		return err
+	}
+	if be, ok := he.Err.(*BindError); ok {
+		he.Message = c.bindMessage(be)
+	} else if he.Message == invalidJSON {
+		he.Message = c.T(invalidJSON)
+	}
+	return err
+}
+
+// bindMessage says what's wrong with a value Bind couldn't parse, in the
+// request's language, as "age must be a whole number": the field by its
+// label, or else by the last part of its key, made into words.
+func (c *Ctx) bindMessage(be *BindError) string {
+	name := be.label
+	if name == "" {
+		key := be.Field
+		if i := strings.LastIndex(key, "."); i >= 0 {
+			key = key[i+1:]
+		}
+		name = label.Readable(key)
+	}
+	return c.T(":field "+be.Reason, "field", c.T(name))
+}
+
+// invalidJSON is what a JSON body that doesn't parse is told.
+const invalidJSON = "invalid JSON"
 
 // isBindError reports whether err is a value that didn't parse, rather
 // than a request Bind can't read at all.
@@ -165,10 +206,36 @@ func bindJSON(data []byte, dst any) error {
 	}
 	var te *json.UnmarshalTypeError
 	if errors.As(err, &te) && te.Field != "" {
-		be := &BindError{Field: te.Field, Reason: reasonFor(te.Type), Err: err}
+		be := &BindError{Field: te.Field, Reason: reasonFor(te.Type), Err: err, label: jsonLabel(v.Type(), te.Field)}
 		return &HTTPError{Code: http.StatusBadRequest, Message: be.Error(), Err: be}
 	}
-	return &HTTPError{Code: http.StatusBadRequest, Message: "invalid JSON", Err: err}
+	return &HTTPError{Code: http.StatusBadRequest, Message: invalidJSON, Err: err}
+}
+
+// jsonLabel is the label tag of the field a JSON type error's path names
+// in t, as "lines.quantity", which leaves out the lists' indexes and the
+// maps' keys on the way, or "" when it has none.
+func jsonLabel(t reflect.Type, path string) string {
+	parts := strings.Split(path, ".")
+	for i, part := range parts {
+		for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map {
+			t = t.Elem()
+		}
+		if t.Kind() != reflect.Struct {
+			return ""
+		}
+		fields := jsonFieldsOf(t)
+		at := slices.IndexFunc(fields, func(f jsonField) bool { return f.name == part })
+		if at < 0 {
+			return ""
+		}
+		sf := t.FieldByIndex(fields[at].index)
+		if i == len(parts)-1 {
+			return sf.Tag.Get("label")
+		}
+		t = sf.Type
+	}
+	return ""
 }
 
 // bodyFailed is the error for a body that couldn't be read.
@@ -203,7 +270,7 @@ func bindForm(v reflect.Value, fields []field, values url.Values, files map[stri
 			}
 		default:
 			if err := setValues(fv, lookup(values, f.form)); err != nil {
-				err = bindFailed(http.StatusBadRequest, f.form, err)
+				err = bindFailed(http.StatusBadRequest, f.form, f.label, err)
 				if !isBindError(err) {
 					return err
 				}
@@ -223,15 +290,16 @@ func lookup[T any](m map[string][]T, name string) []T {
 	return m[name+"[]"]
 }
 
-// bindFailed turns a value that didn't parse into the error Bind returns.
-// A field that Bind can't fill at all is the program's mistake rather than
-// the client's, and stays a plain error: a 500.
-func bindFailed(code int, name string, err error) error {
+// bindFailed turns a value that didn't parse into the error Bind returns,
+// for the field a client sends under name, with its label tag. A field
+// that Bind can't fill at all is the program's mistake rather than the
+// client's, and stays a plain error: a 500.
+func bindFailed(code int, name, label string, err error) error {
 	var be *BindError
 	if !errors.As(err, &be) {
 		return err
 	}
-	be.Field = name
+	be.Field, be.label = name, label
 	if code == http.StatusNotFound {
 		return &HTTPError{Code: code, Err: be}
 	}
@@ -331,6 +399,14 @@ func setScalar(v reflect.Value, s string) error {
 	return nil
 }
 
+// bindReasons are what reasonFor says, in English: a message is a field's
+// name and one of them, ":field must be a whole number", as a language's
+// file has it.
+var bindReasons = []string{
+	"must be a date", "is invalid", "must be a whole number", "must be a whole number, 0 or more",
+	"must be a number", "must be true or false", "must be text", "must be a list", "must be an object",
+}
+
 // reasonFor says what a value for a field of type t has to be, in words for
 // the person who sent it.
 func reasonFor(t reflect.Type) string {
@@ -388,10 +464,12 @@ func parseTime(s string) (time.Time, error) {
 	return time.Time{}, err
 }
 
-// field is where Bind finds a struct field's value.
+// field is where Bind finds a struct field's value, and its label tag, for
+// a message about it.
 type field struct {
 	index             []int
 	path, query, form string
+	label             string
 }
 
 var fieldCache sync.Map // reflect.Type → []field
@@ -424,6 +502,7 @@ func collectFields(t reflect.Type, index []int) []field {
 			path:  sf.Tag.Get("path"),
 			query: sf.Tag.Get("query"),
 			form:  formName(sf),
+			label: sf.Tag.Get("label"),
 		})
 	}
 	return fs

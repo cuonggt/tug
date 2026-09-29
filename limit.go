@@ -2,7 +2,6 @@ package tug
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -35,10 +34,9 @@ func Limit(l Limiter, key func(c *Ctx) string, h HandlerFunc) HandlerFunc {
 		}
 		seconds := int(math.Ceil(wait.Seconds()))
 		c.Response().Header().Set("Retry-After", strconv.Itoa(seconds))
-		unit := "seconds"
-		if seconds == 1 {
-			unit = "second"
-		}
-		return NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("too many requests: wait %d %s, and try again", seconds, unit))
+		return NewHTTPError(http.StatusTooManyRequests, c.Choice(tooManyRequests, seconds))
 	}
 }
+
+// tooManyRequests is what a request over its limit is told.
+const tooManyRequests = "too many requests: wait :count second, and try again|too many requests: wait :count seconds, and try again"

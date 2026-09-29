@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M19 are done, which is
+the decisions behind it and where it stands: M1 to M20 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -28,9 +28,12 @@ starter's profile photo, Postgres and MySQL (v0.12.0): `tug new
 database, jobs claimed with `SKIP LOCKED`, and `tug.Generating`, and
 throttles across instances (v0.13.0): `auth.ThrottleStore`, the auth
 starter's throttles counted in its database, and `tug.Limit`, a limit
-for a route, and proxies and signed links (v0.14.0):
+for a route, proxies and signed links (v0.14.0):
 `middleware.TrustProxies` and `c.IP`, `Config.URL` from `APP_URL`, which
-`tug dev` sets, `AbsoluteURL`, and `SignedURL` with `tug.Signed`.
+`tug dev` sets, `AbsoluteURL`, and `SignedURL` with `tug.Signed`, and
+languages (v0.15.0): package `lang`, what tug says, a form's errors among
+it, and `c.T`, in the request's language, fields named by their `label`
+tags or their keys in words, `validate.Rule`, and `tug lang`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -119,9 +122,12 @@ dev server that isn't there: delete it.
     whole mux, so it sees 404s; group and route middleware wrap the route.
   - `ctx.go`: `Ctx`, the responses, `Param`, `Query` and `IP` (the
     RemoteAddr's address, which `middleware.TrustProxies` has made the
-    client's), and `Redirect`, which is a 302 after GET and a 303 after
-    anything else, as Inertia needs; `RedirectBack` goes to the Referer
-    when it's this site's (`back`, in forms.go).
+    client's), `Locale` (`App.Locale`'s, in app.go: `Config.Locale`, the
+    app's choice, then `Accept-Language`, then `Config.Lang`'s default;
+    kept once picked), `T` and `Choice` (through `words`), and
+    `Redirect`, which is a 302 after GET and a 303 after anything else, as
+    Inertia needs; `RedirectBack` goes to the Referer when it's this
+    site's (`back`, in forms.go).
   - `bind.go`: `Bind` reads the body (JSON, urlencoded, multipart), then the
     query, then path values, so the URL wins. A value that doesn't parse is
     a `*BindError` inside an `*HTTPError`: 400, or 404 for a path value. A
@@ -130,7 +136,13 @@ dev server that isn't there: delete it.
     strings for bools, numbers and times parsed as form values, as
     Inertia's `<Form>` sends every value as a string; it finds fields by
     `encoding/json`'s rules (`jsonFieldsOf`), and `bindJSON` restores `dst`
-    before the second decode.
+    before the second decode. `Bind` says its messages in the request's
+    language (`said`, `bindMessage`: ":field " and one of `bindReasons`),
+    naming the field by its `label` tag (`field.label`, or `jsonLabel`
+    down a JSON error's path, which leaves out indexes) or its key's last
+    part in words.
+  - `texts.go`: `texts`, what tug says to a person, in English, with
+    validate's, which `App.gen` writes beside the types, for tug lang.
   - `errors.go`: `HTTPError`, `BindError`, `PanicError`,
     `DefaultErrorHandler`, and `errorPage`, which renders
     `Config.ErrorPage` with `RenderStatus` for browsers and Inertia's
@@ -194,12 +206,35 @@ dev server that isn't there: delete it.
   drops.
 - `validate`: `Struct` over one go-playground validator that names fields
   by json tag, or else form tag; `path` turns its namespace into dotted
-  paths, and `message` its tags into sentences. `Errors` is
-  `map[string]string`, first message per field. Two tags are tug's own,
-  for a `*multipart.FileHeader` (`uploaded`): `file_max` (`sizeLimit`
-  reads `2MB` and says it `2 MB`) and `file_type`, the type by the file's
-  first bytes; a type sniffing can't tell, a size that isn't one, or a
-  field that isn't an upload panics.
+  paths, and `message` its tags into sentences, in the `lang.Words`
+  `Struct` is given, or English: its texts are `plain`, `valued` and
+  `bounds` (a text's characters, a list's items, a number), with a form
+  for one and for more; the field is named by `internal/label`
+  (`fieldName`, `sibling` for eqfield's other, both through
+  `structField`). `Rule[T]` registers a tag of the app's under `mu`,
+  which `Struct` reads under, as go-playground takes one only before it
+  checks; `rules` keeps their messages, and `Texts` lists them all.
+  `Errors` is `map[string]string`, first message per field. Two tags are
+  tug's own, for a `*multipart.FileHeader` (`uploaded`): `file_max`
+  (`sizeLimit` reads `2MB` as `2` and `MB`) and `file_type`, the type by
+  the file's first bytes; a type sniffing can't tell, a size that isn't
+  one, or a field that isn't an upload panics.
+- `lang`: an app's languages, with no import of tug. `lang.go`: `Load`
+  reads a JSON file per language, keyed by the English (`canonical`
+  tags, `validTag`), into a `Catalog` whose languages are the default and
+  the files; `Find` resolves a tag (exact, its language, a region of it),
+  `Match` an `Accept-Language` (`accepted`, by weight); `In` is a
+  language's `Words`, whose `T` and `Choice` `lookup` the text in the
+  language, its language without the region, `en.json`, or else say the
+  English, and `fill` its `:name` placeholders (`value`, with `:Name` and
+  `:NAME`) in one pass. `plural.go`: `choose` a form of `|` for a count,
+  a form's own counts (`interval`, `{0}`, `[2,*]`) first, then
+  `pluralIndex`, Laravel's rules by language (`pluralRules`). A nil
+  Catalog, and the zero Words, are English.
+- `internal/label`: how a message names a field: `Of`, its label tag or
+  `Readable`, its key in words (`first_name` and `firstName` as "first
+  name", `URLPath` as "url path"), which validate, Bind and tug lang
+  share.
 - `storage`: files, with no import of tug. `storage.go`: `Disk` (`Put`,
   `Open`, `Delete`, `URL`), `checkKey` (an `fs.ValidPath`, no backslash),
   `PutUpload`, which keeps an upload under a random key with its sniffed
@@ -236,12 +271,19 @@ dev server that isn't there: delete it.
   `App.gen` in app.go, reached from Run when TUG_GEN names a file, and the
   page registry `declare`d by `tug.Page` in pages.go.
 - `cmd/tug`: the CLI, on the stdlib flag package. `gen.go` builds the app
-  into `.tug/app` and runs it with TUG_GEN; `dev.go` runs Vite and the app
+  into `.tug/app` and runs it with TUG_GEN (`runForGen`, which reads back
+  the types and tug's texts, `generated`); `lang.go` is tug lang: tug's
+  texts from that run, and the app's own from its Go (`appTexts`: `T` and
+  `Choice` literals, and `fieldTexts`, the names of fields with validate,
+  form, query or path tags, eqfield's others, and file_type's names),
+  added to `lang/<lang>.json` (`addTexts`, sorted, only when it adds);
+  `dev.go` runs Vite and the app
   as processes in their own groups (`proc`, `proc_unix.go`), polls for
   changes (`watch`, `snapshot`), touches `.tug/reload` for the starter's
   Vite plugin to reload the browser, and shows 127.0.0.1 as localhost
   (`shown`), where browsers make passkeys, which is the app's `APP_URL`
-  unless it has one (`devEnv`); `build.go`; `new.go`
+  unless it has one (`devEnv`), and rebuilds on `lang/*.json` too
+  (`watched`); `build.go`; `new.go`
   (`writeStarter`) lays directories over each other, a later one's files
   replacing an earlier one's of the same name: `starter/`, the Go and what
   every frontend uses, then the frontend's own, `react/`, `vue/` or
@@ -336,7 +378,9 @@ dev server that isn't there: delete it.
   share a login's count. They count by `c.IP()`, behind the proxies
   `TRUSTED_PROXIES` names, which both starters hand `TrustProxies`; the
   links in mail are `a.routes.AbsoluteURL`'s, and `newApp` stops without
-  `APP_URL`, but under tug gen.
+  `APP_URL`, but under tug gen. Both starters embed `lang/` (a
+  `.gitkeep` until there's a file) and load it in `newApp`, with
+  `APP_LOCALE` for the default.
   The mail goes by jobs (`VerifyMail` in `verify.go.tmpl`, `ResetMail` in
   `auth.go.tmpl`) that carry IDs and make the mail, token and all, as they
   run; `main` runs the queue with `app.Go`, unless `QUEUE_WORKERS` is 0,

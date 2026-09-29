@@ -137,8 +137,9 @@ The rules are the tags of
 separated by commas. `omitempty` skips the rest for an empty value. A field
 that's a struct is checked by its own fields' tags, and a list of structs
 needs `dive` for its items to be checked. tug writes a sentence for these
-tags, and "*field* is invalid" for any other. The limits count characters
-for text, items for a list or map, and the value itself for a number.
+tags, and for a [rule of the app's own](#rules-of-the-apps-own), and
+"*field* is invalid" for any other. The limits count characters for text,
+items for a list or map, and the value itself for a number.
 `file_max` and `file_type` are tug's own, for an upload: its size, and
 what it is by its first bytes ([Files](files.md#checking-uploads)):
 
@@ -155,19 +156,34 @@ what it is by its first bytes ([Files](files.md#checking-uploads)):
 | `alpha`; `alphanum` | code must contain only letters; code must contain only letters and numbers |
 | `numeric`, `number` | zip must be a number |
 | `boolean` | terms must be true or false |
-| `datetime` | starts_at must be a valid date |
-| `eqfield`; `nefield` | password_confirmation must match password; new_password must be different from password |
+| `datetime` | starts at must be a valid date |
+| `eqfield`; `nefield` | password confirmation must match password; new password must be different from password |
 | `contains`; `excludes` | password must contain "!"; username must not contain "@" |
 | `startswith`; `endswith` | handle must start with "@"; domain must end with ".com" |
 | `unique` | tags must not repeat a value |
 | `file_max`; `file_type` | photo must be at most 2 MB; photo must be a PNG or JPEG image |
 
-Fields are named as the client named them: by the json tag, or by the Go
-name when there's none. A nested field is named by its dotted path, a
-list's index included: the second line's quantity is `lines.1.quantity`,
-which is `errors['lines.1.quantity']` in TSX, and its message is "quantity
-must be at least 1". An input type can be anonymous, as
-`var in struct{...}` is, and its fields are named the same way.
+An error is under the field's name as the client named it: by the json
+tag, or by the Go name when there's none. A nested field is under its
+dotted path, a list's index included: the second line's quantity is
+`lines.1.quantity`, which is `errors['lines.1.quantity']` in TSX. An input
+type can be anonymous, as `var in struct{...}` is, and its fields are
+named the same way.
+
+A message names the field as a person reads it: by its `label` tag, or
+else by its name made into words, `starts_at` or `startsAt` as "starts
+at", and a nested field by its own part, as the second line's quantity is
+"quantity must be at least 1":
+
+```go
+type SignupInput struct {
+	Email   string `json:"email" label:"email address" validate:"required,email"` // "email address is required"
+	Confirm string `json:"email_confirmation" validate:"eqfield=Email"`             // "email confirmation must match email address"
+}
+```
+
+The messages, and the fields' names, are in the request's language: see
+[Languages](languages.md).
 
 A value that doesn't parse, from the body or the query, is a field error
 too: "five" for an `int` is `"stars": "stars must be a whole number"`. The
@@ -176,12 +192,38 @@ everything at once, and the parse error is the message its field keeps. A
 path value that doesn't parse is still a 404, and a body Bind can't read,
 such as JSON that isn't, still fails as [Routing](routing.md) describes.
 
+### Rules of the app's own
+
+```go
+validate.Rule("slug", func(s string, _ string) bool {
+	return slugPattern.MatchString(s)
+}, ":field must be letters, digits and dashes")
+
+type PostInput struct {
+	Slug string `json:"slug" validate:"required,slug"` // "slug must be letters, digits and dashes"
+}
+```
+
+`validate.Rule(name, check, message)` adds a tag: `check` takes the
+field's value, as its own type, and the tag's parameter, `"VN"` for
+`phone=VN`, and says whether the value keeps the rule; `message` says
+what's wrong when it doesn't, in English, with `:field` for the field's
+name and `:param` for the parameter, as a [language's file](languages.md)
+translates it. The value's type is the rule's `T`, or a type of the same
+kind, as a `type Slug string` is a string, or one with the interface `T`
+is; a field of another type panics as it's checked, which a test finds.
+
+Rules are added as the app starts, as its routes are, in `main` or in the
+function that makes the app, which the tests call too: a rule added again
+replaces the one before. A name the validator keeps for itself, as
+`omitempty` or `dive`, panics.
+
 ## Checks of the handler's own
 
 ```go
 err := c.BindValid(&in, func(errs validate.Errors) {
 	if posts.TitleTaken(in.Title) {
-		errs.Add("title", "another post has that title")
+		errs.Add("title", c.T("another post has that title"))
 	}
 })
 ```
@@ -208,7 +250,8 @@ for a wrong password (see [Accounts](auth.md)).
 request, with the same answers, such as a draft about to be published:
 `c.Validate(PostInput{Title: draft.Title, Body: draft.Body})`.
 `validate.Struct(v)` is the check alone, for code with no request: it
-returns `validate.Errors`, or nil.
+returns `validate.Errors`, or nil, in English, or in a language it's
+given, as `validate.Struct(v, catalog.In("vi"))`.
 
 ## Checking each field as it's left
 

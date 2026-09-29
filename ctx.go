@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug/internal/rw"
+	"github.com/cuonggt/tug/lang"
 )
 
 // Ctx is a request and its response, as a handler sees them. It belongs to
@@ -23,6 +24,9 @@ type Ctx struct {
 
 	// body is the JSON body, once Bind has read it.
 	body []byte
+
+	// locale is the request's language, once Locale has picked it.
+	locale string
 
 	// flash and clearHistory are what this request has for the next page
 	// shown; see Flash.
@@ -73,6 +77,34 @@ func (c *Ctx) AbsoluteURL(name string, params ...any) (string, error) {
 // SignedURL builds a signed link to a named route, as App.SignedURL does.
 func (c *Ctx) SignedURL(name string, expires time.Time, params ...any) (string, error) {
 	return c.app.SignedURL(name, expires, params...)
+}
+
+// Locale returns the request's language, as App.Locale picks it: the one
+// the app chose for it with Config.Locale, or else the browser's, of the
+// app's languages, or else the app's default.
+func (c *Ctx) Locale() string {
+	if c.locale == "" {
+		c.locale = c.app.Locale(c.r)
+	}
+	return c.locale
+}
+
+// T says text in the request's language, as lang.Words.T does, from
+// Config.Lang: c.T("Welcome back, :name", "name", user.Name), for a flash
+// message. A text the language has no words for says itself, in English.
+func (c *Ctx) T(text string, args ...any) string {
+	return c.words().T(text, args...)
+}
+
+// Choice says text for a count in the request's language, as
+// lang.Words.Choice does: c.Choice(":count post deleted|:count posts
+// deleted", n).
+func (c *Ctx) Choice(text string, n int, args ...any) string {
+	return c.words().Choice(text, n, args...)
+}
+
+func (c *Ctx) words() lang.Words {
+	return c.app.config.Lang.In(c.Locale())
 }
 
 // IP returns the address the request came from, without its port, as

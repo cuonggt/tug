@@ -14,8 +14,9 @@ import (
 // the response: NewHTTPError(http.StatusNotFound) is a 404.
 //
 // Message is shown to the client, so it says what went wrong in their
-// terms. Err is the cause, for the log; only Config.Debug shows it, in a
-// server error's response.
+// terms, and in their language, with Ctx.T; without one, the status's text
+// is shown, in the request's language. Err is the cause, for the log; only
+// Config.Debug shows it, in a server error's response.
 type HTTPError struct {
 	Code    int
 	Message string
@@ -52,6 +53,8 @@ type BindError struct {
 	Field  string // the key the value came under: a form or query key, JSON path or path wildcard
 	Reason string // what the value has to be, as "must be a whole number"
 	Err    error  // the parse error underneath
+
+	label string // the field's label tag, which a message names it by
 }
 
 func (e *BindError) Error() string { return e.Field + " " + e.Reason }
@@ -98,7 +101,7 @@ func DefaultErrorHandler(c *Ctx, err error) {
 		code = http.StatusInternalServerError // WriteHeader would panic
 	}
 	if message == "" {
-		message = http.StatusText(code)
+		message = c.T(http.StatusText(code))
 	}
 	var pe *PanicError
 	panicked := errors.As(err, &pe)

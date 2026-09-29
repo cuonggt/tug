@@ -25,7 +25,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M17 | Postgres and MySQL         | done   |
 | M18 | Throttles across instances | done   |
 | M19 | Proxies and signed links   | done   |
-| M20 | Languages                  | later  |
+| M20 | Languages                  | done   |
 | M21 | Pagination                 | later  |
 | M22 | Commands                   | later  |
 
@@ -1444,82 +1444,134 @@ Choices made on the way:
   waits, and the account's owner, from another address through it, logs
   in.
 
-## M20 · Languages — later
+## M20 · Languages — done
 
-Everything tug says to a person is in English: `validate`'s messages,
+Everything tug said to a person was in English: `validate`'s messages,
 `Bind`'s, as "age must be a whole number", a 429's wait, and the status
-on an error page, and an app can only say them otherwise by replacing
-them. Nor can it add a rule to the tags, as `slug` or a phone number,
+on an error page, and an app could only say them otherwise by replacing
+them. Nor could it add a rule to the tags, as `slug` or a phone number,
 other than as a check in each handler, as `validate`'s validator is its
-own; and a message names a field by its key, "first_name is required".
+own; and a message named a field by its key, "first_name is required".
 Laravel has all three: an app's own rules, the names people read, its
 `attributes`, and every message in `lang/`, in the request's language,
 with `__()` for the app's own words. To be released as v0.15.0.
 
-- **Package `lang`.** A language is a JSON file of texts, each in English
-  and in the language, as Laravel's `lang/vi.json` is, in a directory the
+- **Package `lang`.** A language is a JSON file of texts, each under what
+  it says in English, as Laravel's `lang/vi.json` is, in a directory the
   app embeds, `lang/`, which `lang.Load` reads into a `lang.Catalog`, with
-  the app's default language. `T(locale, text, args...)` says a text in a
-  language, its `:name` placeholders filled from `args`, in pairs as slog
-  takes them, and a text the language doesn't have says itself, in
-  English. `Config.Lang` is the app's catalog.
-- **The request's language.** `c.Locale()`: what the app chose for the
-  request with `lang.WithLocale`, in a middleware of its own, from what a
-  user picked; or else the best of its languages for the browser's
-  `Accept-Language`; or else its default. `c.T(text, args...)` says a text
-  in it, for a flash message; a job, with no request, gives `T` the
-  language it carries.
+  the app's default language. `catalog.In(locale)` is a language's
+  `lang.Words`, whose `T(text, args...)` says a text, its `:name`
+  placeholders filled from `args`, in pairs as slog takes them, and a
+  text the language doesn't have says itself, in English.
+  `Config.Lang` is the app's catalog.
+- **The request's language.** `c.Locale()`: the app's choice for the
+  request, `Config.Locale`, from what a user picked; or else the best of
+  its languages for the browser's `Accept-Language`; or else its
+  default. `c.T(text, args...)` says a text in it, for a flash message,
+  and `app.Locale(r)` is the same for code with the request alone, as a
+  props function every page shares.
 - **tug says it in the request's language:** `BindValid`'s and
-  `Validate`'s errors, `Bind`'s, a 429's wait, and an error page's status.
-  A message names a field as a person would, by its key made readable,
-  `first_name` as "first name", or by its `label` tag, and in the
-  language's words for that.
+  `Validate`'s errors, `Bind`'s, a 429's wait, a signed link's, and an
+  error page's status. A message names a field as a person would, by its
+  `label` tag, or else by its key made into words, `first_name` and
+  `firstName` as "first name", and in the language's words for that.
 - **Rules of the app's.** `validate.Rule(name, check, message)` adds a
   tag, as `slug`, with its check of a field's value, as the value's own
   type, and its message in English, which a language's file translates.
-- **Plurals,** as Laravel's `trans_choice` has them: a text's forms,
-  split by `|`, and the one for a count picked by the language's rule, as
+- **Plurals,** as Laravel's `trans_choice` has them: `Choice(text, n)`
+  says a text's form for a count, of those split by `|`, by the
+  language's rules, or by the counts a form names, `{0}` or `[2,*]`, as
   tug's messages with a number pick theirs: "at most 1 character", "at
   most 80 characters".
-- **`tug lang vi`** writes `lang/vi.json`, with every text tug says and
-  every text the app's Go gives `T` in quotes, in English, to be
-  translated, and adds to a file that's there the texts it hasn't got.
+- **`tug lang vi`** writes `lang/vi.json`, with every text tug says, the
+  messages of the app's rules, its fields' names and the texts its Go
+  gives `T` and `Choice` in quotes, in English, to be translated, and adds
+  to a file that's there the texts it hasn't got.
 - **The starters** have a `lang/`, empty but for its `.gitkeep`, embedded
-  as `public/` is before a build, so tug's words in another language are
-  a file an app adds.
-- **The guide:** a page, Languages, and Forms where it has the messages.
+  as `public/` is before a build, loaded in `newApp` with `APP_LOCALE`,
+  the default, so tug's words in another language are a file an app adds.
+- **The guide:** a page, Languages, and Forms, Routing, the CLI and the
+  README where they meet it.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **JSON, keyed by the English,** as Laravel's `lang/*.json`: a file a
   translator edits without Go, which a frontend's i18n library can read
   as well, and the English stays in the code where it's said, so a text
   no one has translated still says something. Not a Go function per
   language, which only a programmer edits, nor `.po` files, which need a
-  library to read.
+  library to read. A text left empty, as `tug lang` writes one, isn't
+  translated yet.
 - **`:name` placeholders,** as Laravel's, filled by name, as a language
   puts them where its grammar has them: ":field is required", and "Vui
-  lòng nhập :field".
+  lòng nhập :field". `:Field` fills with the value capitalized, as a
+  sentence starts, and `:FIELD` in capitals, as Laravel's do. They're
+  filled in one pass, so a value, a user's name, can't name another.
+- **The app's choice is a function, `Config.Locale`,** where the plan
+  had a middleware of the app's set it with `lang.WithLocale`: the
+  session, where a choice is kept, is inside the App's middleware, which
+  couldn't read it, and a 404's page, which no group's middleware runs
+  for, would be in the browser's language. The function runs inside the
+  session's middleware, for every request.
+- **A language's words are `catalog.In(locale)`,** a `lang.Words`, where
+  the plan had `T(locale, text, args...)`: the text is always `T`'s first
+  argument, which `tug lang` reads from the source, and a job says all
+  its texts in the one language it carries.
+- **`Choice` for a count,** beside `T`, fills `:count` with it, as
+  Laravel's `trans_choice` does; `T` says a text with forms as it's
+  written.
 - **Plural rules are Laravel's,** a switch of languages by how they
-  count, written in Go, where CLDR's would bring `golang.org/x/text`.
-- **`Accept-Language` is tug's to read,** with its weights, and a region
-  matched to its language, `vi-VN` to an app's `vi`, rather than by
+  count, written in Go, where CLDR's would bring `golang.org/x/text`. A
+  text that falls back to English takes English's rules, so a language of
+  one form doesn't say "5 comment".
+- **The app's languages are its default and its files.** English is
+  offered as the default, or with an `en.json`, so an app in Vietnamese
+  alone answers a browser in English in Vietnamese. A text comes from the
+  language, then its language without the region, `pt.json` for `pt-BR`,
+  then `en.json`, which rewords tug's English for every language that
+  hasn't words of its own, then the English itself.
+- **`Accept-Language` is tug's to read,** with its weights, a region
+  matched to its language, `vi-VN` to an app's `vi`, and a language to
+  the one region the app has, `pt` to `pt-BR`, rather than by
   `golang.org/x/text/language`'s matcher, which is large for one header.
+  It reads 32 languages at most, and one weighted 0, or with a weight
+  that isn't one, is left out.
 - **The app's choice first,** then the browser's: someone who picked a
   language keeps it on every browser. Where the choice is kept, a user's
   row or the session, is the app's.
 - **Words for people, not for programmers.** What a person reads is
   translated: a form's errors, a 429, an error page. What a programmer
   reads isn't: the log, panics, and a misused call's errors, as "tug: no
-  route is named ...".
+  route is named ...". An `HTTPError`'s message is shown as it's given,
+  which a handler says with `c.T`; without one, the status's text is
+  said in the request's language.
 - **Readable names change English messages:** "password_confirmation must
-  match password" becomes "password confirmation must match password",
-  which the release's notes say, for tests that compare messages.
-- **Rules are added as the app starts,** as a queue's kinds are handled:
-  the validator takes a new tag only before it has checked anything, and
-  a rule added later panics. A check takes the field's value as its type,
-  as `func(s string, param string) bool`, not go-playground's
-  `FieldLevel`, which stays behind `validate`.
+  match password" became "password confirmation must match password",
+  which the release's notes say, for tests that compare messages. Keys
+  split at underscores, dashes and a change of case, `userID` as "user
+  id", `URLPath` as "url path". A value `Bind` can't parse is named the
+  same way, its path's last part, "age must be a whole number" for
+  `author.age`, where it had the whole path, as validate names a nested
+  field; and by its `label` tag, found down a JSON error's path, which
+  Go writes without the lists' indexes.
+- **Rules can be added whenever, under a lock,** where the plan had one
+  added after the first check panic: go-playground's validator takes a
+  tag only before it checks anything, so `Rule` takes a lock that
+  `Struct` reads under, and a rule added again replaces the one before.
+  An app's tests make the app afresh, and add its rules again. A check
+  takes the field's value as its type, as `func(s string, param string)
+  bool`, not go-playground's `FieldLevel`, which stays behind `validate`,
+  and a field of a type that isn't it, or of its kind, panics.
+- **`tug lang` asks the app, and reads it:** tug's texts, and the app's
+  rules' messages, come from the same run of the app as tug gen's, which
+  writes them beside the types, so they're the app's tug's; the rest from
+  the app's Go, but its tests and its dependencies' directories: `T` and
+  `Choice` literals, the names of fields with validate, form, query or
+  path tags, the fields eqfield compares with, and the file types
+  file_type names, as "a PNG or JPEG image", a text too. It writes the
+  file sorted, with `<` and `&` as they are, and only when it adds.
+- **`tug dev` builds again** when a file in `lang/` changes, as the
+  binary embeds them.
 - **The frontend's words are the frontend's.** A page's own words are in
   its components, which the frontend's i18n library translates, from the
   same files if it likes, as `laravel-vue-i18n` reads Laravel's, and the
@@ -1529,10 +1581,14 @@ Choices, to settle before any code:
   and making a starter ready for many languages, when most apps have one,
   is the app's to choose.
 - **Tests:** the language from the app's choice, from the header with its
-  weights and regions, and the default; every text tug says, translated
-  and not; a rule of the app's, with its message in two languages; plurals
-  in English, and in languages of one form and of three; and `tug lang`'s
-  file, written, and added to.
+  weights and regions, and the default; tug's texts, translated and not,
+  in a form's errors, a bind error by its label, a 429, a 404, a signed
+  link and a body that isn't JSON; the texts tug gen's run writes; a rule
+  of the app's, a rule added again, one on a field of another type, and
+  one named as the validator's own; plurals in English, and in languages
+  of one form and of three, and a form's own counts; the catalog's files,
+  and what's wrong with them; and `tug lang`'s search of an app's Go, and
+  its file, written and added to.
 
 ## M21 · Pagination — later
 

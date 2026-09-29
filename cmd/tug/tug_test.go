@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -61,7 +62,7 @@ func TestTheWatcherSeesGoAndTemplatesButNotTheFrontend(t *testing.T) {
 		os.MkdirAll(filepath.Dir(path), 0o755)
 		os.WriteFile(path, []byte(name+time.Now().String()), 0o644)
 	}
-	for _, f := range []string{"main.go", "go.mod", "app.html", "internal/x/x.go", "node_modules/p/p.go", ".tug/app.go", "public/build/a.html", "resources/js/app.tsx"} {
+	for _, f := range []string{"main.go", "go.mod", "app.html", "internal/x/x.go", "node_modules/p/p.go", ".tug/app.go", "public/build/a.html", "resources/js/app.tsx", "lang/vi.json", "package.json", "resources/js/lang/vi.json"} {
 		write(f)
 	}
 	before := snapshot(root)
@@ -71,7 +72,7 @@ func TestTheWatcherSeesGoAndTemplatesButNotTheFrontend(t *testing.T) {
 		names = append(names, filepath.ToSlash(rel))
 	}
 	slices.Sort(names)
-	if want := []string{"app.html", "go.mod", "internal/x/x.go", "main.go"}; !slices.Equal(names, want) {
+	if want := []string{"app.html", "go.mod", "internal/x/x.go", "lang/vi.json", "main.go"}; !slices.Equal(names, want) {
 		t.Fatalf("watched %v, want %v", names, want)
 	}
 
@@ -464,7 +465,34 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 			if slices.Contains(kind.flags, "-ssr") {
 				rendersOnTheServer(t, dir)
 			}
+			if kind.name == "plain" {
+				writesItsTexts(t, dir)
+			}
 		})
+	}
+}
+
+// writesItsTexts runs tug lang in the app in dir, and checks the file has
+// tug's texts, from the app's run, and the name of the starter's form's
+// field, from its Go.
+func writesItsTexts(t *testing.T, dir string) {
+	t.Helper()
+	t.Chdir(dir)
+	if err := runLang([]string{"vi"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "lang", "vi.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var texts map[string]string
+	if err := json.Unmarshal(data, &texts); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{":field is required", "Not Found", "name"} {
+		if _, ok := texts[want]; !ok {
+			t.Errorf("lang/vi.json hasn't %q", want)
+		}
 	}
 }
 

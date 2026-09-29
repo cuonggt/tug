@@ -6,6 +6,7 @@
 tug new <dir>    make a new app in dir, ready to run
 tug dev          run the app, rebuilding and reloading it as it changes
 tug gen          write the TypeScript of the app's pages and routes
+tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
 tug build        build the app into one binary, with its frontend in it
 tug version      print tug's version
 ```
@@ -13,7 +14,7 @@ tug version      print tug's version
 `tug <command> -h` prints a command's flags. A command that fails says why
 after `tug:`, and exits with status 1.
 
-`tug dev`, `tug gen` and `tug build` run in the app's directory, the one
+`tug dev`, `tug gen`, `tug lang` and `tug build` run in the app's directory, the one
 with its `main` package and its `package.json`, and stop, saying which is
 missing, anywhere else. The directory needn't have a `go.mod` of its own,
 as an app inside a bigger Go module doesn't.
@@ -230,7 +231,8 @@ depend on a library that watches them, for the ones the Go server needs a
 rebuild for:
 
 - `.go` files, `go.mod` and `go.sum`;
-- templates Go embeds: `.html`, `.tmpl` and `.gohtml` files.
+- templates Go embeds: `.html`, `.tmpl` and `.gohtml` files;
+- the languages in `lang/`, as `lang/vi.json`, which the binary embeds.
 
 It looks in every directory but `node_modules`, `vendor`, `testdata` and
 `public`, and those whose names start with `.` or `_`. After a change, it
@@ -351,6 +353,36 @@ for its example:
 ```sh
 tug gen && git diff --exit-code resources/js/tug
 ```
+
+## `tug lang`
+
+```
+tug lang vi
+```
+
+Writes `lang/vi.json` with every text the app says to a person, in
+English, for its translation, as [Languages](languages.md) has them:
+tug's own, as a form's errors, a 429's wait, and the statuses an error
+page says; the messages of the app's `validate.Rule`s; the names of the
+fields its forms bind and check, by their `label` tags or their keys made
+into words; the file types their uploads take, as "a PNG or JPEG image";
+and the texts its Go gives `T` and `Choice` as they're written, in quotes.
+
+```
+wrote lang/vi.json: 96 texts to translate, of 96; one left empty is said in English
+```
+
+Each text is a key, with no words yet, which says it in English until
+someone writes them. A file that's there keeps what it has, and gets the
+texts it hasn't, so `tug lang vi` again, after the app has changed, adds
+the new ones; a text the app no longer says stays, for its translator to
+delete. A file with nothing to add is left as it is.
+
+For tug's texts, and the app's rules, it builds the app and runs it as
+`tug gen` does, so it needs what `tug gen` needs; for the rest, it reads
+the app's Go, but its tests and the directories `tug dev` doesn't look in.
+A text made as the app runs, as `c.T(message)` of a variable, it can't
+see: a translator adds it by hand.
 
 ## `tug build`
 

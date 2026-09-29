@@ -122,11 +122,20 @@ func showPost(c *tug.Ctx) error {
   build it embeds. Without Node, pages render in the browser, as they
   would anyway.
 - **Forms**: `c.BindValid` binds and checks a request by `validate` tags
-  (package `validate`, go-playground/validator's rules) and checks of the
-  handler's own. A form that doesn't validate goes back with its errors in
-  the `errors` prop, under an error bag when the form names one; an API
-  client gets a 422. Precognition, a form checking each field as it's left,
-  is answered without running the rest of the handler.
+  (package `validate`, go-playground/validator's rules, and the app's own,
+  with `validate.Rule`) and checks of the handler's own. A form that
+  doesn't validate goes back with its errors in the `errors` prop, under an
+  error bag when the form names one; an API client gets a 422. A message
+  names a field as a person reads it, "first name is required", by its
+  `label` tag or its key made into words. Precognition, a form checking
+  each field as it's left, is answered without running the rest of the
+  handler.
+- **Languages** (package `lang`): what tug says to a person, a form's
+  errors, a 429, an error page's status, and what the app says with `c.T`,
+  in the request's language: the app's choice, or else the browser's
+  `Accept-Language`, from a JSON file for each language, keyed by the
+  English, as Laravel's `lang/vi.json` is, with plurals by each language's
+  rules. `tug lang vi` writes the file, with every text the app says.
 - **Sessions** (package `session`): in an encrypted cookie, keyed by
   `APP_KEY`, with flash data. `c.Flash` reaches the next page shown, after
   a redirect or not, and only that one.

@@ -74,31 +74,8 @@ func buildApp(env []string, out io.Writer) (string, error) {
 // generate runs the app to have it write its TypeScript, and writes what's
 // changed of it into genDir, returning the files it wrote.
 func generate(env []string, bin string) ([]string, error) {
-	out, err := filepath.Abs(filepath.Join(work, "gen.json"))
+	ts, err := runForGen(env, bin)
 	if err != nil {
-		return nil, err
-	}
-	os.Remove(out)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	var logs bytes.Buffer
-	cmd := exec.CommandContext(ctx, bin)
-	cmd.Env = append(env, "TUG_GEN="+out)
-	cmd.Stdout, cmd.Stderr = &logs, &logs
-	runErr := cmd.Run()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return nil, errors.New("the app ran for 30s without writing its types: does main call app.Run?")
-	}
-	data, err := os.ReadFile(out)
-	if err != nil {
-		if runErr != nil {
-			return nil, fmt.Errorf("the app stopped before writing its types (%v):\n%s", runErr, strings.TrimSpace(logs.String()))
-		}
-		return nil, errors.New("the app didn't write its types: does main call app.Run?")
-	}
-	var ts struct{ Pages, Routes string }
-	if err := json.Unmarshal(data, &ts); err != nil {
 		return nil, err
 	}
 
@@ -114,4 +91,43 @@ func generate(env []string, bin string) ([]string, error) {
 		}
 	}
 	return changed, nil
+}
+
+// generated is what the app writes when tug gen runs it: the TypeScript
+// of its pages and of its routes, and the texts tug says, with its rules',
+// which tug lang reads.
+type generated struct {
+	Pages, Routes string
+	Texts         []string
+}
+
+// runForGen runs the app with TUG_GEN, as tug gen does, and reads back
+// what it writes of itself.
+func runForGen(env []string, bin string) (generated, error) {
+	out, err := filepath.Abs(filepath.Join(work, "gen.json"))
+	if err != nil {
+		return generated{}, err
+	}
+	os.Remove(out)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var logs bytes.Buffer
+	cmd := exec.CommandContext(ctx, bin)
+	cmd.Env = append(env, "TUG_GEN="+out)
+	cmd.Stdout, cmd.Stderr = &logs, &logs
+	runErr := cmd.Run()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return generated{}, errors.New("the app ran for 30s without writing its types: does main call app.Run?")
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		if runErr != nil {
+			return generated{}, fmt.Errorf("the app stopped before writing its types (%v):\n%s", runErr, strings.TrimSpace(logs.String()))
+		}
+		return generated{}, errors.New("the app didn't write its types: does main call app.Run?")
+	}
+	var g generated
+	err = json.Unmarshal(data, &g)
+	return g, err
 }

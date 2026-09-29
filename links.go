@@ -61,20 +61,27 @@ func (a *App) SignedURL(name string, expires time.Time, params ...any) (string, 
 //	app.Get("/invitations/{id}", tug.Signed(acceptInvitation)).Name("invitations.accept")
 func Signed(h HandlerFunc) HandlerFunc {
 	return func(c *Ctx) error {
-		if err := c.app.checkSigned(c.r); err != nil {
+		if err := c.checkSigned(); err != nil {
 			return err
 		}
 		return h(c)
 	}
 }
 
+// What a link Signed turns away is told.
+const (
+	linkInvalid = "this link isn't valid"
+	linkExpired = "this link has expired"
+)
+
 // checkSigned returns a 403 for a request that isn't a link SignedURL made,
 // or is one that has expired.
-func (a *App) checkSigned(r *http.Request) error {
-	if len(a.config.Keys) == 0 {
+func (c *Ctx) checkSigned() error {
+	r, keys := c.r, c.app.config.Keys
+	if len(keys) == 0 {
 		return errors.New("tug: Signed checks links with the app's keys, Config.Keys, and it has none")
 	}
-	invalid := NewHTTPError(http.StatusForbidden, "this link isn't valid")
+	invalid := NewHTTPError(http.StatusForbidden, c.T(linkInvalid))
 	q, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil || len(q) != 2 || len(q["expires"]) != 1 || len(q["signature"]) != 1 {
 		return invalid
@@ -88,10 +95,10 @@ func (a *App) checkSigned(r *http.Request) error {
 	if err != nil {
 		return invalid
 	}
-	for _, key := range a.config.Keys {
+	for _, key := range keys {
 		if hmac.Equal(sig, signLink(key, r.URL.EscapedPath(), unix)) {
 			if !time.Now().Before(time.Unix(expires, 0)) {
-				return NewHTTPError(http.StatusForbidden, "this link has expired")
+				return NewHTTPError(http.StatusForbidden, c.T(linkExpired))
 			}
 			return nil
 		}

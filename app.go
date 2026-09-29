@@ -21,6 +21,7 @@ import (
 
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/internal/typegen"
+	"github.com/cuonggt/tug/lang"
 	"github.com/cuonggt/tug/session"
 )
 
@@ -76,6 +77,20 @@ type Config struct {
 	// out still work until it's dropped. session.KeysFromEnv reads them from
 	// APP_KEY and APP_PREVIOUS_KEYS.
 	Keys [][]byte
+
+	// Lang is the app's languages, which lang.Load reads: what tug says to
+	// a person, a form's errors, a 429 or an error page's status, is said
+	// in the request's language, as Ctx.Locale picks it, and so is what the
+	// app says with Ctx.T. Without it, everything is in English.
+	Lang *lang.Catalog
+
+	// Locale is the language the app has chosen for a request, as a user's
+	// choice, kept in their session or their account: one of Lang's, as
+	// lang.Catalog.Find finds it, or "" to leave it to the browser's
+	// Accept-Language. For a handler, the ErrorHandler and the pages it
+	// renders, it runs inside the session's middleware, so it can read the
+	// session; in the App's own middleware, there's none yet.
+	Locale func(r *http.Request) string
 }
 
 // ConfigFromEnv reads the settings a deployment sets: ADDR, or PORT as
@@ -308,6 +323,21 @@ func (a *App) Run() error {
 	return a.Serve(ctx, ln)
 }
 
+// Locale returns the language of r: the one Config.Locale chooses, or
+// else the best of Config.Lang's for the browser's Accept-Language, or else
+// the app's default, as "vi" or "pt-BR". It's English without Config.Lang.
+// For a handler, Ctx.Locale is the same; this is for code that has the
+// request alone, as a props function shared with every page.
+func (a *App) Locale(r *http.Request) string {
+	catalog := a.config.Lang
+	if a.config.Locale != nil {
+		if l, ok := catalog.Find(a.config.Locale(r)); ok {
+			return l
+		}
+	}
+	return catalog.Match(r.Header.Get("Accept-Language"))
+}
+
 // Generating reports whether tug gen started the app, to learn its pages
 // and routes: Run writes their TypeScript then, and returns without
 // serving. main runs up to Run either way, and what only serving needs,
@@ -332,7 +362,12 @@ func (a *App) gen(path string) error {
 	for name, rt := range a.names {
 		in.Routes = append(in.Routes, typegen.Route{Name: name, Method: rt.method, Path: rt.path})
 	}
-	data, err := json.Marshal(typegen.Generate(in))
+	// The texts tug says, and the app's rules, for tug lang, which reads
+	// them from the same run.
+	data, err := json.Marshal(struct {
+		typegen.Output
+		Texts []string
+	}{typegen.Generate(in), texts()})
 	if err != nil {
 		return err
 	}

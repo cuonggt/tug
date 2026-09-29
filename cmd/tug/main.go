@@ -3,6 +3,7 @@
 //	tug new blog     a new app, in ./blog, ready to run
 //	tug dev          run the app, rebuilt and reloaded as it changes
 //	tug gen          write the TypeScript of the app's pages and routes
+//	tug lang vi      write the texts to translate into lang/vi.json
 //	tug build        build the app into one binary, frontend and all
 //
 // Every command but new runs in the app's directory, where its go.mod,
@@ -22,6 +23,7 @@ const usage = `tug makes and runs tug apps.
   tug new <dir>    make a new app in dir, ready to run
   tug dev          run the app, rebuilding and reloading it as it changes
   tug gen          write the TypeScript of the app's pages and routes
+  tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
   tug build        build the app into one binary, with its frontend in it
   tug version      print tug's version
 
@@ -41,6 +43,8 @@ func main() {
 		err = runDev(args)
 	case "gen":
 		err = runGen(args)
+	case "lang":
+		err = runLang(args)
 	case "build":
 		err = runBuild(args)
 	case "version":

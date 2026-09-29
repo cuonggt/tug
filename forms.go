@@ -41,7 +41,9 @@ var errAnswered = errors.New("tug: the request has been answered")
 // When something's wrong it returns validate.Errors, which the
 // ErrorHandler answers: a form goes back where it came from, with the
 // errors, and an API client gets a 422. A value Bind can't parse is one of
-// the errors: "age must be a whole number".
+// the errors: "age must be a whole number". The messages are in the
+// request's language (see Ctx.Locale); the checks' are theirs to say, with
+// Ctx.T.
 //
 // A Precognition request, sent by a form checking its fields as they're
 // filled in, is answered here with a 204 or a 422, and BindValid returns an
@@ -55,7 +57,7 @@ func (c *Ctx) BindValid(dst any, checks ...func(validate.Errors)) error {
 		if !errors.As(err, &he) || he.Code != http.StatusBadRequest || !errors.As(err, &be) {
 			return err // not a value that doesn't parse: a 404, a 413, or JSON that isn't
 		}
-		errs.Add(be.Field, be.Error())
+		errs.Add(be.Field, c.bindMessage(be))
 	}
 	return c.check(dst, errs, checks)
 }
@@ -68,7 +70,7 @@ func (c *Ctx) Validate(v any, checks ...func(validate.Errors)) error {
 }
 
 func (c *Ctx) check(v any, errs validate.Errors, checks []func(validate.Errors)) error {
-	if err := validate.Struct(v); err != nil {
+	if err := validate.Struct(v, c.words()); err != nil {
 		var found validate.Errors
 		if !errors.As(err, &found) {
 			return err // a tag that doesn't parse: the program's mistake

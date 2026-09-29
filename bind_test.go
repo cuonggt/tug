@@ -242,8 +242,11 @@ func TestAJSONValueOfTheWrongTypeIsA400ThatNamesTheField(t *testing.T) {
 		} `json:"author"`
 	}
 	_, err := bind[input](t, "/", "POST", "/", "application/json", `{"author":{"age":"old"}}`)
-	if he := httpError(t, err); he.Code != 400 || he.Message != "author.age must be a whole number" {
-		t.Fatalf("got %d %q", he.Code, he.Message)
+	// The error is under the field's path, and its message names it as
+	// validate's do, by the path's last part.
+	var be *BindError
+	if he := httpError(t, err); he.Code != 400 || he.Message != "age must be a whole number" || !errors.As(err, &be) || be.Field != "author.age" {
+		t.Fatalf("got %d %q, under %v", he.Code, he.Message, be)
 	}
 }
 

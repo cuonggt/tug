@@ -25,6 +25,7 @@ import (
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/lang"
 	"github.com/cuonggt/tug/mail"
 	"github.com/cuonggt/tug/middleware"
 	"github.com/cuonggt/tug/queue"
@@ -42,6 +43,12 @@ const appName = "[[ .Name ]]"
 
 //go:embed app.html
 var rootTemplate string
+
+// langFiles are the app's languages, in lang/: see newApp. The .gitkeep
+// lets it compile before there's one.
+//
+//go:embed all:lang
+var langFiles embed.FS
 
 // public is what the frontend's build writes to public/build, and anything
 // else public/ holds. The .gitkeep lets it compile before the first build.
@@ -306,6 +313,17 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// logged in, shared as each page is rendered.
 	pages.Share("auth", Auth{})
 	pages.ShareFunc(a.shareAuth)
+
+	// The app's languages: a file each in lang/, as tug lang vi writes
+	// lang/vi.json, for what it says to a person, and APP_LOCALE, the one a
+	// browser gets that asks for none of them. Without a file, it's English.
+	words, err := fs.Sub(langFiles, "lang")
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Lang, err = lang.Load(words, cmp.Or(os.Getenv("APP_LOCALE"), "en")); err != nil {
+		return nil, err
+	}
 
 	// The app's keys also sign the links that tug.Signed lets through, for
 	// a route of the app's that takes only those.

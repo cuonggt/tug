@@ -8,8 +8,12 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
+
+	"github.com/cuonggt/tug/lang"
 )
 
 type Line struct {
@@ -42,7 +46,7 @@ func TestAValidStructHasNoErrors(t *testing.T) {
 	}
 }
 
-func TestEachFieldGetsAMessageUnderItsJSONName(t *testing.T) {
+func TestEachFieldGetsAMessageUnderItsJSONNameThatNamesItInWords(t *testing.T) {
 	o := valid()
 	o.Email = "not an email"
 	o.Name = "Annabelle Smith"
@@ -65,8 +69,8 @@ func TestEachFieldGetsAMessageUnderItsJSONName(t *testing.T) {
 		"size":                  "size must be one of: small, medium, large",
 		"lines.1.product":       "product is required",
 		"lines.1.quantity":      "quantity must be at least 1",
-		"password_confirmation": "password_confirmation must match password",
-		"Internal":              "Internal is required",
+		"password_confirmation": "password confirmation must match password",
+		"Internal":              "internal is required",
 	}
 	if !reflect.DeepEqual(errs, want) {
 		for field, msg := range errs {
@@ -98,7 +102,7 @@ func TestAnAnonymousStructsFieldsAreNamedTheSame(t *testing.T) {
 		t.Fatalf("got %v, want Errors", err)
 	}
 	want := Errors{
-		"password_confirmation": "password_confirmation must match password",
+		"password_confirmation": "password confirmation must match password",
 		"lines.1.quantity":      "quantity must be at least 1",
 	}
 	if !reflect.DeepEqual(errs, want) {
@@ -193,18 +197,31 @@ func TestAnUploadIsCheckedBySizeAndByWhatItIs(t *testing.T) {
 
 func TestAFileTagsSizeIsSaidAsItsWritten(t *testing.T) {
 	for p, want := range map[string]struct {
-		bytes int64
-		words string
+		bytes     int64
+		num, unit string
 	}{
-		"2MB":    {2 << 20, "2 MB"},
-		"500 kb": {500 << 10, "500 KB"},
-		"1.5MB":  {3 << 19, "1.5 MB"},
-		"1GB":    {1 << 30, "1 GB"},
-		"100B":   {100, "100 bytes"},
-		"1":      {1, "1 byte"},
+		"2MB":    {2 << 20, "2", "MB"},
+		"500 kb": {500 << 10, "500", "KB"},
+		"1.5MB":  {3 << 19, "1.5", "MB"},
+		"1GB":    {1 << 30, "1", "GB"},
+		"100B":   {100, "100", ""},
+		"1":      {1, "1", ""},
 	} {
-		if n, words := sizeLimit(p); n != want.bytes || words != want.words {
-			t.Errorf("%s: %d, %q", p, n, words)
+		if n, num, unit := sizeLimit(p); n != want.bytes || num != want.num || unit != want.unit {
+			t.Errorf("%s: %d, %q %q", p, n, num, unit)
+		}
+	}
+	big := upload(t, "a.png", "image/png", append(png, make([]byte, 100)...))
+	for in, want := range map[any]string{
+		&struct {
+			F *multipart.FileHeader `form:"f" validate:"file_max=100B"`
+		}{big}: "f must be at most 100 bytes",
+		&struct {
+			F *multipart.FileHeader `form:"f" validate:"file_max=1"`
+		}{big}: "f must be at most 1 byte",
+	} {
+		if err := Struct(in); err == nil || err.Error() != want {
+			t.Errorf("got %v, want %q", err, want)
 		}
 	}
 }
@@ -233,5 +250,152 @@ func TestAFileTagThatCantWorkPanics(t *testing.T) {
 			}()
 			Struct(c.in)
 		}()
+	}
+}
+
+func TestALabelTagNamesTheFieldInItsMessages(t *testing.T) {
+	var in struct {
+		Email   string `json:"email" label:"email address" validate:"required"`
+		Confirm string `json:"email_confirmation" validate:"eqfield=Email"`
+		Starts  string `json:"startsAt" validate:"required"`
+	}
+	in.Confirm = "ann@example.com"
+	var errs Errors
+	if err := Struct(&in); !errors.As(err, &errs) {
+		t.Fatalf("got %v", err)
+	}
+	want := Errors{
+		"email":              "email address is required",
+		"email_confirmation": "email confirmation must match email address",
+		"startsAt":           "starts at is required",
+	}
+	if !reflect.DeepEqual(errs, want) {
+		t.Errorf("got %v, want %v", errs, want)
+	}
+}
+
+// vietnamese is a language whose file has some of validate's texts, and
+// some fields' names.
+func vietnamese(t *testing.T) lang.Words {
+	t.Helper()
+	c, err := lang.Load(fstest.MapFS{"vi.json": &fstest.MapFile{Data: []byte(`{
+		":field is required": "Vui lòng nhập :field",
+		":field must be at most :count character|:field must be at most :count characters": ":Field tối đa :count ký tự",
+		":field must be a PNG or JPEG image": "",
+		"a PNG or JPEG image": "ảnh PNG hoặc JPEG",
+		":field must be :value": ":field phải là :value",
+		"name": "tên",
+		"email address": "địa chỉ email"
+	}`)}}, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.In("vi")
+}
+
+func TestMessagesAreSaidInTheLanguageGiven(t *testing.T) {
+	var in struct {
+		Name  string                `json:"name" validate:"required,max=3"`
+		Email string                `json:"email" label:"email address" validate:"required"`
+		Nick  string                `json:"nick" validate:"required"`
+		Photo *multipart.FileHeader `form:"photo" validate:"omitempty,file_type=image/png image/jpeg"`
+	}
+	in.Name = "Annabelle"
+	in.Photo = upload(t, "a.gif", "image/gif", []byte("GIF89a"))
+	var errs Errors
+	if err := Struct(&in, vietnamese(t)); !errors.As(err, &errs) {
+		t.Fatalf("got %v", err)
+	}
+	want := Errors{
+		"name":  "Tên tối đa 3 ký tự",
+		"email": "Vui lòng nhập địa chỉ email",
+		"nick":  "Vui lòng nhập nick", // a name the file doesn't have is English's
+		"photo": "photo phải là ảnh PNG hoặc JPEG",
+	}
+	if !reflect.DeepEqual(errs, want) {
+		t.Errorf("got %v, want %v", errs, want)
+	}
+}
+
+type Slug string
+
+func TestARuleOfTheAppsOwnChecksItsTag(t *testing.T) {
+	Rule("slug", func(s string, _ string) bool {
+		return s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyz0123456789-") == ""
+	}, ":field must be letters, digits and dashes")
+	Rule("prefix", func(s, prefix string) bool { return strings.HasPrefix(s, prefix) }, ":field must start with :param")
+
+	type In struct {
+		Handle Slug   `json:"handle" validate:"slug"`
+		Path   string `json:"path" validate:"slug,prefix=blog-"`
+	}
+	if err := Struct(In{Handle: "ann-2", Path: "blog-first"}); err != nil {
+		t.Errorf("a valid one: %v", err)
+	}
+	var errs Errors
+	if err := Struct(In{Handle: "Ann!", Path: "first"}); !errors.As(err, &errs) {
+		t.Fatalf("got %v", err)
+	}
+	want := Errors{"handle": "handle must be letters, digits and dashes", "path": "path must start with blog-"}
+	if !reflect.DeepEqual(errs, want) {
+		t.Errorf("got %v, want %v", errs, want)
+	}
+	if texts := Texts(); !slices.Contains(texts, ":field must be letters, digits and dashes") || !slices.Contains(texts, ":field must start with :param") {
+		t.Errorf("Texts() hasn't the rules' messages: %q", texts)
+	}
+}
+
+func TestARuleAddedAgainReplacesTheOneBefore(t *testing.T) {
+	type In struct {
+		Code string `json:"code" validate:"twice"`
+	}
+	Rule("twice", func(s string, _ string) bool { return false }, ":field is wrong")
+	Rule("twice", func(s string, _ string) bool { return s == "ok" }, ":field isn't ok")
+	if err := Struct(In{Code: "ok"}); err != nil {
+		t.Errorf("the second rule: %v", err)
+	}
+	if err := Struct(In{Code: "no"}); err == nil || err.Error() != "code isn't ok" {
+		t.Errorf("the second rule's message: %v", err)
+	}
+}
+
+func TestARuleOnAFieldOfAnotherTypePanics(t *testing.T) {
+	Rule("even", func(n int, _ string) bool { return n%2 == 0 }, ":field must be even")
+	defer func() {
+		if v := recover(); v == nil || !strings.Contains(fmt.Sprint(v), "the rule even checks a int, and Count is a string") {
+			t.Errorf("panicked with %v", v)
+		}
+	}()
+	Struct(struct {
+		Count string `validate:"even"`
+	}{"3"})
+}
+
+func TestARuleCantTakeATagTheValidatorKeeps(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("a rule named omitempty was added")
+		}
+	}()
+	Rule("omitempty", func(s string, _ string) bool { return true }, "")
+}
+
+func TestTextsListsWhatValidateSays(t *testing.T) {
+	texts := Texts()
+	for _, want := range []string{
+		":field is required",
+		":field must be at most :count character|:field must be at most :count characters",
+		":field must have at least :count item|:field must have at least :count items",
+		":field must be at least :value",
+		":field must match :other",
+		":count byte|:count bytes",
+		":field is invalid",
+	} {
+		if !slices.Contains(texts, want) {
+			t.Errorf("Texts() hasn't %q", want)
+		}
+	}
+	if !slices.IsSorted(texts) || len(slices.Compact(slices.Clone(texts))) != len(texts) {
+		t.Error("Texts() isn't sorted, or repeats one")
 	}
 }

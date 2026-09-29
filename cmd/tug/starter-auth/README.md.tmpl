@@ -78,6 +78,10 @@ go test ./...
   or under tug dev, with Vite.
 [[- else ]] `app.[[ .Script ]]` is the app in the browser.
 [[- end ]]
+- `lang/`: the app's languages, a file each, as `tug lang vi` writes
+  `lang/vi.json` with every text the app says, to translate. The binary
+  embeds them, and `APP_LOCALE` is the one a browser gets that asks for
+  none of them.
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions and two-factor
