@@ -11,10 +11,11 @@ export default function Index({ posts, stats }: PageProps<'Posts/Index'>) {
       <Deferred data="stats" fallback={<p className="stats">Counting…</p>}>
         {stats && <StatsLine stats={stats} />}
       </Deferred>
-      <p>
+      <p className="actions">
         <Link href={route('posts.create')} className="button">
           New post
         </Link>
+        <Link href={route('posts.archive')}>Every post, by page</Link>
       </p>
       {/* Each click asks the server for the next page, which Go's
           inertia.Scroll serves and the client adds to the list. */}

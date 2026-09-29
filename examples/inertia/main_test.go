@@ -23,6 +23,7 @@ func build() fstest.MapFS {
 		".vite/manifest.json": {Data: []byte(`{
 			"resources/js/app.tsx": {"file": "assets/app-1.js", "isEntry": true, "css": ["assets/app-1.css"]},
 			"resources/js/pages/Posts/Index.tsx": {"file": "assets/Index-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
+			"resources/js/pages/Posts/Archive.tsx": {"file": "assets/Archive-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
 			"resources/js/pages/Posts/Show.tsx": {"file": "assets/Show-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
 			"resources/js/pages/Posts/Create.tsx": {"file": "assets/Create-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
 			"resources/js/pages/Posts/Edit.tsx": {"file": "assets/Edit-1.js", "isDynamicEntry": true, "imports": ["resources/js/app.tsx"]},
@@ -84,6 +85,28 @@ func TestTheListComesAPageAtATime(t *testing.T) {
 	}
 	if !slices.Equal(r.Page.MergeProps, []string{"posts.data"}) || !slices.Equal(r.Page.MatchPropsOn, []string{"posts.data.id"}) {
 		t.Errorf("mergeProps %v, matchPropsOn %v", r.Page.MergeProps, r.Page.MatchPropsOn)
+	}
+}
+
+func TestEveryPostComesInNumberedPagesWithAPager(t *testing.T) {
+	c := newClient(t)
+	posts := tugtest.Props(c.Get("/posts?page=2"), PostsArchive).Posts
+	if posts.CurrentPage != 2 || posts.LastPage != 3 || posts.Total != 25 || posts.Data[0].Title != "Post 11" || *posts.From != 11 || *posts.To != 20 {
+		t.Errorf("page 2: %+v", posts)
+	}
+	if *posts.PrevPageURL != "/posts?page=1" || *posts.NextPageURL != "/posts?page=3" {
+		t.Errorf("page 2's neighbours: %q, %q", *posts.PrevPageURL, *posts.NextPageURL)
+	}
+	var pages []string
+	for _, link := range posts.Links {
+		pages = append(pages, link.Label)
+	}
+	if !slices.Equal(pages, []string{"1", "2", "3"}) || !posts.Links[1].Active {
+		t.Errorf("links %+v", posts.Links)
+	}
+	// Past the last, a page with none, which still says where the last is.
+	if posts := tugtest.Props(c.Get("/posts?page=9"), PostsArchive).Posts; len(posts.Data) != 0 || posts.LastPage != 3 || posts.From != nil {
+		t.Errorf("page 9: %+v", posts)
 	}
 }
 

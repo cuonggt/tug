@@ -29,7 +29,6 @@ import (
 	"maps"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -106,6 +105,7 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTim
 
 	p := newPosts(countTime)
 	app.Get("/", p.index).Name("posts.index")
+	app.Get("/posts", p.archive).Name("posts.archive")
 	app.Get("/posts/create", p.create).Name("posts.create")
 	app.Post("/posts", p.store).Name("posts.store")
 	app.Get("/posts/{id}", p.show).Name("posts.show")
@@ -136,6 +136,12 @@ type PostsIndexProps struct {
 }
 
 var PostsIndex = tug.Page[PostsIndexProps]("Posts/Index")
+
+type PostsArchiveProps struct {
+	Posts tug.Paginated[Post] `json:"posts"` // a page by its number, with the links of a pager
+}
+
+var PostsArchive = tug.Page[PostsArchiveProps]("Posts/Archive")
 
 type PostsShowProps struct {
 	Post Post `json:"post"`
@@ -205,6 +211,21 @@ func (p *posts) list() []Post {
 	return list
 }
 
+// total is how many posts there are, for the list in numbered pages.
+func (p *posts) total() (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.byID), nil
+}
+
+// page is the posts in order from offset, limit of them at most, as a
+// query's LIMIT and OFFSET would read them from a table.
+func (p *posts) page(limit, offset int) ([]Post, error) {
+	list := p.list()
+	from := min(offset, len(list))
+	return list[from:min(from+limit, len(list))], nil
+}
+
 func (p *posts) count() (Stats, error) {
 	time.Sleep(p.countTime)
 	var s Stats
@@ -233,18 +254,23 @@ const perPage = 10
 
 func (p *posts) index(c *tug.Ctx) error {
 	return PostsIndex.Render(c, PostsIndexProps{
+		// The page ?page asks for, as the archive's is, and where it sits,
+		// for the list to ask for the next as it scrolls.
 		Posts: inertia.Scroll(func() ([]Post, inertia.Paging, error) {
-			page, err := strconv.Atoi(c.Query("page"))
-			if err != nil || page < 1 {
-				page = 1
-			}
-			list := p.list()
-			from := min((page-1)*perPage, len(list))
-			to := min(from+perPage, len(list))
-			return list[from:to], inertia.PageNumbers(page, to < len(list)), nil
+			page, err := tug.Paginate(c, perPage, p.total, p.page)
+			return page.Data, page.Paging(), err
 		}).MatchOn("id"),
 		Stats: inertia.Defer(p.count),
 	})
+}
+
+// archive is every post, in numbered pages, with a pager.
+func (p *posts) archive(c *tug.Ctx) error {
+	page, err := tug.Paginate(c, perPage, p.total, p.page)
+	if err != nil {
+		return err
+	}
+	return PostsArchive.Render(c, PostsArchiveProps{Posts: page})
 }
 
 func (p *posts) create(c *tug.Ctx) error {

@@ -57,6 +57,25 @@ test('the list gets its next page as asked, until there are no more', async ({ p
   await expect(page.getByRole('button', { name: 'More posts' })).toHaveCount(0)
 })
 
+test('every post comes in numbered pages, with a pager', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('link', { name: 'Every post, by page' }).click()
+  await expect(page).toHaveURL(/\/posts$/)
+  await expect(page.getByText('1 to 10 of 25')).toBeVisible()
+  await expect(page.locator('.posts li').first()).toHaveText('Hello, tug')
+
+  const pager = page.getByRole('navigation', { name: 'Pages' })
+  await pager.getByRole('link', { name: '3', exact: true }).click()
+  await expect(page).toHaveURL(/\/posts\?page=3$/)
+  await expect(page.getByText('21 to 25 of 25')).toBeVisible()
+  await expect(pager.getByRole('link', { name: '3', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(pager.getByRole('link', { name: 'Next' })).toHaveCount(0)
+
+  await pager.getByRole('link', { name: 'Previous' }).click()
+  await expect(page).toHaveURL(/\/posts\?page=2$/)
+  await expect(page.locator('.posts li').first()).toHaveText('Post 11')
+})
+
 test('a page that is not there is shown as the error page, with its status', async ({ page }) => {
   const response = await page.goto('/posts/999')
   expect(response!.status()).toBe(404)

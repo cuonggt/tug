@@ -26,7 +26,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M18 | Throttles across instances | done   |
 | M19 | Proxies and signed links   | done   |
 | M20 | Languages                  | done   |
-| M21 | Pagination                 | later  |
+| M21 | Pagination                 | done   |
 | M22 | Commands                   | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
@@ -1590,15 +1590,15 @@ Choices made on the way:
   and what's wrong with them; and `tug lang`'s search of an app's Go, and
   its file, written and added to.
 
-## M21 · Pagination — later
+## M21 · Pagination — done
 
-A list longer than a page is in most apps, and tug has `inertia.Scroll`,
-for `<InfiniteScroll>`, and nothing for pages by number: each app reads
-`?page`, checks it, works out the offset, counts the rows, and makes the
-links to the pages, and `examples/inertia` reads `page` itself for its
+A list longer than a page is in most apps, and tug had `inertia.Scroll`,
+for `<InfiniteScroll>`, and nothing for pages by number: each app read
+`?page`, checked it, worked out the offset, counted the rows, and made
+the links to the pages, and `examples/inertia` read `page` itself for its
 scroll. Laravel's `paginate()`, `simplePaginate()` and `cursorPaginate()`
 do it all, and give a page its list with where it sits, as JSON that
-pagers read. tug can do it without SQL: the app runs its query, with the
+pagers read. tug does it without SQL: the app runs its query, with the
 limit and offset it's given. To be released as v0.16.0.
 
 - **By number.** `tug.Paginate(c, perPage, count, fetch)` reads the page
@@ -1616,50 +1616,73 @@ limit and offset it's given. To be released as v0.16.0.
 - **Scrolling.** Each result's `Paging()` is where it sits for
   `inertia.Scroll`, so one query feeds numbered pages and
   `<InfiniteScroll>` alike.
-- **`examples/inertia`** has its posts in numbered pages too, with a
-  pager, and its scroll fed by `tug.Paginate`.
-- **The guide:** Pages, a section on pagination.
+- **`examples/inertia`** has its posts in numbered pages too, at
+  `/posts`, with a pager, `Pager.tsx`, and its scroll fed by
+  `tug.Paginate`, with a browser test of each.
+- **The guide:** Pages, a section on pagination, and its scroll by
+  `tug.Paginate`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Laravel's JSON,** `data`, `current_page`, `last_page`, `per_page`,
-  `total`, `from`, `to`, `prev_page_url`, `next_page_url` and `links`, so
-  a pager written for Laravel's reads tug's. But `links` are the pages
-  alone, labelled with their numbers: Laravel's begin with "&laquo;
-  Previous" and end with "Next &raquo;", HTML, which a page has to render
-  as HTML.
+  `total`, `from`, `to`, `first_page_url`, `last_page_url`,
+  `prev_page_url`, `next_page_url`, `path` and `links`, in Laravel's
+  order, so a pager written for Laravel's reads tug's. `data` is `[]`,
+  never `null`, for a page with none, as a JSON API's client gets it too,
+  and `from` and `to` are `null` then.
+- **`links` are Laravel's pager's pages,** every one when there are under
+  14, and otherwise the first two and the last two, and three on each
+  side of the page, with `"..."`, with no URL, for those left out, as its
+  window has them. But not its "&laquo; Previous" and "Next &raquo;",
+  HTML, which a page would have to render as HTML: `prev_page_url` and
+  `next_page_url` are those.
 - **A type for each,** `Paginated[T]`, `SimplePaginated[T]` and
   `CursorPaginated[T]`, which tug gen writes as it writes any generic
   struct, as `Paginated_Post`: a list without a count has no `total` in
-  its TypeScript, where one type for all three would have it `null`.
+  its TypeScript, where one type for all three would have it `null`. The
+  simple one has Laravel's `current_page_url`, and no `links`; the cursor
+  one `next_cursor` and `next_page_url`, and none of Laravel's
+  `prev_cursor`, as its cursors go forward.
 - **The page size is the app's,** not the query's: a client that could
-  pick it would pick how much the database reads.
+  pick it would pick how much the database reads. One under 1 is the
+  program's mistake, and panics.
 - **A page that isn't a number, or is under 1, is the first,** as Laravel
   has it, and a page past the last is empty, with `last_page` for the
   pager, not a 404: a list can shrink between two visits. The count comes
   first, so a page past the last runs no query for its items, however far
-  past it is.
+  past it is. Without a count, a page so far on that its offset doesn't
+  fit an `int` runs none either.
 - **Links keep the query,** the filters and the order the list was shown
   with, and change `page` alone, where Laravel's keep it only when asked,
-  with `withQueryString()`. They're paths, as tug's redirects are.
+  with `withQueryString()`. They're paths, as tug's redirects are, with
+  the query written as Go's `url.Values` writes it, its keys in order.
 - **Functions, not a query builder:** `count` and `fetch` are the app's
   SQL, or anything else's, so tug stays without SQL, as M8 and M17 have
-  it, and without an ORM.
+  it, and without an ORM. A `fetch` that brings more than it's asked for
+  is cut to the page.
 - **A cursor is the app's value,** as JSON, in base64url in the link, and
   isn't signed, as Laravel's aren't: it's only where to start, and one
   made up starts somewhere else within what the query lets the page see.
   One that doesn't decode is the first page.
 - **Cursors go forward.** A page before one, by cursor, runs the query in
   the other order, which is the app's to write; an `<InfiniteScroll>`
-  that starts in the middle of a list takes numbered pages.
+  that starts in the middle of a list takes numbered pages. A cursor
+  page's `Paging` has the cursor it was asked with as its current, and
+  the next's.
 - **`PageName`,** as `inertia.Paging` has it, for two lists on one page:
-  `?comments_page=2`.
+  `?comments_page=2`, an option of all three, whose default is `page`, and
+  `cursor` for a cursor.
 - **In `tug`, not `inertia`,** as it reads the request, through `Ctx`,
   and isn't the protocol's.
-- **Tests:** the first page, the last, one past it and one that isn't a
-  number; a list with no items; links that keep the query; each type's
-  JSON and its TypeScript; a cursor there and back, and one made up; and
-  `Paging` for a scroll.
+- **Tests:** the page asked for and its links, with the list's query;
+  the first page for one that isn't a number, a page past the last, with
+  no query for its items, and a list with none; Laravel's window, at each
+  end and between; the JSON, key by key; one more than a page without a
+  count, and a page past any offset; cursors there and back, one that
+  doesn't decode, and one made up; `PageName`; `Paging` of each; a count
+  that fails, and a page size of 0; and the TypeScript of each kind. In
+  `examples/inertia`, the archive's pages in Go, and its pager, and the
+  scroll, in the browser.
 
 ## M22 · Commands — later
 

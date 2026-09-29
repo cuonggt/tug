@@ -243,24 +243,135 @@ type PostsIndexProps struct {
 func index(c *tug.Ctx) error {
 	return PostsIndex.Render(c, PostsIndexProps{
 		Posts: inertia.Scroll(func() ([]Post, inertia.Paging, error) {
-			page, _ := strconv.Atoi(c.Query("page"))
-			page = max(page, 1)
-			posts, more, err := store.Page(page, 10)
-			return posts, inertia.PageNumbers(page, more), err
+			page, err := tug.Paginate(c, 10, store.CountPosts, store.Posts)
+			return page.Data, page.Paging(), err
 		}).MatchOn("id"),
 	})
 }
 ```
 
 The function returns the page the client asks for, in the `page` query
-parameter, and where it sits: `PageNumbers(page, more)` for numbers, or an
-`inertia.Paging` of cursors, nil where there's none, with `PageName` for
-another query parameter. The prop goes out as `{"data": [...]}`, with its
-paging in `scrollProps`, for `<InfiniteScroll data="posts">`, and merges at
-`data`: appended for a page after, and prepended for a page before.
-`.MatchOn("id")` keeps an item two pages both have from showing twice,
-`.Defer()` leaves the list out of the first load, and a reset starts it
-again.
+parameter, and where it sits: [`tug.Paginate`](#pagination) works out
+both, or `inertia.PageNumbers(page, more)` says where a page of numbers
+sits, and an `inertia.Paging` of cursors, nil where there's none, with
+`PageName` for another query parameter. The prop goes out as
+`{"data": [...]}`, with its paging in `scrollProps`, for
+`<InfiniteScroll data="posts">`, and merges at `data`: appended for a page
+after, and prepended for a page before. `.MatchOn("id")` keeps an item two
+pages both have from showing twice, `.Defer()` leaves the list out of the
+first load, and a reset starts it again.
+
+## Pagination
+
+```go
+type PostsArchiveProps struct {
+	Posts tug.Paginated[Post] `json:"posts"`
+}
+
+func archive(c *tug.Ctx) error {
+	posts, err := tug.Paginate(c, 20, store.CountPosts, store.Posts)
+	if err != nil {
+		return err
+	}
+	return PostsArchive.Render(c, PostsArchiveProps{Posts: posts})
+}
+
+// The app's own queries: tug has no SQL.
+func (s *Store) CountPosts() (n int, err error) {
+	err = s.db.QueryRow("SELECT count(*) FROM posts").Scan(&n)
+	return n, err
+}
+
+func (s *Store) Posts(limit, offset int) ([]Post, error) {
+	rows, err := s.db.Query("SELECT id, title FROM posts ORDER BY id LIMIT ? OFFSET ?", limit, offset)
+	// ... and the rows, scanned into posts
+}
+```
+
+`tug.Paginate(c, perPage, count, fetch)` is the page of a list that
+`?page` asks for: `count` says how many items there are, and `fetch` gets
+a page's, by the limit and offset it's given, as SQL's `LIMIT` and
+`OFFSET` take them. A `tug.Paginated[T]` is the page, with where it sits,
+under the keys Laravel's paginators write, so a pager written for theirs
+reads it:
+
+| Key | What it is |
+|-----|------------|
+| `data` | The page's items, `[]` for none. |
+| `current_page`, `last_page` | The page's number, and the last's: 1 for a list with none. |
+| `per_page`, `total` | How many a page has, and how many the list has. |
+| `from`, `to` | The first and last items' places in the list, from 1, or `null` for a page with none. |
+| `first_page_url`, `last_page_url`, `prev_page_url`, `next_page_url` | Links to those pages, the last two `null` where there's none. |
+| `path` | The list's path, without the query. |
+| `links` | The pager's links: `{url, label, active}` for each page around this one, and `"..."`, with no URL, for those left out. |
+
+The links are paths, with the query the list was shown with, and the
+page's number changed alone, so that its filters and order go with it:
+`/posts?page=3&status=draft`. `links` has every page when there are under
+14, and otherwise the first two and the last two, and three on each side
+of this one, as Laravel's has; unlike Laravel's, it has no "Previous" and
+"Next" in it, as HTML entities a page would have to show as HTML:
+`prev_page_url` and `next_page_url` are those. A pager in React, as
+`examples/inertia`'s:
+
+```tsx
+<nav aria-label="Pages">
+  {posts.prev_page_url && <Link href={posts.prev_page_url}>Previous</Link>}
+  {posts.links.map((link, i) =>
+    link.url === null ? (
+      <span key={i}>{link.label}</span>
+    ) : (
+      <Link key={i} href={link.url} aria-current={link.active ? 'page' : undefined}>
+        {link.label}
+      </Link>
+    ),
+  )}
+  {posts.next_page_url && <Link href={posts.next_page_url}>Next</Link>}
+</nav>
+```
+
+A page that isn't a number, or is under 1, is the first, as Laravel has
+it. A page past the last is empty, with `last_page` for the pager, rather
+than a 404, as a list can shrink between two visits; `count` runs first,
+so `fetch` isn't asked for a page that has no items, however far past the
+last it is. The page size is the app's alone: a client that could pick it
+would pick how much the database reads.
+
+Two more, for lists that a count doesn't suit:
+
+- `tug.SimplePaginate(c, perPage, fetch)` is a `tug.SimplePaginated[T]`,
+  for a list too long to count at every visit: `fetch` is asked for one
+  more than a page, to know whether there's a next, and the page has no
+  `last_page`, `total` or `links`, but `current_page_url`.
+- `tug.CursorPaginate(c, perPage, fetch, cursor)` is a
+  `tug.CursorPaginated[T]`, for a list whose items come and go as it's
+  read, as a feed's: `cursor` is where an item sits in the query's order,
+  a value of the app's, such as its time and ID, and `fetch` gets the
+  items after the last one's, `nil` for the first page. The next page's
+  link carries it, as JSON in base64url, under `?cursor`, with `data`,
+  `next_cursor` and `next_page_url`. It isn't signed, as Laravel's
+  aren't: it's only where to start, and a made-up one starts somewhere
+  else within what the query lets the page see; one that doesn't decode
+  is the first page. Cursors go forward: a page before one runs the query
+  the other way, which is the app's to write.
+
+```go
+type PostCursor struct {
+	At time.Time `json:"at"`
+	ID int64     `json:"id"`
+}
+
+feed, err := tug.CursorPaginate(c, 20,
+	func(after *PostCursor, limit int) ([]Post, error) { return store.PostsAfter(after, limit) },
+	func(p Post) PostCursor { return PostCursor{At: p.CreatedAt, ID: p.ID} })
+```
+
+Each page's `Paging()` is where it sits for `inertia.Scroll`, as above, so
+one query feeds numbered pages and `<InfiniteScroll>` alike.
+`tug.PageName("comments_page")` reads and links another query parameter,
+for a second list on one page, and leaves the first's as it is. tug gen
+writes each kind as it writes any generic struct, as `Paginated_Post`, so
+a page without a count has no `total` in its TypeScript.
 
 ## Once props
 

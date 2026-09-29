@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M20 are done, which is
+the decisions behind it and where it stands: M1 to M21 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -30,10 +30,12 @@ throttles across instances (v0.13.0): `auth.ThrottleStore`, the auth
 starter's throttles counted in its database, and `tug.Limit`, a limit
 for a route, proxies and signed links (v0.14.0):
 `middleware.TrustProxies` and `c.IP`, `Config.URL` from `APP_URL`, which
-`tug dev` sets, `AbsoluteURL`, and `SignedURL` with `tug.Signed`, and
+`tug dev` sets, `AbsoluteURL`, and `SignedURL` with `tug.Signed`,
 languages (v0.15.0): package `lang`, what tug says, a form's errors among
 it, and `c.T`, in the request's language, fields named by their `label`
-tags or their keys in words, `validate.Rule`, and `tug lang`.
+tags or their keys in words, `validate.Rule`, and `tug lang`, and
+pagination (v0.16.0): `tug.Paginate`, `SimplePaginate` and
+`CursorPaginate`, with the app's own queries.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -161,6 +163,15 @@ dev server that isn't there: delete it.
     `Signed`, a wrapper like `Limit`, lets only such a link through
     (`checkSigned`: each key, then the expiry; a query with anything else
     in it fails, as Bind would read it), and is a 500 with no keys.
+  - `paginate.go`: `Paginate`, `SimplePaginate` and `CursorPaginate`,
+    over the app's own count and fetch (limit and offset), or its
+    cursor, as JSON in base64url, and the three types they return, with
+    Laravel's keys; `pageNumber` reads `?page` (1 unless more),
+    `pageLinks` makes paths with the request's query and the page
+    changed, and `pageWindow` Laravel's pager window, three on each side;
+    `span` is `from` and `to`, and the items never nil; `Paging` of each
+    is where it sits for `inertia.Scroll`; `PageName` names another
+    parameter.
   - `pages.go`: `Page[P]`, which declares a component with its props
     type in the registry tug gen reads (`declare`, `declaredPages`) and
     returns a `PageOf[P]` that renders only those props, `Ctx.Inertia`
@@ -502,8 +513,10 @@ dev server that isn't there: delete it.
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
   before one). `main_test.go` runs on tugtest without Node, against a fake
   manifest; `e2e/` drives the real build in a browser, in order: the later
-  tests change the posts. `resources/js/tug` is written by tug gen and committed
-  (CI checks it's current); `resources/js/types.ts` has only the flash type.
+  tests change the posts. The list's scroll and the archive, `/posts`, in
+  numbered pages with `Pager.tsx`, are both `tug.Paginate` of the posts.
+  `resources/js/tug` is written by tug gen and committed (CI checks it's
+  current); `resources/js/types.ts` has only the flash type.
 
 tug logs through `slog.Default()` and never sets it; that's the app's call.
 

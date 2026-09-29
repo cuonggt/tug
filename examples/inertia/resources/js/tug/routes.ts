@@ -3,6 +3,7 @@
 // routes are the app's named routes: the method each takes, and the path
 // pattern its URL is built from.
 export const routes = {
+  'posts.archive': { method: 'get', path: '/posts' },
   'posts.create': { method: 'get', path: '/posts/create' },
   'posts.destroy': { method: 'delete', path: '/posts/{id}' },
   'posts.edit': { method: 'get', path: '/posts/{id}/edit' },
@@ -14,6 +15,7 @@ export const routes = {
 
 // Params are the values each route's path needs, one for each wildcard.
 export interface Params {
+  'posts.archive': Record<string, never>
   'posts.create': Record<string, never>
   'posts.destroy': { id: string | number }
   'posts.edit': { id: string | number }

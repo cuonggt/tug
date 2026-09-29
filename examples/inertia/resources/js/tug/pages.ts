@@ -5,11 +5,37 @@ export interface ErrorPageProps {
   message: string
 }
 
+export interface PageLink {
+  url: string | null
+  label: string
+  active: boolean
+}
+
+export interface Paginated_Post {
+  current_page: number
+  data: Post[]
+  first_page_url: string
+  from: number | null
+  last_page: number
+  last_page_url: string
+  links: PageLink[]
+  next_page_url: string | null
+  path: string
+  per_page: number
+  prev_page_url: string | null
+  to: number | null
+  total: number
+}
+
 export interface Post {
   id: number
   title: string
   body: string
   tags: string[]
+}
+
+export interface PostsArchiveProps {
+  posts: Paginated_Post
 }
 
 export interface PostsCreateProps {}
@@ -45,6 +71,7 @@ export interface SharedProps {
 // Pages are the props of each page component, as tug.Page declares them.
 export interface Pages {
   'Error': ErrorPageProps
+  'Posts/Archive': PostsArchiveProps
   'Posts/Create': PostsCreateProps
   'Posts/Edit': PostsEditProps
   'Posts/Index': PostsIndexProps

@@ -107,6 +107,11 @@ func showPost(c *tug.Ctx) error {
     rescue slot rather than a failed page.
   - **Merging:** `Merge` props, prepended or deep-merged, and matched on a
     key. `Scroll` pages a list for `<InfiniteScroll>`.
+  - **Pagination:** `tug.Paginate` is the page of a list `?page` asks for,
+    from the app's own count and query, with where it sits and a pager's
+    links, under the keys Laravel's paginators write; `SimplePaginate`
+    without a count, and `CursorPaginate` by cursor. Each feeds `Scroll`
+    too.
   - **Once:** `Once` props stay on the client until they expire.
   - **Partial reloads** reach nested props by path.
   - **Redirects:** a browser running an old build reloads. A 302 after a
