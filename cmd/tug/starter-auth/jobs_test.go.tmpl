@@ -114,9 +114,12 @@ func TestTheJobsCommandListsTheJobsThatFailedAndRunsThemAgain(t *testing.T) {
 }
 
 func TestTheBinaryRunsTheJobsCommandInPlaceOfTheServer(t *testing.T) {
-	app := newTestApp(t)
-	s := &jobs{db: app.db}
+	// The job fails before the app starts, as its queue would otherwise
+	// claim it first, and a failed job is one no queue claims.
+	db := testDB(t)
+	s := &jobs{db: db}
 	failJob(t, s, `{"user":1}`, "550 no such mailbox: ann@example.com")
+	app := startApp(t, db, [][]byte{key(1)})
 	old := os.Args
 	os.Args = []string{"./blog", "jobs", "retry", "all"}
 	t.Cleanup(func() { os.Args = old })
