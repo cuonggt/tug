@@ -30,7 +30,8 @@ when a Go file, go.mod or a template changes, writing the TypeScript types
 again and reloading the browser. The app's .env is read first, and the Go
 server listens on 127.0.0.1:8080 unless ADDR or PORT say otherwise, and is
 at http://localhost:8080, where browsers make passkeys, as they don't for
-an IP address.
+an IP address. That's the app's APP_URL, the address its links start
+with, unless .env names another.
 `)
 	}
 	if err := flags.Parse(args); err != nil {
@@ -74,9 +75,7 @@ an IP address.
 	if err != nil {
 		return err
 	}
-	// TUG_DEV tells the app that Vite's dev server is its, which renders
-	// its pages on the server too, so it needs no Node process of its own.
-	env = append(env, "ADDR="+addr, "TUG_DEV=1")
+	env = devEnv(env, addr)
 	changes := watch(ctx, ".", 300*time.Millisecond)
 	var app *proc
 	defer func() { app.stop() }()
@@ -154,6 +153,31 @@ func devAddr(env []string, say func(string, ...any)) (string, error) {
 		}
 	}
 	return "", errors.New("ports 8080 to 8099 are all taken: set ADDR to one that isn't")
+}
+
+// devEnv is the app's environment under tug dev: env, and where it listens,
+// addr; TUG_DEV, which tells it that Vite's dev server is its, and renders
+// its pages on the server too, so it needs no Node process of its own; and
+// APP_URL, the address tug dev shows, unless env has one, so that the
+// links the app makes, as in its mail, lead where the browser has it open.
+func devEnv(env []string, addr string) []string {
+	env = append(env, "ADDR="+addr, "TUG_DEV=1")
+	if envValue(env, "APP_URL") == "" {
+		env = append(env, "APP_URL=http://"+shown(addr))
+	}
+	return env
+}
+
+// envValue is key's value in env, the last one, as a process started with
+// env sees it, or "".
+func envValue(env []string, key string) string {
+	var value string
+	for _, kv := range env {
+		if k, v, _ := strings.Cut(kv, "="); k == key {
+			value = v
+		}
+	}
+	return value
 }
 
 // shown is where to open the app listening on addr: localhost, for

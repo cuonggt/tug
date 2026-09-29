@@ -108,14 +108,15 @@ behind: delete it.
 | `ADDR`              | Where the app listens, as `host:port`. | `:8080`, every interface | `tug.ConfigFromEnv` |
 | `PORT`              | The port, when `ADDR` isn't set, as Cloud Run and Fly.io set it. | none | `tug.ConfigFromEnv` |
 | `APP_DEBUG`         | `true` or `1` puts a 500's error, and a panic's stack, in the response. Leave it off in production. | off | `tug.ConfigFromEnv` |
-| `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail and to its photos. | none: the starters stop without it | `session.KeysFromEnv` |
+| `APP_URL`           | The app's address, such as `https://example.com`, which the links that leave it start with: `AbsoluteURL` and `SignedURL`'s, and the auth starter's mail, whose passkeys are for it too. With `https://`, the starters' session cookie is for HTTPS only. `tug dev` sets it to the address it shows. | none: the auth starter stops without it | `tug.ConfigFromEnv` |
+| `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail and to its photos, as `SignedURL` signs. | none: the starters stop without it | `session.KeysFromEnv` |
 | `APP_PREVIOUS_KEYS` | Keys being rotated out, comma separated. They still decrypt sessions and check links. | none | `session.KeysFromEnv` |
+| `TRUSTED_PROXIES`   | The proxies in front of the app, such as a load balancer, whose `X-Forwarded-For` says whose each request is: addresses or ranges, comma separated, as `10.0.0.0/8`, or `*` for whatever connects. See [Behind a proxy](#behind-a-proxy). | none: a request is from whatever connected | the starters' `main.go`, for `middleware.TrustProxies` |
 
 The auth starter reads these as well:
 
 | Variable            | What it does | Default | Read by |
 |---------------------|--------------|---------|---------|
-| `APP_URL`           | The app's address, such as `https://example.com`, which the links in its mail start with. With `https://`, the session cookie is for HTTPS only. | none: needed unless `APP_DEBUG` is on | its `main.go` |
 | `DB_PATH`           | The SQLite database. | `app.db`, and `/data/app.db` in its image | its `db.go` |
 | `DB_URL`            | On Postgres or MySQL, the database, as `postgres://user:password@host:5432/blog?sslmode=require` or `mysql://user:password@host:3306/blog?tls=true`, with the driver's settings in its query. | none: needed, unless `DB_HOST` is set | its `db.go` |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | The database's parts, as Laravel names them, where there's no `DB_URL`. | the port is `5432` or `3306` | its `db.go` |
@@ -288,15 +289,15 @@ came over TLS, and a request from a proxy that ended TLS didn't. Set
 sessions, err := session.New(session.Config{Keys: keys, Secure: true})
 ```
 
-The auth starter sets it from its `APP_URL`, which starts with `https://`
-for an app served over HTTPS.
+The starters set it from `APP_URL`, which starts with `https://` for an
+app served over HTTPS.
 
 `c.RedirectRoute`, a form sent back with its errors, and the 409 that
 reloads a page for a new build all carry a path rather than a whole URL,
-so the app needn't know the scheme or host the proxy answers on. The links
-in the auth starter's mail do need them, which is what `APP_URL` is for: a
-link made from the request's `Host` could point to any site the request
-names.
+so the app needn't know the scheme or host the proxy answers on. A link
+that leaves the app, as in the auth starter's mail, does need them, which
+is what `APP_URL` is for: a link made from the request's `Host` could
+point to any site the request names.
 
 The proxy should pass on the `Host` the request came with. A form that
 doesn't validate goes back to the page in its `Referer` only when that's
@@ -304,33 +305,28 @@ on the request's host, and otherwise to `/`. And `middleware.CSRF`
 compares the `Origin` with the `Host`, for a browser that doesn't send
 `Sec-Fetch-Site`.
 
-Behind a proxy, `r.RemoteAddr` is the proxy's address. The auth starter
-counts failed logins by email and address, and takes the address from
-`r.RemoteAddr` in its `clientIP`, so there every client counts as one:
-five wrong passwords for an email, from anyone, make everyone wait out
-the minute for it. A limit on a route by address, with `tug.Limit`, has
-the same trouble: its key is the app's to make. Once only the proxy can
-reach the app, read the client's address from the header the proxy sets.
-For one proxy that adds the address it sees to `X-Forwarded-For`:
+Behind a proxy, a request comes from the proxy's address. The auth
+starter counts failed logins by email and address, `c.IP()`, so there
+every client would count as one: five wrong passwords for an email, from
+anyone, would make everyone wait out the minute for it, and five asks for
+a reset link a minute would be the whole site's. A limit on a route by
+address, with `tug.Limit`, has the same trouble. So name the proxies in
+`TRUSTED_PROXIES`, which the starters hand `middleware.TrustProxies`:
 
-```go
-// clientIP is the address a request came from. Behind one proxy, which adds
-// the address it sees to X-Forwarded-For, it's the header's last address:
-// the ones before it came from the client, who can write anything there.
-func clientIP(r *http.Request) string {
-	if fwd := r.Header.Values("X-Forwarded-For"); len(fwd) > 0 {
-		addrs := strings.Split(fwd[len(fwd)-1], ",")
-		if ip := strings.TrimSpace(addrs[len(addrs)-1]); ip != "" {
-			return ip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
+```sh
+TRUSTED_PROXIES=10.0.0.0/8          # a load balancer in the app's network
+TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12
+TRUSTED_PROXIES='*'                 # a platform whose proxy alone reaches the app
 ```
+
+A request from one of them then comes from the client in the proxies'
+`X-Forwarded-For`, read from its end, where each proxy adds the address it
+saw, so what a client writes in the header itself changes nothing
+([Routing](routing.md#the-clients-address) has how). `*` believes
+whatever connects: it's for a platform whose proxy's addresses the app
+can't name, where nothing else can reach the app, as anything else that
+can would pick its own address. Behind a CDN and a load balancer, name
+both: the CDN's ranges, which it publishes, and the load balancer's.
 
 `middleware.RequestID` keeps an `X-Request-ID` that the proxy sets, when
 it's short and plain, so the proxy's log and the app's share the ID.

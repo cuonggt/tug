@@ -84,15 +84,16 @@ go test ./...
   secrets and signs the links in mail and to photos, and a deployed app
   needs one of its own, set in its environment, with `APP_URL`, its own
 [[- if .SQLite ]]
-  address, and `MAIL_HOST` and the rest of `.env.example` for its mail,
-  and for the photos, a volume, or `FILESYSTEM_DISK=s3` and a bucket. In
-  development, mail is written out where tug dev shows it, links and all.
+  address, `TRUSTED_PROXIES` behind a load balancer, and `MAIL_HOST` and
+  the rest of `.env.example` for its mail, and for the photos, a volume,
+  or `FILESYSTEM_DISK=s3` and a bucket. In development, tug dev sets
+  `APP_URL`, and mail is written out where it shows it, links and all.
 [[- else ]]
-  address, `DB_URL`, its database, and `MAIL_HOST` and the rest of
-  `.env.example` for its mail, and for the photos, a volume, or
-  `FILESYSTEM_DISK=s3` and a bucket. In development, `DB_URL` is
-  compose.yaml's database, and mail is written out where tug dev shows
-  it, links and all.
+  address, `DB_URL`, its database, `TRUSTED_PROXIES` behind a load
+  balancer, and `MAIL_HOST` and the rest of `.env.example` for its mail,
+  and for the photos, a volume, or `FILESYSTEM_DISK=s3` and a bucket. In
+  development, `DB_URL` is compose.yaml's database, tug dev sets
+  `APP_URL`, and mail is written out where it shows it, links and all.
 [[- end ]]
 [[ if and .SSR .SQLite -]]
 - `Dockerfile`: the app as one static binary on a distroless image with

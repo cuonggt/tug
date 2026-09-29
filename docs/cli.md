@@ -44,6 +44,8 @@ settings from its environment.
 The variables tug itself uses:
 
 - `ADDR` and `PORT`: where `tug dev` runs the app.
+- `APP_URL`: the app's address, which `tug dev` sets to where it shows
+  the app, unless `.env` or the environment has one.
 - `TUG_GEN`: set by tug when it runs the app for its types; see
   [`tug gen`](#tug-gen).
 - `NO_COLOR`: when it's set, `tug dev`'s labels aren't colored. They're
@@ -181,8 +183,10 @@ Runs the app for development. It has no flags.
    `node_modules` isn't there.
 2. It starts Vite's dev server: `npm run dev`.
 3. It picks the app's address (below), and passes it to the app as
-   `ADDR`, with `TUG_DEV=1`, which tells an app with server-side rendering
-   that the dev server renders its pages, so it runs no Node of its own.
+   `ADDR`, and as `APP_URL`, where it shows it, `http://localhost:8080`,
+   unless one is set already, with `TUG_DEV=1`, which tells an app with
+   server-side rendering that the dev server renders its pages, so it runs
+   no Node of its own.
 4. It builds the app into `.tug/app`, writes its types as `tug gen` does,
    starts it, and waits for it to take connections. Then it says where the
    app is, and reloads the browser:
@@ -215,7 +219,9 @@ tug  │ 127.0.0.1:8080 is taken, so the app is on 127.0.0.1:8081
 
 It listens on 127.0.0.1 alone, so nothing outside the machine reaches it,
 and it's shown at `localhost`, as `http://localhost:8080`: browsers make
-passkeys for a domain, and not for an IP address.
+passkeys for a domain, and not for an IP address. That's the app's
+`APP_URL` too, which the links it makes start with, as in the auth
+starter's mail, unless `.env` names another, as a tunnel's to a phone.
 
 ### What it watches
 
@@ -324,10 +330,9 @@ tug: the app stopped before writing its types (exit status 1):
 
 What only serving needs, `main` can leave out while `tug.Generating()`
 says tug gen started the app. The auth starter's leaves its database
-alone, so tug gen needs none running, as when `tug new` makes the app, or
-`tug build` builds it in CI. Its `newApp` stops without `APP_URL` unless
-`APP_DEBUG` is on. Where there's no `.env`, as in CI, set what `main`
-needs:
+alone, and asks for no `APP_URL`, which only its links need, so tug gen
+needs neither, as when `tug new` makes the app, or `tug build` builds it
+in CI. Where there's no `.env`, as in CI, set what `main` needs:
 
 ```sh
 APP_KEY=base64:$(head -c 32 /dev/urandom | base64) tug gen

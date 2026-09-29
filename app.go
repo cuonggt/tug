@@ -63,10 +63,23 @@ type Config struct {
 	// after it. With it set, every request goes through its Middleware,
 	// inside the App's own middleware.
 	Session *session.Store
+
+	// URL is the app's own address, a scheme and a host, as
+	// https://example.com: what the links AbsoluteURL and SignedURL make
+	// begin with, for links that leave the app, as in mail. It's never the
+	// request's Host, which can name any site. New panics on one that isn't
+	// an address.
+	URL string
+
+	// Keys sign the links SignedURL makes, and check them: the first signs,
+	// and each of them checks, so the links made with a key being rotated
+	// out still work until it's dropped. session.KeysFromEnv reads them from
+	// APP_KEY and APP_PREVIOUS_KEYS.
+	Keys [][]byte
 }
 
 // ConfigFromEnv reads the settings a deployment sets: ADDR, or PORT as
-// platforms such as Cloud Run and Fly.io set it, and APP_DEBUG.
+// platforms such as Cloud Run and Fly.io set it, APP_DEBUG, and APP_URL.
 func ConfigFromEnv() Config {
 	var c Config
 	if addr := os.Getenv("ADDR"); addr != "" {
@@ -75,6 +88,7 @@ func ConfigFromEnv() Config {
 		c.Addr = ":" + port
 	}
 	c.Debug, _ = strconv.ParseBool(os.Getenv("APP_DEBUG"))
+	c.URL = os.Getenv("APP_URL")
 	return c
 }
 
@@ -101,7 +115,9 @@ type App struct {
 }
 
 // New returns an App. Without a Config it reads one from the environment
-// (ConfigFromEnv); a Config passed in is used as it is.
+// (ConfigFromEnv); a Config passed in is used as it is. It panics on a
+// Config.URL that isn't the app's address, as a mistyped APP_URL should
+// stop the app as it starts rather than make links that go nowhere.
 func New(config ...Config) *App {
 	var cfg Config
 	switch len(config) {
@@ -123,6 +139,13 @@ func New(config ...Config) *App {
 	}
 	if cfg.ShutdownTimeout == 0 {
 		cfg.ShutdownTimeout = 10 * time.Second
+	}
+	if cfg.URL != "" {
+		base, err := appURL(cfg.URL)
+		if err != nil {
+			panic("tug: " + err.Error())
+		}
+		cfg.URL = base
 	}
 
 	a := &App{config: cfg, mux: http.NewServeMux(), names: make(map[string]*Route)}

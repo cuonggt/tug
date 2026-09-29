@@ -42,12 +42,15 @@ const maxPasskeys = 10
 // tooManyPasskeys is what an account with maxPasskeys is told.
 var tooManyPasskeys = "An account has " + strconv.Itoa(maxPasskeys) + " passkeys at most: remove one to add another."
 
-// site is the site passkeys are made for: APP_URL's, or in development,
-// without it, the address the request came to, as for the links in mail.
-// Browsers make passkeys for a domain, not an IP address: in development,
-// the app is at localhost.
-func (a *app) site(c *tug.Ctx) *auth.Passkeys {
-	u, _ := url.Parse(a.base(c))
+// passkeySite is the site passkeys are made for: the app's, at appURL,
+// APP_URL, as the links in its mail are. Browsers make passkeys for a
+// domain, not an IP address: in development, tug dev has the app at
+// localhost.
+func passkeySite(appURL string) *auth.Passkeys {
+	u, err := url.Parse(appURL)
+	if err != nil {
+		u = &url.URL{} // not an address, which tug.New stops the app for
+	}
 	return &auth.Passkeys{RPID: u.Hostname(), Origin: u.Scheme + "://" + u.Host, Name: appName}
 }
 
@@ -70,7 +73,7 @@ func (a *app) newPasskeyOptions(c *tug.Ctx, user *User) error {
 	for _, pk := range kept {
 		exclude = append(exclude, pk.ID)
 	}
-	options, err := a.site(c).StartRegistration(c.Session(), auth.PasskeyUser{Handle: handle, Name: user.Email, DisplayName: user.Name}, exclude)
+	options, err := a.site.StartRegistration(c.Session(), auth.PasskeyUser{Handle: handle, Name: user.Email, DisplayName: user.Name}, exclude)
 	if err != nil {
 		return err
 	}
@@ -95,7 +98,7 @@ func (a *app) addPasskey(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
-	pk, err := a.site(c).FinishRegistration(c.Session(), in.Credential)
+	pk, err := a.site.FinishRegistration(c.Session(), in.Credential)
 	if err == nil && !bytes.Equal(pk.UserHandle, handle) {
 		err = errors.New("the passkey was made for another user")
 	}
@@ -117,7 +120,7 @@ func (a *app) addPasskey(c *tug.Ctx, user *User) error {
 		if err := a.passkeys.in(tx).add(c.Context(), user.ID, name, pk); err != nil {
 			return err
 		}
-		return a.passkeyMail.In(a.jobs.in(tx)).Push(c.Context(), PasskeyMail{User: user.ID, Name: name, Base: a.base(c)})
+		return a.passkeyMail.In(a.jobs.in(tx)).Push(c.Context(), PasskeyMail{User: user.ID, Name: name})
 	})
 	if errors.Is(err, errPasskeyTaken) {
 		return validate.Errors{"passkey": "That passkey is on an account already."}
@@ -149,7 +152,7 @@ func (a *app) removePasskey(c *tug.Ctx, user *User) error {
 // browser, as JSON, which any of the site's passkeys will do for. The
 // passkey says whose login it is.
 func (a *app) passkeyLoginOptions(c *tug.Ctx) error {
-	options, err := a.site(c).StartLogin(c.Session(), nil)
+	options, err := a.site.StartLogin(c.Session(), nil)
 	if err != nil {
 		return err
 	}
@@ -171,7 +174,7 @@ func (a *app) passkeyLogin(c *tug.Ctx) error {
 		return err
 	}
 	// Five tries a minute from one address, as with passwords.
-	key := "passkey|" + clientIP(c.Request())
+	key := "passkey|" + c.IP()
 	wait, err := a.logins.Try(c.Context(), key)
 	if err != nil {
 		return err
@@ -180,7 +183,7 @@ func (a *app) passkeyLogin(c *tug.Ctx) error {
 		return validate.Errors{"passkey": tooMany(wait)}
 	}
 	var owner int64
-	pk, err := a.site(c).FinishLogin(c.Session(), in.Credential, func(id []byte) (auth.Passkey, error) {
+	pk, err := a.site.FinishLogin(c.Session(), in.Credential, func(id []byte) (auth.Passkey, error) {
 		var pk auth.Passkey
 		var err error
 		owner, pk, err = a.passkeys.byID(c.Context(), id)
@@ -222,7 +225,7 @@ func (a *app) confirmPasskeyOptions(c *tug.Ctx, user *User) error {
 	if len(kept) == 0 {
 		return tug.NewHTTPError(http.StatusNotFound, "no passkeys to confirm with")
 	}
-	options, err := a.site(c).StartLogin(c.Session(), kept)
+	options, err := a.site.StartLogin(c.Session(), kept)
 	if err != nil {
 		return err
 	}
@@ -244,7 +247,7 @@ func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
 	if wait > 0 {
 		return validate.Errors{"passkey": tooMany(wait)}
 	}
-	pk, err := a.site(c).FinishLogin(c.Session(), in.Credential, func(id []byte) (auth.Passkey, error) {
+	pk, err := a.site.FinishLogin(c.Session(), in.Credential, func(id []byte) (auth.Passkey, error) {
 		owner, pk, err := a.passkeys.byID(c.Context(), id)
 		if err == nil && owner != user.ID {
 			err = errNoPasskey
@@ -270,7 +273,6 @@ func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
 type PasskeyMail struct {
 	User int64  `json:"user"`
 	Name string `json:"name"` // the passkey's
-	Base string `json:"base"` // the address the link starts with
 }
 
 // mailPasskey runs PasskeyMail jobs.
@@ -282,7 +284,7 @@ func (a *app) mailPasskey(ctx context.Context, job PasskeyMail) error {
 	if err != nil {
 		return err
 	}
-	link, err := a.link(job.Base, "security.edit")
+	link, err := a.routes.AbsoluteURL("security.edit")
 	if err != nil {
 		return err
 	}

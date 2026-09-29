@@ -182,8 +182,11 @@ func showPost(c *tug.Ctx) error {
   middleware, and named routes with `app.URL("posts.show", 42)`. Paths match
   exactly, so `/` is only the home page, and `{name...}` takes everything
   under a path. A trailing slash redirects to the route without it, and a
-  wrong method is a 405 with `Allow`. `tug.Limit` puts a limit on a route,
-  by address or user: a 429, with `Retry-After`, past it.
+  wrong method is a 405 with `Allow`. Links that leave the app, as in
+  mail, are whole, from `APP_URL`, never the request's `Host`, and
+  `app.SignedURL` makes ones only the app could have, until they expire,
+  for a route `tug.Signed` wraps. `tug.Limit` puts a limit on a route, by
+  address or user: a 429, with `Retry-After`, past it.
 - **Handlers return errors.** `tug.NewHTTPError(404, "post not found")`
   picks the status. Any other error is a 500 whose details stay in the log,
   or show in the response with `APP_DEBUG=true`. A panic is a 500 with its
@@ -193,8 +196,10 @@ func showPost(c *tug.Ctx) error {
   a 400 that names the field, "age must be a whole number"; a bad path value
   is a 404.
 - **Middleware** is `func(http.Handler) http.Handler`: `RequestID`, `Logger`
-  (through slog), `Recover`, and `CSRF`, which is Go's
-  `http.CrossOriginProtection`, so there are no tokens.
+  (through slog), `Recover`, `CSRF`, which is Go's
+  `http.CrossOriginProtection`, so there are no tokens, and
+  `TrustProxies`, which reads the client's address past the app's load
+  balancers, from the end of `X-Forwarded-For`, for `c.IP()`.
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking
   connections and lets the requests in flight finish.
 

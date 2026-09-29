@@ -6,7 +6,7 @@ and a handler takes a `*tug.Ctx` and returns an error:
 
 ```go
 func main() {
-	app := tug.New() // ADDR or PORT, and APP_DEBUG, from the environment
+	app := tug.New() // ADDR or PORT, APP_DEBUG and APP_URL, from the environment
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 
 	app.Get("/posts/{id}", showPost).Name("posts.show")
@@ -45,12 +45,17 @@ Every field has a default, so the zero `Config` works:
 | `Inertia`         | none                  | Renders the app's pages. See [pages.md](pages.md). |
 | `ErrorPage`       | none                  | The Inertia page that errors are shown with. See [pages.md](pages.md). |
 | `Session`         | none                  | Keeps each visitor's session, which carries flash data and validation errors to the next page. See [forms.md](forms.md). |
+| `URL`             | none                  | The app's own address, as `https://example.com`, which the links that leave the app begin with. See [Whole links, and signed ones](#whole-links-and-signed-ones). |
+| `Keys`            | none                  | The app's keys, which sign the links `SignedURL` makes. |
 
 `ConfigFromEnv` reads `ADDR`, the address to listen on, such as
 `127.0.0.1:8080`; or else `PORT`, as platforms such as Cloud Run and Fly.io
-set it, so `PORT=3000` is `:3000`; and `APP_DEBUG`, where `true` or `1`
-turns on `Debug`. The default address, `:8080`, listens on every interface.
-[deployment.md](deployment.md) has more on the environment in production.
+set it, so `PORT=3000` is `:3000`; `APP_DEBUG`, where `true` or `1` turns
+on `Debug`; and `APP_URL`, the app's address. The default address,
+`:8080`, listens on every interface. `tug.New` panics on a `URL` that isn't
+a scheme and a host, as a mistyped `APP_URL` should stop the app as it
+starts. [deployment.md](deployment.md) has more on the environment in
+production.
 
 ### `Run` and `Serve`
 
@@ -173,6 +178,49 @@ handler for a form usually ends with
 builds the same paths in the frontend: `route('posts.show', { id: 42 })`.
 See [typescript.md](typescript.md).
 
+### Whole links, and signed ones
+
+```go
+cfg := tug.ConfigFromEnv() // APP_URL, the app's address, as https://example.com
+cfg.Keys = keys            // session.KeysFromEnv's, from APP_KEY
+app := tug.New(cfg)
+
+app.Get("/invitations/{id}", tug.Signed(acceptInvitation)).Name("invitations.accept")
+
+link, err := app.AbsoluteURL("posts.show", 42) // "https://example.com/posts/42"
+link, err = app.SignedURL("invitations.accept", time.Now().Add(72*time.Hour), invite.ID)
+// "https://example.com/invitations/7?expires=1790000000&signature=..."
+```
+
+A path is enough for a link within the app, and it's what redirects and
+pages use: the scheme and host a proxy answers on aren't the app's to
+know. A link that leaves the app, in mail, a QR code, or another service,
+is whole: `AbsoluteURL(name, params...)` is the named route's path after
+`Config.URL`, the app's own address, which `ConfigFromEnv` reads from
+`APP_URL`. It's never taken from the request's `Host`, which can name any
+site, so a link made from it could send its reader anywhere. Without
+`Config.URL`, it's an error that says to set `APP_URL`. `tug dev` sets it
+to the address it shows the app at, unless `.env` names another.
+
+`SignedURL(name, expires, params...)` is a whole link that only the app
+could have made, until it expires: its query has `expires`, a Unix time,
+and `signature`, over the link's path and its expiry, with a key derived
+from the first of `Config.Keys` for signed links alone. `tug.Signed(h)`
+wraps a handler that only such a link reaches: any other request is a
+403 for the `ErrorHandler`, "this link has expired" for one the app made
+that's past its time, and "this link isn't valid" for the rest, a link
+changed anywhere in its path, its expiry or its signature, or with
+anything else in its query, which `Bind` would give the handler. It's a
+wrapper, as `tug.Limit` is, so an Inertia visit gets the error page.
+
+A link is checked with each of the keys, so one made with a key moved to
+`APP_PREVIOUS_KEYS` works until the key is dropped. Every link expires,
+and one that has to work for years, as a link to unsubscribe, is given
+years. It works until then, as often as it's followed: what should happen
+once, as an invitation accepted, is the app's to record. `c.AbsoluteURL`
+and `c.SignedURL` make the same links in a handler; a job, with no
+request, makes them with the `*tug.App`, as the auth starter's mail does.
+
 ## Groups and middleware
 
 ```go
@@ -231,12 +279,17 @@ app.Get("/static/{path...}", tug.WrapHandler(http.StripPrefix("/static", http.Fi
 
 ### Package `middleware`
 
-Package `middleware` has four, each a plain
+Package `middleware` has five, each a plain
 `func(http.Handler) http.Handler` that works with any router. The order in
 `app.Use` above is the usual one: `RequestID` first, so every log line
 carries the ID, and `Logger` before `Recover`, so a panic is logged as the
-500 that `Recover` makes of it.
+500 that `Recover` makes of it. Behind a proxy, `TrustProxies` goes before
+them all.
 
+- `TrustProxies(proxies...)` gives a request that came through the app's
+  proxies, such as a load balancer, the address of the client it came
+  from, in `RemoteAddr`, where it had the proxy's. See
+  [The client's address](#the-clients-address).
 - `RequestID()` gives each request an ID: the `X-Request-ID` it came with,
   as a proxy in front may set one, when that's short and plain (up to 64
   letters, digits and `-_.:+/=`), or else a new random one. The ID goes back
@@ -262,17 +315,53 @@ carries the ID, and `Logger` before `Recover`, so a panic is logged as the
   isn't one, such as `admin.example.com` without its scheme, so that a
   mistyped setting stops the app as it starts. See [forms.md](forms.md).
 
+### The client's address
+
+```go
+app.Use(middleware.TrustProxies("10.0.0.0/8"), middleware.RequestID(), middleware.Logger())
+
+func search(c *tug.Ctx) error {
+	slog.Info("a search", "from", c.IP()) // "203.0.113.9", the client's, not the load balancer's
+	...
+}
+```
+
+`c.IP()` is the address a request came from, without its port. Behind a
+proxy, a load balancer, a CDN or a platform's router, that's the proxy's,
+and every client comes from it: a limit by address counts them all as
+one. `middleware.TrustProxies(proxies...)` names the proxies the app
+believes, each an address or a range, as `10.0.0.5` or `10.0.0.0/8`, and
+gives a request from one of them the client's address, in `RemoteAddr`,
+where `c.IP()`, and anything else written for net/http, finds it. The
+starters read the proxies from `TRUSTED_PROXIES`, comma separated, and
+believe none without it.
+
+Each proxy adds the address it saw to the end of `X-Forwarded-For`, so the
+header is read from its end, back past the proxies named, to the first
+address that isn't one: the client, as far as the proxies can tell. What
+comes before it, the client wrote itself, and could be anything, which is
+why reading the header from its start, as the easy way does, lets anyone
+pick the address a limit counts. A request from an address that isn't a
+proxy keeps its own, whatever its headers say.
+
+`*` believes whatever connects, and it alone: the client is the address
+that proxy added. It's for a platform whose proxy has no address the app
+can name, where nothing but the proxy can reach the app. An app that
+anything else can reach names its proxies: with `*`, whatever connects
+picks its own address. `TrustProxies` panics on a proxy that isn't an
+address or a range, such as a host's name, so that a mistyped setting
+stops the app as it starts, rather than leave it believing no one.
+
+It reads the address alone, not `X-Forwarded-Proto` or
+`X-Forwarded-Host`: the app's links are `APP_URL`'s, its cookie is
+`Secure` by `session.Config.Secure`, and the proxy passes `Host` on (see
+[Deployment](deployment.md#behind-a-proxy)).
+
 ### A limit for a route
 
 ```go
 searches := &auth.Throttle{Name: "searches", Max: 30, Window: time.Minute}
-app.Get("/search", tug.Limit(searches, byAddress, search)).Name("search")
-
-// byAddress is the address a request came from, as the app reads it.
-func byAddress(c *tug.Ctx) string {
-    host, _, _ := net.SplitHostPort(c.Request().RemoteAddr)
-    return host
-}
+app.Get("/search", tug.Limit(searches, (*tug.Ctx).IP, search)).Name("search")
 ```
 
 `tug.Limit(limiter, key, handler)` counts a try for each request, by the
@@ -291,11 +380,11 @@ as an `auth.Throttle` is ([Accounts](auth.md#throttle)): in memory, this
 process's own counts, or with a `Store`, counts that every instance of
 the app shares.
 
-The key is the app's: tug has no address of its own to offer, as behind
-a proxy the request's is the proxy's, which only the app knows to read
-past (see [Deployment](deployment.md#behind-a-proxy)). A key can be a
-user's ID instead, for a limit per account. A throttle used on more than
-one route counts them together, unless the key says which.
+The key is the app's to make from the request: the address it came from,
+`c.IP()`, which behind a proxy takes `TrustProxies` (see
+[The client's address](#the-clients-address)), or a user's ID, for a
+limit per account. A throttle used on more than one route counts them
+together, unless the key says which.
 
 ## Handlers and `Ctx`
 
@@ -320,6 +409,7 @@ as a goroutine that outlives the handler would.
 | `Context()`   | The request's context, which is canceled when the client goes away. |
 | `Param(name)` | The value of the path wildcard `{name}`. |
 | `Query(name)` | The first value of the query parameter `name`. |
+| `IP()`        | The address the request came from, without its port: the client's, behind the proxies `TrustProxies` names. |
 | `Written()`   | Whether the response has started. After that, its status and headers can't change. |
 
 The responses set the status and the `Content-Type`, and write the body.

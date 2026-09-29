@@ -7,5 +7,7 @@
 //	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 //
 // RequestID first, so every log line carries the ID; Logger before Recover,
-// so a panic is logged as the 500 that Recover makes of it.
+// so a panic is logged as the 500 that Recover makes of it. Behind a proxy,
+// TrustProxies goes before them all, so that everything after it has the
+// client's address.
 package middleware

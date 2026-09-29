@@ -108,7 +108,7 @@ func main() {
 	}
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers})
 	app, err := newApp(tug.ConfigFromEnv(), env{
-		Build: build, Keys: keys, DB: db, Disk: disk, Mailer: mailer, URL: os.Getenv("APP_URL"), Queue: q,
+		Build: build, Keys: keys, DB: db, Disk: disk, Mailer: mailer, Queue: q,
 [[- if .SSR ]]
 		SSR: bundle,
 [[- end ]]
@@ -150,11 +150,6 @@ type env struct {
 	Disk   storage.Disk // keeps the files people upload: their photos
 	Mailer mail.Mailer
 
-	// URL is the app's own address, APP_URL, which the links in its mail
-	// start with. Only in development, with APP_DEBUG on, can it be left
-	// out, to be taken from the request instead.
-	URL string
-
 	// Queue is where the app pushes its background jobs, its mail, and what
 	// runs them: main runs it beside the server, and the tests on its own.
 	Queue *queue.Queue
@@ -174,8 +169,8 @@ type app struct {
 	users         *users
 	disk          storage.Disk
 	mailer        mail.Mailer
-	url           string
-	routes        *tug.App // for the links in mail, which jobs make with no request
+	site          *auth.Passkeys // the site passkeys are made for, the app's: passkeys.go
+	routes        *tug.App       // for the links in mail, which jobs make with no request
 	verifyMail    *queue.Kind[VerifyMail]
 	resetMail     *queue.Kind[ResetMail]
 	passkeyMail   *queue.Kind[PasskeyMail]
@@ -229,10 +224,11 @@ func (a *app) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 
 // newApp puts the app together: its pages, sessions, middleware and routes.
 func newApp(cfg tug.Config, e env) (*tug.App, error) {
-	if e.URL == "" && !cfg.Debug {
-		// A link made from the request's Host could point anywhere: anyone
-		// can send a request that names their own site.
-		return nil, errors.New("APP_URL isn't set: the links in the app's mail need its address, such as https://example.com")
+	if cfg.URL == "" && !tug.Generating() {
+		// The links in mail, and the site passkeys are made for, are the
+		// app's own address: a link made from the request's Host could point
+		// anywhere, as anyone can send a request that names their own site.
+		return nil, errors.New("APP_URL isn't set: the app's links in mail, and its passkeys, need its address, such as https://example.com, which tug dev sets")
 	}
 	assets, err := vite.New(vite.Config{Build: e.Build, HotFile: "public/hot"})
 	if err != nil {
@@ -262,7 +258,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	}
 	// Behind a proxy that ends TLS, requests reach the app over plain HTTP:
 	// an https:// APP_URL says the cookie is for HTTPS all the same.
-	sessions, err := session.New(session.Config{Keys: e.Keys, Secure: strings.HasPrefix(e.URL, "https://")})
+	sessions, err := session.New(session.Config{Keys: e.Keys, Secure: strings.HasPrefix(cfg.URL, "https://")})
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +271,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		passkeys:      &passkeys{db: e.DB},
 		disk:          e.Disk,
 		mailer:        e.Mailer,
-		url:           e.URL,
+		site:          passkeySite(cfg.URL),
 		resets:        &auth.Resets{Keys: e.Keys},
 		verifications: &auth.Verifications{Keys: e.Keys},
 		twoFactor:     &auth.TwoFactor{Keys: e.Keys, Issuer: appName},
@@ -311,7 +307,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	pages.Share("auth", Auth{})
 	pages.ShareFunc(a.shareAuth)
 
-	cfg.Inertia, cfg.Session, cfg.ErrorPage = pages, sessions, "Error"
+	// The app's keys also sign the links that tug.Signed lets through, for
+	// a route of the app's that takes only those.
+	cfg.Inertia, cfg.Session, cfg.ErrorPage, cfg.Keys = pages, sessions, "Error", e.Keys
 	app := tug.New(cfg)
 	a.routes = app
 [[- if .SSR ]]
@@ -319,7 +317,10 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		app.Go(server.Run)
 	}
 [[- end ]]
-	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
+	// Behind a proxy, such as a load balancer, a request comes from the
+	// proxy's address: TRUSTED_PROXIES names the proxies the app believes
+	// when they say whose it is, for c.IP, which the throttles count by.
+	app.Use(middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...), middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 	app.Get("/up", a.up)
 	// The files on the app's own disk, at the path its links start with,

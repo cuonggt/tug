@@ -9,9 +9,12 @@ import (
 	"github.com/cuonggt/tug"
 )
 
-// client sends JSON requests to one app, as an API client would.
+// client sends JSON requests to one app, as an API client would: from
+// 192.0.2.1, httptest's address, or through a proxy there, from the
+// address in forwardedFor.
 type client struct {
-	app *tug.App
+	app          *tug.App
+	forwardedFor string
 }
 
 func (c client) do(method, target, body string) *httptest.ResponseRecorder {
@@ -20,13 +23,16 @@ func (c client) do(method, target, body string) *httptest.ResponseRecorder {
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if c.forwardedFor != "" {
+		req.Header.Set("X-Forwarded-For", c.forwardedFor)
+	}
 	rec := httptest.NewRecorder()
 	c.app.ServeHTTP(rec, req)
 	return rec
 }
 
 func TestAPostCanBeCreatedReadChangedAndDeleted(t *testing.T) {
-	c := client{newApp(tug.Config{})}
+	c := client{app: newApp(tug.Config{})}
 
 	rec := c.do("POST", "/api/posts", `{"title":"Hello","body":"First post"}`)
 	if rec.Code != http.StatusCreated || rec.Header().Get("Location") != "/api/posts/1" {
@@ -50,14 +56,14 @@ func TestAPostCanBeCreatedReadChangedAndDeleted(t *testing.T) {
 }
 
 func TestNoPostsIsAnEmptyList(t *testing.T) {
-	c := client{newApp(tug.Config{})}
+	c := client{app: newApp(tug.Config{})}
 	if rec := c.do("GET", "/api/posts", ""); rec.Body.String() != "[]" {
 		t.Fatalf("index = %s, want []", rec.Body)
 	}
 }
 
 func TestAPostNeedsATitle(t *testing.T) {
-	c := client{newApp(tug.Config{})}
+	c := client{app: newApp(tug.Config{})}
 	rec := c.do("POST", "/api/posts", `{"body":"no title"}`)
 	if rec.Code != http.StatusUnprocessableEntity || rec.Body.String() != `{"message":"title is required"}` {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
@@ -65,14 +71,14 @@ func TestAPostNeedsATitle(t *testing.T) {
 }
 
 func TestAPostIDThatIsNotANumberIsNotFound(t *testing.T) {
-	c := client{newApp(tug.Config{})}
+	c := client{app: newApp(tug.Config{})}
 	if rec := c.do("GET", "/api/posts/abc", ""); rec.Code != 404 {
 		t.Fatalf("show /api/posts/abc = %d %s", rec.Code, rec.Body)
 	}
 }
 
 func TestAClientThatWritesTooFastWaits(t *testing.T) {
-	c := client{newApp(tug.Config{})}
+	c := client{app: newApp(tug.Config{})}
 	for i := range 60 {
 		if rec := c.do("POST", "/api/posts", `{"title":"Hello"}`); rec.Code != http.StatusCreated {
 			t.Fatalf("write %d = %d %s", i+1, rec.Code, rec.Body)
@@ -87,5 +93,21 @@ func TestAClientThatWritesTooFastWaits(t *testing.T) {
 	}
 	if rec := c.do("GET", "/api/posts", ""); rec.Code != http.StatusOK {
 		t.Errorf("reading waits too: %d", rec.Code)
+	}
+}
+
+func TestClientsBehindTheProxyAreCountedByTheirOwnAddresses(t *testing.T) {
+	app := newApp(tug.Config{}, "192.0.2.1")
+	ann, bob := client{app, "203.0.113.1"}, client{app, "203.0.113.2"}
+	for i := range 60 {
+		if rec := ann.do("POST", "/api/posts", `{"title":"Hello"}`); rec.Code != http.StatusCreated {
+			t.Fatalf("write %d = %d %s", i+1, rec.Code, rec.Body)
+		}
+	}
+	if rec := ann.do("POST", "/api/posts", `{"title":"One too many"}`); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("write 61 = %d %s", rec.Code, rec.Body)
+	}
+	if rec := bob.do("POST", "/api/posts", `{"title":"Mine"}`); rec.Code != http.StatusCreated {
+		t.Errorf("another client through the same proxy = %d %s", rec.Code, rec.Body)
 	}
 }

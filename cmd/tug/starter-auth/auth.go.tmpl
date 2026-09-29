@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -175,7 +174,7 @@ func (a *app) register(c *tug.Ctx) error {
 		if u, err = a.users.in(tx).add(c.Context(), in.Name, in.Email, hash); err != nil {
 			return err
 		}
-		return a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), a.verification(c, u))
+		return a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), verification(u))
 	})
 	if errors.Is(err, errEmailTaken) {
 		return validate.Errors{"email": "email has an account already: log in to it"}
@@ -224,7 +223,7 @@ func (a *app) login(c *tug.Ctx) error {
 	// Five tries a minute for an email from one address. A try counts
 	// before the password is checked, so that tries sent at once count too,
 	// and a login that works clears them.
-	key := strings.ToLower(in.Email) + "|" + clientIP(c.Request())
+	key := strings.ToLower(in.Email) + "|" + c.IP()
 	wait, err := a.logins.Try(c.Context(), key)
 	if err != nil {
 		return err
@@ -280,18 +279,6 @@ func toIntended(c *tug.Ctx) error {
 	return c.Redirect(auth.Intended(c.Session(), dashboard))
 }
 
-// clientIP is the address a request came from. Behind a proxy, such as a
-// load balancer, it's the proxy's: read the client's from the header the
-// proxy sets, such as X-Forwarded-For, once only the proxy can reach the
-// app.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
 // tooMany says how long to wait after too many tries.
 func tooMany(wait time.Duration) string {
 	return fmt.Sprintf("too many tries: wait %d seconds, and try again", int(math.Ceil(wait.Seconds())))
@@ -322,7 +309,7 @@ func (a *app) forgotPassword(c *tug.Ctx) error {
 	// same, and as quick, whether it has an account or not: the form can't
 	// be asked who has. Each ask is a job in the database, so an address
 	// has five a minute, and an email gets one mail a minute at most.
-	wait, err := a.resetAsks.Try(c.Context(), clientIP(c.Request()))
+	wait, err := a.resetAsks.Try(c.Context(), c.IP())
 	if err == nil && wait == 0 {
 		wait, err = a.mails.Try(c.Context(), "reset|"+strings.ToLower(in.Email))
 	}
@@ -330,7 +317,7 @@ func (a *app) forgotPassword(c *tug.Ctx) error {
 		return err
 	}
 	if wait == 0 {
-		if err := a.resetMail.Push(c.Context(), ResetMail{Email: in.Email, Base: a.base(c)}); err != nil {
+		if err := a.resetMail.Push(c.Context(), ResetMail{Email: in.Email}); err != nil {
 			return err
 		}
 	}
@@ -343,7 +330,6 @@ func (a *app) forgotPassword(c *tug.Ctx) error {
 // from the password it replaces, so no token waits in the database.
 type ResetMail struct {
 	Email string `json:"email"`
-	Base  string `json:"base"` // the address the link starts with
 }
 
 // mailReset runs ResetMail jobs.
@@ -355,7 +341,7 @@ func (a *app) mailReset(ctx context.Context, job ResetMail) error {
 	if err != nil {
 		return err
 	}
-	link, err := a.link(job.Base, "password.reset", a.resets.Token(u.authID(), u.PasswordHash))
+	link, err := a.routes.AbsoluteURL("password.reset", a.resets.Token(u.authID(), u.PasswordHash))
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,7 @@
 // Command api is a small JSON API on tug: posts kept in memory, behind
 // named routes in a group, with the usual middleware, errors that come
 // back as JSON to a client that asks for it, and a limit on how fast a
-// client writes.
+// client writes, by its address, behind the proxies TRUSTED_PROXIES names.
 //
 //	ADDR=127.0.0.1:8080 go run ./examples/api
 //	curl -s localhost:8080/api/posts -H 'Accept: application/json' \
@@ -11,9 +11,10 @@ package main
 import (
 	"cmp"
 	"log"
-	"net"
 	"net/http"
+	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,20 +30,23 @@ type Post struct {
 }
 
 func main() {
-	if err := newApp(tug.ConfigFromEnv()).Run(); err != nil {
+	if err := newApp(tug.ConfigFromEnv(), strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...).Run(); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func newApp(cfg tug.Config) *tug.App {
+// newApp puts the API together, behind proxies, the load balancers in front
+// of it, whose addresses the app believes when they say who the client is.
+func newApp(cfg tug.Config, proxies ...string) *tug.App {
 	p := &posts{byID: make(map[int64]Post)}
 	app := tug.New(cfg)
-	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
+	app.Use(middleware.TrustProxies(proxies...), middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 
 	// An address writes 60 times a minute at most: past that, a 429, with
 	// Retry-After. The counts are in memory, this process's own; give the
 	// Throttle a Store for instances that share them.
 	writes := &auth.Throttle{Name: "writes", Max: 60, Window: time.Minute}
+	byAddress := (*tug.Ctx).IP
 
 	api := app.Group("/api")
 	api.Get("/posts", p.index).Name("posts.index")
@@ -51,17 +55,6 @@ func newApp(cfg tug.Config) *tug.App {
 	api.Put("/posts/{id}", tug.Limit(writes, byAddress, p.update)).Name("posts.update")
 	api.Delete("/posts/{id}", tug.Limit(writes, byAddress, p.destroy)).Name("posts.destroy")
 	return app
-}
-
-// byAddress is the address a request came from, which the limit counts by.
-// Behind a proxy, it's the proxy's: read the client's from the header the
-// proxy sets, once only the proxy can reach the app.
-func byAddress(c *tug.Ctx) string {
-	host, _, err := net.SplitHostPort(c.Request().RemoteAddr)
-	if err != nil {
-		return c.Request().RemoteAddr
-	}
-	return host
 }
 
 // posts is the store behind the routes.

@@ -24,7 +24,8 @@ go test ./...
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions, and a deployed
-  app needs one of its own, set in its environment.
+  app needs one of its own, set in its environment, with `APP_URL`, its
+  own address, and `TRUSTED_PROXIES` behind a load balancer.
 [[ if .SSR -]]
 - `Dockerfile`: the app as one static binary on a distroless image with
   Node, for the pages it renders on the server.

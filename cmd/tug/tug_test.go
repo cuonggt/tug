@@ -102,6 +102,26 @@ func TestDevTakesTheNextPortWhenItsOwnIsTaken(t *testing.T) {
 	}
 }
 
+func TestDevGivesTheAppTheAddressItShowsUnlessItHasOne(t *testing.T) {
+	for _, tc := range []struct {
+		env  []string
+		want string
+	}{
+		{nil, "http://localhost:8081"},
+		{[]string{"APP_URL=https://tunnel.example"}, "https://tunnel.example"},
+		{[]string{"APP_URL="}, "http://localhost:8081"}, // as .env.example has it
+		{[]string{"APP_URL=https://tunnel.example", "APP_URL="}, "http://localhost:8081"},
+	} {
+		env := devEnv(tc.env, "127.0.0.1:8081")
+		if got := envValue(env, "APP_URL"); got != tc.want {
+			t.Errorf("with %q: APP_URL %q, want %q", tc.env, got, tc.want)
+		}
+		if envValue(env, "ADDR") != "127.0.0.1:8081" || envValue(env, "TUG_DEV") != "1" {
+			t.Errorf("with %q: %q", tc.env, env)
+		}
+	}
+}
+
 func TestDevShowsTheAppAtLocalhost(t *testing.T) {
 	for addr, want := range map[string]string{
 		"127.0.0.1:8080": "localhost:8080",
@@ -514,7 +534,9 @@ func rendersOnTheServer(t *testing.T, dir string) {
 	var out bytes.Buffer
 	app := exec.Command(filepath.Join(dir, "app"))
 	app.Dir = dir
-	app.Env = append(append(os.Environ(), vars...), "ADDR="+addr)
+	// Its address, as a deployed app has one, and tug dev gives it: the
+	// auth starter's links, and its passkeys, need it.
+	app.Env = append(append(os.Environ(), vars...), "ADDR="+addr, "APP_URL=http://"+addr)
 	app.Stdout, app.Stderr = &out, &out
 	if err := app.Start(); err != nil {
 		t.Fatal(err)

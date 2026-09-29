@@ -32,13 +32,13 @@ func verifyEmailPage(c *tug.Ctx, user *User) error {
 // verification is the job that mails u the link that verifies their
 // email, which sendVerification pushes, or a handler in the transaction
 // that writes the email.
-func (a *app) verification(c *tug.Ctx, u *User) VerifyMail {
-	return VerifyMail{User: u.ID, Email: u.Email, Base: a.base(c)}
+func verification(u *User) VerifyMail {
+	return VerifyMail{User: u.ID, Email: u.Email}
 }
 
 // sendVerification mails u the link that verifies their email, by a job.
 func (a *app) sendVerification(c *tug.Ctx, u *User) error {
-	return a.verifyMail.Push(c.Context(), a.verification(c, u))
+	return a.verifyMail.Push(c.Context(), verification(u))
 }
 
 // VerifyMail is the job that mails a user the link that verifies their
@@ -47,7 +47,6 @@ func (a *app) sendVerification(c *tug.Ctx, u *User) error {
 type VerifyMail struct {
 	User  int64  `json:"user"`
 	Email string `json:"email"` // the email the link is for
-	Base  string `json:"base"`  // the address the link starts with
 }
 
 // mailVerification runs VerifyMail jobs. A user who has gone, verified
@@ -64,7 +63,7 @@ func (a *app) mailVerification(ctx context.Context, job VerifyMail) error {
 	if u.EmailVerifiedAt != nil || !strings.EqualFold(u.Email, job.Email) {
 		return nil
 	}
-	link, err := a.link(job.Base, "verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
+	link, err := a.routes.AbsoluteURL("verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
 	if err != nil {
 		return err
 	}

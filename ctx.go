@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/cuonggt/tug/internal/rw"
 )
@@ -60,6 +62,29 @@ func (c *Ctx) queryValues() url.Values {
 // URL builds the path of a named route, as App.URL does.
 func (c *Ctx) URL(name string, params ...any) (string, error) {
 	return c.app.URL(name, params...)
+}
+
+// AbsoluteURL builds the whole link to a named route, from the app's
+// address, as App.AbsoluteURL does.
+func (c *Ctx) AbsoluteURL(name string, params ...any) (string, error) {
+	return c.app.AbsoluteURL(name, params...)
+}
+
+// SignedURL builds a signed link to a named route, as App.SignedURL does.
+func (c *Ctx) SignedURL(name string, expires time.Time, params ...any) (string, error) {
+	return c.app.SignedURL(name, expires, params...)
+}
+
+// IP returns the address the request came from, without its port, as
+// "203.0.113.9": a key for Limit that counts by address. Behind a proxy
+// it's the proxy's, unless middleware.TrustProxies names the proxy, and
+// reads the client's past it.
+func (c *Ctx) IP() string {
+	host, _, err := net.SplitHostPort(c.r.RemoteAddr)
+	if err != nil {
+		return c.r.RemoteAddr
+	}
+	return host
 }
 
 // JSON writes v as JSON.

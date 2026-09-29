@@ -9,6 +9,7 @@ import (
 
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/auth/throttletest"
+	"github.com/cuonggt/tug/tugtest"
 )
 
 func TestTheThrottlesTableKeepsItsPromises(t *testing.T) {
@@ -32,6 +33,27 @@ func TestTheAppsInstancesCountEachOthersTries(t *testing.T) {
 	r := c.Get("/login")
 	if msg := r.Errors()["email"]; !strings.HasPrefix(msg, "too many tries: wait ") || user(r) != nil {
 		t.Errorf("the sixth try, to the instance that saw two: errors %v, user %+v", r.Errors(), user(r))
+	}
+}
+
+func TestClientsBehindTheLoadBalancerAreCountedApart(t *testing.T) {
+	// The tests' requests come from 192.0.2.1, httptest's address: here, a
+	// load balancer's, which adds whose each is to X-Forwarded-For.
+	t.Setenv("TRUSTED_PROXIES", "192.0.2.1")
+	app := newTestApp(t)
+	app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	from := func(addr string) tugtest.Option { return tugtest.Header("X-Forwarded-For", addr) }
+	guesser, ann := app.client(), app.client()
+	for range 5 {
+		guesser.Post("/login", map[string]any{"email": "ann@example.com", "password": "wrong horse"}, from("203.0.113.66"))
+	}
+	guesser.Post("/login", map[string]any{"email": "ann@example.com", "password": "correct horse"}, from("203.0.113.66"))
+	if r := guesser.Get("/login"); !strings.HasPrefix(r.Errors()["email"], "too many tries: wait ") {
+		t.Errorf("the sixth try from the guesser's address: errors %v", r.Errors())
+	}
+	// Ann, through the same load balancer, isn't the guesser.
+	if r := ann.Post("/login", map[string]any{"email": "ann@example.com", "password": "correct horse"}, from("203.0.113.7")); r.Location() != "/dashboard" {
+		t.Errorf("Ann, from her own address: %v", r)
 	}
 }
 

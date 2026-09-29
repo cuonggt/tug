@@ -61,7 +61,7 @@ func (a *app) updateProfile(c *tug.Ctx, user *User) error {
 		if err := a.users.in(tx).setProfile(c.Context(), user.ID, in.Name, in.Email); err != nil || !changed {
 			return err
 		}
-		return a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), a.verification(c, &User{ID: user.ID, Name: in.Name, Email: in.Email}))
+		return a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), verification(&User{ID: user.ID, Name: in.Name, Email: in.Email}))
 	})
 	if errors.Is(err, errEmailTaken) {
 		return validate.Errors{"email": "email has an account already"}

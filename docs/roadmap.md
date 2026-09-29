@@ -24,7 +24,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M16 | Files                      | done   |
 | M17 | Postgres and MySQL         | done   |
 | M18 | Throttles across instances | done   |
-| M19 | Proxies and signed links   | next   |
+| M19 | Proxies and signed links   | done   |
 | M20 | Languages                  | later  |
 | M21 | Pagination                 | later  |
 | M22 | Commands                   | later  |
@@ -1297,21 +1297,21 @@ Choices made on the way:
   wrong passwords shared between them: five across the two, and the sixth
   waits. tug's CI runs them on its Postgres and MySQL, as it runs M17's.
 
-## M19 · Proxies and signed links — next
+## M19 · Proxies and signed links — done
 
 Behind a proxy, a request comes from the proxy's address. The auth
-starter's `clientIP` counts by it all the same, so behind a load balancer
-every visitor is one: five wrong passwords for an email, from anyone,
-make everyone wait, and five asks for a reset link a minute are the whole
-site's. Deployment has each app paste in its own reading of
+starter's `clientIP` counted by it all the same, so behind a load
+balancer every visitor was one: five wrong passwords for an email, from
+anyone, made everyone wait, and five asks for a reset link a minute were
+the whole site's. Deployment had each app paste in its own reading of
 `X-Forwarded-For`, which is easy to get wrong: read from the wrong end,
 and whoever writes the header picks the address a limit counts. Laravel
 has `TrustProxies`, told which proxies to believe. And a link out of the
-app, in mail or anywhere else, is made from `APP_URL` by the starter's
-own `base` and `link`, while the links that mustn't be forged are each
+app, in mail or anywhere else, was made from `APP_URL` by the starter's
+own `base` and `link`, while the links that mustn't be forged were each
 signed their own way, reset and verification links by `auth`, and files
-by `storage`: an app that mails an invitation, or a link to unsubscribe,
-has nothing to sign it with, where Laravel has
+by `storage`: an app that mailed an invitation, or a link to
+unsubscribe, had nothing to sign it with, where Laravel has
 `URL::temporarySignedRoute` and its `signed` middleware. To be released
 as v0.14.0.
 
@@ -1321,8 +1321,8 @@ as v0.14.0.
   replaced by the client's, from `X-Forwarded-For`, so whatever reads it,
   a key for `tug.Limit` or the app's own log, gets the client. `c.IP()` is
   the address alone, in place of the starter's `clientIP` and
-  `examples/api`'s `byAddress`. The starters read the proxies from
-  `TRUSTED_PROXIES`, and believe none without it, as now.
+  `examples/api`'s `byAddress`. Both starters read the proxies from
+  `TRUSTED_PROXIES`, and believe none without it, as before.
 - **The app's address.** `Config.URL` is `APP_URL`, which `ConfigFromEnv`
   reads, and `app.AbsoluteURL(name, params...)` a named route's whole
   link, as `app.URL` is its path; `Ctx` has both. `tug dev` gives the app
@@ -1335,15 +1335,16 @@ as v0.14.0.
   has expired" or "this link isn't valid".
 - **The auth starter** counts by `c.IP()`, behind the proxies
   `TRUSTED_PROXIES` names, and makes the links in its mail, and its
-  passkeys' site, from `Config.URL`: `base` and `link` go, and so does the
-  `Base` its mail jobs carry.
+  passkeys' site, from `Config.URL`: `base` and `link` went, and so did
+  the `Base` its mail jobs carried. It gives `Config.Keys` its keys, so an
+  app made from it signs links with nothing more to wire.
 - **The guide:** Deployment's "Behind a proxy" sets a variable where it
   had code to paste, Routing has the client's address and signed links,
-  and Accounts has the starter's.
+  Accounts has the starter's, and the CLI `tug dev`'s `APP_URL`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
-- **The app names its proxies, and tug reads past them.** This changes a
+- **The app names its proxies, and tug reads past them.** This changed a
   choice of M18's, that tug has no address to offer, as only the app
   knows what's in front of it. The app still says what is; but reading
   the header is a part where a slip is a security hole, and those are
@@ -1360,33 +1361,51 @@ Choices, to settle before any code:
   word of whatever connects.
 - **The address alone.** Not `X-Forwarded-Proto` or `X-Forwarded-Host`:
   the scheme and host of the app's links are `APP_URL`'s, the cookie is
-  `Secure` by `session.Config.Secure`, which the auth starter sets from
-  it, and the proxy passes `Host` on, as Deployment asks. Nor RFC 7239's
+  `Secure` by `session.Config.Secure`, which the starters set from it,
+  and the proxy passes `Host` on, as Deployment asks. Nor RFC 7239's
   `Forwarded`, which proxies don't set unless they're told to.
+- **The header, as proxies write it:** an address with its port, which
+  some add, and IPv4 written as IPv6, `::ffff:10.0.0.5`, read as IPv4 on
+  both sides, so that `10.0.0.0/8` has it. An entry that isn't an address
+  stops the walk, and the request keeps the last proxy's address: past a
+  proxy that wrote nothing it could have seen, nothing can be believed.
 - **`RemoteAddr`, rewritten,** rather than a value of tug's in the
   context: what's written for net/http finds the client where it always
   looks, and `middleware` still imports no tug. It keeps its form, an
-  address and a port, the port 0, as the client's is the proxy's to know.
-- **A proxy that isn't an address or a range panics** as the app starts,
-  as `CSRF`'s origins do: a mistyped setting stops the app, rather than
-  leave it believing no one.
+  address and a port, the port 0, as the client's is the proxy's to know,
+  on a copy of the request, so the caller's, as a test's, stays as it was.
+- **A blank proxy is skipped,** so a list split from `TRUSTED_PROXIES`
+  unset believes no one, and a proxy that isn't an address or a range
+  panics as the app starts, as `CSRF`'s origins do: a mistyped setting
+  stops the app, rather than leave it believing no one.
 - **Links from `APP_URL` alone,** never from a request's `Host`, which can
-  name any site, as M6 has the starter's mail. In development too: `tug
+  name any site, as M6 had the starter's mail. In development too: `tug
   dev` gives the app the address it shows, `http://localhost:8080` or the
   port it took, where the starter took the request's `Host`, and M13 took
-  passkeys' site from it. It's the same address, made one way. A whole
-  link without `Config.URL` is an error, which says to set `APP_URL`.
+  passkeys' site from it. It's the same address, made one way. `tug dev`'s
+  takes the place of one that's set but empty, as `.env.example` has it.
+- **The auth starter stops without `APP_URL`, but under tug gen,** which
+  makes no links, where before it went on with `APP_DEBUG` on: `tug new`
+  and `tug build` need no address, as they need no database.
+- **The app's address is a scheme and a host,** `http` or `https`, and
+  `New` panics on anything else, a path, a query or a user among them, as
+  a mistyped `APP_URL` should stop the app as it starts; a slash after the
+  host is dropped. tug's routes are at the root, so an address with a path
+  would make links that miss them.
 - **`app.URL` stays a path,** for redirects and the pages' own links,
   where the scheme and host a proxy answers on aren't the app's to know.
-  A whole link is asked for by name: `AbsoluteURL` or `SignedURL`.
+  A whole link is asked for by name: `AbsoluteURL` or `SignedURL`. Without
+  `Config.URL`, either is an error that says to set `APP_URL`.
 - **A signed link is whole,** `Config.URL` and its path: it's for
   somewhere else, a mail, a QR code or another service, and a page can
   show one all the same.
-- **What's signed:** the link's path and its expiry, each part preceded by
-  its length, with HMAC-SHA256 and a key derived from the app's for
-  signed links alone, as `storage`'s links and `auth`'s tokens have their
-  own. The query has `expires` and `signature`, as a private disk's links
-  do. A link is checked with each of the app's keys, so a rotated
+- **What's signed:** the link's path, escaped as it's sent, and its
+  expiry, each part preceded by its length, with HMAC-SHA256 and a key
+  derived from the app's for signed links alone, as `storage`'s links and
+  `auth`'s tokens have their own. Unescaped, `/share/a%2Fb`, one value,
+  and `/share/a/b`, two, are one path, and a link for the one mustn't open
+  the other. The query has `expires` and `signature`, as a private disk's
+  links do. A link is checked with each of the app's keys, so a rotated
   `APP_KEY` leaves the links made with the old one working until it's
   dropped.
 - **Nothing may be added.** A query with anything else in it isn't the
@@ -1397,18 +1416,33 @@ Choices, to settle before any code:
   and one that has to work for years, as a link to unsubscribe, is given
   years. It works until then, as often as it's followed: what must happen
   once, as an invitation accepted, is the app's to record.
+- **Only a real link is told it has expired:** the signature is checked
+  first, so "this link has expired" is for a link the app made, and
+  anything else "isn't valid". A route `Signed` wraps on an app with no
+  keys is a 500, the app's mistake, rather than a 403 for every link.
 - **A wrapper, not middleware,** as `tug.Limit` is: a refusal is an error
   for the `ErrorHandler`, so an Inertia visit gets the error page.
 - **`auth`'s tokens stay.** A reset link works once, as its token is
   signed with the password hash the reset changes, which a signed link has
   no part in, and the starter's links carry their tokens in their paths
   already.
+- **Jobs pushed before the release** carry a `base` the starter's jobs no
+  longer read: JSON leaves it be, and the link is `APP_URL`'s, which is
+  what `base` held outside development.
+- **The plain starter** has `TrustProxies` too, a cookie that's `Secure`
+  by an `https://` `APP_URL`, and its keys in `Config.Keys`, as the auth
+  starter has, and both variables in its `.env.example`.
 - **Tests:** the walk past the proxies, with a client that writes the
-  header itself, a chain of proxies, `*`, IPv6, and the header on two
-  lines; a signed link changed in its path, its expiry or its signature,
-  one with a parameter added, one expired, and one signed with a key since
-  rotated; `tug dev`'s `APP_URL`; and the starter's throttles behind a
-  proxy, with two clients through it counted apart.
+  header itself, one that writes a proxy's address, a chain of proxies,
+  `*`, IPv6, IPv4 written as IPv6, an address with its port, and the
+  header on two lines, and the requests it leaves alone; a signed link
+  changed in its path, its expiry or its signature, one with a parameter
+  added, one expired, one signed with a key since rotated, and one
+  route's signature on another's path; `c.IP()`; `tug dev`'s `APP_URL`;
+  `examples/api`'s writes counted by client through a proxy; and in the
+  starter, on each database, logins behind a load balancer: a guesser
+  waits, and the account's owner, from another address through it, logs
+  in.
 
 ## M20 · Languages — later
 

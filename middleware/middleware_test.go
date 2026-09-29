@@ -180,3 +180,103 @@ func TestCSRFPanicsOnATrustedOriginThatIsNotOne(t *testing.T) {
 	}()
 	CSRF("admin.example.com")
 }
+
+// through serves a request from the address from, with the
+// X-Forwarded-For lines forwarded, behind TrustProxies(proxies...), and
+// returns the RemoteAddr the handler saw.
+func through(proxies []string, from string, forwarded ...string) string {
+	var seen string
+	h := TrustProxies(proxies...)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.RemoteAddr
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = from
+	for _, line := range forwarded {
+		req.Header.Add("X-Forwarded-For", line)
+	}
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	return seen
+}
+
+func TestTrustProxiesReadsTheClientFromTheEndOfXForwardedFor(t *testing.T) {
+	lan := []string{"10.0.0.0/8"}
+	for _, tc := range []struct {
+		name      string
+		proxies   []string
+		from      string
+		forwarded []string
+		want      string
+	}{
+		{"one proxy", lan, "10.0.0.5:4000", []string{"203.0.113.9"}, "203.0.113.9:0"},
+		{"a client that writes the header itself", lan, "10.0.0.5:4000", []string{"198.51.100.7, 203.0.113.9"}, "203.0.113.9:0"},
+		{"a client that writes a proxy's address", lan, "10.0.0.5:4000", []string{"10.0.0.9, 203.0.113.9"}, "203.0.113.9:0"},
+		{"a chain of proxies", lan, "10.0.0.5:4000", []string{"198.51.100.7, 203.0.113.9, 10.0.0.7, 10.0.0.6"}, "203.0.113.9:0"},
+		{"the header on two lines", lan, "10.0.0.5:4000", []string{"198.51.100.7, 203.0.113.9", "10.0.0.6"}, "203.0.113.9:0"},
+		{"a proxy named by its address", []string{"10.0.0.5"}, "10.0.0.5:4000", []string{"203.0.113.9"}, "203.0.113.9:0"},
+		{"IPv6", []string{"2001:db8::/32"}, "[2001:db8::1]:4000", []string{"2001:db8:1::9, 2a00:1450::5, 2001:db8::7"}, "[2a00:1450::5]:0"},
+		{"IPv4 written as IPv6", lan, "[::ffff:10.0.0.5]:4000", []string{"::ffff:203.0.113.9"}, "203.0.113.9:0"},
+		{"an address with its port", lan, "10.0.0.5:4000", []string{"203.0.113.9:51234"}, "203.0.113.9:0"},
+		{"only proxies", lan, "10.0.0.5:4000", []string{"10.0.0.7, 10.0.0.6"}, "10.0.0.7:0"},
+	} {
+		if got := through(tc.proxies, tc.from, tc.forwarded...); got != tc.want {
+			t.Errorf("%s: RemoteAddr %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestTrustProxiesLeavesARequestAloneUnlessAProxySentIt(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		proxies   []string
+		from      string
+		forwarded []string
+	}{
+		{"a client that isn't behind a proxy", []string{"10.0.0.0/8"}, "198.51.100.7:4000", []string{"203.0.113.9"}},
+		{"a proxy that adds no header", []string{"10.0.0.0/8"}, "10.0.0.5:4000", nil},
+		{"a proxy that adds what isn't an address", []string{"10.0.0.0/8"}, "10.0.0.5:4000", []string{"203.0.113.9, unknown"}},
+		{"no proxies, from an empty variable", []string{""}, "10.0.0.5:4000", []string{"203.0.113.9"}},
+		{"no proxies at all", nil, "10.0.0.5:4000", []string{"203.0.113.9"}},
+	} {
+		if got := through(tc.proxies, tc.from, tc.forwarded...); got != tc.from {
+			t.Errorf("%s: RemoteAddr %q, want it left as %q", tc.name, got, tc.from)
+		}
+	}
+}
+
+func TestTrustProxiesStarBelievesTheAddressThatConnectedAlone(t *testing.T) {
+	// Whatever connects is the platform's proxy, so the client is the
+	// address it added, and nothing before that can be believed.
+	if got := through([]string{"*"}, "172.16.0.1:4000", "198.51.100.7, 203.0.113.9"); got != "203.0.113.9:0" {
+		t.Errorf("RemoteAddr %q, want the address the proxy added", got)
+	}
+	if got := through([]string{"*"}, "172.16.0.1:4000", "203.0.113.9, 10.0.0.6"); got != "10.0.0.6:0" {
+		t.Errorf("RemoteAddr %q, want the address the proxy added, as no other is a proxy", got)
+	}
+	if got := through([]string{"*", "10.0.0.0/8"}, "172.16.0.1:4000", "203.0.113.9, 10.0.0.6"); got != "203.0.113.9:0" {
+		t.Errorf("RemoteAddr %q, want the ranges read past too", got)
+	}
+}
+
+func TestTrustProxiesChangesACopyOfTheRequest(t *testing.T) {
+	h := TrustProxies("10.0.0.0/8")(respond(200, "ok"))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.5:4000"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if req.RemoteAddr != "10.0.0.5:4000" {
+		t.Errorf("the caller's request was changed: RemoteAddr %q", req.RemoteAddr)
+	}
+}
+
+func TestTrustProxiesPanicsOnAProxyThatIsNotAnAddressOrARange(t *testing.T) {
+	for _, proxy := range []string{"example.com", "10.0.0.0/33", "10.0.0.1:80", "10.0.0.*"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("TrustProxies took %q", proxy)
+				}
+			}()
+			TrustProxies(proxy)
+		}()
+	}
+}

@@ -9,9 +9,8 @@ import (
 	"embed"
 	"io/fs"
 	"log"
-[[- if .SSR ]]
 	"os"
-[[- end ]]
+	"strings"
 	"time"
 
 	"github.com/cuonggt/tug"
@@ -99,19 +98,26 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 		return nil, err
 	}
 	pages.Share("appName", "[[ .Name ]]")
-	sessions, err := session.New(session.Config{Keys: keys})
+	// Behind a proxy that ends TLS, requests reach the app over plain HTTP:
+	// an https:// APP_URL says the cookie is for HTTPS all the same.
+	sessions, err := session.New(session.Config{Keys: keys, Secure: strings.HasPrefix(cfg.URL, "https://")})
 	if err != nil {
 		return nil, err
 	}
 
-	cfg.Inertia, cfg.Session, cfg.ErrorPage = pages, sessions, "Error"
+	// The app's keys also sign the links that tug.Signed lets through, for
+	// a route of the app's that takes only those.
+	cfg.Inertia, cfg.Session, cfg.ErrorPage, cfg.Keys = pages, sessions, "Error", keys
 	app := tug.New(cfg)
 [[- if .SSR ]]
 	if os.Getenv("TUG_DEV") == "" && os.Getenv("SSR_URL") == "" {
 		app.Go(server.Run)
 	}
 [[- end ]]
-	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
+	// Behind a proxy, such as a load balancer, a request comes from the
+	// proxy's address: TRUSTED_PROXIES names the proxies the app believes
+	// when they say whose it is, for c.IP.
+	app.Use(middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...), middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 
 	app.Get("/", home).Name("home")

@@ -104,20 +104,20 @@ them.
   settings'; `components/`, the app's own and shadcn's in
   `components/ui`; and the pages, `Home`, `Dashboard` and `Error`, and
   those in `Auth/` and `Settings/`.
-- `.env.example`: `APP_KEY`, `APP_URL`, the database's `DB_PATH`, or
-  `DB_URL`, `QUEUE_WORKERS`, the photos' `FILESYSTEM_DISK`, `FILES_PATH`
-  and S3's variables, and the mail's, with what each is for. The
-  `Dockerfile` keeps the photos in a `/data` volume, and SQLite's
-  database with them.
+- `.env.example`: `APP_KEY`, `APP_URL`, `TRUSTED_PROXIES`, the
+  database's `DB_PATH`, or `DB_URL`, `QUEUE_WORKERS`, the photos'
+  `FILESYSTEM_DISK`, `FILES_PATH` and S3's variables, and the mail's,
+  with what each is for. The `Dockerfile` keeps the photos in a `/data`
+  volume, and SQLite's database with them.
 
 ### Trying it
 
 `tug new` writes a `.env` with `APP_KEY` and `APP_DEBUG=true`, and on
 Postgres or MySQL, `DB_URL`: the database `compose.yaml` runs, which
-`docker compose up -d` starts. With no `APP_URL`, links start with the
-address the request came to; with no `MAIL_HOST`, mail is written out
-rather than sent. Register, and the link that verifies the email is in
-`tug dev`'s output, to click:
+`docker compose up -d` starts. `tug dev` gives the app `APP_URL`, the
+address it shows it at, so its links lead there; with no `MAIL_HOST`,
+mail is written out rather than sent. Register, and the link that
+verifies the email is in `tug dev`'s output, to click:
 
 ```
 app  │ mail, not sent (MAIL_HOST isn't set):
@@ -251,10 +251,10 @@ link.
 
 ```go
 // in a request, at registering, or at a new email
-a.verifyMail.Push(c.Context(), VerifyMail{User: u.ID, Email: u.Email, Base: a.base(c)})
+a.verifyMail.Push(c.Context(), VerifyMail{User: u.ID, Email: u.Email})
 
 // in the job, as the mail goes
-link, err := a.link(job.Base, "verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
+link, err := a.routes.AbsoluteURL("verification.verify", u.ID, a.verifications.Token(u.authID(), u.Email))
 ```
 
 The mail goes by a job, which makes the link as it sends it, unless the
@@ -280,7 +280,7 @@ for a guest, where "your email is verified" waits.
 ### Logging in and out
 
 ```go
-key := strings.ToLower(in.Email) + "|" + clientIP(c.Request())
+key := strings.ToLower(in.Email) + "|" + c.IP()
 wait, err := a.logins.Try(c.Context(), key)
 if err != nil {
     return err
@@ -418,9 +418,8 @@ on `auth.Passkeys`, which checks what the browser answers.
 
 The browser's side is `resources/js/lib/passkeys.ts`: the options, as
 JSON, into what `navigator.credentials` takes, and its answer back into
-JSON. A passkey is for the site's domain, from `APP_URL`, or in
-development without it, from the address the request came to, as the
-links in mail are.
+JSON. A passkey is for the site's domain, from `APP_URL`, as the links in
+mail are: under `tug dev`, `localhost`.
 
 ### Asking for the password again
 
@@ -469,7 +468,7 @@ someone's browser can guess no faster than at the login page.
 ### A forgotten password
 
 ```go
-wait, err := a.resetAsks.Try(c.Context(), clientIP(c.Request()))
+wait, err := a.resetAsks.Try(c.Context(), c.IP())
 if err == nil && wait == 0 {
     wait, err = a.mails.Try(c.Context(), "reset|"+strings.ToLower(in.Email))
 }
@@ -477,7 +476,7 @@ if err != nil {
     return err
 }
 if wait == 0 {
-    if err := a.resetMail.Push(c.Context(), ResetMail{Email: in.Email, Base: a.base(c)}); err != nil {
+    if err := a.resetMail.Push(c.Context(), ResetMail{Email: in.Email}); err != nil {
         return err
     }
 }
@@ -498,11 +497,11 @@ return c.RedirectRoute("password.request")
 - The link is `APP_URL`, then the path of `password.reset` with a token
   from `auth.Resets`, then the email in the query.
 
-Only development, with `APP_DEBUG` on, can leave `APP_URL` out and take the
-request's `Host` instead. `Host` is whatever the request says: someone
-could ask for a reset of your email with their own site in it, and the mail
-you get would link there, with a working token. So without `APP_DEBUG`,
-`newApp` won't start without `APP_URL`.
+The links are never made from the request's `Host`, which is whatever
+the request says: someone could ask for a reset of your email with their
+own site in it, and the mail you get would link there, with a working
+token. So `newApp` won't start without `APP_URL`, which `tug dev` sets in
+development.
 
 The link opens `Auth/ResetPassword` with the token and the email as props,
 and the form sends them back with the new password. The token is checked
@@ -521,13 +520,14 @@ writes it as plain text, and as HTML with the link as a button, from an
 what the user typed, such as their name, escaped.
 
 The mail goes by jobs, which `jobs.go` keeps in the database: a
-`VerifyMail` or a `ResetMail` names the user, or the email, and the address
-the links start with, and the job makes the mail, link and token, as it
-runs. So a mail server that's down, or the app restarting, loses no mail:
-a job that fails runs again, 10 times over about four hours, and then
-stays in the table as failed, with its error, for a month: a scheduled
-job, `prune-jobs`, deletes older ones every night. `main` runs the jobs
-beside the server with `app.Go`. [jobs.md](jobs.md) has the queue.
+`VerifyMail` or a `ResetMail` names the user, or the email, and the job
+makes the mail, link and token, as it runs, the link from `APP_URL` with
+`a.routes.AbsoluteURL`. So a mail server that's down, or the app
+restarting, loses no mail: a job that fails runs again, 10 times over
+about four hours, and then stays in the table as failed, with its error,
+for a month: a scheduled job, `prune-jobs`, deletes older ones every
+night. `main` runs the jobs beside the server with `app.Go`.
+[jobs.md](jobs.md) has the queue.
 
 A mail about what a handler writes is pushed in the same transaction:
 the account and the mail that verifies its email, a passkey and the mail
@@ -1113,21 +1113,19 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
 ## Before going live
 
 - **`APP_URL` and the mail variables**: the app won't start without
-  `APP_URL`, its address such as `https://example.com`, unless `APP_DEBUG`
-  is on. It starts without `MAIL_HOST`, and its mail goes to the log rather
-  than to people, verification links included, so no one can verify their
-  email. [Deployment](deployment.md) has how to set them.
+  `APP_URL`, its address such as `https://example.com`. It starts without
+  `MAIL_HOST`, and its mail goes to the log rather than to people,
+  verification links included, so no one can verify their email. [Deployment](deployment.md) has how to set them.
 - **A secure cookie**: a login lives in the session's cookie. An `APP_URL`
   of `https://` marks it for HTTPS only, which behind a proxy that ends
   TLS, where requests reach the app over plain HTTP, it otherwise wouldn't
   be.
-- **The client's address**: behind a proxy or load balancer, `clientIP` is
-  the proxy's address, the same for everyone, so the login throttle counts
-  everyone's wrong passwords for an email together: five from anyone, and
-  its owner waits too. Once only the proxy can reach the app, have
-  `clientIP` read the header the proxy sets; before that, anyone could
-  write the header. [Deployment](deployment.md) has a `clientIP` for a
-  proxy that adds to `X-Forwarded-For`.
+- **The client's address**: behind a proxy or load balancer, a request
+  comes from the proxy's address, the same for everyone, so without
+  `TRUSTED_PROXIES` the login throttle counts everyone's wrong passwords
+  for an email together: five from anyone, and its owner waits too. Name
+  the proxies in it, and `c.IP()` is the client's, read from their
+  `X-Forwarded-For`. [Deployment](deployment.md#behind-a-proxy) has how.
 - **Logins live in the cookie**, and the server keeps no list of them.
   Logging out rewrites that browser's cookie, but a copy taken before still
   works until the user sets a new password or the session expires: two

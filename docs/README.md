@@ -10,8 +10,9 @@ the detail.
 
 1. [Getting started](getting-started.md): install tug, make an app, run
    it, and add a page and a form.
-2. [Routing and handlers](routing.md): the App, routes, groups,
-   middleware, `Ctx`, binding requests, and errors.
+2. [Routing and handlers](routing.md): the App, routes, whole and signed
+   links, groups, middleware, the client's address behind a proxy, `Ctx`,
+   binding requests, and errors.
 3. [Pages](pages.md): Inertia pages and their props, the props worked out
    later, shared props, redirects, error pages, and Vite.
 4. [Server-side rendering](ssr.md): pages rendered on the server for a

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M18 are done, which is
+the decisions behind it and where it stands: M1 to M19 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -28,7 +28,9 @@ starter's profile photo, Postgres and MySQL (v0.12.0): `tug new
 database, jobs claimed with `SKIP LOCKED`, and `tug.Generating`, and
 throttles across instances (v0.13.0): `auth.ThrottleStore`, the auth
 starter's throttles counted in its database, and `tug.Limit`, a limit
-for a route.
+for a route, and proxies and signed links (v0.14.0):
+`middleware.TrustProxies` and `c.IP`, `Config.URL` from `APP_URL`, which
+`tug dev` sets, `AbsoluteURL`, and `SignedURL` with `tug.Signed`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -96,17 +98,18 @@ dev server that isn't there: delete it.
 ## Architecture
 
 - `tug`, the root package:
-  - `app.go`: `Config` (`ConfigFromEnv` reads ADDR, PORT and APP_DEBUG),
-    `App`, `Run` and `Serve` with graceful shutdown, and misses. At the first
-    request, `freeze` adds `/` as a catch-all, unless a route already takes
-    every path under every method. The catch-all answers trailing-slash
-    redirects itself, with a 307, and 405s (probing the mux with the other
-    methods for `Allow`) and 404s through the ErrorHandler. `Go` adds work
-    to run beside the server (`background`): `Serve` starts it with a
-    context canceled as shutdown begins, waits for it, and shuts down when
-    it fails first; `stopped` drops its `context.Canceled`. `Generating`
-    says tug gen started the app (`TUG_GEN`), for `main` to leave out what
-    only serving needs, as the auth starter's database.
+  - `app.go`: `Config` (`ConfigFromEnv` reads ADDR, PORT, APP_DEBUG and
+    APP_URL; `New` panics on a `URL` that `appURL`, in links.go, doesn't
+    take), `App`, `Run` and `Serve` with graceful shutdown, and misses. At
+    the first request, `freeze` adds `/` as a catch-all, unless a route
+    already takes every path under every method. The catch-all answers
+    trailing-slash redirects itself, with a 307, and 405s (probing the mux
+    with the other methods for `Allow`) and 404s through the ErrorHandler.
+    `Go` adds work to run beside the server (`background`): `Serve` starts
+    it with a context canceled as shutdown begins, waits for it, and shuts
+    down when it fails first; `stopped` drops its `context.Canceled`.
+    `Generating` says tug gen started the app (`TUG_GEN`), for `main` to
+    leave out what only serving needs, as the auth starter's database.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -114,10 +117,11 @@ dev server that isn't there: delete it.
     panics. Paths match exactly: `Handle` adds `{$}` to a path ending in
     `/`, and a group's `/` is the prefix itself. App middleware wraps the
     whole mux, so it sees 404s; group and route middleware wrap the route.
-  - `ctx.go`: `Ctx`, the responses, `Param` and `Query`, and `Redirect`,
-    which is a 302 after GET and a 303 after anything else, as Inertia needs;
-    `RedirectBack` goes to the Referer when it's this site's (`back`, in
-    forms.go).
+  - `ctx.go`: `Ctx`, the responses, `Param`, `Query` and `IP` (the
+    RemoteAddr's address, which `middleware.TrustProxies` has made the
+    client's), and `Redirect`, which is a 302 after GET and a 303 after
+    anything else, as Inertia needs; `RedirectBack` goes to the Referer
+    when it's this site's (`back`, in forms.go).
   - `bind.go`: `Bind` reads the body (JSON, urlencoded, multipart), then the
     query, then path values, so the URL wins. A value that doesn't parse is
     a `*BindError` inside an `*HTTPError`: 400, or 404 for a path value. A
@@ -137,6 +141,14 @@ dev server that isn't there: delete it.
     refusal is a 429 `*HTTPError` for the ErrorHandler, with
     `Retry-After`; it takes a `Limiter`, the `Try` `*auth.Throttle` has,
     so the core imports no auth.
+  - `links.go`: links that leave the app. `AbsoluteURL` is `Config.URL`,
+    never the request's Host, and `URL`'s path; `SignedURL` adds
+    `expires` and `signature` (`signLink`: HMAC-SHA256 with an HKDF key,
+    "tug signed link", from the first of `Config.Keys`, over the escaped
+    path and the expiry, each after its length, as storage's links are);
+    `Signed`, a wrapper like `Limit`, lets only such a link through
+    (`checkSigned`: each key, then the expiry; a query with anything else
+    in it fails, as Bind would read it), and is a 500 with no keys.
   - `pages.go`: `Page[P]`, which declares a component with its props
     type in the registry tug gen reads (`declare`, `declaredPages`) and
     returns a `PageOf[P]` that renders only those props, `Ctx.Inertia`
@@ -228,7 +240,8 @@ dev server that isn't there: delete it.
   as processes in their own groups (`proc`, `proc_unix.go`), polls for
   changes (`watch`, `snapshot`), touches `.tug/reload` for the starter's
   Vite plugin to reload the browser, and shows 127.0.0.1 as localhost
-  (`shown`), where browsers make passkeys; `build.go`; `new.go`
+  (`shown`), where browsers make passkeys, which is the app's `APP_URL`
+  unless it has one (`devEnv`); `build.go`; `new.go`
   (`writeStarter`) lays directories over each other, a later one's files
   replacing an earlier one's of the same name: `starter/`, the Go and what
   every frontend uses, then the frontend's own, `react/`, `vue/` or
@@ -273,7 +286,7 @@ dev server that isn't there: delete it.
   `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
   `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the
   handlers of adding them, logging in and confirming with them, on
-  `auth.Passkeys`, whose site is `APP_URL`'s or the request's, as mail's
+  `auth.Passkeys`, whose site is `APP_URL`'s (`passkeySite`), as mail's
   links are; the browser's side is `resources/js/lib/passkeys.ts`),
   `settings.go.tmpl` and `photos.go.tmpl` (a user's photo, on the disk
   `main` makes with `storage.FromEnv`: `files/`, or `FILES_PATH`, served
@@ -320,7 +333,10 @@ dev server that isn't there: delete it.
   upsert with `RETURNING`, or in MySQL a transaction that reads back),
   whose `prune` runs every hour as `prune-throttles`; `throttles_test.go`
   runs `throttletest.TestStore` on it, and two instances on one database
-  share a login's count.
+  share a login's count. They count by `c.IP()`, behind the proxies
+  `TRUSTED_PROXIES` names, which both starters hand `TrustProxies`; the
+  links in mail are `a.routes.AbsoluteURL`'s, and `newApp` stops without
+  `APP_URL`, but under tug gen.
   The mail goes by jobs (`VerifyMail` in `verify.go.tmpl`, `ResetMail` in
   `auth.go.tmpl`) that carry IDs and make the mail, token and all, as they
   run; `main` runs the queue with `app.Go`, unless `QUEUE_WORKERS` is 0,
@@ -338,7 +354,12 @@ dev server that isn't there: delete it.
   keyed by the user's photo, in all three, as an avatar keeps the image it
   loaded once the image is gone.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
-  tug: `RequestID`, `Logger`, `Recover`, `CSRF`.
+  tug: `RequestID`, `Logger`, `Recover`, `CSRF`, and `TrustProxies`
+  (`proxies.go`), which rewrites a copy of the request's `RemoteAddr` to
+  the client's, port 0, read from the end of `X-Forwarded-For` past the
+  ranges named (`trusted.client`); `*` believes the peer alone, an entry
+  that isn't an address stops the walk at the last proxy, and IPv4 in
+  IPv6 is unmapped on both sides.
 - `auth`: the parts of accounts where a slip is a security hole, with no
   import of tug and no idea what a user is. `password.go`: argon2id at
   OWASP's settings, PHC strings, a check against a decoy when there's no

@@ -71,7 +71,7 @@ func startApp(t *testing.T, db *sql.DB, keys [][]byte) *testApp {
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Poll: 10 * time.Millisecond})
 	files := filepath.Join(t.TempDir(), "files")
 	disk := &storage.Local{Dir: files, BaseURL: "/files", Keys: keys}
-	app, err := newApp(tug.Config{}, env{Build: fstest.MapFS{}, Keys: keys, DB: db, Disk: disk, Mailer: out, URL: "https://app.example", Queue: q})
+	app, err := newApp(tug.Config{URL: "https://app.example"}, env{Build: fstest.MapFS{}, Keys: keys, DB: db, Disk: disk, Mailer: out, Queue: q})
 	if err != nil {
 		t.Fatal(err)
 	}

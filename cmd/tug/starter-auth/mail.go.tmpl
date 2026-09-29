@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"html/template"
-	"strings"
 
-	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/mail"
 )
 
@@ -58,22 +56,3 @@ var mailHTML = template.Must(template.New("mail").Parse(`<!doctype html>
 
 // AppName is the app's name, for the template.
 func (message) AppName() string { return appName }
-
-// base is the address the links in mail start with: APP_URL, or in
-// development, without it, the address the request came to. The job that
-// makes a mail takes it along, as it has no request of its own.
-func (a *app) base(c *tug.Ctx) string {
-	if a.url != "" {
-		return strings.TrimRight(a.url, "/")
-	}
-	return "http://" + c.Request().Host
-}
-
-// link is the address of the named route, from base, for a link in mail.
-func (a *app) link(base, name string, params ...any) (string, error) {
-	path, err := a.routes.URL(name, params...)
-	if err != nil {
-		return "", err
-	}
-	return base + path, nil
-}
