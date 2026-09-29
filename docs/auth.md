@@ -1029,6 +1029,89 @@ doesn't parse, and a subject with a line break in it, so a value from a
 form can't add a header such as `Bcc`. A `Mailer` is anything with
 `Send(ctx context.Context, m Message) error`.
 
+### Copies, replies and files
+
+```go
+err := mailer.Send(ctx, mail.Message{
+    To:          []string{customer.Email},
+    Bcc:         []string{"accounts@example.com"},
+    Subject:     "Your invoice for September",
+    Text:        "Your invoice is attached.\n",
+    Attachments: []mail.Attachment{{Name: "invoice-42.pdf", Content: pdf}},
+})
+```
+
+- `Cc` and `Bcc` are more people it goes to, each written as `To` is.
+  Everyone who gets the mail sees `To` and `Cc`. `Bcc` is told to the
+  server alone, and in no header, so no one sees it. An address in more
+  than one of them gets the mail once.
+- `ReplyTo` is where a reply goes, in place of `From`: a contact form's
+  mail goes from the app, and a reply to it, to whoever filled it in.
+
+  ```go
+  err := mailer.Send(ctx, mail.Message{
+      To:      []string{"support@example.com"},
+      ReplyTo: []string{in.Email},
+      Subject: "A question from " + in.Name,
+      Text:    in.Question,
+  })
+  ```
+
+- `Attachments` are its files, each a `mail.Attachment`: its `Name`, which
+  the recipient saves it as, its `ContentType`, or else the type its first
+  bytes say, and its `Content`. They go in base64, after the text and the
+  HTML, as `multipart/mixed`. A name with more than plain ASCII in it, as
+  one in Vietnamese, is written as RFC 2231 has it, which mail programs
+  read back as it was, and a line break in one can't end its header. A
+  file is in memory, as the whole mail is before it's sent: a job that
+  mails one makes it, or reads it from its disk, as it runs.
+- `Headers` are headers of the app's, such as `X-Campaign`, which a
+  provider's reports may go by. They can't be the ones the fields set,
+  `From`, `To`, `Bcc`, `Subject`, a `Content-` header and the rest, nor
+  have a line break in a value.
+
+### Unsubscribing in one click
+
+Mail sent in bulk, such as a newsletter, says how to stop it, and Gmail
+and Yahoo have asked since 2024 that it do so in one click, as RFC 8058
+has it: a `List-Unsubscribe` header with a link, and
+`List-Unsubscribe-Post`, which says the link takes a POST. `Unsubscribe`
+writes both:
+
+```go
+link, err := a.routes.SignedURL("unsubscribe", time.Now().AddDate(1, 0, 0), sub.ID)
+if err != nil {
+    return err
+}
+err = a.mailer.Send(ctx, mail.Message{
+    To:          []string{sub.Email},
+    Subject:     "What's new in September",
+    Text:        news + "\n\nNo more of these: " + link + "\n",
+    Unsubscribe: link,
+})
+```
+
+```go
+app.Get("/unsubscribe/{id}", tug.Signed(a.unsubscribePage)).Name("unsubscribe")
+app.Post("/unsubscribe/{id}", tug.Signed(a.unsubscribe))
+```
+
+The mail program shows a button beside the sender, and a click POSTs
+`List-Unsubscribe=One-Click` to the link from the provider's servers,
+with no one logged in. A link `SignedURL` makes is one no one can forge,
+and `tug.Signed` lets only such a link through
+([Routing](routing.md#whole-links-and-signed-ones)). The POST has no
+`Origin` header, which `middleware.CSRF` lets through, as it does any
+request that isn't a browser's: the signature is what guards the route.
+The link in the mail's text, which a person follows, is a GET, to a page
+that asks before it unsubscribes, as a GET is also what a link scanner
+follows, before anyone reads the mail. `Unsubscribe` is an `https` link,
+as RFC 8058 asks.
+
+RFC 8058 also asks that the mail's DKIM signature cover both headers.
+DKIM is the provider's, which signs what it sends with the domain's key:
+the `h=` of a sent mail's `DKIM-Signature` lists the headers it covers.
+
 `SMTP` sends through the server at its `Host` and `Port`, logging in with
 its `Username` and `Password` when `Username` is set, and its `From` is who
 mail is from when a message doesn't say.
@@ -1044,10 +1127,12 @@ mail is from when a message doesn't say.
   can't hold on to it.
 
 `Log` writes mail out instead, for development: to its `W`, or the
-standard error, which `tug dev` shows. It writes `Text` with each line
-whole, so a link can be clicked, and leaves `HTML` out. It refuses the
-messages `SMTP` would, but for one with no `From`, so a bad message is
-found while developing.
+standard error, which `tug dev` shows. It writes who the mail is from and
+to, `Bcc` too, which the mail itself doesn't show, its subject and its
+link to unsubscribe, `Text` with each line whole, so a link can be
+clicked, and each file's name and size, and it leaves `HTML` out. It
+refuses the messages `SMTP` would, but for one with no `From`, so a bad
+message is found while developing.
 
 `FromEnv` returns an `SMTP` when `MAIL_HOST` is set and a `Log` when it
 isn't, from the variables Laravel uses:
@@ -1067,25 +1152,19 @@ at its first mail.
 
 ### Testing
 
-The starter's tests hand the app a `Mailer` that keeps what it's given,
-and can be down for a number of mails, as a mail server can:
+The starter's tests hand the app a `mailtest.Outbox`, a `Mailer` that
+keeps what it's sent, for a test to read mail by mail:
 
 ```go
-type outbox struct {
-    sent chan mail.Message
-    down atomic.Int32
-}
-
-func (o *outbox) Send(ctx context.Context, m mail.Message) error {
-    if o.down.Add(-1) >= 0 {
-        return errors.New("dial tcp: connection refused")
-    }
-    ...
-}
+register(c, "Ann", "ann@example.com", "correct horse")
+m := app.outbox.Next(t) // the link that verifies the email
 ```
 
-A test reads the mail from the channel, and gives up after five seconds:
-a job sends it, so it may not be there yet when the request is answered.
+`Next` waits up to five seconds for the next mail, and fails the test
+when none comes: a job sends it, so it may not be there yet when the
+request is answered. `None` checks that no more comes, and `Down(n)` has
+the next n mails fail, as they would with the mail server down, for a
+test of a mail that goes again ([Testing](testing.md#mail)).
 Each test app runs its own queue on its own database, asking for jobs
 every 10 milliseconds, so a mail that failed goes again as soon as its
 wait is over. `jobs_test.go` runs `queuetest.TestStore` on the `jobs`

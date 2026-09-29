@@ -133,9 +133,9 @@ func TestTheBinaryRunsTheJobsCommandInPlaceOfTheServer(t *testing.T) {
 
 func TestAMailThatDoesntGoIsSentAgain(t *testing.T) {
 	app := newTestApp(t)
-	app.outbox.down.Store(1)
+	app.outbox.Down(1)
 	register(app.client(), "Ann", "ann@example.com", "correct horse")
-	if m := app.mail(); m.To[0] != "ann@example.com" || !strings.HasPrefix(m.Subject, "Verify") {
+	if m := app.outbox.Next(t); m.To[0] != "ann@example.com" || !strings.HasPrefix(m.Subject, "Verify") {
 		t.Errorf("sent again: the mail to %v, %s", m.To, m.Subject)
 	}
 }
@@ -151,7 +151,7 @@ func TestAnAddressCanAskForFiveResetLinksAMinute(t *testing.T) {
 	if r.Page.Flash["success"] != "If that email has an account, a link to reset its password is on its way." {
 		t.Errorf("the sixth ask: flash %v, want the answer every ask gets", r.Page.Flash)
 	}
-	app.noMail()
+	app.outbox.None(t)
 }
 
 func TestJobsThatFailedOverAMonthAgoArePruned(t *testing.T) {

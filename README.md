@@ -169,7 +169,10 @@ func showPost(c *tug.Ctx) error {
   checks on the standard library, asking for the password again, and
   throttles on guessing, whose counts every instance of the app shares.
 - **Mail** (package `mail`): through an SMTP server, or in development
-  written out where `tug dev` shows it, links and all.
+  written out where `tug dev` shows it, links and all, with copies, a
+  `Bcc` no one sees, replies to another address, files, and a link to
+  unsubscribe in one click, as Gmail and Yahoo ask of mail sent in bulk.
+  `mailtest.Outbox` keeps what an app sends, for its tests.
 - **Background jobs** (package `queue`): work a request starts and doesn't
   wait for, such as a mail, kept by a store such as a table in the app's
   database, so a failure or a restart doesn't lose it. A job that fails

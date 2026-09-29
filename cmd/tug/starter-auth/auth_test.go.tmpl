@@ -22,7 +22,7 @@ func TestRegisteringLogsInAndAsksForTheEmailToBeVerified(t *testing.T) {
 		t.Fatalf("the page after registering: %v, flash %v, user %+v", r, r.Page.Flash, u)
 	}
 
-	m := app.mail()
+	m := app.outbox.Next(t)
 	if m.To[0] != "ann@example.com" || !strings.Contains(m.HTML, "Verify my email") {
 		t.Errorf("the mail to %v:\n%s", m.To, m.HTML)
 	}
@@ -42,7 +42,7 @@ func TestAVerificationLinkWorksInABrowserThatIsntLoggedIn(t *testing.T) {
 	app := newTestApp(t)
 	register(app.client(), "Ann", "ann@example.com", "correct horse")
 	phone := app.client()
-	if r := phone.Get(link(t, app.mail(), "/verify-email/")); r.Location() != "/dashboard" {
+	if r := phone.Get(link(t, app.outbox.Next(t), "/verify-email/")); r.Location() != "/dashboard" {
 		t.Fatalf("following the link: %v", r)
 	}
 	// Sent to log in, where the news is waiting.
@@ -62,9 +62,9 @@ func TestAVerificationLinkForAnOldEmailOrTamperedWithVerifiesNothing(t *testing.
 	app := newTestApp(t)
 	c := app.client()
 	register(c, "Ann", "ann@example.com", "correct horse")
-	old := link(t, app.mail(), "/verify-email/")
+	old := link(t, app.outbox.Next(t), "/verify-email/")
 	c.Patch("/settings/profile", map[string]any{"name": "Ann", "email": "ann@elsewhere.example"})
-	app.mail() // the link for the new email
+	app.outbox.Next(t) // the link for the new email
 
 	for _, bad := range []string{old, old + "x", strings.Replace(old, "/verify-email/1/", "/verify-email/2/", 1)} {
 		if r := c.Get(bad); r.Location() != "/verify-email" {
@@ -84,7 +84,7 @@ func TestAnotherLinkCanBeSentOnceAMinute(t *testing.T) {
 	app := newTestApp(t)
 	c := app.client()
 	register(c, "Ann", "ann@example.com", "correct horse")
-	app.mail()
+	app.outbox.Next(t)
 	c.Get("/settings/profile")
 	if r := c.Post("/verify-email", nil); r.Location() != "/settings/profile" {
 		t.Fatalf("sending another: %v, want back where it was asked for", r)
@@ -92,13 +92,13 @@ func TestAnotherLinkCanBeSentOnceAMinute(t *testing.T) {
 	if r := c.Get("/settings/profile"); r.Page.Flash["success"] != "A new link is on its way to ann@example.com." {
 		t.Errorf("flash %v", r.Page.Flash)
 	}
-	link(t, app.mail(), "/verify-email/")
+	link(t, app.outbox.Next(t), "/verify-email/")
 
 	c.Post("/verify-email", nil)
 	if msg, _ := c.Get("/settings/profile").Page.Flash["error"].(string); !strings.HasPrefix(msg, "A link went a moment ago") {
 		t.Errorf("a second in the minute: flash %q", msg)
 	}
-	app.noMail()
+	app.outbox.None(t)
 }
 
 func TestARegistrationWhoseMailCantBePushedMakesNoAccount(t *testing.T) {
@@ -242,7 +242,7 @@ func resetLink(t *testing.T, app *testApp, email string) string {
 	if r := app.client().Post("/forgot-password", map[string]any{"email": email}); r.Location() != "/forgot-password" {
 		t.Fatalf("asking for a link: %v", r)
 	}
-	m := app.mail()
+	m := app.outbox.Next(t)
 	if m.To[0] != email || !strings.HasPrefix(m.Subject, "Reset your") {
 		t.Fatalf("mail to %v: %s", m.To, m.Subject)
 	}
@@ -293,7 +293,7 @@ func TestResettingAPasswordLogsOutTheOtherSessions(t *testing.T) {
 func TestResettingAPasswordVerifiesTheEmailItWasSentTo(t *testing.T) {
 	app := newTestApp(t)
 	register(app.client(), "Ann", "ann@example.com", "correct horse")
-	app.mail() // the verification link, left unfollowed
+	app.outbox.Next(t) // the verification link, left unfollowed
 	c := app.client()
 	resetPassword(t, c, resetLink(t, app, "ann@example.com"), "battery staple")
 	if r := c.Get("/dashboard"); r.Page.Component != "Dashboard" {
@@ -307,7 +307,7 @@ func TestForgettingAPasswordSaysTheSameForAnyEmail(t *testing.T) {
 	if r.Page.Flash["success"] != "If that email has an account, a link to reset its password is on its way." {
 		t.Errorf("flash %v", r.Page.Flash)
 	}
-	app.noMail()
+	app.outbox.None(t)
 }
 
 func TestTheSettingsAskForThePasswordOnAnOldLogin(t *testing.T) {

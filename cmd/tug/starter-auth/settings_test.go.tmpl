@@ -37,7 +37,7 @@ func TestANewEmailIsntVerifiedUntilItsLinkIsFollowed(t *testing.T) {
 	if r.Page.Flash["success"] != "Profile saved. We've mailed a link to ann@elsewhere.example to verify it." {
 		t.Errorf("flash %v", r.Page.Flash)
 	}
-	m := app.mail()
+	m := app.outbox.Next(t)
 	if m.To[0] != "ann@elsewhere.example" {
 		t.Fatalf("the link went to %v", m.To)
 	}
@@ -57,7 +57,7 @@ func TestTheSameEmailInAnotherCaseStaysVerified(t *testing.T) {
 	if u := tugtest.Props(r, Profile).User; u.EmailVerifiedAt == nil || r.Page.Flash["success"] != "Profile saved." {
 		t.Errorf("user %+v, flash %v", u, r.Page.Flash)
 	}
-	app.noMail()
+	app.outbox.None(t)
 }
 
 func TestAnEmailWithAnAccountCantBeTaken(t *testing.T) {

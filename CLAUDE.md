@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M23 are done, which is
+the decisions behind it and where it stands: M1 to M24 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -37,9 +37,12 @@ tags or their keys in words, `validate.Rule`, and `tug lang`,
 pagination (v0.16.0): `tug.Paginate`, `SimplePaginate` and
 `CursorPaginate`, with the app's own queries, commands (v0.17.0):
 `app.Command`, which `Run` runs in place of serving, as the auth
-starter's `jobs`, and cache and locks (v0.18.0): package `cache`, with
+starter's `jobs`, cache and locks (v0.18.0): package `cache`, with
 `cache.Remember`, and locks that hold across instances, and the auth
-starter's cache in its database.
+starter's cache in its database, and mail made whole (v0.19.0): copies,
+a `Bcc` no one sees, replies to another address, files, the app's own
+headers, and a link to unsubscribe in one click, in `mail.Message`, and
+`mailtest.Outbox`, which the auth starter's tests use.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -413,15 +416,16 @@ dev server that isn't there: delete it.
   The mail goes by jobs (`VerifyMail` in `verify.go.tmpl`, `ResetMail` in
   `auth.go.tmpl`) that carry IDs and make the mail, token and all, as they
   run; `main` runs the queue with `app.Go`, unless `QUEUE_WORKERS` is 0,
-  and the tests on their own, with an `outbox` that can be down. Its
-  frontend is Tailwind and shadcn/ui: the registry's components in
-  `components/ui`, layouts picked by page name in `inertia.tsx`, toasts
-  from the flash event. Vue's and Svelte's are shadcn-vue's and
-  shadcn-svelte's (its classic registry, `COMPONENTS_REGISTRY_URL`, as the
-  CLI's default is its newer styles), with the toasts mounted by `app.ts`
-  beside the app, as their Inertia has no `withApp` for a component; Vue's
-  Input.vue takes the value Inertia's Form sets, and both register pages
-  drop a waiting Precognition check as the form is sent, as `guestsOnly`
+  and the tests on their own, with a `mailtest.Outbox` for the mail,
+  which can be down. Its frontend is Tailwind and shadcn/ui: the
+  registry's components in `components/ui`, layouts picked by page name
+  in `inertia.tsx`, toasts from the flash event. Vue's and Svelte's are
+  shadcn-vue's and shadcn-svelte's (its classic registry,
+  `COMPONENTS_REGISTRY_URL`, as the CLI's default is its newer styles),
+  with the toasts mounted by `app.ts` beside the app, as their Inertia
+  has no `withApp` for a component; Vue's Input.vue takes the value
+  Inertia's Form sets, and both register pages drop a waiting
+  Precognition check as the form is sent, as `guestsOnly`
   redirects it once registering has logged the browser in, and as they
   go, as their Form, in 3.7.1, reads the form that's gone. An avatar is
   keyed by the user's photo, in all three, as an avatar keeps the image it
@@ -461,8 +465,22 @@ dev server that isn't there: delete it.
   `cbor.go`, a strict reader of the CBOR WebAuthn writes, fuzzed.
   `passkeytest`: an authenticator in software, for tests, with its own
   CBOR writer.
-- `mail`: `Message`, `SMTP` on net/smtp (STARTTLS, TLS on 465, deadlines
-  from the context), `Log`, which writes mail out, and `FromEnv`.
+- `mail`: `Message` (with `Cc`, `Bcc`, `ReplyTo`, `Attachments`,
+  `Headers` and `Unsubscribe`), `SMTP` on net/smtp (STARTTLS, TLS on 465,
+  deadlines from the context), `Log`, which writes mail out, and
+  `FromEnv`. `build` writes a message as a server takes it, and returns
+  its envelope: the headers, the app's among them, which `checkHeader`
+  refuses when they're a name the fields set (`ownHeaders`, and any
+  `Content-`) or have a line break; `List-Unsubscribe` and
+  `List-Unsubscribe-Post`, RFC 8058's, for an `https` `Unsubscribe`; the
+  recipients, To, Cc and Bcc, each address once, Bcc in no header; and
+  the body, `writeBody`: `writeText`'s quoted-printable text, with the
+  HTML as `multipart/alternative`, inside `multipart/mixed` with each
+  file, in base64 in lines of 76 (`writeBase64`), its type and name
+  written by `mime.FormatMediaType` (`Attachment.header`), its type
+  sniffed when it has none. `mailtest`: `Outbox`, a Mailer for tests,
+  whose `Next` waits for a mail (`next`, on `arrived`), `None`, `Down`
+  (`ErrDown`) and `Sent`; it refuses what `Log` does.
 - `ssr`: server-side rendering through Inertia's own SSR, with no import of
   tug. `ssr.go`: `Gateway`, an `inertia.Renderer`: the dev server's
   `/__inertia_ssr` while it runs, otherwise `URL` (SSR_URL) or `Server`'s

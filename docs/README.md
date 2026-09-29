@@ -26,7 +26,8 @@ the detail.
    kept on the app's disk or in S3 with package `storage`, and links to
    them, public or signed.
 8. [Accounts](auth.md): the auth starter, in SQLite, Postgres or MySQL,
-   and packages `auth` and `mail`.
+   and packages `auth` and `mail`, with copies, files and a link to
+   unsubscribe in one click.
 9. [Background jobs](jobs.md): package `queue`, for work that outlasts the
    request, and runs again when it fails, runs on a schedule, in a time
    zone too, or waits once however often it's asked for.
@@ -35,7 +36,8 @@ the detail.
     run twice at once.
 11. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
 12. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
-    tests of an app's pages, forms, uploads and logins.
+    tests of an app's pages, forms, uploads and logins, and `mailtest`,
+    for its mail.
 13. [Deployment](deployment.md): one binary, the Dockerfile, and the
     environment.
 14. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang` and

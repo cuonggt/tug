@@ -103,6 +103,194 @@ func TestAMessageCantSmuggleInHeaders(t *testing.T) {
 	}
 }
 
+func TestAMessageGoesToCopiesAndItsRepliesElsewhere(t *testing.T) {
+	m := Message{
+		To:      []string{"Ann <ann@example.com>"},
+		Cc:      []string{"bob@example.com", "ANN@example.com"},
+		Bcc:     []string{"eve@example.com"},
+		ReplyTo: []string{"Cara <cara@example.com>"},
+		Subject: "Your question",
+	}
+	data, _, rcpts, err := m.build("hello@blog.example", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each once, and Bcc among them.
+	if strings.Join(rcpts, " ") != "ann@example.com bob@example.com eve@example.com" {
+		t.Errorf("sent to %v", rcpts)
+	}
+	msg, _ := read(t, data)
+	h := msg.Header
+	if h.Get("Cc") != "<bob@example.com>, <ANN@example.com>" || h.Get("Reply-To") != `"Cara" <cara@example.com>` {
+		t.Errorf("Cc %q, Reply-To %q", h.Get("Cc"), h.Get("Reply-To"))
+	}
+	if strings.Contains(string(data), "eve") {
+		t.Errorf("Bcc shows in the mail:\n%s", data)
+	}
+	// Bcc alone is someone to send it to, and no To.
+	data, _, rcpts, err = Message{Bcc: []string{"eve@example.com"}, Subject: "News"}.build("hello@blog.example", time.Now())
+	if err != nil || len(rcpts) != 1 || strings.Contains(string(data), "\r\nTo:") {
+		t.Errorf("to Bcc alone: %v, %v\n%s", rcpts, err, data)
+	}
+}
+
+func TestAMessageCarriesItsFilesAfterItsText(t *testing.T) {
+	pdf := append([]byte("%PDF-1.7\n"), bytes.Repeat([]byte{0, 1, 2, 255}, 100)...)
+	m := Message{
+		To:      []string{"ann@example.com"},
+		Subject: "Your invoice",
+		Text:    "It's attached.",
+		HTML:    "<p>It's attached.</p>",
+		Attachments: []Attachment{
+			{Name: "invoice-42.pdf", Content: pdf},
+			{Name: "hóa đơn \"tháng 9\".csv", ContentType: "text/csv", Content: []byte("mục,giá\n")},
+		},
+	}
+	data, _, _, err := m.build("hello@blog.example", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(string(data), "\r\n") {
+		if len(line) > 998 || strings.Contains(line, "\n") {
+			t.Errorf("a line isn't one a server takes: %q", line)
+		}
+	}
+	msg, body := read(t, data)
+	mediaType, params, _ := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+	if mediaType != "multipart/mixed" {
+		t.Fatalf("Content-Type %q", msg.Header.Get("Content-Type"))
+	}
+	parts := multipart.NewReader(strings.NewReader(body), params["boundary"])
+	text, err := parts.NextPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mediaType, _, _ := mime.ParseMediaType(text.Header.Get("Content-Type")); mediaType != "multipart/alternative" {
+		t.Errorf("the first part is %q, not the text and the HTML", text.Header.Get("Content-Type"))
+	}
+	for _, want := range []struct {
+		name, mediaType string
+		content         []byte
+	}{{"invoice-42.pdf", "application/pdf", pdf}, {"hóa đơn \"tháng 9\".csv", "text/csv", []byte("mục,giá\n")}} {
+		p, err := parts.NextPart()
+		if err != nil {
+			t.Fatal(err)
+		}
+		disposition, dparams, _ := mime.ParseMediaType(p.Header.Get("Content-Disposition"))
+		mediaType, tparams, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+		if disposition != "attachment" || dparams["filename"] != want.name || mediaType != want.mediaType || tparams["name"] != want.name {
+			t.Errorf("Content-Disposition %q, Content-Type %q", p.Header.Get("Content-Disposition"), p.Header.Get("Content-Type"))
+		}
+		encoded, _ := io.ReadAll(p)
+		for line := range strings.SplitSeq(strings.TrimRight(string(encoded), "\r\n"), "\r\n") {
+			if len(line) > 76 {
+				t.Errorf("a base64 line of %d characters", len(line))
+			}
+		}
+		got, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(string(encoded), "\r\n", ""))
+		if err != nil || !bytes.Equal(got, want.content) {
+			t.Errorf("%s reads back as %q, %v", want.name, got, err)
+		}
+	}
+	if _, err := parts.NextPart(); err != io.EOF {
+		t.Errorf("a part more: %v", err)
+	}
+}
+
+func TestAFilesNameCantEndItsHeader(t *testing.T) {
+	name := "notes\r\nBcc: eve@example.com\r\n.txt"
+	m := Message{To: []string{"ann@example.com"}, Attachments: []Attachment{{Name: name, Content: []byte("hi")}}}
+	data, _, rcpts, err := m.build("hello@blog.example", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rcpts) != 1 || strings.Contains(string(data), "\r\nBcc:") {
+		t.Errorf("the name added a header: %v\n%s", rcpts, data)
+	}
+	msg, body := read(t, data)
+	_, params, _ := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+	parts := multipart.NewReader(strings.NewReader(body), params["boundary"])
+	parts.NextPart()
+	p, err := parts.NextPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, dparams, _ := mime.ParseMediaType(p.Header.Get("Content-Disposition")); dparams["filename"] != name {
+		t.Errorf("the name reads back as %q", dparams["filename"])
+	}
+}
+
+func TestAnAttachmentHasANameAndAType(t *testing.T) {
+	for _, a := range []Attachment{
+		{Content: []byte("no name")},
+		{Name: "a.txt", ContentType: "text/plain\r\nBcc: eve@example.com", Content: []byte("hi")},
+		{Name: "a.txt", ContentType: "not a type", Content: []byte("hi")},
+	} {
+		m := Message{To: []string{"ann@example.com"}, Attachments: []Attachment{a}}
+		if _, _, _, err := m.build("hello@blog.example", time.Now()); err == nil {
+			t.Errorf("%+v was written", a)
+		}
+	}
+}
+
+func TestTheAppsHeadersAreWritten(t *testing.T) {
+	m := Message{To: []string{"ann@example.com"}, Headers: map[string]string{"X-Campaign": "september", "X-Note": "Tháng chín"}}
+	data, _, _, err := m.build("hello@blog.example", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, _ := read(t, data)
+	note, _ := new(mime.WordDecoder).DecodeHeader(msg.Header.Get("X-Note"))
+	if msg.Header.Get("X-Campaign") != "september" || note != "Tháng chín" {
+		t.Errorf("X-Campaign %q, X-Note %q", msg.Header.Get("X-Campaign"), msg.Header.Get("X-Note"))
+	}
+}
+
+func TestTheAppsHeadersCantSayWhatTheMessageSays(t *testing.T) {
+	for _, headers := range []map[string]string{
+		{"Bcc": "eve@example.com"},
+		{"bcc": "eve@example.com"},
+		{"Reply-To": "eve@example.com"},
+		{"Content-Type": "text/html"},
+		{"List-Unsubscribe": "<https://eve.example>"},
+		{"X-Campaign": "september\r\nBcc: eve@example.com"},
+		{"X Campaign": "september"},
+		{"X-Campaign:": "september"},
+		{"": "september"},
+	} {
+		m := Message{To: []string{"ann@example.com"}, Headers: headers}
+		if _, _, _, err := m.build("hello@blog.example", time.Now()); err == nil {
+			t.Errorf("%q was written", headers)
+		}
+	}
+}
+
+func TestAMessageSaysHowToUnsubscribeInOneClick(t *testing.T) {
+	link := "https://blog.example/unsubscribe/42?expires=1790000000&signature=abc"
+	m := Message{To: []string{"ann@example.com"}, Subject: "What's new", Unsubscribe: link}
+	data, _, _, err := m.build("hello@blog.example", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, _ := read(t, data)
+	if msg.Header.Get("List-Unsubscribe") != "<"+link+">" || msg.Header.Get("List-Unsubscribe-Post") != "List-Unsubscribe=One-Click" {
+		t.Errorf("List-Unsubscribe %q, List-Unsubscribe-Post %q", msg.Header.Get("List-Unsubscribe"), msg.Header.Get("List-Unsubscribe-Post"))
+	}
+	for _, bad := range []string{
+		"http://blog.example/unsubscribe/42",
+		"mailto:unsubscribe@blog.example",
+		"https:///unsubscribe/42",
+		"https://blog.example/unsubscribe/42>, <https://eve.example",
+		"https://blog.example/unsubscribe/42\r\nBcc: eve@example.com",
+		"/unsubscribe/42",
+	} {
+		m.Unsubscribe = bad
+		if _, _, _, err := m.build("hello@blog.example", time.Now()); err == nil {
+			t.Errorf("%q was written", bad)
+		}
+	}
+}
+
 // fakeSMTP is an SMTP server that keeps what it's sent.
 type fakeSMTP struct {
 	host string
@@ -189,6 +377,23 @@ func TestSMTPSendsThroughTheServer(t *testing.T) {
 	}
 }
 
+func TestSMTPSendsToEveryCopyAndShowsNoBcc(t *testing.T) {
+	f := serveSMTP(t)
+	s := &SMTP{Host: f.host, Port: f.port, From: "hello@blog.example"}
+	err := s.Send(context.Background(), Message{To: []string{"ann@example.com"}, Cc: []string{"bob@example.com"}, Bcc: []string{"eve@example.com"}, Subject: "Hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if strings.Join(f.to, " ") != "TO:<ann@example.com> TO:<bob@example.com> TO:<eve@example.com>" {
+		t.Errorf("RCPT %v", f.to)
+	}
+	if bytes.Contains(f.data, []byte("eve")) {
+		t.Errorf("the mail shows Bcc:\n%s", f.data)
+	}
+}
+
 func TestSMTPGivesUpWhenTheContextEnds(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -228,6 +433,37 @@ func TestLogWritesTheMessageOutWithItsLinksWhole(t *testing.T) {
 	}
 	if err := l.Send(context.Background(), Message{Subject: "to nobody"}); err == nil {
 		t.Error("a message to nobody was written out")
+	}
+}
+
+func TestLogWritesTheCopiesAndTheFiles(t *testing.T) {
+	var b bytes.Buffer
+	l := &Log{W: &b, From: "hello@blog.example"}
+	err := l.Send(context.Background(), Message{
+		To:          []string{"ann@example.com"},
+		Cc:          []string{"bob@example.com"},
+		Bcc:         []string{"eve@example.com"},
+		ReplyTo:     []string{"cara@example.com"},
+		Subject:     "Your invoice",
+		Text:        "It's attached.",
+		Unsubscribe: "https://blog.example/unsubscribe/42",
+		Attachments: []Attachment{
+			{Name: "notes.txt", Content: make([]byte, 512)},
+			{Name: "invoice-42.pdf", Content: make([]byte, 48<<10)},
+			{Name: "photos.zip", Content: make([]byte, 3<<19)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"  Cc: bob@example.com\n", "  Bcc: eve@example.com\n", "  Reply-To: cara@example.com\n",
+		"  Unsubscribe: https://blog.example/unsubscribe/42\n",
+		"  Attached: notes.txt, 512 bytes\n", "  Attached: invoice-42.pdf, 48 KB\n", "  Attached: photos.zip, 1.5 MB\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("missing %q in:\n%s", want, b.String())
+		}
 	}
 }
 

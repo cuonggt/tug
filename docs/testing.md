@@ -258,6 +258,36 @@ a file from the build, an upload, or an API's JSON.
 r := c.Do(httptest.NewRequest("GET", "/up", nil))
 ```
 
+## Mail
+
+Package `mailtest` has a `Mailer` for tests: `Outbox`, which keeps what
+the app sends, for the test to read mail by mail.
+
+```go
+func TestANewAccountIsMailedALinkToVerifyItsEmail(t *testing.T) {
+	out := &mailtest.Outbox{}
+	c := tugtest.New(t, newTestApp(t, out)) // the app, sending its mail to out
+	c.Post("/register", map[string]any{"name": "Ann", "email": "ann@example.com", ...})
+	if m := out.Next(t); m.To[0] != "ann@example.com" || !strings.Contains(m.Text, "/verify-email/") {
+		t.Errorf("the mail to %v:\n%s", m.To, m.Text)
+	}
+}
+```
+
+- `Next(t)` returns the next mail the test hasn't had, in the order they
+  were sent, waiting up to five seconds for it, as a job may send it once
+  the request that pushed it has been answered. It fails the test when
+  none comes.
+- `None(t)` checks that no more comes, now or in the next 100
+  milliseconds, as after a form that mustn't mail anyone.
+- `Down(n)` has the next n mails fail, with `mailtest.ErrDown`, as they
+  would with the mail server down, for a test of a mail that goes again.
+- `Sent()` is every mail so far, read or not.
+
+An `Outbox` refuses a message an SMTP server wouldn't be sent, as
+`mail.Log` does, so a mail that couldn't go in production fails its test.
+The auth starter's tests use one ([Accounts](auth.md#testing)).
+
 ## When a test fails
 
 The client fails the test, with `t.Fatalf`, when the test asks it for

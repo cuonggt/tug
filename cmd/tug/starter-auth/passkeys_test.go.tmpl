@@ -97,7 +97,7 @@ func TestAPasskeyLoginSkipsTheCodeFromThePhone(t *testing.T) {
 func TestAddingAPasskeyMailsItsOwner(t *testing.T) {
 	app := newTestApp(t)
 	annWithAPasskey(t, app)
-	m := app.mail()
+	m := app.outbox.Next(t)
 	if m.To[0] != "ann@example.com" || !strings.HasPrefix(m.Subject, "A passkey was added") || !strings.Contains(m.Text, "Ann's phone") {
 		t.Fatalf("the mail to %v: %s\n%s", m.To, m.Subject, m.Text)
 	}

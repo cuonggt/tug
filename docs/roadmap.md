@@ -29,7 +29,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M21 | Pagination                 | done   |
 | M22 | Commands                   | done   |
 | M23 | Cache and locks            | done   |
-| M24 | Mail, whole                | later  |
+| M24 | Mail, whole                | done   |
 | M25 | Downloads and streams      | later  |
 | M26 | Encryption                 | later  |
 
@@ -1868,15 +1868,15 @@ Choices made on the way:
   caches on one database, as two instances have, which share a value and
   a lock, and the prune.
 
-## M24 · Mail, whole — later
+## M24 · Mail, whole — done
 
-A `mail.Message` has who it's from and who it's to, a subject, and a
+A `mail.Message` had who it's from and who it's to, a subject, and a
 body in text and HTML: no copies, no address for replies, no files, and
 no headers of the app's. An invoice goes as a PDF, a contact form's mail
 replies to whoever filled it in, and mail sent in bulk says how to
 unsubscribe in one click, which Gmail and Yahoo have asked of it since
-2024. And each app's tests write a mailer that keeps what it's sent, as
-the auth starter's `outbox` does. Laravel's mailables have copies,
+2024. And each app's tests wrote a mailer that keeps what it's sent, as
+the auth starter's `outbox` did. Laravel's mailables have copies,
 replies, files and headers, and `Mail::fake()` keeps what's sent, for
 tests. To be released as v0.19.0.
 
@@ -1896,58 +1896,84 @@ tests. To be released as v0.19.0.
 - **`mail/mailtest`:** `Outbox`, a `Mailer` that keeps what it's sent, for
   a test to read mail by mail, waiting for the job that sends it, and
   that can be down for a number of mails, as a mail server can. The auth
-  starter's tests use it, and their `outbox` goes.
-- **`Log`** writes the copies, the address for replies, the files' names
-  and sizes, and `Bcc`, which the mail itself doesn't show.
+  starter's tests use it, and their `outbox` went.
+- **`Log`** writes the copies, the address for replies, the link to
+  unsubscribe, the files' names and sizes, and `Bcc`, which the mail
+  itself doesn't show.
 - **The guide:** Accounts' Package mail, with an invoice, a contact
-  form's reply and a newsletter's link to unsubscribe, and Testing.
+  form's reply and a newsletter's link to unsubscribe, and Testing, a
+  section on mail.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **SMTP stays the one way to send:** SES, Postmark, Resend, Mailgun and
   SendGrid all take it. A provider's HTTP API is a `Mailer` of the app's,
   one method, where each would be a client in tug.
+- **An address gets a mail once,** in however many of `To`, `Cc` and
+  `Bcc` it is, whatever its case. A message to `Bcc` alone, as a list's
+  often is, has no `To`; one to no one at all is still an error.
 - **Files are bytes,** in memory, as the whole mail is before it's sent,
-  of the type given, or else the one their first bytes say, as a disk's
-  files are served. A job that mails a file reads it as it runs, from its
-  disk or from where it's made.
+  of the type given, or else the one their first bytes say, as
+  `http.DetectContentType` has it, with its charset, which a text file
+  needs, where a disk's files go by `internal/filetype`'s, without. A job
+  that mails a file reads it as it runs, from its disk or from where it's
+  made. A file has a name, and one without is an error: it's what the
+  recipient saves it as.
 - **A file's name is written by `mime.FormatMediaType`,** which encodes a
-  name with anything but printable ASCII, `filename*=utf-8''...`, so a
-  name in Vietnamese reaches the recipient as it was, and a line break in
-  one from a user can't end its header.
+  name with anything but printable ASCII, `filename*=utf-8''...`, as RFC
+  2231 has it, so a name in Vietnamese reaches the recipient as it was,
+  and a line break in one from a user can't end its header. The name is
+  in its `Content-Type` too, as `name`, for the mail programs that look
+  there.
 - **`multipart/mixed` around the rest:** the text and the HTML, as
-  `multipart/alternative`, then each file. No images inside the HTML, by
-  `cid:`, which is `multipart/related` too: an image in a mail is a link
-  to one of the app's, as mail sent in bulk has them, and each mail
-  stays small.
+  `multipart/alternative`, then each file, in base64 in lines of 76, as
+  MIME has them. No images inside the HTML, by `cid:`, which is
+  `multipart/related` too: an image in a mail is a link to one of the
+  app's, as mail sent in bulk has them, and each mail stays small.
 - **`Headers` can't say what the message says,** `From`, `To`, `Bcc`,
-  `Subject`, `List-Unsubscribe` and the rest, nor have a line break in a
-  value, as the subject can't now: a value from a form can't add a
-  recipient.
-- **`Unsubscribe` is an `https` link,** as RFC 8058 has it, and the app's
-  route answers its POST, whose body is `List-Unsubscribe=One-Click`. The
-  POST comes from the mail provider's servers, with no `Origin`, which
-  `CSRF` lets through, as it does any request that isn't a browser's, so
-  the signature is what guards it. And it's a POST, as a GET is what a
-  scanner follows before anyone reads the mail: the link in the mail's
-  own text goes to a page of the app's that asks.
+  `Subject`, `List-Unsubscribe` and the rest, nor any `Content-` header,
+  as the body's are the message's to say, nor have a line break in a
+  value, as the subject can't: a value from a form can't add a
+  recipient. A name is RFC 5322's, printable ASCII without a colon, and a
+  value with more than ASCII in it is encoded, as the subject is. They're
+  written in the order of their names.
+- **`Unsubscribe` is an `https` link,** as RFC 8058 has it, with a host,
+  and nothing that would end the angle brackets it goes in: a `<`, a
+  `>`, a space or a line break. The app's route answers its POST, whose
+  body is `List-Unsubscribe=One-Click`. The POST comes from the mail
+  provider's servers, with no `Origin`, which `CSRF` lets through, as it
+  does any request that isn't a browser's, so the signature is what
+  guards it. And it's a POST, as a GET is what a scanner follows before
+  anyone reads the mail: the link in the mail's own text goes to a page
+  of the app's that asks.
 - **DKIM is the provider's,** which signs what it sends with the domain's
   key. RFC 8058 asks that the signature cover both headers, which the
-  guide says to check.
+  `h=` of a sent mail's `DKIM-Signature` shows, as the guide says.
 - **Mail goes by the app's jobs,** as the starter's does: a job carries
   IDs and makes its mail as it runs, as M8 has it. Not a queue of
   messages, which would keep whole mails, files and all, in the jobs
   table.
 - **`mailtest.Outbox` is the starter's `outbox`, made tug's:** `Next`,
   the next mail, waiting five seconds for it, as a job sends it, and
-  failing the test when none comes; `None`, that no more comes; and
-  `Down(n)`, the next n mails failing, as the starter's tests of mail
-  that fails need.
+  failing the test when none comes; `None`, that no more comes in 100
+  milliseconds; `Down(n)`, the next n mails failing, with
+  `mailtest.ErrDown`; and `Sent`, all of them. It keeps its mail in
+  order, where the starter's channel of 20 held a send up once full, and
+  refuses a message SMTP wouldn't send, as `Log` does, which it asks, so
+  a mail that couldn't go in production fails its test. The starter's
+  tests call it, `app.outbox.Next(t)`, where they had `mail` and
+  `noMail` of their own.
+- **`Log`'s sizes are 1,024 bytes a KB,** as `validate`'s `file_max` has
+  them: 512 bytes, 48 KB, 1.5 MB.
 - **Tests:** a message with copies, a `Reply-To` and files, read back by
   `net/mail` and `mime/multipart`, as a mail program reads it, with `Bcc`
-  in the envelope and nowhere else; a file's name that isn't ASCII, and
-  one with a line break; the headers refused; the unsubscribe headers;
-  `Log`; `mailtest.Outbox`, down and up; and the starter's tests on it.
+  in the envelope and nowhere else, each address once, and `Bcc` alone;
+  a file's name that isn't ASCII, one with a line break, a file with no
+  name, and a type that isn't one; the app's headers, one not in ASCII,
+  and the ones refused; the unsubscribe headers, and the links refused;
+  SMTP's recipients through a fake server; `Log`; `mailtest.Outbox`,
+  in `testing/synctest` for what waits, down and up, and a message it
+  refuses; and the starter's tests on it.
 
 ## M25 · Downloads and streams — later
 
