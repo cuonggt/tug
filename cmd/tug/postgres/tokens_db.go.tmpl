@@ -1,0 +1,75 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"strings"
+	"time"
+)
+
+// The access_tokens table's queries, in Postgres. A token's last use and
+// its expiry are Unix milliseconds, as the jobs' times are, which compare
+// as numbers.
+
+// create keeps a new token's hash, with whose it is, its name, what it
+// may do, and when it expires: nil for never.
+func (ts *apiTokens) create(ctx context.Context, userID int64, name string, hash []byte, abilities []string, expires *time.Time) error {
+	_, err := ts.db.ExecContext(ctx, "INSERT INTO access_tokens (user_id, name, token_hash, abilities, expires_at) VALUES ($1, $2, $3, $4, $5)",
+		userID, name, hash, strings.Join(abilities, " "), unixMilli(expires))
+	return err
+}
+
+// of returns a user's tokens, as their page lists them, the newest first.
+func (ts *apiTokens) of(ctx context.Context, userID int64) ([]AccessToken, error) {
+	rows, err := ts.db.QueryContext(ctx, "SELECT id, name, abilities, created_at, last_used_at, expires_at FROM access_tokens WHERE user_id = $1 ORDER BY id DESC", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	listed := []AccessToken{}
+	for rows.Next() {
+		var t AccessToken
+		var abilities string
+		var lastUsed, expires sql.NullInt64
+		if err := rows.Scan(&t.ID, &t.Name, &abilities, &t.CreatedAt, &lastUsed, &expires); err != nil {
+			return nil, err
+		}
+		t.Abilities, t.LastUsedAt, t.ExpiresAt = strings.Fields(abilities), fromUnixMilli(lastUsed), fromUnixMilli(expires)
+		listed = append(listed, t)
+	}
+	return listed, rows.Err()
+}
+
+// byHash returns the token with hash, and whose it is, unless it has
+// expired by now: errNoToken then, as for none.
+func (ts *apiTokens) byHash(ctx context.Context, hash []byte, now time.Time) (*sentToken, error) {
+	t := &sentToken{}
+	var abilities string
+	err := ts.db.QueryRowContext(ctx, "SELECT id, user_id, abilities FROM access_tokens WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2)",
+		hash, now.UnixMilli()).Scan(&t.ID, &t.UserID, &abilities)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errNoToken
+	}
+	t.Abilities = strings.Fields(abilities)
+	return t, err
+}
+
+// used keeps when a token was last used, at most once a minute, so an
+// API's every request isn't a write: one used within the minute is left
+// as it is.
+func (ts *apiTokens) used(ctx context.Context, id int64, now time.Time) error {
+	_, err := ts.db.ExecContext(ctx, "UPDATE access_tokens SET last_used_at = $1 WHERE id = $2 AND (last_used_at IS NULL OR last_used_at <= $3)",
+		now.UnixMilli(), id, now.Add(-time.Minute).UnixMilli())
+	return err
+}
+
+// revoke deletes one of a user's tokens, and says whether there was one.
+func (ts *apiTokens) revoke(ctx context.Context, userID, id int64) (bool, error) {
+	res, err := ts.db.ExecContext(ctx, "DELETE FROM access_tokens WHERE id = $1 AND user_id = $2", id, userID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}

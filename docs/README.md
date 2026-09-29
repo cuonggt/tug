@@ -27,8 +27,8 @@ the detail.
    kept on the app's disk or in S3 with package `storage`, and links to
    them, public or signed.
 8. [Accounts](auth.md): the auth starter, in SQLite, Postgres or MySQL,
-   and packages `auth` and `mail`, with copies, files and a link to
-   unsubscribe in one click.
+   its API tokens, and packages `auth` and `mail`, with copies, files and
+   a link to unsubscribe in one click.
 9. [Encryption](encryption.md): the app's key, what tug encrypts and
    signs with it, package `crypt`, for the app's own values, and rotating
    the key.

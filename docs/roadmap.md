@@ -32,7 +32,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M24 | Mail, whole                | done   |
 | M25 | Downloads and streams      | done   |
 | M26 | Encryption                 | done   |
-| M27 | API tokens                 | next   |
+| M27 | API tokens                 | done   |
 | M28 | Broadcasting               | later  |
 | M29 | The queue, further         | later  |
 
@@ -2205,15 +2205,15 @@ Choices made on the way:
   key`'s key, as `session.ParseKey` reads it. The guide's CI example lost
   an `APP_DEBUG` it hasn't needed since M19.
 
-## M27 · API tokens — next
+## M27 · API tokens — done
 
-An app with an API, for its mobile app, a script or another service, has
+An app with an API, for its mobile app, a script or another service, had
 no way to let a caller in but the session's cookie, which only a browser
 keeps. Laravel's Sanctum gives each user tokens they make and revoke,
 each with what it may do, which a request sends in `Authorization:
 Bearer`. A token is a password for the API, and made, kept and checked
 where a slip is a security hole, in `auth`. And an API that another
-site's pages call needs CORS, which tug has none of. To be released as
+site's pages call needs CORS, which tug had none of. To be released as
 v0.22.0.
 
 - **Tokens:** `auth.AccessTokens` makes a token, random, after the app's
@@ -2221,7 +2221,7 @@ v0.22.0.
   finds a token sent by its hash, and `auth.BearerToken(r)` reads one
   from `Authorization`.
 - **What a token may do:** its abilities, as `posts:write`, kept with it,
-  which a route checks, and `*` for everything.
+  which a route checks, `auth.Abilities`'s `Can`, and `*` for everything.
 - **CORS:** `middleware.CORS(origins...)` answers the browser's preflight,
   and says which sites' pages may call the app, and with what.
 - **The auth starter:** an `access_tokens` table in each database's
@@ -2229,9 +2229,11 @@ v0.22.0.
   its abilities and an expiry, shown once, sees when each was last used,
   and revokes one; and an `/api` group, whose routes take a token, never
   the session, with `GET /api/user`, the user a token is theirs.
-- **The guide:** Accounts, a section on API tokens, and Routing, CORS.
+- **The guide:** Accounts, a section on the starter's API tokens and one
+  on package `auth`'s, Routing, CORS and `CSRF`'s paths, and Deployment,
+  `CORS_ORIGINS`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Kept as a SHA-256, not argon2id:** a token is 32 random bytes, which
   no one guesses, so a fast hash is enough, and one lookup by it finds
@@ -2239,27 +2241,62 @@ Choices, to settle before any code:
   The database keeps no token a copy of it could use.
 - **A prefix of the app's,** so a token pasted where it shouldn't be, in
   a repository or a log, says what it is, and a scanner of secrets can
-  look for it.
-- **Shown once,** in a flash, as GitHub shows its tokens: the app keeps
-  the hash alone.
+  look for it. It's letters and digits, and `AccessTokens` panics on
+  anything else; the starter's is its name in them, `myblog` for
+  `my-blog`, `TokenPrefix` in `tug new`'s data.
+- **Two-factor secrets' base32, in lower case:** 52 letters and digits,
+  which a double click selects whole, where base64's `-` and `_` would cut
+  it. `Hash` is nil for what can't be one of the app's, another prefix, a
+  length or letters that aren't a token's, which no lookup needs to find.
+- **Shown once,** in the flash, as the recovery codes are, and as GitHub
+  shows its tokens: the app keeps the hash alone.
 - **The token alone, never the session:** an `/api` route reads the
   token, and no cookie, so another site's page can't borrow a login.
   `CSRF` lets `/api/` through, as `http.CrossOriginProtection` can, and
-  CORS says which sites' pages may call it.
+  CORS says which sites' pages may call it. `CSRF` kept its signature: an
+  entry that's a path, `CSRF("/api/")`, is a pattern of `ServeMux`'s whose
+  requests pass unchecked, and the rest are origins, as before; one it
+  can't take panics.
+- **A preflight is answered before any route:** an API's routes have no
+  `OPTIONS` of their own, and a group's middleware runs for its routes
+  alone, so `CORS` is the app's, and answers an `OPTIONS` from a site it
+  names with a 204, the method and headers the browser asked for, and an
+  answer the browser keeps for two hours, the most Chrome does. A
+  request from another site passes as it came. `Vary: Origin`, unless it's
+  `*`, and `Retry-After` exposed, for a limit's 429.
 - **No cookies across sites:** CORS never allows credentials, as the API
   takes tokens.
+- **What the API says:** a 401 without a token, or with one that isn't
+  the app's, has expired or was revoked, with `WWW-Authenticate: Bearer`,
+  as RFC 6750 has it, and a 403 that names the ability the token lacks, as
+  JSON to a client that asks for it, as tug's errors are.
 - **Last used, once a minute at most,** so an API's every request isn't
-  a write.
+  a write. The last use and the expiry are Unix milliseconds, as the jobs'
+  times are, which compare as numbers in every database.
 - **A new password leaves the tokens be:** they're the user's to revoke,
-  one by one, as GitHub's are. Deleting the account deletes them.
+  one by one, as GitHub's are. Deleting the account deletes them, with
+  the table's foreign key.
 - **An expiry, if the user gives one:** 30 days, a year, or none, as
-  Sanctum's `expiration` has it.
-- **Limits by token:** `tug.Limit` counts an API route's requests by the
-  token's ID.
-- **Tests:** a token found by its hash, and not by another; one expired,
-  one revoked, and one without the ability a route asks for; a request
-  with a cookie and no token; CORS's preflight, for a site named and one
-  that isn't; and in each frontend, a token made, used and revoked.
+  Sanctum's `expiration` has it; 30 days unless they choose.
+- **No ability chosen for them:** the page's checkboxes start empty, and
+  a token needs one, so a token gets what its user gives it and no more,
+  and one there isn't is refused.
+- **The page posts what it has,** with `router.post`, as the passkeys'
+  dialog does, where Inertia's `<Form>` would need an array's name for
+  its checkboxes; the expiry is a `<select>`, styled as the inputs are, as
+  the starters have no select of shadcn's.
+- **Limits by token:** each has 60 requests a minute, counted in the
+  `throttles` table by its ID, with the starter's other throttles.
+- **Tests:** a token found by its hash, and not by another; what can't be
+  a token; a prefix that isn't letters and digits; `Authorization` as
+  sent, and abilities; `CSRF`'s paths, and one it can't take; CORS's
+  preflight, for a site named and one that isn't, `*`, none, and an
+  origin that isn't one; and in the starter, on each database, a token
+  made on the page and sent alone, its hash kept, one expired, one
+  revoked, another user's, one without the ability, one refused an
+  ability there isn't, the 61st request, its last use, the account
+  deleted, the page asking for the password again, and CORS; and in each
+  frontend, a token made, used, shown once and revoked.
 
 ## M28 · Broadcasting — later
 

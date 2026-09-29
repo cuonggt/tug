@@ -18,8 +18,8 @@ import (
 // The app's database is MySQL, at DB_URL, which compose.yaml runs in
 // development: docker compose up -d. This file opens it and makes its
 // tables, and the SQL of each is beside the Go that's the same on any
-// database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go and
-// cache_db.go.
+// database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go,
+// cache_db.go and tokens_db.go.
 
 // dbFromEnv opens the database the environment names, with its tables up
 // to date: DB_URL, with the driver's settings in its query, as
@@ -147,6 +147,21 @@ var migrations = []string{
 		value      MEDIUMBLOB NOT NULL,
 		expires_at BIGINT NOT NULL
 	)`,
+	// The users' API tokens, their hashes, which a request to /api sends
+	// one of in place of a login: tokens.go.
+	`CREATE TABLE access_tokens (
+		id           BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+		user_id      BIGINT NOT NULL,
+		name         TEXT NOT NULL,
+		token_hash   BINARY(32) NOT NULL,
+		abilities    TEXT NOT NULL,
+		last_used_at BIGINT,
+		expires_at   BIGINT,
+		created_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+		UNIQUE KEY access_tokens_hash (token_hash),
+		KEY access_tokens_user (user_id),
+		FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+	) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`,
 }
 
 // openDB opens the MySQL database at url, a mysql:// URL, and brings its

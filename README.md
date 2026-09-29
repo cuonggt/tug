@@ -165,17 +165,19 @@ func showPost(c *tug.Ctx) error {
 - **Accounts**: `tug new -auth` makes an app where people register and
   verify their email, log in, with a code from an authenticator app too
   once they turn that on, or with a passkey and no password at all, reset
-  a forgotten password by email, and change their profile and photo,
-  password and appearance in settings, with the users in SQLite, or with
+  a forgotten password by email, change their profile and photo, password
+  and appearance in settings, and make API tokens, for a script or another
+  service to call the app's API with, with the users in SQLite, or with
   `-postgres` or `-mysql`, in Postgres or MySQL, and a frontend of
   Tailwind and shadcn's components, as Laravel's starter kits have, in
-  React, Vue or Svelte. Its handlers
-  are the app's own code, on package `auth`, which has the parts where a
-  slip is a security hole: argon2id password hashes, logins that end when
-  the password changes, signed tokens for reset and verification links,
-  two-factor codes and recovery codes kept encrypted, passkeys, WebAuthn's
-  checks on the standard library, asking for the password again, and
-  throttles on guessing, whose counts every instance of the app shares.
+  React, Vue or Svelte. Its handlers are the app's own code, on package
+  `auth`, which has the parts where a slip is a security hole: argon2id
+  password hashes, logins that end when the password changes, signed
+  tokens for reset and verification links, two-factor codes and recovery
+  codes kept encrypted, passkeys, WebAuthn's checks on the standard
+  library, asking for the password again, API tokens kept as their hashes,
+  and throttles on guessing, whose counts every instance of the app
+  shares.
 - **Mail** (package `mail`): through an SMTP server, or in development
   written out where `tug dev` shows it, links and all, with copies, a
   `Bcc` no one sees, replies to another address, files, and a link to
@@ -235,7 +237,8 @@ func showPost(c *tug.Ctx) error {
   is a 404.
 - **Middleware** is `func(http.Handler) http.Handler`: `RequestID`, `Logger`
   (through slog), `Recover`, `CSRF`, which is Go's
-  `http.CrossOriginProtection`, so there are no tokens, and
+  `http.CrossOriginProtection`, so there are no tokens, `CORS`, for an API
+  other sites' pages call, and
   `TrustProxies`, which reads the client's address past the app's load
   balancers, from the end of `X-Forwarded-For`, for `c.IP()`.
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking

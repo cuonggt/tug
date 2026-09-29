@@ -323,12 +323,12 @@ app.Get("/static/{path...}", tug.WrapHandler(http.StripPrefix("/static", http.Fi
 
 ### Package `middleware`
 
-Package `middleware` has five, each a plain
+Package `middleware` has six, each a plain
 `func(http.Handler) http.Handler` that works with any router. The order in
 `app.Use` above is the usual one: `RequestID` first, so every log line
 carries the ID, and `Logger` before `Recover`, so a panic is logged as the
 500 that `Recover` makes of it. Behind a proxy, `TrustProxies` goes before
-them all.
+them all. `CORS`, for an API another site's pages call, goes before `CSRF`.
 
 - `TrustProxies(proxies...)` gives a request that came through the app's
   proxies, such as a load balancer, the address of the client it came
@@ -357,7 +357,23 @@ them all.
   and so does one from a trusted origin, such as
   `"https://admin.example.com"`. `CSRF` panics on a trusted origin that
   isn't one, such as `admin.example.com` without its scheme, so that a
-  mistyped setting stops the app as it starts. See [forms.md](forms.md).
+  mistyped setting stops the app as it starts. An entry that's a path,
+  such as `"/api/"`, is a pattern of `ServeMux`'s whose requests pass
+  unchecked: routes that take a token, never the session's cookie, which
+  another site's page can't borrow, as the auth starter's API's do. See
+  [forms.md](forms.md).
+- `CORS(origins...)` lets the pages of the sites named, as
+  `"https://app.example.com"`, or `"*"` for any, call the app from the
+  browser, as another site's pages call an API. A request from one of them
+  gets `Access-Control-Allow-Origin`, and the browser's preflight, an
+  `OPTIONS` that asks first, is answered with a 204 and the methods and
+  headers it asked for, before any route, as an API's routes have no
+  `OPTIONS` of their own. A request from another site passes as it came,
+  and its browser keeps the response from its page. Credentials, the
+  app's cookies, are never allowed: an API another site's pages call takes
+  tokens, which a page sends itself. `Retry-After` is exposed, for a
+  limit's 429. A blank origin is skipped, and one that isn't an origin
+  panics, as `CSRF`'s do.
 
 ### The client's address
 

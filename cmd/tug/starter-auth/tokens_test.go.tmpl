@@ -1,0 +1,256 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// api sends a request to the API as a script does: the token alone, with
+// no cookie of a login.
+func (a *testApp) api(method, path, token string, headers ...string) *tugtest.Response {
+	a.t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Accept", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
+	}
+	return tugtest.New(a.t, a).Do(req)
+}
+
+// accessTokens makes tokens as the app does, for a test to keep one in
+// the table itself, as the page can't: one expired, or that may do other
+// than the page offers.
+func (a *testApp) accessTokens() *auth.AccessTokens {
+	return &auth.AccessTokens{Prefix: tokenPrefix}
+}
+
+// makeToken makes a token on the settings page, as the user c is, and
+// returns it, as the page shows it once.
+func makeToken(t *testing.T, c *tugtest.Client, name string, abilities []string, expires string) string {
+	t.Helper()
+	c.Get("/settings/tokens")
+	r := c.Post("/settings/tokens", map[string]any{"name": name, "abilities": abilities, "expires": expires})
+	if r.Location() != "/settings/tokens" {
+		t.Fatalf("making a token: %v, errors %v", r, r.Errors())
+	}
+	token, _ := r.Follow().Page.Flash["token"].(string)
+	if !strings.HasPrefix(token, tokenPrefix+"_") {
+		t.Fatalf("the page showed the token %q", token)
+	}
+	return token
+}
+
+func TestATokenMadeInTheSettingsCallsTheAPI(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	token := makeToken(t, c, "My script", []string{"user:read"}, "30")
+
+	r := app.api("GET", "/api/user", token)
+	var u User
+	if r.Code != http.StatusOK || json.Unmarshal([]byte(r.Body), &u) != nil || u.Email != "ann@example.com" {
+		t.Fatalf("the API: %d %s", r.Code, r.Body)
+	}
+	if strings.Contains(r.Body, "argon2id") {
+		t.Errorf("the API gave away the password hash: %s", r.Body)
+	}
+
+	page := c.Get("/settings/tokens")
+	tokens := tugtest.Props(page, Tokens).Tokens
+	if len(tokens) != 1 || tokens[0].Name != "My script" || tokens[0].LastUsedAt == nil || tokens[0].ExpiresAt == nil {
+		t.Fatalf("the page lists %+v", tokens)
+	}
+	if days := time.Until(*tokens[0].ExpiresAt).Hours() / 24; days < 29 || days > 30 {
+		t.Errorf("it expires in %.1f days, want 30", days)
+	}
+	if page.Page.Flash["token"] != nil || strings.Contains(page.Body, token) {
+		t.Error("the page showed the token again")
+	}
+}
+
+func TestTheTableKeepsATokensHashAlone(t *testing.T) {
+	app := newTestApp(t)
+	token := makeToken(t, app.verifiedUser("Ann", "ann@example.com", "correct horse"), "My script", []string{"user:read"}, "0")
+	var kept []byte
+	if err := app.db.QueryRow("SELECT token_hash FROM access_tokens").Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if want := sha256.Sum256([]byte(token)); !bytes.Equal(kept, want[:]) {
+		t.Errorf("the table keeps %x, not the token's SHA-256", kept)
+	}
+}
+
+func TestTheAPITakesATokenNotALogin(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	req := httptest.NewRequest("GET", "/api/user", nil)
+	req.Header.Set("Accept", "application/json")
+	r := c.Do(req) // with the session's cookie, and no token
+	if r.Code != http.StatusUnauthorized || r.Header.Get("WWW-Authenticate") != `Bearer realm="api"` || !strings.Contains(r.Body, "API token") {
+		t.Errorf("a login and no token: %d %s, %v", r.Code, r.Body, r.Header)
+	}
+}
+
+func TestWhatIsntATokenOfTheAppsIsTurnedAway(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	token := makeToken(t, c, "My script", []string{"user:read"}, "0")
+	for name, sent := range map[string]string{
+		"none":          "",
+		"not one":       "not a token",
+		"another app's": "shop_" + strings.SplitN(token, "_", 2)[1],
+		"changed":       token[:len(token)-1] + map[bool]string{true: "b", false: "a"}[strings.HasSuffix(token, "a")],
+	} {
+		if r := app.api("GET", "/api/user", sent); r.Code != http.StatusUnauthorized {
+			t.Errorf("%s: %d %s", name, r.Code, r.Body)
+		}
+	}
+}
+
+func TestAnExpiredTokenIsTurnedAway(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	ann := user(c.Get("/dashboard"))
+	token, hash := app.accessTokens().New()
+	yesterday := time.Now().Add(-24 * time.Hour)
+	if err := (&apiTokens{db: app.db}).create(context.Background(), ann.ID, "Old", hash, []string{"user:read"}, &yesterday); err != nil {
+		t.Fatal(err)
+	}
+	if r := app.api("GET", "/api/user", token); r.Code != http.StatusUnauthorized {
+		t.Errorf("an expired token: %d %s", r.Code, r.Body)
+	}
+}
+
+func TestARevokedTokenIsTurnedAway(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	token := makeToken(t, c, "My script", []string{"user:read"}, "0")
+	id := tugtest.Props(c.Get("/settings/tokens"), Tokens).Tokens[0].ID
+	if r := c.Delete("/settings/tokens/"+strconv.FormatInt(id, 10), nil); r.Location() != "/settings/tokens" {
+		t.Fatalf("revoking: %v", r)
+	}
+	if r := app.api("GET", "/api/user", token); r.Code != http.StatusUnauthorized {
+		t.Errorf("a revoked token: %d %s", r.Code, r.Body)
+	}
+	// Another user's token isn't theirs to revoke.
+	other := app.verifiedUser("Bob", "bob@example.com", "battery staple")
+	makeToken(t, other, "Bob's", []string{"user:read"}, "0")
+	bobs := tugtest.Props(other.Get("/settings/tokens"), Tokens).Tokens[0].ID
+	if r := c.Delete("/settings/tokens/"+strconv.FormatInt(bobs, 10), nil); r.Code != http.StatusNotFound {
+		t.Errorf("revoking another's token: %v", r)
+	}
+}
+
+func TestATokenMayDoWhatItsAbilitiesSay(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	ann := user(c.Get("/dashboard"))
+	token, hash := app.accessTokens().New()
+	if err := (&apiTokens{db: app.db}).create(context.Background(), ann.ID, "Posts", hash, []string{"posts:write"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if r := app.api("GET", "/api/user", token); r.Code != http.StatusForbidden || !strings.Contains(r.Body, "user:read") {
+		t.Errorf("a token without user:read: %d %s", r.Code, r.Body)
+	}
+	// The page offers the abilities there are, and no other.
+	c.Get("/settings/tokens")
+	r := c.Post("/settings/tokens", map[string]any{"name": "Admin", "abilities": []string{"admin"}, "expires": "0"}).Follow()
+	if r.Errors()["abilities"] != "abilities has one that isn't: admin" || len(tugtest.Props(r, Tokens).Tokens) != 1 {
+		t.Errorf("an ability there isn't: errors %v, tokens %v", r.Errors(), tugtest.Props(r, Tokens).Tokens)
+	}
+}
+
+func TestEachTokenHasSixtyRequestsAMinute(t *testing.T) {
+	app := newTestApp(t)
+	token := makeToken(t, app.verifiedUser("Ann", "ann@example.com", "correct horse"), "My script", []string{"user:read"}, "0")
+	for i := range 60 {
+		if r := app.api("GET", "/api/user", token); r.Code != http.StatusOK {
+			t.Fatalf("request %d: %d %s", i+1, r.Code, r.Body)
+		}
+	}
+	if r := app.api("GET", "/api/user", token); r.Code != http.StatusTooManyRequests || r.Header.Get("Retry-After") == "" {
+		t.Errorf("the 61st: %d, Retry-After %q", r.Code, r.Header.Get("Retry-After"))
+	}
+}
+
+func TestATokensLastUseIsKeptOnceAMinute(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	makeToken(t, c, "My script", []string{"user:read"}, "0")
+	ts := &apiTokens{db: app.db}
+	ctx := context.Background()
+	id := tugtest.Props(c.Get("/settings/tokens"), Tokens).Tokens[0].ID
+	lastUsed := func() time.Time {
+		t.Helper()
+		listed, err := ts.of(ctx, user(c.Get("/dashboard")).ID)
+		if err != nil || len(listed) != 1 || listed[0].LastUsedAt == nil {
+			t.Fatalf("listed %+v, %v", listed, err)
+		}
+		return *listed[0].LastUsedAt
+	}
+	now := time.Now().Truncate(time.Millisecond)
+	for _, at := range []time.Time{now, now.Add(30 * time.Second)} {
+		if err := ts.used(ctx, id, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := lastUsed(); !got.Equal(now) {
+		t.Errorf("last used %v, want %v: the use 30 seconds on was written", got, now)
+	}
+	later := now.Add(time.Minute)
+	ts.used(ctx, id, later)
+	if got := lastUsed(); !got.Equal(later) {
+		t.Errorf("last used %v, want %v", got, later)
+	}
+}
+
+func TestDeletingTheAccountDeletesItsTokens(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	makeToken(t, c, "My script", []string{"user:read"}, "0")
+	c.Get("/settings/profile")
+	if r := c.Delete("/settings/profile", map[string]any{"password": "correct horse"}); r.Code >= 400 {
+		t.Fatalf("deleting the account: %v", r)
+	}
+	var n int
+	if err := app.db.QueryRow("SELECT count(*) FROM access_tokens").Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d tokens left, %v", n, err)
+	}
+}
+
+func TestTheTokensPageAsksForThePasswordAgain(t *testing.T) {
+	app := newTestApp(t)
+	app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	if r := app.oldLogin("ann@example.com").Get("/settings/tokens"); r.Location() != "/confirm-password" {
+		t.Errorf("an old login: %v", r)
+	}
+}
+
+func TestTheSitesCORSOriginsNamesCallTheAPI(t *testing.T) {
+	t.Setenv("CORS_ORIGINS", "https://app.example.com")
+	app := newTestApp(t)
+	token := makeToken(t, app.verifiedUser("Ann", "ann@example.com", "correct horse"), "My script", []string{"user:read"}, "0")
+	r := app.api("OPTIONS", "/api/user", "", "Origin", "https://app.example.com", "Access-Control-Request-Method", "GET", "Access-Control-Request-Headers", "authorization")
+	if r.Code != http.StatusNoContent || r.Header.Get("Access-Control-Allow-Origin") != "https://app.example.com" || r.Header.Get("Access-Control-Allow-Headers") != "authorization" {
+		t.Errorf("a preflight from a site named: %d, %v", r.Code, r.Header)
+	}
+	if r := app.api("GET", "/api/user", token, "Origin", "https://app.example.com"); r.Code != http.StatusOK || r.Header.Get("Access-Control-Allow-Origin") != "https://app.example.com" {
+		t.Errorf("a call from a site named: %d, %v", r.Code, r.Header)
+	}
+	if r := app.api("GET", "/api/user", token, "Origin", "https://evil.example"); r.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Errorf("a call from another site: %v", r.Header)
+	}
+}

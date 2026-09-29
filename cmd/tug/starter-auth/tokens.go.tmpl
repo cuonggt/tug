@@ -1,0 +1,199 @@
+package main
+
+import (
+	"database/sql"
+	"errors"
+	"net/http"
+	"slices"
+	"strconv"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/validate"
+)
+
+// API tokens: a user makes them in their settings, for a script, their
+// phone's app or another service, and a request to the app's API, /api,
+// sends one in Authorization: Bearer, in place of a login. Package auth
+// makes a token, and the hash the app keeps in its place; this file keeps
+// the hash, in the access_tokens table, with whose it is, its name, what
+// it may do and when it expires, and checks what a request sends.
+
+// Tokens is the settings page where a user makes and revokes their
+// tokens.
+var Tokens = tug.Page[TokensProps]("Settings/Tokens")
+
+// tokenPrefix starts every token of the app's, before an underscore, so
+// one pasted where it shouldn't be, in a repository or a log, says whose
+// it is.
+const tokenPrefix = "[[ .TokenPrefix ]]"
+
+// abilities are what a token may do, which the settings page offers, and
+// a route of the API checks, as /api/user checks user:read. The app's API
+// adds its own as it grows, such as posts:write.
+var abilities = []string{"user:read"}
+
+// AccessToken is one of a user's tokens, as their settings page lists it:
+// never the token itself, which the app doesn't keep.
+type AccessToken struct {
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Abilities  []string   `json:"abilities"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"` // null until a request sends it
+	ExpiresAt  *time.Time `json:"expiresAt"`  // null for a token that lasts until it's revoked
+}
+
+// sentToken is the token a request sent, as the table has it.
+type sentToken struct {
+	ID        int64
+	UserID    int64
+	Abilities auth.Abilities
+}
+
+var errNoToken = errors.New("no such token")
+
+// apiTokens are the users' tokens, in the database: the access_tokens
+// table, whose queries are in tokens_db.go. A user's go with them.
+type apiTokens struct {
+	db dbtx
+}
+
+// TokensProps are the tokens page's props.
+type TokensProps struct {
+	Tokens    []AccessToken `json:"tokens"`
+	Abilities []string      `json:"abilities"` // what a new token may be given
+}
+
+func (a *app) tokensPage(c *tug.Ctx, user *User) error {
+	tokens, err := a.apiTokens.of(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
+	return Tokens.Render(c, TokensProps{Tokens: tokens, Abilities: abilities})
+}
+
+// NewTokenInput is what the form that makes a token sends.
+type NewTokenInput struct {
+	Name      string   `json:"name" validate:"required,max=100"`
+	Abilities []string `json:"abilities" validate:"required,min=1"`
+	Expires   int      `json:"expires" validate:"oneof=0 30 365"` // days, or 0 for a token that lasts until it's revoked
+}
+
+// createToken makes a token, and shows it once, in the flash: the table
+// keeps its hash alone.
+func (a *app) createToken(c *tug.Ctx, user *User) error {
+	var in NewTokenInput
+	err := c.BindValid(&in, func(errs validate.Errors) {
+		for _, ability := range in.Abilities {
+			if !slices.Contains(abilities, ability) {
+				errs.Add("abilities", "abilities has one that isn't: "+ability)
+			}
+		}
+	})
+	if err != nil {
+		return err
+	}
+	var expires *time.Time
+	if in.Expires > 0 {
+		at := time.Now().AddDate(0, 0, in.Expires)
+		expires = &at
+	}
+	token, hash := a.accessTokens.New()
+	if err := a.apiTokens.create(c.Context(), user.ID, in.Name, hash, in.Abilities, expires); err != nil {
+		return err
+	}
+	c.Flash("success", "Token made. Copy it now: it won't be shown again.")
+	c.Flash("token", token)
+	return c.RedirectRoute("tokens.index")
+}
+
+// revokeToken deletes one of the user's tokens, which no request can send
+// again.
+func (a *app) revokeToken(c *tug.Ctx, user *User) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return tug.NewHTTPError(http.StatusNotFound, "token not found")
+	}
+	revoked, err := a.apiTokens.revoke(c.Context(), user.ID, id)
+	if err != nil {
+		return err
+	}
+	if !revoked {
+		return tug.NewHTTPError(http.StatusNotFound, "token not found")
+	}
+	c.Flash("success", "Token revoked.")
+	return c.RedirectRoute("tokens.index")
+}
+
+// tokenUsers makes a handler of the API, for a request whose token may do
+// ability. A request without a token, or with one that isn't, has expired
+// or was revoked, is a 401, and one whose token may not is a 403. The
+// session's cookie counts for nothing here, so a page of another site
+// can't borrow a login. Each token has 60 requests a minute, counted in
+// the database, as the throttles are.
+func (a *app) tokenUsers(ability string, h userHandler) tug.HandlerFunc {
+	return func(c *tug.Ctx) error {
+		token, err := a.sentToken(c)
+		if errors.Is(err, errNoToken) {
+			c.Response().Header().Set("WWW-Authenticate", `Bearer realm="api"`)
+			return tug.NewHTTPError(http.StatusUnauthorized, "this needs an API token of the app's, sent as Authorization: Bearer <token>")
+		}
+		if err != nil {
+			return err
+		}
+		if !token.Abilities.Can(ability) {
+			return tug.NewHTTPError(http.StatusForbidden, "this token can't do that: it needs "+ability)
+		}
+		byToken := func(*tug.Ctx) string { return strconv.FormatInt(token.ID, 10) }
+		return tug.Limit(a.apiRequests, byToken, func(c *tug.Ctx) error {
+			if err := a.apiTokens.used(c.Context(), token.ID, time.Now()); err != nil {
+				return err
+			}
+			user, err := a.users.byID(c.Context(), token.UserID)
+			if err != nil {
+				return err
+			}
+			return h(c, user)
+		})(c)
+	}
+}
+
+// sentToken is the token the request sends, or errNoToken for none, or
+// one that isn't one of the app's, or has expired.
+func (a *app) sentToken(c *tug.Ctx) (*sentToken, error) {
+	sent, ok := auth.BearerToken(c.Request())
+	if !ok {
+		return nil, errNoToken
+	}
+	hash := a.accessTokens.Hash(sent)
+	if hash == nil {
+		return nil, errNoToken
+	}
+	return a.apiTokens.byHash(c.Context(), hash, time.Now())
+}
+
+// apiUser is GET /api/user: the user whose the token is, as the pages
+// have them, with no secret of theirs.
+func apiUser(c *tug.Ctx, user *User) error {
+	return c.JSON(http.StatusOK, user)
+}
+
+// unixMilli is t in Unix milliseconds, as the table keeps a time, or nil,
+// NULL, for none.
+func unixMilli(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UnixMilli()
+}
+
+// fromUnixMilli is a time the table keeps, or nil for NULL.
+func fromUnixMilli(ms sql.NullInt64) *time.Time {
+	if !ms.Valid {
+		return nil
+	}
+	t := time.UnixMilli(ms.Int64).UTC()
+	return &t
+}

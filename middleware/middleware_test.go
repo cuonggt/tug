@@ -181,6 +181,112 @@ func TestCSRFPanicsOnATrustedOriginThatIsNotOne(t *testing.T) {
 	CSRF("admin.example.com")
 }
 
+func TestCSRFLetsAPathThroughUnchecked(t *testing.T) {
+	h := CSRF("/api/")(respond(200, "ok"))
+	for path, want := range map[string]int{"/api/user": 200, "/api/": 200, "/settings/tokens": 403, "/api": 403} {
+		req := httptest.NewRequest("POST", path, nil)
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != want {
+			t.Errorf("POST %s from another site = %d, want %d", path, rec.Code, want)
+		}
+	}
+}
+
+func TestCSRFPanicsOnAPathServeMuxDoesntTake(t *testing.T) {
+	defer func() {
+		if msg, _ := recover().(string); !strings.Contains(msg, `CSRF: "/api/{id" isn't a path to let through`) {
+			t.Fatalf("panicked with %q", msg)
+		}
+	}()
+	CSRF("/api/{id")
+}
+
+// preflight is a browser's OPTIONS, from origin, asking for method and
+// headers.
+func preflight(origin, method, headers string) *http.Request {
+	req := httptest.NewRequest("OPTIONS", "/api/user", nil)
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Access-Control-Request-Method", method)
+	if headers != "" {
+		req.Header.Set("Access-Control-Request-Headers", headers)
+	}
+	return req
+}
+
+func TestCORSAnswersAPreflightFromASiteNamed(t *testing.T) {
+	reached := false
+	h := CORS("https://app.example.com", "")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true }))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, preflight("https://app.example.com", "DELETE", "authorization, content-type"))
+	got := rec.Header()
+	if rec.Code != 204 || reached || got.Get("Access-Control-Allow-Origin") != "https://app.example.com" ||
+		got.Get("Access-Control-Allow-Methods") != "DELETE" || got.Get("Access-Control-Allow-Headers") != "authorization, content-type" ||
+		got.Get("Access-Control-Max-Age") != "7200" || got.Get("Access-Control-Allow-Credentials") != "" {
+		t.Errorf("%d, reached the app %v, headers %v", rec.Code, reached, got)
+	}
+}
+
+func TestCORSLetsASiteNamedReadTheResponse(t *testing.T) {
+	h := CORS("https://app.example.com")(respond(200, "ok"))
+	req := httptest.NewRequest("GET", "/api/user", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	got := rec.Header()
+	if rec.Code != 200 || got.Get("Access-Control-Allow-Origin") != "https://app.example.com" || got.Get("Access-Control-Expose-Headers") != "Retry-After" || got.Get("Vary") != "Origin" {
+		t.Errorf("%d, headers %v", rec.Code, got)
+	}
+}
+
+func TestCORSLeavesAnotherSiteAsItCame(t *testing.T) {
+	h := CORS("https://app.example.com")(respond(405, "method not allowed"))
+	for _, req := range []*http.Request{preflight("https://evil.example", "DELETE", "authorization"), httptest.NewRequest("GET", "/api/user", nil)} {
+		if req.Method == "GET" {
+			req.Header.Set("Origin", "https://evil.example")
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Code != 405 || rec.Header().Get("Vary") != "Origin" {
+			t.Errorf("%s from another site: %d, headers %v", req.Method, rec.Code, rec.Header())
+		}
+	}
+}
+
+func TestCORSStarLetsAnySite(t *testing.T) {
+	h := CORS("*")(respond(200, "ok"))
+	req := httptest.NewRequest("GET", "/api/posts", nil)
+	req.Header.Set("Origin", "https://anyone.example")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Header().Get("Access-Control-Allow-Origin") != "*" || rec.Header().Get("Vary") != "" {
+		t.Errorf("headers %v", rec.Header())
+	}
+}
+
+func TestCORSWithNoSitesDoesNothing(t *testing.T) {
+	h := CORS(strings.Split("", ",")...)(respond(200, "ok"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, preflight("https://app.example.com", "GET", ""))
+	if rec.Code != 200 || len(rec.Header().Values("Access-Control-Allow-Origin")) != 0 || rec.Header().Get("Vary") != "" {
+		t.Errorf("%d, headers %v", rec.Code, rec.Header())
+	}
+}
+
+func TestCORSPanicsOnWhatIsntAnOrigin(t *testing.T) {
+	for _, o := range []string{"app.example.com", "https://app.example.com/", "https://app.example.com/api", "ftp://app.example.com", "https://ann@app.example.com"} {
+		func() {
+			defer func() {
+				if msg, _ := recover().(string); !strings.Contains(msg, "isn't an origin") {
+					t.Errorf("%q: panicked with %q", o, msg)
+				}
+			}()
+			CORS(o)
+		}()
+	}
+}
+
 // through serves a request from the address from, with the
 // X-Forwarded-For lines forwarded, behind TrustProxies(proxies...), and
 // returns the RemoteAddr the handler saw.

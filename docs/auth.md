@@ -3,8 +3,9 @@
 `tug new -auth` makes an app with accounts, complete enough to ship: people
 register and verify their email, log in, with a code from an authenticator
 app too once they turn that on, reset a forgotten password with a link sent
-by email, and change their profile, email, photo, password and appearance
-in their settings, or delete their account. The handlers are the app's own code, to
+by email, change their profile, email, photo, password and appearance
+in their settings, make API tokens for a script or another service, or
+delete their account. The handlers are the app's own code, to
 change as the app does. They stand on package `auth`, which has the parts
 where a slip is a security hole, and package `mail`, which sends the links.
 The frontend is React with Tailwind and shadcn/ui, as Laravel's React
@@ -457,6 +458,9 @@ sent again for them: they go back to the page it was on, which
   ends every login made with the old one, which is how to end a login on a
   lost laptop, and this browser logs in again with it. Then two-factor
   logins, above.
+- **API tokens**: tokens for a script, the user's phone's app or another
+  service, which call the app's API in place of a login, made, listed and
+  revoked: [API tokens](#api-tokens).
 - **Appearance**: light, dark, or as the system is. It's the browser's
   choice, kept in its `localStorage`, rather than the account's: the
   root template's script applies it before the page paints, so there's no
@@ -466,6 +470,44 @@ sent again for them: they go back to the page it was on, which
 Password checks in the settings, as in the page that asks for it again,
 count five tries a minute for a user (`a.passwords`), so whoever has
 someone's browser can guess no faster than at the login page.
+
+### API tokens
+
+A user makes tokens on the settings' API tokens page, for a script, their
+phone's app or another service, sees when each was last used, and revokes
+them. A request to the app's API, `/api`, sends one in place of a login:
+
+```sh
+curl -H "Authorization: Bearer blog_…" -H "Accept: application/json" https://example.com/api/user
+```
+
+- A token is the app's name, an underscore and 52 random letters and
+  digits, made by `auth.AccessTokens` ([Access tokens](#access-tokens)).
+  The page shows it once, in the flash, as the recovery codes are shown,
+  and the `access_tokens` table, whose SQL is in `tokens_db.go`, keeps its
+  SHA-256 alone, with whose it is, its name, what it may do and when it
+  expires: a copy of the database has no token that works.
+- What a token may do, its abilities, are the page's checkboxes, from
+  `abilities` in `tokens.go`: `user:read`, which `/api/user` asks for. An
+  app's API adds its own, as `posts:write`, which its routes ask for.
+- A token expires in 30 days, a year, or never, as its user chooses. Its
+  last use is kept at most once a minute, so an API's every request isn't
+  a write.
+- `a.tokenUsers(ability, h)` makes a route of the API, as
+  `api.Get("/user", a.tokenUsers("user:read", apiUser))`. A request without
+  a token, or with one that isn't the app's, has expired or was revoked,
+  is a 401, with `WWW-Authenticate: Bearer`, and one whose token may not do
+  `ability` is a 403. The session's cookie counts for nothing there, so a
+  page of another site can't borrow a login: the app's CSRF check lets
+  `/api/` through, `middleware.CSRF("/api/")`, and CORS lets the pages of
+  the sites `CORS_ORIGINS` names call it
+  ([Package middleware](routing.md#package-middleware)).
+- Each token has 60 requests a minute, counted in the `throttles` table by
+  the token's ID, as the app's other throttles count, with a 429 and
+  `Retry-After` past them.
+- The page takes the password confirmed, as the security settings do. A
+  new password leaves the tokens be, as GitHub's are: they're the user's
+  to revoke. Deleting the account deletes them.
 
 ### A forgotten password
 
@@ -1008,6 +1050,37 @@ each, as the starter's do on its table in each database.
 
 A throttle on a route, rather than in a handler, is `tug.Limit`
 ([Routing](routing.md#a-limit-for-a-route)).
+
+### Access tokens
+
+```go
+tokens := &auth.AccessTokens{Prefix: "blog"}
+token, hash := tokens.New() // show token to its user once; keep hash
+
+sent, ok := auth.BearerToken(r) // Authorization: Bearer <token>
+hash = tokens.Hash(sent)        // nil for what can't be one of the app's
+row, err := table.byHash(ctx, hash)
+if !auth.Abilities(row.abilities).Can("posts:write") {
+    // 403
+}
+```
+
+- `New` makes a token for an app's API: the `Prefix`, letters and digits,
+  as the app's name, an underscore, and 32 random bytes in base32, in
+  lower case, 52 letters and digits that a double click selects whole. A
+  token pasted where it shouldn't be, in a repository or a log, says whose
+  it is, and a scanner of secrets can look for it.
+- `Hash` is a token's SHA-256, which the app keeps in its place, and finds
+  a token sent by. A token is 32 random bytes, which no one guesses, so a
+  fast hash does, where a password's is argon2id, for a secret people
+  choose. It's nil for what can't be a token of the app's, another prefix,
+  length or letters, which no lookup needs to find.
+- `BearerToken(r)` reads the token from `Authorization: Bearer`, the scheme
+  in any case.
+- `Abilities` are what a token may do, as `posts:write`, or `*` for
+  everything, and `Can` says whether it may.
+- Keeping tokens is the app's, as keeping its users is: whose each is, its
+  name, its abilities, when it expires and when it was last used.
 
 ## Package mail
 

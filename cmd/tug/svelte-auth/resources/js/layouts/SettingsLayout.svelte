@@ -10,6 +10,7 @@
   const pages = [
     { title: 'Profile', href: route('profile.edit') },
     { title: 'Security', href: route('security.edit') },
+    { title: 'API tokens', href: route('tokens.index') },
     { title: 'Appearance', href: route('appearance.edit') },
   ]
 
@@ -18,7 +19,7 @@
   let { children }: { children: Snippet } = $props()
 </script>
 
-<Heading title="Settings" description="Your profile, your account's security, and how the app looks" />
+<Heading title="Settings" description="Your profile, your account's security, your API tokens, and how the app looks" />
 <div class="flex flex-col gap-6 lg:flex-row lg:gap-12">
   <aside class="lg:w-48">
     <nav aria-label="Settings" class="flex gap-1 lg:flex-col">

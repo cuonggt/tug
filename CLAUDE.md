@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M26 are done, which is
+the decisions behind it and where it stands: M1 to M27 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -49,7 +49,10 @@ file to save by its name however it's written, `c.Stream` and
 events, which the app's shutdown ends, and encryption (v0.21.0):
 package `crypt`, the app's own values sealed under a key for their
 purpose alone, bound to their owner, with `Stale` for a rotation,
-`auth.TwoFactor` sealing the same way, and `tug key`.
+`auth.TwoFactor` sealing the same way, and `tug key`, and API tokens
+(v0.22.0): `auth.AccessTokens`, kept as their hashes, `middleware.CORS`,
+`CSRF`'s paths let through, and in the auth starter, a settings page of
+tokens, and `/api`, which takes one in place of a login.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -440,7 +443,19 @@ dev server that isn't there: delete it.
   row unchanged counts as none affected), which `newApp` gives the app as
   `a.cache`, keeping nothing in it itself, and whose `prune` runs every
   hour as `prune-cache`; `cache_test.go` runs `cachetest.TestStore` on
-  it, and two caches on one database share a value and a lock. The
+  it, and two caches on one database share a value and a lock. Every
+  layer's `tokens_db.go` is the `access_tokens` table's (`apiTokens`,
+  whose Go is in `tokens.go.tmpl`: a token's hash, whose, its name, its
+  abilities, space separated, and its last use and expiry in Unix
+  milliseconds, `unixMilli`, `fromUnixMilli`; `used` writes at most once
+  a minute): the settings page `Settings/Tokens` makes a token
+  (`createToken`, shown once in the flash's `token`), lists and revokes
+  them, and `a.tokenUsers(ability, h)` makes a route of `/api`, which
+  reads the token alone (`sentToken`), 401 without one, 403 without the
+  ability, 60 a minute by the token's ID (`apiRequests`); `tokenPrefix` is
+  `starterData.TokenPrefix`, the app's name in letters and digits, and
+  `abilities` lists what the page offers, `user:read`, which `/api/user`
+  asks for. `tokens_test.go` and `e2e/tests/tokens.spec.ts` test it. The
   throttles count by `c.IP()`, behind the proxies `TRUSTED_PROXIES`
   names, which both starters hand `TrustProxies`; the links in mail are
   `a.routes.AbsoluteURL`'s, and `newApp` stops without `APP_URL`, but
@@ -465,7 +480,11 @@ dev server that isn't there: delete it.
   keyed by the user's photo, in all three, as an avatar keeps the image it
   loaded once the image is gone.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
-  tug: `RequestID`, `Logger`, `Recover`, `CSRF`, and `TrustProxies`
+  tug: `RequestID`, `Logger`, `Recover`, `CSRF` (an entry that's a path is
+  `CrossOriginProtection`'s bypass, `bypass`, and the rest trusted
+  origins), `CORS` (`cors.go`: `isOrigin`; a preflight from an origin
+  named answered with a 204 before any route; credentials never), and
+  `TrustProxies`
   (`proxies.go`), which rewrites a copy of the request's `RemoteAddr` to
   the client's, port 0, read from the end of `X-Forwarded-For` past the
   ranges named (`trusted.client`); `*` believes the peer alone, an entry
@@ -492,12 +511,16 @@ dev server that isn't there: delete it.
   (`hash`), and the app's clock; without a `Store`, `memoryThrottles`, a
   map swept as it doubles. Every try counts, the refused too: the store
   needn't know `Max`. `throttletest`: `TestStore`, which auth's own
-  tests run on the memory store (`export_test.go`). `passkeys.go`: WebAuthn, the
-  options as JSON, the challenge in the session (`tug.auth.passkey`,
-  answered once within five minutes, which `Login` drops), and the checks
-  of an answer (`checkClientData`, `checkAuthData`, the signature, the
-  count); `cose.go`, the keys (ES256, Ed25519, RSA) and their signatures;
-  `cbor.go`, a strict reader of the CBOR WebAuthn writes, fuzzed.
+  tests run on the memory store (`export_test.go`). `access.go`:
+  `AccessTokens`, a token (`New`: the `Prefix`, letters and digits, `_`,
+  and 32 random bytes in `b32`, lower case) and its SHA-256 (`Hash`, nil
+  for what can't be one), `BearerToken` and `Abilities`. `passkeys.go`:
+  WebAuthn, the options as JSON, the challenge in the session
+  (`tug.auth.passkey`, answered once within five minutes, which `Login`
+  drops), and the checks of an answer (`checkClientData`,
+  `checkAuthData`, the signature, the count); `cose.go`, the keys
+  (ES256, Ed25519, RSA) and their signatures; `cbor.go`, a strict reader
+  of the CBOR WebAuthn writes, fuzzed.
   `passkeytest`: an authenticator in software, for tests, with its own
   CBOR writer.
 - `mail`: `Message` (with `Cc`, `Bcc`, `ReplyTo`, `Attachments`,

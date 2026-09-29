@@ -171,6 +171,12 @@ type app struct {
 	// keeps nothing in it; it's there for the app.
 	cache *cache.Cache
 
+	// The users' API tokens: accessTokens makes a token and its hash, which
+	// apiTokens keeps, and each token has apiRequests a minute: tokens.go.
+	accessTokens *auth.AccessTokens
+	apiTokens    *apiTokens
+	apiRequests  *auth.Throttle
+
 	// Tries, counted so that none can be made fast enough to guess: logins
 	// by email and address; the password of someone logged in, and the
 	// codes of a login waiting for its second factor, by user; and mail,
@@ -268,6 +274,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		verifications: &auth.Verifications{Keys: e.Keys},
 		twoFactor:     &auth.TwoFactor{Keys: e.Keys, Issuer: appName},
 		cache:         &cache.Cache{Store: cached},
+		accessTokens:  &auth.AccessTokens{Prefix: tokenPrefix},
+		apiTokens:     &apiTokens{db: e.DB},
+		apiRequests:   &auth.Throttle{Name: "api", Max: 60, Window: time.Minute, Store: counts},
 		logins:        &auth.Throttle{Name: "logins", Max: 5, Window: time.Minute, Store: counts},
 		passwords:     &auth.Throttle{Name: "passwords", Max: 5, Window: time.Minute, Store: counts},
 		codes:         &auth.Throttle{Name: "codes", Max: 5, Window: time.Minute, Store: counts},
@@ -326,7 +335,15 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// Behind a proxy, such as a load balancer, a request comes from the
 	// proxy's address: TRUSTED_PROXIES names the proxies the app believes
 	// when they say whose it is, for c.IP, which the throttles count by.
-	app.Use(middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...), middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
+	// The API, /api, takes a token, never the session's cookie, which
+	// another site's page can't borrow: CSRF lets it through, and CORS lets
+	// the pages of the sites CORS_ORIGINS names call it.
+	app.Use(
+		middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...),
+		middleware.RequestID(), middleware.Logger(), middleware.Recover(),
+		middleware.CORS(strings.Split(os.Getenv("CORS_ORIGINS"), ",")...),
+		middleware.CSRF("/api/"),
+	)
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 	app.Get("/up", a.up)
 	// The files on the app's own disk, at the path its links start with,
@@ -386,6 +403,14 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Post("/settings/passkeys", a.usersOnly(verified(passwordConfirmed(a.addPasskey)))).Name("passkeys.store")
 	app.Delete("/settings/passkeys/{id}", a.usersOnly(verified(passwordConfirmed(a.removePasskey)))).Name("passkeys.destroy")
 	app.Get("/settings/appearance", a.usersOnly(appearancePage)).Name("appearance.edit")
+
+	// API tokens, which a user makes and revokes in their settings, and the
+	// API that takes them, with no session: tokens.go.
+	app.Get("/settings/tokens", a.usersOnly(verified(passwordConfirmed(a.tokensPage)))).Name("tokens.index")
+	app.Post("/settings/tokens", a.usersOnly(verified(passwordConfirmed(a.createToken)))).Name("tokens.store")
+	app.Delete("/settings/tokens/{id}", a.usersOnly(verified(passwordConfirmed(a.revokeToken)))).Name("tokens.destroy")
+	api := app.Group("/api")
+	api.Get("/user", a.tokenUsers("user:read", apiUser)).Name("api.user")
 	return app, nil
 }
 

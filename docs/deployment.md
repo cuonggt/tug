@@ -112,6 +112,7 @@ behind: delete it.
 | `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail and to its photos, as `SignedURL` signs. | none: the starters stop without it | `session.KeysFromEnv` |
 | `APP_PREVIOUS_KEYS` | Keys being rotated out, comma separated. They still decrypt sessions and check links. | none | `session.KeysFromEnv` |
 | `TRUSTED_PROXIES`   | The proxies in front of the app, such as a load balancer, whose `X-Forwarded-For` says whose each request is: addresses or ranges, comma separated, as `10.0.0.0/8`, or `*` for whatever connects. See [Behind a proxy](#behind-a-proxy). | none: a request is from whatever connected | the starters' `main.go`, for `middleware.TrustProxies` |
+| `CORS_ORIGINS`      | The sites whose pages may call the app's API, `/api`, from the browser, with a user's API token: origins, comma separated, as `https://app.example.com`, or `*` for any. | none: a script or a phone's app, which isn't a page, needs none | the auth starter's `main.go`, for `middleware.CORS` |
 
 The auth starter reads these as well:
 

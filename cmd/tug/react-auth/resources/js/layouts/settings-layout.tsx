@@ -9,6 +9,7 @@ import { route } from '@/tug/routes'
 const pages = [
   { title: 'Profile', href: route('profile.edit') },
   { title: 'Security', href: route('security.edit') },
+  { title: 'API tokens', href: route('tokens.index') },
   { title: 'Appearance', href: route('appearance.edit') },
 ]
 
@@ -18,7 +19,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   const { url } = usePage()
   return (
     <>
-      <Heading title="Settings" description="Your profile, your account's security, and how the app looks" />
+      <Heading title="Settings" description="Your profile, your account's security, your API tokens, and how the app looks" />
       <div className="flex flex-col gap-6 lg:flex-row lg:gap-12">
         <aside className="lg:w-48">
           <nav aria-label="Settings" className="flex gap-1 lg:flex-col">

@@ -82,6 +82,19 @@ func (d starterData) DBName() string {
 
 var nonIdentifier = regexp.MustCompile(`[^a-z0-9_]+`)
 
+// TokenPrefix starts the auth starter's API tokens, as blog_...: the
+// app's name in letters and digits, "myblog" for my-blog, as
+// auth.AccessTokens takes it.
+func (d starterData) TokenPrefix() string {
+	prefix := nonAlphanumeric.ReplaceAllString(strings.ToLower(d.Name), "")
+	if prefix == "" {
+		return "app"
+	}
+	return prefix[:min(len(prefix), 20)]
+}
+
+var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9]+`)
+
 // DevURL is where the app's database is in development: compose.yaml's
 // Postgres or MySQL, on 127.0.0.1, which the .env tug new writes names,
 // and the tests make their databases on.

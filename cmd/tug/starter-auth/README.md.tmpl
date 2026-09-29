@@ -37,7 +37,10 @@ go test ./...
   settings pages. `photos.go`: a user's photo, which they upload, kept in
   `files/` (or `FILES_PATH`), or with `FILESYSTEM_DISK=s3` in a bucket,
   through tug's package `storage`, and shown by links signed for a day.
-  `mail.go`: the mail, in plain text and HTML.
+  `mail.go`: the mail, in plain text and HTML. `tokens.go`: API tokens,
+  which a user makes in their settings, for a script or another service,
+  and the API, `/api`, which takes one in place of a login, as
+  `curl -H "Authorization: Bearer <token>" .../api/user`.
 - `users.go`: the users. `jobs.go`: the background jobs, in the same
   database, for tug's package `queue`, which runs them beside the server.
   The mail goes by jobs, so a mail server that's down, or a restart,
@@ -49,16 +52,16 @@ go test ./...
   `database/sql`, and the migrations that make and change its tables.
   The SQL of each table is beside the Go that's the same on any
   database: `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
-  `throttles_db.go` and `cache_db.go`, the app's cache, for tug's package
-  `cache`, which the starter keeps nothing in yet.
+  `throttles_db.go`, `tokens_db.go`, and `cache_db.go`, the app's cache,
+  for tug's package `cache`, which the starter keeps nothing in yet.
 [[- else ]]
 - `db.go`: the database, [[ if .MySQL ]]MySQL[[ else ]]Postgres[[ end ]] at `DB_URL`, through `database/sql`, and
   the migrations that make and change its tables. `compose.yaml` runs it
   in development, and the tests make a database each on it. The SQL of
   each table is beside the Go that's the same on any database:
-  `users_db.go`, `passkeys_db.go`, `jobs_db.go`, `throttles_db.go` and
-  `cache_db.go`, the app's cache, for tug's package `cache`, which the
-  starter keeps nothing in yet.
+  `users_db.go`, `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`,
+  `tokens_db.go`, and `cache_db.go`, the app's cache, for tug's package
+  `cache`, which the starter keeps nothing in yet.
 [[- end ]]
 [[- if .Vue ]]
 - `resources/js`: Vue with Tailwind and [shadcn-vue](https://www.shadcn-vue.com)
