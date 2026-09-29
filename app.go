@@ -127,6 +127,10 @@ type App struct {
 
 	// background is what Go runs beside the server.
 	background []func(ctx context.Context) error
+
+	// commands are the app's commands, which Run runs in place of serving,
+	// in the order they were added.
+	commands []command
 }
 
 // New returns an App. Without a Config it reads one from the environment
@@ -309,13 +313,17 @@ func (a *App) Go(fn func(ctx context.Context) error) {
 //
 // Run is also where tug gen learns about the app: started by it, with
 // TUG_GEN set to a file, Run writes the TypeScript for the app's pages and
-// named routes there, and returns without serving.
+// named routes there, and returns without serving. And for an app with
+// commands, given one, Run runs it in place of serving: see Command.
 func (a *App) Run() error {
 	if Generating() {
 		return a.gen(os.Getenv("TUG_GEN"))
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if len(a.commands) > 0 && len(os.Args) > 1 {
+		return a.runCommand(ctx, os.Args[0], os.Args[1:], os.Stdout)
+	}
 	ln, err := net.Listen("tcp", a.config.Addr)
 	if err != nil {
 		return err

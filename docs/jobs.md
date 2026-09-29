@@ -163,15 +163,16 @@ queue.Handle(q, "report", makeReport,
 
 A job that fails for good stays in the Store, with its error, and a Store
 that's a `queue.FailedStore` lists them and runs them again. The auth
-starter's binary does with its `jobs` command, which runs in place of the
-server, on its database, and exits:
+starter's binary does with its `jobs` command, an
+[`app.Command`](routing.md#commands), which runs in place of the server,
+on its database, and exits:
 
 ```
 $ ./blog jobs
 1 job failed for good, and is kept for a month:
 
   42  verify-mail, which failed at 2026-09-28 10:02:03 UTC after 10 attempts
-      {"user":7,"email":"ann@example.com","base":"https://example.com"}
+      {"user":7,"email":"ann@example.com"}
       dial tcp 10.0.0.5:587: connect: connection refused
 
 ./blog jobs retry <id> runs one again, and ./blog jobs retry all runs them all.
@@ -182,8 +183,8 @@ $ ./blog jobs retry 42
 A job run again starts from its first attempt, due at once, and the queue
 of the app that's serving finds it at its next poll. In the starter's
 image, the binary is `/server`: `docker exec <container> /server jobs`. The
-command is the app's own, in its `main.go` and `jobs.go`, rather than
-tug's: a deployed app runs as its binary, where tug isn't.
+command is the app's own, added in its `newApp`, and written in `jobs.go`,
+rather than tug's: a deployed app runs as its binary, where tug isn't.
 
 ## Jobs on a schedule
 

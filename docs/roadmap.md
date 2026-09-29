@@ -27,7 +27,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M19 | Proxies and signed links   | done   |
 | M20 | Languages                  | done   |
 | M21 | Pagination                 | done   |
-| M22 | Commands                   | later  |
+| M22 | Commands                   | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -1684,13 +1684,13 @@ Choices made on the way:
   `examples/inertia`, the archive's pages in Go, and its pager, and the
   scroll, in the browser.
 
-## M22 · Commands — later
+## M22 · Commands — done
 
 An app's binary does more than serve: the auth starter's `./blog jobs`
 lists the jobs that failed, and an app grows more, a fix to its data, an
-import, a user made an admin. Each is `os.Args`, read by `main` before
-anything else, as the starter's `command` reads it, with one command,
-whose error names it. Laravel's Artisan runs an app's own commands in the
+import, a user made an admin. Each was `os.Args`, read by `main` before
+anything else, as the starter's `command` read it, with one command,
+whose error named it. Laravel's Artisan runs an app's own commands in the
 app, with its routes, database and queue. The `tug` CLI can't be where
 they run: a deployed app is its binary, where tug isn't. To be released
 as v0.17.0.
@@ -1698,30 +1698,43 @@ as v0.17.0.
 - **`app.Command(name, summary, run)`** adds a command, whose `run` takes
   a context and the arguments after its name. `Run`, given one, as in
   `./blog jobs retry 42`, runs it in place of serving, with a context
-  canceled on SIGINT or SIGTERM, and returns its error; `./blog help`, or
-  a name that isn't a command, lists them, with their summaries.
-- **The starter's `jobs`** is one, and `command` in its `main` goes.
-- **The guide:** Routing's "The app" has commands, and Deployment running
-  one in the image.
+  canceled on SIGINT or SIGTERM, and returns its error; `./blog help`
+  lists them, with their summaries, and a name that isn't a command is an
+  error that says to ask `help`.
+- **The starter's `jobs`** is one, which `newApp` adds, and `command` in
+  its `main` went.
+- **The guide:** Routing has commands, after `Run` and `Serve`, and
+  Deployment, Background jobs and Accounts run one in the image. Jobs'
+  example of a failed job lost the `base` its payload carried before M19.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A command runs in the app `main` made,** with its routes, for the
   links it mails, its queue's kinds, for the jobs it pushes, and its
-  database. This changes a choice of M15's, that `jobs` needs only the
+  database. This changed a choice of M15's, that `jobs` needs only the
   database, and no `APP_KEY`: a command needs the environment the server
   has, which it has in the image, where `docker exec` runs it.
 - **The command alone:** neither the server nor what `Go` runs starts. A
   job it pushes runs on the instances that serve, as `jobs retry` has it.
 - **The arguments are the command's,** to read with `flag` or by hand:
   tug parses none, as each command's flags are its own.
-- **No commands of tug's** in an app's binary: its names are the app's to
-  choose.
-- **An app with no commands serves,** whatever its arguments, as now; and
-  under tug gen, `Run` writes the types, whatever they are.
-- **Tests:** a command run with its arguments, its error, the list, a name
-  that isn't one, a context canceled by a signal, and the starter's `jobs`
-  as a command.
+- **No commands of tug's** in an app's binary, but `help`, which lists
+  the app's, as do `-h` and `--help`: the other names are the app's to
+  choose. A name is a word of letters, digits and `:-_`, as
+  `users:admin`, which a flag, starting with a dash, isn't; one taken, or
+  `help`, panics, as a command added once the app is serving does.
+- **An app with no commands serves,** whatever its arguments, as before;
+  and under tug gen, `Run` writes the types, whatever they are.
+- **A command's error is `Run`'s,** which `main` stops with, as it stops
+  with the server's: `log.Fatal`'s time comes before it. What a command
+  says, it writes itself, where it likes: the starter's `jobs`, to the
+  standard output.
+- **Tests:** a command run with its arguments, with what `Go` runs not
+  started; its error; the list, by `help`, `-h` and `--help`; a name that
+  isn't one; a context canceled by SIGINT, and an app without commands,
+  given one, serving until it, on Unix, whose signals a test can send
+  itself; tug gen's types whatever the arguments; the names that panic;
+  and the starter's `jobs` run through `Run`, as its binary runs it.
 
 ## Decisions
 

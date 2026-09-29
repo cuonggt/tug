@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -109,6 +110,21 @@ func TestTheJobsCommandListsTheJobsThatFailedAndRunsThemAgain(t *testing.T) {
 	out.Reset()
 	if err := jobsCommand(ctx, s, "./blog", nil, &out); err != nil || out.String() != "No job has failed for good.\n" {
 		t.Errorf("with none failed: %q, %v", out.String(), err)
+	}
+}
+
+func TestTheBinaryRunsTheJobsCommandInPlaceOfTheServer(t *testing.T) {
+	app := newTestApp(t)
+	s := &jobs{db: app.db}
+	failJob(t, s, `{"user":1}`, "550 no such mailbox: ann@example.com")
+	old := os.Args
+	os.Args = []string{"./blog", "jobs", "retry", "all"}
+	t.Cleanup(func() { os.Args = old })
+	if err := app.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if failed, err := s.Failed(context.Background()); err != nil || len(failed) != 0 {
+		t.Errorf("failed after retry all: %v, %v", failed, err)
 	}
 }
 

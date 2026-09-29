@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M21 are done, which is
+the decisions behind it and where it stands: M1 to M22 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -33,9 +33,11 @@ for a route, proxies and signed links (v0.14.0):
 `tug dev` sets, `AbsoluteURL`, and `SignedURL` with `tug.Signed`,
 languages (v0.15.0): package `lang`, what tug says, a form's errors among
 it, and `c.T`, in the request's language, fields named by their `label`
-tags or their keys in words, `validate.Rule`, and `tug lang`, and
+tags or their keys in words, `validate.Rule`, and `tug lang`,
 pagination (v0.16.0): `tug.Paginate`, `SimplePaginate` and
-`CursorPaginate`, with the app's own queries.
+`CursorPaginate`, with the app's own queries, and commands (v0.17.0):
+`app.Command`, which `Run` runs in place of serving, as the auth
+starter's `jobs`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -151,6 +153,12 @@ dev server that isn't there: delete it.
     client, unless Debug is showing a 500's details. `adapt` in app.go
     recovers handler panics into `*PanicError`, and re-panics
     `http.ErrAbortHandler`.
+  - `commands.go`: `Command` adds one of the app's commands (`command`,
+    in the App's `commands`), which `Run` runs in place of serving
+    (`runCommand`) when it has any and the binary has an argument, with
+    the rest and `Run`'s signal context; `help` lists them
+    (`listCommands`), and a name that isn't one is an error. What `Go`
+    runs doesn't start, and tug gen's run writes the types first.
   - `limit.go`: `Limit`, a HandlerFunc wrapper, not middleware, so a
     refusal is a 429 `*HTTPError` for the ErrorHandler, with
     `Retry-After`; it takes a `Limiter`, the `Try` `*auth.Throttle` has,
@@ -374,7 +382,8 @@ dev server that isn't there: delete it.
   (`config`), and its `PushLatest` moves a job by its ID, not by an
   upsert, for its locks' order. `jobs.in(tx)` is the Store that pushes in
   a handler's transaction, and `jobsCommand` the `jobs` command, which
-  `main` runs in place of the server when it's given one (`command`).
+  `newApp` adds with `app.Command`, for `Run` to run in place of the
+  server.
   Under tug gen, `main` opens no database, and `env.DB` is nil. `a.inTx` runs a handler's writes in one
   transaction, through the stores' `in(tx)` (the tables' methods go
   through `dbtx`, the database or a transaction), and wakes the queue

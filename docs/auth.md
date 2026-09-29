@@ -541,11 +541,12 @@ writes until it ends, and in SQLite, which has one writer, the lock for
 writing from its start, so what the handler writes goes through `tx`,
 and slow work, such as hashing a password, comes before it.
 
-The binary has a command, which runs in place of the server, on the
-same database, and exits: `./blog jobs` lists the jobs that failed for
-good, with their errors, and `./blog jobs retry 42`, or `retry all`,
-runs them again. In the image, it's `docker exec <container> /server
-jobs`.
+The binary has a command, which `newApp` adds with `app.Command`, and
+which runs in place of the server, on the same database, and exits:
+`./blog jobs` lists the jobs that failed for good, with their errors, and
+`./blog jobs retry 42`, or `retry all`, runs them again. In the image,
+it's `docker exec <container> /server jobs`. `./blog help` lists the
+commands, for an app that adds more.
 
 ### The database
 

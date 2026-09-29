@@ -96,6 +96,48 @@ it, without `Run`'s signals and shutdown. A test needs no server at all: it
 calls `app.ServeHTTP` with an `httptest.NewRecorder()`, as the tests of
 `examples/api` do.
 
+### Commands
+
+```go
+app.Command("users:admin", "make a user an admin: users:admin <email>", func(ctx context.Context, args []string) error {
+	if len(args) != 1 {
+		return errors.New("users:admin takes the user's email")
+	}
+	return users.MakeAdmin(ctx, args[0])
+})
+```
+
+An app's binary does more than serve: a fix to its data, an import, a
+user made an admin, and the auth starter's `jobs`, which lists the jobs
+that failed. `app.Command(name, summary, run)` adds one, and `Run`, given
+its name as the binary's first argument, runs it in place of serving,
+with the arguments after the name and a context canceled on SIGINT or
+SIGTERM, and returns its error, which `main` stops with:
+
+```
+$ ./blog users:admin ann@example.com
+$ ./blog help
+Without a command, ./blog serves. Its commands:
+
+  ./blog users:admin  make a user an admin: users:admin <email>
+  ./blog help         list these commands
+```
+
+A command runs in the app `main` made, with its routes, for the links it
+makes, its queue, for the jobs it pushes, and its database, and needs the
+environment the server does. Neither the server nor what `Go` runs
+starts: a job a command pushes runs on the instances that serve. Its
+arguments are its own, to read with package `flag` or by hand; tug parses
+none. A name that isn't a command is an error that says to ask `help`.
+
+The tug CLI can't run an app's commands, as a deployed app is its binary,
+where tug isn't: in a container, `docker exec <container> /server
+users:admin ann@example.com`. An app without commands serves whatever its
+arguments, and under `tug gen`, `Run` writes the types, whatever they
+are. A command's name is a word of letters, digits and `:-_`, and
+`Command` panics on one that's taken, on `help`, and once the app is
+serving.
+
 ## Routes
 
 ```go

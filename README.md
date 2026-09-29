@@ -215,7 +215,9 @@ func showPost(c *tug.Ctx) error {
   `TrustProxies`, which reads the client's address past the app's load
   balancers, from the end of `X-Forwarded-For`, for `c.IP()`.
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking
-  connections and lets the requests in flight finish.
+  connections and lets the requests in flight finish. Given one of the
+  app's commands, as `./blog jobs`, which `app.Command` adds, it runs
+  that in place of serving, in the app as `main` made it.
 
 tug needs Go 1.26. Its dependencies are go-playground/validator, for
 package `validate`, and golang.org/x/crypto, for argon2id in package `auth`;
