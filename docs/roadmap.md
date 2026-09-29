@@ -1312,7 +1312,7 @@ own `base` and `link`, while the links that mustn't be forged were each
 signed their own way, reset and verification links by `auth`, and files
 by `storage`: an app that mailed an invitation, or a link to
 unsubscribe, had nothing to sign it with, where Laravel has
-`URL::temporarySignedRoute` and its `signed` middleware. To be released
+`URL::temporarySignedRoute` and its `signed` middleware. Released
 as v0.14.0.
 
 - **The client's address.** `middleware.TrustProxies(proxies...)` names
@@ -1454,7 +1454,7 @@ other than as a check in each handler, as `validate`'s validator is its
 own; and a message named a field by its key, "first_name is required".
 Laravel has all three: an app's own rules, the names people read, its
 `attributes`, and every message in `lang/`, in the request's language,
-with `__()` for the app's own words. To be released as v0.15.0.
+with `__()` for the app's own words. Released as v0.15.0.
 
 - **Package `lang`.** A language is a JSON file of texts, each under what
   it says in English, as Laravel's `lang/vi.json` is, in a directory the
@@ -1599,7 +1599,7 @@ the links to the pages, and `examples/inertia` read `page` itself for its
 scroll. Laravel's `paginate()`, `simplePaginate()` and `cursorPaginate()`
 do it all, and give a page its list with where it sits, as JSON that
 pagers read. tug does it without SQL: the app runs its query, with the
-limit and offset it's given. To be released as v0.16.0.
+limit and offset it's given. Released as v0.16.0.
 
 - **By number.** `tug.Paginate(c, perPage, count, fetch)` reads the page
   asked for from `?page`, calls `count` for how many there are, then
@@ -1692,7 +1692,7 @@ import, a user made an admin. Each was `os.Args`, read by `main` before
 anything else, as the starter's `command` read it, with one command,
 whose error named it. Laravel's Artisan runs an app's own commands in the
 app, with its routes, database and queue. The `tug` CLI can't be where
-they run: a deployed app is its binary, where tug isn't. To be released
+they run: a deployed app is its binary, where tug isn't. Released
 as v0.17.0.
 
 - **`app.Command(name, summary, run)`** adds a command, whose `run` takes
