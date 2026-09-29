@@ -24,6 +24,10 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M16 | Files                      | done   |
 | M17 | Postgres and MySQL         | done   |
 | M18 | Throttles across instances | done   |
+| M19 | Proxies and signed links   | next   |
+| M20 | Languages                  | later  |
+| M21 | Pagination                 | later  |
+| M22 | Commands                   | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -1292,6 +1296,319 @@ Choices made on the way:
   the starter, two instances of the app on one database, with a login's
   wrong passwords shared between them: five across the two, and the sixth
   waits. tug's CI runs them on its Postgres and MySQL, as it runs M17's.
+
+## M19 · Proxies and signed links — next
+
+Behind a proxy, a request comes from the proxy's address. The auth
+starter's `clientIP` counts by it all the same, so behind a load balancer
+every visitor is one: five wrong passwords for an email, from anyone,
+make everyone wait, and five asks for a reset link a minute are the whole
+site's. Deployment has each app paste in its own reading of
+`X-Forwarded-For`, which is easy to get wrong: read from the wrong end,
+and whoever writes the header picks the address a limit counts. Laravel
+has `TrustProxies`, told which proxies to believe. And a link out of the
+app, in mail or anywhere else, is made from `APP_URL` by the starter's
+own `base` and `link`, while the links that mustn't be forged are each
+signed their own way, reset and verification links by `auth`, and files
+by `storage`: an app that mails an invitation, or a link to unsubscribe,
+has nothing to sign it with, where Laravel has
+`URL::temporarySignedRoute` and its `signed` middleware. To be released
+as v0.14.0.
+
+- **The client's address.** `middleware.TrustProxies(proxies...)` names
+  the proxies the app believes, by address or range, as `10.0.0.0/8`, or
+  `*` for whatever connects: a request from one has its `RemoteAddr`
+  replaced by the client's, from `X-Forwarded-For`, so whatever reads it,
+  a key for `tug.Limit` or the app's own log, gets the client. `c.IP()` is
+  the address alone, in place of the starter's `clientIP` and
+  `examples/api`'s `byAddress`. The starters read the proxies from
+  `TRUSTED_PROXIES`, and believe none without it, as now.
+- **The app's address.** `Config.URL` is `APP_URL`, which `ConfigFromEnv`
+  reads, and `app.AbsoluteURL(name, params...)` a named route's whole
+  link, as `app.URL` is its path; `Ctx` has both. `tug dev` gives the app
+  `APP_URL`, the address it shows, unless `.env` names one.
+- **Signed links.** `app.SignedURL(name, expires, params...)` is a named
+  route's whole link, with its expiry and a signature, made with
+  `Config.Keys`, the app's keys, as `session.KeysFromEnv` reads them.
+  `tug.Signed(h)` wraps a handler that only a link the app signed
+  reaches: any other request is a 403 for the `ErrorHandler`, "this link
+  has expired" or "this link isn't valid".
+- **The auth starter** counts by `c.IP()`, behind the proxies
+  `TRUSTED_PROXIES` names, and makes the links in its mail, and its
+  passkeys' site, from `Config.URL`: `base` and `link` go, and so does the
+  `Base` its mail jobs carry.
+- **The guide:** Deployment's "Behind a proxy" sets a variable where it
+  had code to paste, Routing has the client's address and signed links,
+  and Accounts has the starter's.
+
+Choices, to settle before any code:
+
+- **The app names its proxies, and tug reads past them.** This changes a
+  choice of M18's, that tug has no address to offer, as only the app
+  knows what's in front of it. The app still says what is; but reading
+  the header is a part where a slip is a security hole, and those are
+  tug's to keep, as `auth` keeps the ones of accounts.
+- **From the right.** Each proxy adds the address it saw to the end of
+  `X-Forwarded-For`, so it's read from the end, back past the proxies the
+  app names, to the first address that isn't one: the client, as far as
+  the proxies can tell. What's before it, the client wrote. A request from
+  an address that isn't a proxy keeps it, whatever its headers say.
+- **`*` believes the peer alone,** as Laravel's does: for a platform
+  whose proxy has no address the app can name, where only the proxy can
+  reach the app. The client is then the address the proxy added. An app
+  that anything else can reach names its proxies instead, as `*` takes the
+  word of whatever connects.
+- **The address alone.** Not `X-Forwarded-Proto` or `X-Forwarded-Host`:
+  the scheme and host of the app's links are `APP_URL`'s, the cookie is
+  `Secure` by `session.Config.Secure`, which the auth starter sets from
+  it, and the proxy passes `Host` on, as Deployment asks. Nor RFC 7239's
+  `Forwarded`, which proxies don't set unless they're told to.
+- **`RemoteAddr`, rewritten,** rather than a value of tug's in the
+  context: what's written for net/http finds the client where it always
+  looks, and `middleware` still imports no tug. It keeps its form, an
+  address and a port, the port 0, as the client's is the proxy's to know.
+- **A proxy that isn't an address or a range panics** as the app starts,
+  as `CSRF`'s origins do: a mistyped setting stops the app, rather than
+  leave it believing no one.
+- **Links from `APP_URL` alone,** never from a request's `Host`, which can
+  name any site, as M6 has the starter's mail. In development too: `tug
+  dev` gives the app the address it shows, `http://localhost:8080` or the
+  port it took, where the starter took the request's `Host`, and M13 took
+  passkeys' site from it. It's the same address, made one way. A whole
+  link without `Config.URL` is an error, which says to set `APP_URL`.
+- **`app.URL` stays a path,** for redirects and the pages' own links,
+  where the scheme and host a proxy answers on aren't the app's to know.
+  A whole link is asked for by name: `AbsoluteURL` or `SignedURL`.
+- **A signed link is whole,** `Config.URL` and its path: it's for
+  somewhere else, a mail, a QR code or another service, and a page can
+  show one all the same.
+- **What's signed:** the link's path and its expiry, each part preceded by
+  its length, with HMAC-SHA256 and a key derived from the app's for
+  signed links alone, as `storage`'s links and `auth`'s tokens have their
+  own. The query has `expires` and `signature`, as a private disk's links
+  do. A link is checked with each of the app's keys, so a rotated
+  `APP_KEY` leaves the links made with the old one working until it's
+  dropped.
+- **Nothing may be added.** A query with anything else in it isn't the
+  link that was signed, and fails: `Bind` would put what was added in the
+  handler's struct.
+- **Every link expires.** `expires` is a time, as a private disk's links
+  take: a link in mail lasts as long as the mail, which can be forwarded,
+  and one that has to work for years, as a link to unsubscribe, is given
+  years. It works until then, as often as it's followed: what must happen
+  once, as an invitation accepted, is the app's to record.
+- **A wrapper, not middleware,** as `tug.Limit` is: a refusal is an error
+  for the `ErrorHandler`, so an Inertia visit gets the error page.
+- **`auth`'s tokens stay.** A reset link works once, as its token is
+  signed with the password hash the reset changes, which a signed link has
+  no part in, and the starter's links carry their tokens in their paths
+  already.
+- **Tests:** the walk past the proxies, with a client that writes the
+  header itself, a chain of proxies, `*`, IPv6, and the header on two
+  lines; a signed link changed in its path, its expiry or its signature,
+  one with a parameter added, one expired, and one signed with a key since
+  rotated; `tug dev`'s `APP_URL`; and the starter's throttles behind a
+  proxy, with two clients through it counted apart.
+
+## M20 · Languages — later
+
+Everything tug says to a person is in English: `validate`'s messages,
+`Bind`'s, as "age must be a whole number", a 429's wait, and the status
+on an error page, and an app can only say them otherwise by replacing
+them. Nor can it add a rule to the tags, as `slug` or a phone number,
+other than as a check in each handler, as `validate`'s validator is its
+own; and a message names a field by its key, "first_name is required".
+Laravel has all three: an app's own rules, the names people read, its
+`attributes`, and every message in `lang/`, in the request's language,
+with `__()` for the app's own words. To be released as v0.15.0.
+
+- **Package `lang`.** A language is a JSON file of texts, each in English
+  and in the language, as Laravel's `lang/vi.json` is, in a directory the
+  app embeds, `lang/`, which `lang.Load` reads into a `lang.Catalog`, with
+  the app's default language. `T(locale, text, args...)` says a text in a
+  language, its `:name` placeholders filled from `args`, in pairs as slog
+  takes them, and a text the language doesn't have says itself, in
+  English. `Config.Lang` is the app's catalog.
+- **The request's language.** `c.Locale()`: what the app chose for the
+  request with `lang.WithLocale`, in a middleware of its own, from what a
+  user picked; or else the best of its languages for the browser's
+  `Accept-Language`; or else its default. `c.T(text, args...)` says a text
+  in it, for a flash message; a job, with no request, gives `T` the
+  language it carries.
+- **tug says it in the request's language:** `BindValid`'s and
+  `Validate`'s errors, `Bind`'s, a 429's wait, and an error page's status.
+  A message names a field as a person would, by its key made readable,
+  `first_name` as "first name", or by its `label` tag, and in the
+  language's words for that.
+- **Rules of the app's.** `validate.Rule(name, check, message)` adds a
+  tag, as `slug`, with its check of a field's value, as the value's own
+  type, and its message in English, which a language's file translates.
+- **Plurals,** as Laravel's `trans_choice` has them: a text's forms,
+  split by `|`, and the one for a count picked by the language's rule, as
+  tug's messages with a number pick theirs: "at most 1 character", "at
+  most 80 characters".
+- **`tug lang vi`** writes `lang/vi.json`, with every text tug says and
+  every text the app's Go gives `T` in quotes, in English, to be
+  translated, and adds to a file that's there the texts it hasn't got.
+- **The starters** have a `lang/`, empty but for its `.gitkeep`, embedded
+  as `public/` is before a build, so tug's words in another language are
+  a file an app adds.
+- **The guide:** a page, Languages, and Forms where it has the messages.
+
+Choices, to settle before any code:
+
+- **JSON, keyed by the English,** as Laravel's `lang/*.json`: a file a
+  translator edits without Go, which a frontend's i18n library can read
+  as well, and the English stays in the code where it's said, so a text
+  no one has translated still says something. Not a Go function per
+  language, which only a programmer edits, nor `.po` files, which need a
+  library to read.
+- **`:name` placeholders,** as Laravel's, filled by name, as a language
+  puts them where its grammar has them: ":field is required", and "Vui
+  lòng nhập :field".
+- **Plural rules are Laravel's,** a switch of languages by how they
+  count, written in Go, where CLDR's would bring `golang.org/x/text`.
+- **`Accept-Language` is tug's to read,** with its weights, and a region
+  matched to its language, `vi-VN` to an app's `vi`, rather than by
+  `golang.org/x/text/language`'s matcher, which is large for one header.
+- **The app's choice first,** then the browser's: someone who picked a
+  language keeps it on every browser. Where the choice is kept, a user's
+  row or the session, is the app's.
+- **Words for people, not for programmers.** What a person reads is
+  translated: a form's errors, a 429, an error page. What a programmer
+  reads isn't: the log, panics, and a misused call's errors, as "tug: no
+  route is named ...".
+- **Readable names change English messages:** "password_confirmation must
+  match password" becomes "password confirmation must match password",
+  which the release's notes say, for tests that compare messages.
+- **Rules are added as the app starts,** as a queue's kinds are handled:
+  the validator takes a new tag only before it has checked anything, and
+  a rule added later panics. A check takes the field's value as its type,
+  as `func(s string, param string) bool`, not go-playground's
+  `FieldLevel`, which stays behind `validate`.
+- **The frontend's words are the frontend's.** A page's own words are in
+  its components, which the frontend's i18n library translates, from the
+  same files if it likes, as `laravel-vue-i18n` reads Laravel's, and the
+  app shares the request's language as a prop. tug translates what the
+  server says.
+- **The starters' own words stay English:** they're in three frontends,
+  and making a starter ready for many languages, when most apps have one,
+  is the app's to choose.
+- **Tests:** the language from the app's choice, from the header with its
+  weights and regions, and the default; every text tug says, translated
+  and not; a rule of the app's, with its message in two languages; plurals
+  in English, and in languages of one form and of three; and `tug lang`'s
+  file, written, and added to.
+
+## M21 · Pagination — later
+
+A list longer than a page is in most apps, and tug has `inertia.Scroll`,
+for `<InfiniteScroll>`, and nothing for pages by number: each app reads
+`?page`, checks it, works out the offset, counts the rows, and makes the
+links to the pages, and `examples/inertia` reads `page` itself for its
+scroll. Laravel's `paginate()`, `simplePaginate()` and `cursorPaginate()`
+do it all, and give a page its list with where it sits, as JSON that
+pagers read. tug can do it without SQL: the app runs its query, with the
+limit and offset it's given. To be released as v0.16.0.
+
+- **By number.** `tug.Paginate(c, perPage, count, fetch)` reads the page
+  asked for from `?page`, calls `count` for how many there are, then
+  `fetch` with that page's limit and offset, and returns a
+  `tug.Paginated[T]`: the items, the page, the last page, how many in
+  all, and links to the pages around it, the one before and the one
+  after.
+- **Without a count,** `tug.SimplePaginate(c, perPage, fetch)`, which
+  fetches one more than a page, to know whether there's a next: for a
+  list too long to count at each visit.
+- **By cursor,** `tug.CursorPaginate(c, perPage, fetch, cursor)`: `cursor`
+  is where an item sits, a value of the app's, such as its time and ID,
+  and `fetch` takes the last item's, for the page after it.
+- **Scrolling.** Each result's `Paging()` is where it sits for
+  `inertia.Scroll`, so one query feeds numbered pages and
+  `<InfiniteScroll>` alike.
+- **`examples/inertia`** has its posts in numbered pages too, with a
+  pager, and its scroll fed by `tug.Paginate`.
+- **The guide:** Pages, a section on pagination.
+
+Choices, to settle before any code:
+
+- **Laravel's JSON,** `data`, `current_page`, `last_page`, `per_page`,
+  `total`, `from`, `to`, `prev_page_url`, `next_page_url` and `links`, so
+  a pager written for Laravel's reads tug's. But `links` are the pages
+  alone, labelled with their numbers: Laravel's begin with "&laquo;
+  Previous" and end with "Next &raquo;", HTML, which a page has to render
+  as HTML.
+- **A type for each,** `Paginated[T]`, `SimplePaginated[T]` and
+  `CursorPaginated[T]`, which tug gen writes as it writes any generic
+  struct, as `Paginated_Post`: a list without a count has no `total` in
+  its TypeScript, where one type for all three would have it `null`.
+- **The page size is the app's,** not the query's: a client that could
+  pick it would pick how much the database reads.
+- **A page that isn't a number, or is under 1, is the first,** as Laravel
+  has it, and a page past the last is empty, with `last_page` for the
+  pager, not a 404: a list can shrink between two visits. The count comes
+  first, so a page past the last runs no query for its items, however far
+  past it is.
+- **Links keep the query,** the filters and the order the list was shown
+  with, and change `page` alone, where Laravel's keep it only when asked,
+  with `withQueryString()`. They're paths, as tug's redirects are.
+- **Functions, not a query builder:** `count` and `fetch` are the app's
+  SQL, or anything else's, so tug stays without SQL, as M8 and M17 have
+  it, and without an ORM.
+- **A cursor is the app's value,** as JSON, in base64url in the link, and
+  isn't signed, as Laravel's aren't: it's only where to start, and one
+  made up starts somewhere else within what the query lets the page see.
+  One that doesn't decode is the first page.
+- **Cursors go forward.** A page before one, by cursor, runs the query in
+  the other order, which is the app's to write; an `<InfiniteScroll>`
+  that starts in the middle of a list takes numbered pages.
+- **`PageName`,** as `inertia.Paging` has it, for two lists on one page:
+  `?comments_page=2`.
+- **In `tug`, not `inertia`,** as it reads the request, through `Ctx`,
+  and isn't the protocol's.
+- **Tests:** the first page, the last, one past it and one that isn't a
+  number; a list with no items; links that keep the query; each type's
+  JSON and its TypeScript; a cursor there and back, and one made up; and
+  `Paging` for a scroll.
+
+## M22 · Commands — later
+
+An app's binary does more than serve: the auth starter's `./blog jobs`
+lists the jobs that failed, and an app grows more, a fix to its data, an
+import, a user made an admin. Each is `os.Args`, read by `main` before
+anything else, as the starter's `command` reads it, with one command,
+whose error names it. Laravel's Artisan runs an app's own commands in the
+app, with its routes, database and queue. The `tug` CLI can't be where
+they run: a deployed app is its binary, where tug isn't. To be released
+as v0.17.0.
+
+- **`app.Command(name, summary, run)`** adds a command, whose `run` takes
+  a context and the arguments after its name. `Run`, given one, as in
+  `./blog jobs retry 42`, runs it in place of serving, with a context
+  canceled on SIGINT or SIGTERM, and returns its error; `./blog help`, or
+  a name that isn't a command, lists them, with their summaries.
+- **The starter's `jobs`** is one, and `command` in its `main` goes.
+- **The guide:** Routing's "The app" has commands, and Deployment running
+  one in the image.
+
+Choices, to settle before any code:
+
+- **A command runs in the app `main` made,** with its routes, for the
+  links it mails, its queue's kinds, for the jobs it pushes, and its
+  database. This changes a choice of M15's, that `jobs` needs only the
+  database, and no `APP_KEY`: a command needs the environment the server
+  has, which it has in the image, where `docker exec` runs it.
+- **The command alone:** neither the server nor what `Go` runs starts. A
+  job it pushes runs on the instances that serve, as `jobs retry` has it.
+- **The arguments are the command's,** to read with `flag` or by hand:
+  tug parses none, as each command's flags are its own.
+- **No commands of tug's** in an app's binary: its names are the app's to
+  choose.
+- **An app with no commands serves,** whatever its arguments, as now; and
+  under tug gen, `Run` writes the types, whatever they are.
+- **Tests:** a command run with its arguments, its error, the list, a name
+  that isn't one, a context canceled by a signal, and the starter's `jobs`
+  as a command.
 
 ## Decisions
 
