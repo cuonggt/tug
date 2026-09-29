@@ -32,6 +32,9 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M24 | Mail, whole                | done   |
 | M25 | Downloads and streams      | done   |
 | M26 | Encryption                 | done   |
+| M27 | API tokens                 | next   |
+| M28 | Broadcasting               | later  |
+| M29 | The queue, further         | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2201,6 +2204,160 @@ Choices made on the way:
   once; a two-factor secret sealed by the code before, opening; and `tug
   key`'s key, as `session.ParseKey` reads it. The guide's CI example lost
   an `APP_DEBUG` it hasn't needed since M19.
+
+## M27 · API tokens — next
+
+An app with an API, for its mobile app, a script or another service, has
+no way to let a caller in but the session's cookie, which only a browser
+keeps. Laravel's Sanctum gives each user tokens they make and revoke,
+each with what it may do, which a request sends in `Authorization:
+Bearer`. A token is a password for the API, and made, kept and checked
+where a slip is a security hole, in `auth`. And an API that another
+site's pages call needs CORS, which tug has none of. To be released as
+v0.22.0.
+
+- **Tokens:** `auth.AccessTokens` makes a token, random, after the app's
+  prefix, as `blog_`, and the hash the app keeps in its place; `Hash`
+  finds a token sent by its hash, and `auth.BearerToken(r)` reads one
+  from `Authorization`.
+- **What a token may do:** its abilities, as `posts:write`, kept with it,
+  which a route checks, and `*` for everything.
+- **CORS:** `middleware.CORS(origins...)` answers the browser's preflight,
+  and says which sites' pages may call the app, and with what.
+- **The auth starter:** an `access_tokens` table in each database's
+  layer; a settings page, API tokens, where a user makes one, named, with
+  its abilities and an expiry, shown once, sees when each was last used,
+  and revokes one; and an `/api` group, whose routes take a token, never
+  the session, with `GET /api/user`, the user a token is theirs.
+- **The guide:** Accounts, a section on API tokens, and Routing, CORS.
+
+Choices, to settle before any code:
+
+- **Kept as a SHA-256, not argon2id:** a token is 32 random bytes, which
+  no one guesses, so a fast hash is enough, and one lookup by it finds
+  the token, where a password's slow hash is for a secret people choose.
+  The database keeps no token a copy of it could use.
+- **A prefix of the app's,** so a token pasted where it shouldn't be, in
+  a repository or a log, says what it is, and a scanner of secrets can
+  look for it.
+- **Shown once,** in a flash, as GitHub shows its tokens: the app keeps
+  the hash alone.
+- **The token alone, never the session:** an `/api` route reads the
+  token, and no cookie, so another site's page can't borrow a login.
+  `CSRF` lets `/api/` through, as `http.CrossOriginProtection` can, and
+  CORS says which sites' pages may call it.
+- **No cookies across sites:** CORS never allows credentials, as the API
+  takes tokens.
+- **Last used, once a minute at most,** so an API's every request isn't
+  a write.
+- **A new password leaves the tokens be:** they're the user's to revoke,
+  one by one, as GitHub's are. Deleting the account deletes them.
+- **An expiry, if the user gives one:** 30 days, a year, or none, as
+  Sanctum's `expiration` has it.
+- **Limits by token:** `tug.Limit` counts an API route's requests by the
+  token's ID.
+- **Tests:** a token found by its hash, and not by another; one expired,
+  one revoked, and one without the ability a route asks for; a request
+  with a cookie and no token; CORS's preflight, for a site named and one
+  that isn't; and in each frontend, a token made, used and revoked.
+
+## M28 · Broadcasting — later
+
+`c.Events` sends a page the events its own instance has, and nothing of
+another's: a post one instance saves, the pages open on the others don't
+hear of. Laravel broadcasts an event on a channel, through Reverb or
+Pusher, and every page listening on it hears it, through Echo. tug can
+do it with no server of its own: the app's database carries an event
+between the instances, as it carries the jobs, and `c.Events` takes it
+to the pages. To be released as v0.23.0.
+
+- **Package `broadcast`,** with no import of tug. A `broadcast.Hub`
+  publishes an event on a channel, as `posts` or `users.42`, and every
+  subscriber to the channel, on any instance, gets it: `Publish(ctx,
+  channel, name, data)`, and `Subscribe(ctx, channels...)`, which a route
+  of `c.Events` sends on.
+- **A store for them,** a `broadcast.Store`, which carries what one
+  instance publishes to the others: in memory, for one instance, and in
+  the starter's database, Postgres's `LISTEN` and `NOTIFY`, and in SQLite
+  and MySQL a table of what's new.
+- **Who may listen** is the app's: a channel's route checks its user may,
+  as `users.42` is user 42's alone.
+- **The auth starter:** the page that asks to verify the email moves on
+  once it's verified, in another tab or on another device, by an event on
+  the user's channel.
+- **`examples/inertia`:** a post made in one browser shows in the others.
+- **The guide:** a page, Broadcasting, and Pages, where one listens.
+
+Choices, to settle before any code:
+
+- **Over server-sent events, as M25 has them:** not WebSockets, nor a
+  server of its own, as Reverb is.
+- **At most once:** an event reaches the pages listening as it's
+  published. A page that wasn't, or that connects again after it, reloads
+  its props, which have what the event said. Nothing is replayed.
+- **The app's database carries it,** as it carries the jobs: Postgres's
+  `NOTIFY`, which every listening connection gets as the transaction that
+  sent it commits, so an event published with what it's about goes with
+  it, or not at all; and elsewhere a table, which each instance reads
+  every quarter of a second, and prunes after a minute. Not Redis.
+- **An event says what changed, not the whole of it:** a `NOTIFY` holds
+  8000 bytes, and a page reloads what it shows.
+- **One listener an instance,** the hub's, which hands each event to its
+  own subscribers, where a connection each would take one from the pool
+  for every page open.
+- **Channels are names,** the app's, and a private one is a route that
+  checks: no protocol of their own, as Echo's `/broadcasting/auth` is.
+- **Tests:** `broadcasttest.TestStore` on the memory store and the
+  starter's, in each database; an event published in a transaction that
+  rolls back, which no one gets; two instances on one database, where a
+  page on one hears the other's; a channel a user may not listen to; and
+  in the browser, the starter's verification in another tab, and
+  `examples/inertia`'s post in another page.
+
+## M29 · The queue, further — later
+
+A kind's jobs share the queue's workers, with nothing to hold them back
+but one at a time for each value: a hundred photos to resize take every
+worker, and a newsletter's ten thousand mails go as fast as the workers
+take them, past what the mail provider allows a second. And a job that
+fails for good is logged, with nothing else done about it, where a job
+of Laravel's has a `failed` method, which marks what it was about. To be
+released as v0.24.0.
+
+- **At most so many at once:** `queue.AtOnce(n)`, an option of a kind's:
+  no more than n of its jobs run at once, on all the instances.
+- **At most so many a time:** `queue.Rate(limiter)`, as `tug.Limit` takes
+  one: a kind's jobs start no faster than the limiter lets them, as an
+  `auth.Throttle` on the starter's table counts them on every instance.
+- **When a job fails for good:** `queue.OnFail(fn)`, a kind's: `fn` gets
+  the job's value and its error once the job is kept as failed, to mark
+  what it was about, or to tell someone.
+- **Stores:** `queuetest.TestStore`'s promises for a kind's limit, and
+  the starter's claims in each database.
+- **The guide:** Background jobs.
+
+Choices, to settle before any code:
+
+- **On all the instances:** a limit on each would grow with them, where
+  a limit is what a resource, a CPU or a provider, can take.
+- **The claim counts,** as it passes over a `OneAtATime` job while one of
+  its value is held: a job of a kind with n held waits. In Postgres and
+  MySQL, a claim takes the kind's `job_locks` row before it counts, as
+  claims at once would otherwise each find room.
+- **A rate through a `Limiter`,** the `Try` that `auth.Throttle` has, so
+  the queue imports no `auth`, and counts where the throttles do.
+- **A job held back isn't an attempt:** it goes back, due when the limit
+  lets it, with its attempts as they were, where a failure would count
+  against it.
+- **`OnFail` runs once,** after the store has kept the job as failed, on
+  the instance that ran it; its own error goes to the log.
+- **Not chains or batches,** as Laravel's `Bus` has: a job that pushes
+  the next when it's done is a chain, and a batch needs a table of its
+  own, with nothing yet asking for one.
+- **Tests:** the limits on the memory store and the starter's, in each
+  database, with claims at once from two instances; a rate through a
+  throttle, and a job held back with its attempts kept; `OnFail` with the
+  value and the error, once; and a kind with neither, as before.
 
 ## Decisions
 
