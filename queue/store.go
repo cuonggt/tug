@@ -40,6 +40,11 @@ type Job struct {
 	// claim.
 	OneAtATime bool
 
+	// AtOnce is the most jobs of its Kind that may run at once, an AtOnce
+	// kind's, or 0 for no limit: an AtOnceStore keeps it with the job, and
+	// Claim passes the job over while that many of its Kind are held.
+	AtOnce int
+
 	// FailedAt is when the job failed for good, which Fail keeps and a
 	// FailedStore lists; zero for a job that hasn't.
 	FailedAt time.Time
@@ -133,6 +138,35 @@ type OneAtATimeStore interface {
 	// KeepsOneAtATime does nothing. It says that the Store keeps the
 	// promise, which is in its pushes and its claims, for Handle to know.
 	KeepsOneAtATime()
+}
+
+// AtOnceStore is a Store that also keeps a kind's jobs from running more
+// than so many at once, for AtOnce. Its pushes keep a job's AtOnce, and
+// Claim doesn't return a job while as many jobs of its Kind as its AtOnce
+// says are held by claims, on any instance: of claims at once, no more
+// than that many get one.
+type AtOnceStore interface {
+	Store
+
+	// KeepsAtOnce does nothing. It says that the Store keeps the promise,
+	// which is in its pushes and its claims, for Handle to know.
+	KeepsAtOnce()
+}
+
+// HoldBackStore is a Store that also puts a claimed job back as its claim
+// found it, and holds its kind back, for Rate: a job its kind's limit
+// refused hasn't run, and no job of the kind should start until the limit
+// lets one.
+type HoldBackStore interface {
+	Store
+
+	// HoldBack puts j, which its claim holds, back as it was before the
+	// claim: due at its RunAt, with the attempt the claim added taken back,
+	// and with its Key again, unless another job of its Kind has the key
+	// now. And Claim returns no job of j's Kind before until, on any
+	// instance. Like Done, Retry and Fail, it leaves the job alone once a
+	// later claim has taken it.
+	HoldBack(ctx context.Context, j *Job, until time.Time) error
 }
 
 // FailedStore is a Store that also lists the jobs that failed for good, and

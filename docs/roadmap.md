@@ -34,7 +34,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M26 | Encryption                 | done   |
 | M27 | API tokens                 | done   |
 | M28 | Broadcasting               | done   |
-| M29 | The queue, further         | later  |
+| M29 | The queue, further         | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2401,13 +2401,13 @@ Choices made on the way:
   starter's verification in another tab, in each frontend, and
   `examples/inertia`'s post in another browser.
 
-## M29 · The queue, further — later
+## M29 · The queue, further — done
 
-A kind's jobs share the queue's workers, with nothing to hold them back
-but one at a time for each value: a hundred photos to resize take every
-worker, and a newsletter's ten thousand mails go as fast as the workers
-take them, past what the mail provider allows a second. And a job that
-fails for good is logged, with nothing else done about it, where a job
+A kind's jobs shared the queue's workers, with nothing to hold them back
+but one at a time for each value: a hundred photos to resize took every
+worker, and a newsletter's ten thousand mails went as fast as the workers
+took them, past what the mail provider allows a second. And a job that
+failed for good was logged, with nothing else done about it, where a job
 of Laravel's has a `failed` method, which marks what it was about. To be
 released as v0.24.0.
 
@@ -2419,32 +2419,72 @@ released as v0.24.0.
 - **When a job fails for good:** `queue.OnFail(fn)`, a kind's: `fn` gets
   the job's value and its error once the job is kept as failed, to mark
   what it was about, or to tell someone.
-- **Stores:** `queuetest.TestStore`'s promises for a kind's limit, and
-  the starter's claims in each database.
+- **Stores:** `queue.AtOnceStore` and `queue.HoldBackStore`,
+  `queuetest.TestStore`'s promises for them, and the starter's claims in
+  each database.
 - **The guide:** Background jobs.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **On all the instances:** a limit on each would grow with them, where
   a limit is what a resource, a CPU or a provider, can take.
 - **The claim counts,** as it passes over a `OneAtATime` job while one of
-  its value is held: a job of a kind with n held waits. In Postgres and
-  MySQL, a claim takes the kind's `job_locks` row before it counts, as
-  claims at once would otherwise each find room.
+  its value is held: a job of a kind with n held waits. The job carries
+  its kind's limit, `Job.AtOnce`, in an `at_once` column, as a
+  `OneAtATime` job carries its key, so the claim needs nothing but the
+  job, and every held job of the kind counts, one pushed before the kind
+  had a limit too. In Postgres and MySQL, a claim takes the kind's
+  `job_locks` row before it counts, the row whose key is empty, as no
+  job's is, after its key's row, as claims at once would otherwise each
+  find room.
 - **A rate through a `Limiter`,** the `Try` that `auth.Throttle` has, so
-  the queue imports no `auth`, and counts where the throttles do.
-- **A job held back isn't an attempt:** it goes back, due when the limit
-  lets it, with its attempts as they were, where a failure would count
-  against it.
+  the queue imports no `auth`, and counts where the throttles do: tried
+  by the kind's name, for each job as it's claimed.
+- **A job held back isn't an attempt:** it goes back as it was before its
+  claim, through a `HoldBackStore`'s `HoldBack`, its attempt taken back
+  and its key given back, due as it was, so it keeps its place. And its
+  whole kind is held back until the limit lets one start, in a
+  `held_kinds` table, which the claim checks: with the job alone held
+  back, the newsletter's thousands would each be claimed and refused in
+  turn, many a second on every instance, where now one is, each time the
+  limit is up.
+- **A limiter that fails holds the job back** for 10 seconds: the
+  throttles' store is the database, which is down, and the job neither
+  runs past the limit nor loses an attempt.
 - **`OnFail` runs once,** after the store has kept the job as failed, on
-  the instance that ran it; its own error goes to the log.
+  the instance that ran it, with a context of its own, done after the
+  kind's `Timeout`; its own error, and a panic, go to the log. It's
+  `OnFail[T]`, whose type `Handle` checks is the kind's, as an `Option`
+  has none; a job that failed as its value didn't fit has none to give
+  it, and it isn't run.
+- **An `AtOnce` kind's job wakes the queue as it ends,** as a
+  `OneAtATime` kind's now does too, where it waited for the next poll: the
+  next of its kind, which the claims passed over, runs at once. Two at
+  once of jobs of 200 ms run ten a second, not two.
+- **`Drain` stops once its context is done:** a Store in memory ignores
+  it, and a job held back again and again would have it claim for ever.
+- **MySQL counts the kinds held back,** where the others say `NOT
+  EXISTS`: MySQL makes a `NOT EXISTS` beside the claim's other conditions
+  a join, whose jobs it sorts, locking every one it reads, so the claims
+  beside it found them all locked. `TestStore`'s claims at once found it.
 - **Not chains or batches,** as Laravel's `Bus` has: a job that pushes
   the next when it's done is a chain, and a batch needs a table of its
   own, with nothing yet asking for one.
 - **Tests:** the limits on the memory store and the starter's, in each
-  database, with claims at once from two instances; a rate through a
-  throttle, and a job held back with its attempts kept; `OnFail` with the
-  value and the error, once; and a kind with neither, as before.
+  database, with claims at once, as from two instances: a kind held to
+  its `AtOnce`, taking the next once one is done, put back, failed or
+  lost, with other kinds beside it and a job without a limit counted; a
+  job held back claimed again at its time as it was, its kind held and
+  other kinds claimed, its key given back unless another has it, and a
+  late hold back that leaves the job alone. In the queue, jobs at once up
+  to `AtOnce`, the next as one ends with no poll to wake it, and other
+  kinds beside; a rate that holds back, its limiter tried once a job, the
+  attempts kept, on two instances, and a limiter that fails; `OnFail`
+  with the value and the error, once, after the store kept the job, its
+  error and its panic logged, a value that doesn't fit, and its type
+  checked. In the starter, a rate through its throttles table, with the
+  job's attempts and the kind's hold, and the held kinds pruned; a kind
+  with neither, as before, in the rest.
 
 ## Decisions
 

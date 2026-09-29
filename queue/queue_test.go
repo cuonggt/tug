@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -830,4 +831,254 @@ func TestAJobThatFailsForGoodIsKeptWithWhenItFailed(t *testing.T) {
 	if j := failed[0]; !j.FailedAt.Equal(c.now()) || j.Error != "no such person" {
 		t.Errorf("listed %+v: want it failed at %v, with its error", j, c.now())
 	}
+}
+
+func TestNoMoreJobsOfAKindRunAtOnceThanItsAtOnce(t *testing.T) {
+	// A poll that never comes: the next job starts as one ends, or not at all.
+	q, _, _ := newQueue(queue.Config{Workers: 4, Poll: time.Hour})
+	var running, most atomic.Int32
+	started, release := make(chan struct{}, 3), make(chan struct{})
+	resize := queue.Handle(q, "resize", func(context.Context, struct{}) error {
+		n := running.Add(1)
+		for m := most.Load(); n > m && !most.CompareAndSwap(m, n); m = most.Load() {
+		}
+		started <- struct{}{}
+		<-release
+		running.Add(-1)
+		return nil
+	}, queue.AtOnce(2))
+	for range 3 {
+		resize.Push(ctx, struct{}{})
+	}
+	run(t, q)
+	within(t, started, "the first job")
+	within(t, started, "the second job")
+	select {
+	case <-started:
+		t.Fatal("a third job started beside the two its AtOnce allows, with workers free")
+	case <-time.After(100 * time.Millisecond):
+	}
+	release <- struct{}{}
+	within(t, started, "the third job, as one of the two ended")
+	close(release)
+	if most.Load() != 2 {
+		t.Errorf("%d jobs ran at once, want 2", most.Load())
+	}
+}
+
+func TestAKindAtItsAtOnceLeavesTheWorkersToOtherKinds(t *testing.T) {
+	q, _, _ := newQueue(queue.Config{Workers: 4, Poll: 10 * time.Millisecond})
+	release := make(chan struct{})
+	defer close(release)
+	resizing := make(chan struct{}, 2)
+	resize := queue.Handle(q, "resize", func(context.Context, struct{}) error {
+		resizing <- struct{}{}
+		<-release
+		return nil
+	}, queue.AtOnce(1))
+	sent := make(chan string, 1)
+	send := queue.Handle(q, "send", func(_ context.Context, g greeting) error {
+		sent <- g.Name
+		return nil
+	})
+	resize.Push(ctx, struct{}{})
+	resize.Push(ctx, struct{}{})
+	run(t, q)
+	within(t, resizing, "the first resize")
+	send.Push(ctx, greeting{Name: "Ann"})
+	within(t, sent, "the mail, beside the resize")
+	select {
+	case <-resizing:
+		t.Error("a second resize ran beside the one its AtOnce allows")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// limiter lets left more go, then says to wait, as auth.Throttle does,
+// and keeps the keys it was tried with.
+type limiter struct {
+	mu    sync.Mutex
+	left  int
+	wait  time.Duration
+	err   error
+	tries []string
+}
+
+func (l *limiter) Try(_ context.Context, key string) (time.Duration, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.tries = append(l.tries, key)
+	switch {
+	case l.err != nil:
+		return 0, l.err
+	case l.left > 0:
+		l.left--
+		return 0, nil
+	}
+	return l.wait, nil
+}
+
+func (l *limiter) let(n int, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.left, l.err = n, err
+}
+
+func (l *limiter) tried() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.tries)
+}
+
+func TestAJobItsRateRefusesWaitsAndThenRunsAsItWould(t *testing.T) {
+	// A Drain that finds the job it held back due again, and again, stops.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	q, s, c := newQueue(queue.Config{})
+	l := &limiter{left: 1, wait: time.Minute}
+	var sent []string
+	send := queue.Handle(q, "send", func(_ context.Context, g greeting) error {
+		sent = append(sent, g.Name)
+		return queue.Permanent(errors.New("no such address")) // kept, with its attempts
+	}, queue.Rate(l))
+	send.Push(ctx, greeting{Name: "Ann"})
+	send.Push(ctx, greeting{Name: "Bob"})
+	q.Drain(ctx)
+	if !slices.Equal(sent, []string{"Ann"}) {
+		t.Fatalf("sent %v, want Ann's alone, as the rate let one go", sent)
+	}
+	// The kind is held back for the wait: the limiter isn't asked again.
+	c.add(59 * time.Second)
+	q.Drain(ctx)
+	if tried := l.tried(); len(sent) != 1 || !slices.Equal(tried, []string{"send", "send"}) {
+		t.Fatalf("sent %v, and tried the limiter %d times, before the wait was over: want once for each job, by its kind", sent, len(tried))
+	}
+	c.add(time.Second)
+	l.let(1, nil)
+	q.Drain(ctx)
+	if !slices.Equal(sent, []string{"Ann", "Bob"}) {
+		t.Fatalf("sent %v once the wait was over, want Bob's too", sent)
+	}
+	for _, j := range s.failures() {
+		if j.Attempts != 1 {
+			t.Errorf("a job ran on its attempt %d, want 1: being held back isn't an attempt", j.Attempts)
+		}
+	}
+}
+
+func TestAKindItsRateHoldsBackWaitsOnEveryInstance(t *testing.T) {
+	s := &store{}
+	c := &clock{t: time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)}
+	l := &limiter{left: 1, wait: time.Minute} // counting where both count, as a throttle's table does
+	var sent atomic.Int32
+	var queues []*queue.Queue
+	var send *queue.Kind[greeting]
+	for range 2 {
+		q := queue.New(queue.Config{Store: s})
+		queue.SetNow(q, c.now)
+		send = queue.Handle(q, "send", func(context.Context, greeting) error {
+			sent.Add(1)
+			return nil
+		}, queue.Rate(l))
+		queues = append(queues, q)
+	}
+	for range 3 {
+		send.Push(ctx, greeting{Name: "Ann"})
+	}
+	queues[0].Drain(ctx) // one sent, and the next held back
+	queues[1].Drain(ctx)
+	if sent.Load() != 1 || len(l.tried()) != 2 {
+		t.Errorf("sent %d, trying the limiter %d times, want 1 and 2: the other instance claims no job of the kind held back", sent.Load(), len(l.tried()))
+	}
+}
+
+func TestAJobWhoseLimiterFailsIsHeldBackAWhile(t *testing.T) {
+	logs := captureLog(t)
+	q, s, c := newQueue(queue.Config{})
+	l := &limiter{err: errors.New("the database is down")}
+	sent := 0
+	send := queue.Handle(q, "send", func(context.Context, greeting) error {
+		sent++
+		return queue.Permanent(errors.New("no such address"))
+	}, queue.Rate(l))
+	send.Push(ctx, greeting{Name: "Ann"})
+	q.Drain(ctx)
+	if sent != 0 {
+		t.Fatal("the job ran past a limiter that couldn't say")
+	}
+	if !strings.Contains(logs.String(), "the database is down") {
+		t.Errorf("logged:\n%s", logs)
+	}
+	c.add(10 * time.Second)
+	l.let(1, nil)
+	q.Drain(ctx)
+	if failed := s.failures(); sent != 1 || len(failed) != 1 || failed[0].Attempts != 1 {
+		t.Errorf("ran %d times, and kept %+v, want once, on its first attempt", sent, failed)
+	}
+}
+
+func TestOnFailGetsTheValueAndErrorOnceTheJobHasFailedForGood(t *testing.T) {
+	q, s, _ := newQueue(queue.Config{})
+	var calls []string
+	send := queue.Handle(q, "send", func(context.Context, greeting) error {
+		return errors.New("the mail server said no")
+	}, queue.Attempts(2), queue.Backoff(func(int) time.Duration { return 0 }), queue.OnFail(func(_ context.Context, g greeting, err error) error {
+		calls = append(calls, fmt.Sprintf("%s: %v, kept as failed: %v", g.Name, err, len(s.failures()) == 1))
+		return nil
+	}))
+	send.Push(ctx, greeting{Name: "Ann"})
+	q.Drain(ctx) // both attempts
+	if want := []string{"Ann: the mail server said no, kept as failed: true"}; !slices.Equal(calls, want) {
+		t.Errorf("OnFail was called %q, want %q", calls, want)
+	}
+}
+
+func TestOnFailsErrorOrPanicGoesToTheLog(t *testing.T) {
+	logs := captureLog(t)
+	q, _, _ := newQueue(queue.Config{})
+	fail := func(context.Context, greeting) error { return queue.Permanent(errors.New("no such person")) }
+	for name, onFail := range map[string]func(context.Context, greeting, error) error{
+		"mark":   func(context.Context, greeting, error) error { return errors.New("the database is down") },
+		"notify": func(context.Context, greeting, error) error { panic("no one to tell") },
+	} {
+		queue.Handle(q, name, fail, queue.OnFail(onFail)).Push(ctx, greeting{Name: "Ann"})
+	}
+	if err := q.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"OnFail failed for a job that failed", "the database is down", "OnFail panicked for a job that failed", "no one to tell"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("no %q in the log:\n%s", want, logs)
+		}
+	}
+}
+
+func TestOnFailIsntRunWithAPayloadThatDoesntFit(t *testing.T) {
+	logs := captureLog(t)
+	q, s, _ := newQueue(queue.Config{})
+	ran := false
+	queue.Handle(q, "send", func(context.Context, greeting) error { return nil }, queue.OnFail(func(context.Context, greeting, error) error {
+		ran = true
+		return nil
+	}))
+	s.Push(ctx, &queue.Job{Kind: "send", Payload: []byte(`"Ann"`), RunAt: time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)})
+	q.Drain(ctx)
+	if ran || !strings.Contains(logs.String(), "OnFail wasn't run") {
+		t.Errorf("OnFail ran: %v; logged:\n%s", ran, logs)
+	}
+}
+
+func TestTheOptionsNeedTheirStoresAndOnFailTheKindsValue(t *testing.T) {
+	q := queue.New(queue.Config{Store: uniqueOnly{&queuetest.Memory{}}})
+	noop := func(context.Context, greeting) error { return nil }
+	mustPanic(t, "AtOnce with a Store that doesn't count the jobs running", func() {
+		queue.Handle(q, "resize", noop, queue.AtOnce(2))
+	})
+	mustPanic(t, "Rate with a Store that doesn't hold a kind back", func() {
+		queue.Handle(q, "send", noop, queue.Rate(&limiter{}))
+	})
+	mustPanic(t, "AtOnce(0)", func() { queue.AtOnce(0) })
+	mustPanic(t, "OnFail taking another value than the kind's", func() {
+		queue.Handle(queue.New(queue.Config{Store: &queuetest.Memory{}}), "send", noop, queue.OnFail(func(context.Context, string, error) error { return nil }))
+	})
 }

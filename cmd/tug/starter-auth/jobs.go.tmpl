@@ -16,9 +16,11 @@ import (
 // a mail server that's down, or the app restarting, doesn't lose, the jobs
 // that run on a schedule, and those of unique kinds, whose key waits with
 // them in unique_key, or stays with them in alone_key, for a kind whose
-// jobs run one at a time. A job that fails for good stays for a month,
-// with its error and failed_at, for the jobs command to list and run again:
-// ./blog jobs, as jobsCommand has it. The tables' SQL is in jobs_db.go.
+// jobs run one at a time. A kind whose jobs run so many at once at most
+// keeps the limit with each in at_once, and a kind a rate holds back waits
+// in held_kinds. A job that fails for good stays for a month, with its
+// error and failed_at, for the jobs command to list and run again: ./blog
+// jobs, as jobsCommand has it. The tables' SQL is in jobs_db.go.
 //
 // run_at and held_until are Unix milliseconds, as each poll compares them
 // with the time.
@@ -50,6 +52,11 @@ func (s *jobs) pushes() dbtx {
 // key from running at once: they keep their key in alone_key, and a claim
 // passes over one whose key another held job has.
 func (s *jobs) KeepsOneAtATime() {}
+
+// KeepsAtOnce says that the table keeps an AtOnce kind's jobs from running
+// more than so many at once: they keep the limit in at_once, and a claim
+// passes over one whose kind has as many held.
+func (s *jobs) KeepsAtOnce() {}
 
 // aloneKey is the key a OneAtATime kind's job keeps as long as it's kept,
 // or NULL for any other job's.

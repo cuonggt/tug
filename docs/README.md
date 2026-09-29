@@ -34,7 +34,9 @@ the detail.
    the key.
 10. [Background jobs](jobs.md): package `queue`, for work that outlasts
     the request, and runs again when it fails, runs on a schedule, in a
-    time zone too, or waits once however often it's asked for.
+    time zone too, waits once however often it's asked for, or so many at
+    once or a second, on every instance, and says when it has failed for
+    good.
 11. [Cache](cache.md): package `cache`, for what's slow to work out, kept
     where every instance of the app finds it, and locks for what mustn't
     run twice at once.

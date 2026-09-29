@@ -22,14 +22,17 @@ import (
 // go when the program does. It has every extra a Store may have: it keeps
 // schedules, as a queue.ScheduleStore, the keys of unique jobs, as a
 // queue.UniqueStore, which it moves to a push's time and keeps from
-// running at once, as a queue.LatestStore and a queue.OneAtATimeStore, and
-// lists the jobs that failed, as a queue.FailedStore. The zero value is an
-// empty Store.
+// running at once, as a queue.LatestStore and a queue.OneAtATimeStore, a
+// kind's jobs from running more than so many at once, as a
+// queue.AtOnceStore, and from being claimed while held back, as a
+// queue.HoldBackStore, and lists the jobs that failed, as a
+// queue.FailedStore. The zero value is an empty Store.
 type Memory struct {
 	mu        sync.Mutex
 	last      int
 	jobs      []*memoryJob         // in the order they were pushed
 	schedules map[string]time.Time // each schedule's run pushed last
+	held      map[string]time.Time // the kinds held back, until when
 }
 
 type memoryJob struct {
@@ -95,6 +98,29 @@ func (m *Memory) PushLatest(_ context.Context, j *queue.Job) error {
 
 func (m *Memory) KeepsOneAtATime() {}
 
+func (m *Memory) KeepsAtOnce() {}
+
+func (m *Memory) HoldBack(_ context.Context, j *queue.Job, until time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.held == nil {
+		m.held = make(map[string]time.Time)
+	}
+	if until.After(m.held[j.Kind]) {
+		m.held[j.Kind] = until
+	}
+	for _, mj := range m.jobs {
+		if mj.claimedBy(j) {
+			mj.Attempts--
+			mj.heldUntil = time.Time{}
+			if !m.waiting(j) {
+				mj.Key = j.Key
+			}
+		}
+	}
+	return nil
+}
+
 // push keeps j; m.mu is held.
 func (m *Memory) push(j *queue.Job) {
 	m.last++
@@ -116,12 +142,27 @@ func (m *Memory) running(mj *memoryJob, now time.Time) bool {
 	})
 }
 
+// atLimit says whether claims hold as many jobs of mj's kind at now as
+// its AtOnce allows; m.mu is held.
+func (m *Memory) atLimit(mj *memoryJob, now time.Time) bool {
+	if mj.AtOnce == 0 {
+		return false
+	}
+	n := 0
+	for _, other := range m.jobs {
+		if other.Kind == mj.Kind && other.heldUntil.After(now) {
+			n++
+		}
+	}
+	return n >= mj.AtOnce
+}
+
 func (m *Memory) Claim(_ context.Context, now, until time.Time) (*queue.Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var next *memoryJob
 	for _, mj := range m.jobs {
-		if mj.failed || mj.RunAt.After(now) || mj.heldUntil.After(now) || m.running(mj, now) {
+		if mj.failed || mj.RunAt.After(now) || mj.heldUntil.After(now) || m.held[mj.Kind].After(now) || m.running(mj, now) || m.atLimit(mj, now) {
 			continue
 		}
 		if next == nil || mj.RunAt.Before(next.RunAt) {
@@ -208,7 +249,8 @@ func (mj *memoryJob) claimedBy(j *queue.Job) bool {
 // TestStore checks that the Stores open returns keep the promises package
 // queue depends on, with a new, empty one for each test, and those of each
 // extra a Store may have when they have it: a ScheduleStore's, a
-// UniqueStore's, a LatestStore's, a OneAtATimeStore's and a FailedStore's.
+// UniqueStore's, a LatestStore's, a OneAtATimeStore's, an AtOnceStore's, a
+// HoldBackStore's and a FailedStore's.
 // A Store's own tests call it, as the auth starter's do for its tables,
 // in SQLite, Postgres or MySQL:
 //
@@ -846,6 +888,234 @@ func TestStore(t *testing.T, open func(t *testing.T) queue.Store) {
 		}
 		if err := s.Done(ctx, running); err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	// The rest are an AtOnceStore's.
+	atOnces := func(t *testing.T) queue.AtOnceStore {
+		t.Helper()
+		s, ok := open(t).(queue.AtOnceStore)
+		if !ok {
+			t.Skip("not an AtOnceStore")
+		}
+		return s
+	}
+	// pushLimited pushes a job of kind, of which atOnce may run at once.
+	pushLimited := func(t *testing.T, s queue.Store, kind string, atOnce, n int) *queue.Job {
+		t.Helper()
+		j := &queue.Job{Kind: kind, AtOnce: atOnce, Payload: []byte(`{"n":` + strconv.Itoa(n) + `}`), RunAt: t0}
+		if err := s.Push(ctx, j); err != nil {
+			t.Fatalf("Push: %v", err)
+		}
+		return j
+	}
+
+	t.Run("no more jobs of a kind are claimed at once than their AtOnce, and another once one is done", func(t *testing.T) {
+		s := atOnces(t)
+		for i := range 4 {
+			pushLimited(t, s, "resize", 2, i)
+		}
+		first := claimed(t, s, t0, t0.Add(time.Minute))
+		claimed(t, s, t0, t0.Add(time.Minute))
+		if j := claim(t, s, t0, t0.Add(time.Minute)); j != nil {
+			t.Fatalf("claimed %+v with two of its kind held, its AtOnce", j)
+		}
+		if err := s.Done(ctx, first); err != nil {
+			t.Fatal(err)
+		}
+		claimed(t, s, t0, t0.Add(time.Minute))
+	})
+
+	// Once a job that ran is put back or has failed, it's no longer held,
+	// and the next of its kind runs; once its worker is lost, it runs again
+	// itself, due as it is, and pushed first, and the next waits for that.
+	for end, finish := range map[string]func(t *testing.T, s queue.AtOnceStore, j *queue.Job) (now time.Time, next int){
+		"is put back": func(t *testing.T, s queue.AtOnceStore, j *queue.Job) (time.Time, int) {
+			j.RunAt, j.Error = t0.Add(time.Hour), "try again later"
+			if err := s.Retry(ctx, j); err != nil {
+				t.Fatal(err)
+			}
+			return t0, 2
+		},
+		"fails": func(t *testing.T, s queue.AtOnceStore, j *queue.Job) (time.Time, int) {
+			j.Error = "no such photo"
+			if err := s.Fail(ctx, j); err != nil {
+				t.Fatal(err)
+			}
+			return t0, 2
+		},
+		"loses its worker": func(*testing.T, queue.AtOnceStore, *queue.Job) (time.Time, int) {
+			return t0.Add(time.Minute), 1 // its hold runs out
+		},
+	} {
+		t.Run("the next job of a kind at its limit is claimed once one that ran "+end, func(t *testing.T) {
+			s := atOnces(t)
+			pushLimited(t, s, "resize", 1, 1)
+			pushLimited(t, s, "resize", 1, 2)
+			first := claimed(t, s, t0, t0.Add(time.Minute))
+			now, next := finish(t, s, first)
+			if j := claimed(t, s, now, now.Add(time.Minute)); n(t, j) != next {
+				t.Errorf("claimed the job pushed with %d, want %d", n(t, j), next)
+			}
+			if j := claim(t, s, now, now.Add(time.Minute)); j != nil {
+				t.Errorf("claimed %+v beside the one its AtOnce allows", j)
+			}
+		})
+	}
+
+	t.Run("the jobs of other kinds are claimed beside a kind at its limit", func(t *testing.T) {
+		s := atOnces(t)
+		pushLimited(t, s, "resize", 1, 1)
+		pushLimited(t, s, "resize", 1, 2)
+		push(t, s, 3, t0) // a kind with no limit
+		pushLimited(t, s, "other", 1, 4)
+		var got []int
+		for range 4 {
+			j := claim(t, s, t0, t0.Add(time.Minute))
+			if j == nil {
+				break
+			}
+			got = append(got, n(t, j))
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, []int{1, 3, 4}) {
+			t.Errorf("claimed the jobs pushed with %v, want 1, 3 and 4", got)
+		}
+	})
+
+	t.Run("every held job of a kind counts, one pushed without a limit too", func(t *testing.T) {
+		s := atOnces(t)
+		push(t, s, 1, t0) // a "count" job, as one pushed before its kind had a limit
+		claimed(t, s, t0, t0.Add(time.Minute))
+		pushLimited(t, s, "count", 1, 2)
+		if j := claim(t, s, t0, t0.Add(time.Minute)); j != nil {
+			t.Errorf("claimed %+v with one of its kind held", j)
+		}
+	})
+
+	t.Run("claims at once never get more jobs of a kind than its AtOnce", func(t *testing.T) {
+		s := atOnces(t)
+		for i := range 8 {
+			pushLimited(t, s, "resize", 3, i)
+		}
+		var got atomic.Int32
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() {
+				j, err := s.Claim(ctx, t0, t0.Add(time.Minute))
+				if err != nil {
+					t.Errorf("Claim: %v", err)
+				}
+				if j != nil {
+					got.Add(1)
+				}
+			})
+		}
+		wg.Wait()
+		if got.Load() != 3 {
+			t.Errorf("%d claims at once got a job of the kind, want its AtOnce, 3", got.Load())
+		}
+	})
+
+	// The rest are a HoldBackStore's.
+	holdBacks := func(t *testing.T) queue.HoldBackStore {
+		t.Helper()
+		s, ok := open(t).(queue.HoldBackStore)
+		if !ok {
+			t.Skip("not a HoldBackStore")
+		}
+		return s
+	}
+	holdBack := func(t *testing.T, s queue.HoldBackStore, j *queue.Job, until time.Time) {
+		t.Helper()
+		if err := s.HoldBack(ctx, j, until); err != nil {
+			t.Fatalf("HoldBack: %v", err)
+		}
+	}
+
+	t.Run("a job held back is claimed again at the time given, as it was before its claim", func(t *testing.T) {
+		s := holdBacks(t)
+		push(t, s, 1, t0)
+		first := claimed(t, s, t0, t0.Add(time.Minute))
+		holdBack(t, s, first, t0.Add(time.Hour))
+		if j := claim(t, s, t0.Add(30*time.Minute), t0.Add(31*time.Minute)); j != nil {
+			t.Fatalf("claimed %+v before the time it was held back until", j)
+		}
+		again := claimed(t, s, t0.Add(time.Hour), t0.Add(61*time.Minute))
+		if again.ID != first.ID || again.Attempts != 1 || !again.RunAt.Equal(t0) {
+			t.Errorf("claimed %+v: want job %s again, with 1 attempt, as the one held back wasn't, due as it was", again, first.ID)
+		}
+	})
+
+	t.Run("no job of a kind held back is claimed until then, and a job held back keeps its place", func(t *testing.T) {
+		s := holdBacks(t)
+		push(t, s, 1, t0)
+		push(t, s, 2, t0)
+		other := &queue.Job{Kind: "other", Payload: []byte(`{"n":3}`), RunAt: t0}
+		if err := s.Push(ctx, other); err != nil {
+			t.Fatal(err)
+		}
+		first := claimed(t, s, t0, t0.Add(time.Minute))
+		holdBack(t, s, first, t0.Add(time.Hour))
+		if j := claimed(t, s, t0, t0.Add(time.Minute)); n(t, j) != 3 {
+			t.Errorf("claimed the job pushed with %d while its kind was held back, want the other kind's", n(t, j))
+		}
+		if j := claim(t, s, t0, t0.Add(time.Minute)); j != nil {
+			t.Fatalf("claimed %+v while its kind was held back", j)
+		}
+		if j := claimed(t, s, t0.Add(time.Hour), t0.Add(61*time.Minute)); n(t, j) != 1 {
+			t.Errorf("claimed the job pushed with %d once the kind was let go, want the one held back, 1", n(t, j))
+		}
+	})
+
+	t.Run("a unique job held back takes its key back, unless another of its kind has it", func(t *testing.T) {
+		s := holdBacks(t)
+		u, ok := s.(queue.UniqueStore)
+		if !ok {
+			t.Skip("not a UniqueStore")
+		}
+		pushKey := func(n int) bool {
+			t.Helper()
+			pushed, err := u.PushUnique(ctx, &queue.Job{Kind: "report", Key: "a", Payload: []byte(`{"n":` + strconv.Itoa(n) + `}`), RunAt: t0})
+			if err != nil {
+				t.Fatalf("PushUnique: %v", err)
+			}
+			return pushed
+		}
+		pushKey(1)
+		first := claimed(t, s, t0, t0.Add(time.Minute))
+		first.Key = "a" // as the queue gives it back
+		holdBack(t, s, first, t0)
+		if pushKey(2) {
+			t.Error("a job was pushed with the key of one held back")
+		}
+
+		first = claimed(t, s, t0, t0.Add(time.Minute))
+		if !pushKey(3) { // as the first runs, whose claim let its key go
+			t.Fatal("a job wasn't pushed with the key of one that runs")
+		}
+		first.Key = "a"
+		holdBack(t, s, first, t0) // the one pushed as it ran keeps the key
+		if pushKey(4) {
+			t.Error("a job was pushed with the key of one that waits")
+		}
+		if count(t, s) != 2 {
+			t.Error("want the job held back and the one pushed as it ran, both")
+		}
+	})
+
+	t.Run("a late hold back, once another claim has the job, leaves it alone", func(t *testing.T) {
+		s := holdBacks(t)
+		push(t, s, 1, t0)
+		late := claimed(t, s, t0, t0.Add(time.Minute))
+		now := t0.Add(time.Minute) // its hold ran out
+		current := claimed(t, s, now, now.Add(time.Minute))
+		holdBack(t, s, late, now)
+		if err := s.Done(ctx, current); err != nil {
+			t.Fatal(err)
+		}
+		if j := claim(t, s, now.Add(time.Hour), now.Add(61*time.Minute)); j != nil {
+			t.Errorf("claimed %+v, which the claim that had it was done with", j)
 		}
 	})
 

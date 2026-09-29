@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/queue/queuetest"
 )
@@ -49,6 +51,36 @@ func TestAJobPushedInATransactionIsKeptOnlyAsItCommits(t *testing.T) {
 	}
 	if again, err := s.Claim(ctx, now, now.Add(time.Minute)); again != nil || err != nil {
 		t.Errorf("claimed %+v, %v, pushed in the transaction that rolled back", again, err)
+	}
+}
+
+func TestAKindsRateCountsWithTheAppsThrottlesAndAJobHeldBackIsntAnAttempt(t *testing.T) {
+	db := testDB(t)
+	q := queue.New(queue.Config{Store: &jobs{db: db}})
+	// One a minute, counted where the app's throttles count, on every instance.
+	rate := &auth.Throttle{Name: "newsletter", Max: 1, Window: time.Minute, Store: &throttles{db: db}}
+	var sent []string
+	newsletter := queue.Handle(q, "newsletter", func(_ context.Context, to string) error {
+		sent = append(sent, to)
+		return nil
+	}, queue.Rate(rate))
+	ctx := context.Background()
+	newsletter.Push(ctx, "ann@example.com")
+	newsletter.Push(ctx, "bob@example.com")
+	if err := q.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(sent, []string{"ann@example.com"}) {
+		t.Fatalf("sent %v, want Ann's alone, as the rate let one go", sent)
+	}
+	var attempts int
+	if err := db.QueryRow("SELECT attempts FROM jobs").Scan(&attempts); err != nil || attempts != 0 {
+		t.Errorf("Bob's job has %d attempts, %v: want 0, as being held back isn't one", attempts, err)
+	}
+	var until int64
+	err := db.QueryRow("SELECT held_until FROM held_kinds WHERE kind = 'newsletter'").Scan(&until)
+	if left := time.Until(time.UnixMilli(until)); err != nil || left < 50*time.Second || left > time.Minute {
+		t.Errorf("the kind is held back for %v, %v: want the rest of the minute", left, err)
 	}
 }
 
@@ -176,6 +208,24 @@ func TestJobsThatFailedOverAMonthAgoArePruned(t *testing.T) {
 	}
 	if len(failed) != 1 || failed[0].Error != "failed 10 days ago" {
 		t.Errorf("left %v, want the job that failed 10 days ago", failed)
+	}
+}
+
+func TestTheKindsARateHeldBackArePrunedOnceTheirTimeHasPassed(t *testing.T) {
+	s := &jobs{db: testDB(t)}
+	ctx, now := context.Background(), time.Now()
+	// No claim has a job 0: the kinds alone are held.
+	for kind, until := range map[string]time.Time{"passed": now.Add(-time.Minute), "holding": now.Add(time.Hour)} {
+		if err := s.HoldBack(ctx, &queue.Job{ID: "0", Kind: kind}, until); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.prune(ctx, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	var kind string
+	if err := s.db.QueryRow("SELECT kind FROM held_kinds").Scan(&kind); err != nil || kind != "holding" {
+		t.Errorf("left %q, %v: want the kind still held back alone", kind, err)
 	}
 }
 

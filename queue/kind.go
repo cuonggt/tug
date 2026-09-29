@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"runtime/debug"
 	"time"
 )
@@ -34,11 +35,19 @@ type handler struct {
 	unique     bool
 	latest     bool
 	oneAtATime bool
+	atOnce     int
+	rate       Limiter
+
+	// onFail is OnFail's function, given the payload, and onFailType the
+	// value it takes, which Handle checks is the kind's.
+	onFail     func(ctx context.Context, payload []byte, err error) error
+	onFailType reflect.Type
 }
 
-// needs panics unless s is the Store the kind named name needs: one that
-// keeps keys for a Unique kind, and moves its jobs or keeps them from
-// running at once for its options.
+// needs panics unless s is the Store the kind named name needs to push
+// its jobs to: one that keeps keys for a Unique kind, and moves its jobs
+// or keeps them from running at once for its options, and one that keeps
+// an AtOnce kind's limit.
 func (h *handler) needs(name string, s Store) {
 	if _, ok := s.(UniqueStore); h.unique && !ok {
 		panic(fmt.Sprintf("queue: the unique jobs of kind %q need a Store that keeps their keys, a UniqueStore, and %T isn't one", name, s))
@@ -48,6 +57,9 @@ func (h *handler) needs(name string, s Store) {
 	}
 	if _, ok := s.(OneAtATimeStore); h.oneAtATime && !ok {
 		panic(fmt.Sprintf("queue: the jobs of kind %q run one at a time, which needs a Store that keeps them from running at once, a OneAtATimeStore, and %T isn't one", name, s))
+	}
+	if _, ok := s.(AtOnceStore); h.atOnce > 0 && !ok {
+		panic(fmt.Sprintf("queue: the jobs of kind %q run %d at once at most, which needs a Store that counts the ones running, an AtOnceStore, and %T isn't one", name, h.atOnce, s))
 	}
 }
 
@@ -60,8 +72,10 @@ func (h *handler) needs(name string, s Store) {
 // to the next: jobs one pushes, the next may run.
 //
 // Handle panics when q has a handler for name already, or once q runs, or
-// for a Unique kind when q's Store isn't a UniqueStore, or isn't the extra
-// that the kind's UniqueOptions need.
+// when q's Store isn't what the kind's options need: a UniqueStore for a
+// Unique kind, and the extra its UniqueOptions need, an AtOnceStore for
+// AtOnce, and a HoldBackStore for Rate. It panics for an OnFail that
+// doesn't take T.
 func Handle[T any](q *Queue, name string, fn func(ctx context.Context, v T) error, opts ...Option) *Kind[T] {
 	if name == "" || fn == nil {
 		panic("queue: Handle takes a name and a function")
@@ -71,6 +85,12 @@ func Handle[T any](q *Queue, name string, fn func(ctx context.Context, v T) erro
 		opt(h)
 	}
 	h.needs(name, q.store)
+	if _, ok := q.store.(HoldBackStore); h.rate != nil && !ok {
+		panic(fmt.Sprintf("queue: the jobs of kind %q start at a rate, which needs a Store that holds them back, a HoldBackStore, and %T isn't one", name, q.store))
+	}
+	if t := reflect.TypeFor[T](); h.onFailType != nil && h.onFailType != t {
+		panic(fmt.Sprintf("queue: OnFail of the jobs of kind %q takes their value, a %v, not a %v", name, t, h.onFailType))
+	}
 	h.run = func(ctx context.Context, payload []byte) error {
 		var v T
 		if err := json.Unmarshal(payload, &v); err != nil {
@@ -105,7 +125,7 @@ func (k *Kind[T]) PushAt(ctx context.Context, at time.Time, v T) error {
 	if err != nil {
 		return fmt.Errorf("queue: a %s job: %w", k.name, err)
 	}
-	j := &Job{Kind: k.name, Payload: payload, RunAt: at, OneAtATime: k.h.oneAtATime}
+	j := &Job{Kind: k.name, Payload: payload, RunAt: at, OneAtATime: k.h.oneAtATime, AtOnce: k.h.atOnce}
 	switch {
 	case k.h.latest:
 		j.Key = keyOf(payload)
@@ -174,7 +194,7 @@ func (k *Kind[T]) Schedule(s Schedule, v T) {
 			panic(fmt.Sprintf("queue: the jobs of kind %q have a schedule already", k.name))
 		}
 	}
-	sc := scheduled{kind: k.name, schedule: s, payload: payload, oneAtATime: k.h.oneAtATime}
+	sc := scheduled{kind: k.name, schedule: s, payload: payload, oneAtATime: k.h.oneAtATime, atOnce: k.h.atOnce}
 	if k.h.unique {
 		sc.key = keyOf(payload)
 	}
@@ -188,6 +208,7 @@ type scheduled struct {
 	payload    []byte
 	key        string // a unique kind's
 	oneAtATime bool
+	atOnce     int
 }
 
 // keyOf is the key of a unique kind's job with payload: its SHA-256, the
@@ -213,6 +234,26 @@ func (h *handler) call(ctx context.Context, j *Job) (err error) {
 		}
 	}()
 	return h.run(ctx, j.Payload)
+}
+
+// failed runs the kind's OnFail for j, which failed for good with err,
+// with a context of its own, done after the kind's Timeout, as the job's
+// may be done: the queue may be stopping. Its error, and a panic, go to
+// the log, as there's no job left to fail.
+func (h *handler) failed(ctx context.Context, j *Job, err error) {
+	if h.onFail == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), h.timeout)
+	defer cancel()
+	defer func() {
+		if v := recover(); v != nil {
+			slog.Error("OnFail panicked for a job that failed", "kind", j.Kind, "job", j.ID, "panic", v, "stack", string(debug.Stack()))
+		}
+	}()
+	if err := h.onFail(ctx, j.Payload, err); err != nil {
+		slog.Error("OnFail failed for a job that failed", "kind", j.Kind, "job", j.ID, "err", err)
+	}
 }
 
 // Option changes how a kind of job runs, for Handle.
@@ -285,4 +326,63 @@ func Backoff(wait func(attempt int) time.Duration) Option {
 		panic("queue: Backoff takes a function")
 	}
 	return func(h *handler) { h.backoff = wait }
+}
+
+// AtOnce keeps the kind's jobs from running more than n at once, on all
+// the instances of the app together: a hundred photos to resize take n
+// workers, and leave the rest to the other kinds. A job waits while n of
+// its kind are held, and runs once one is done, has failed or gone back,
+// or has lost its worker and its hold has run out. AtOnce needs a Store
+// that counts them, an AtOnceStore.
+func AtOnce(n int) Option {
+	if n < 1 {
+		panic("queue: AtOnce takes 1 or more")
+	}
+	return func(h *handler) { h.atOnce = n }
+}
+
+// A Limiter says whether one more may go now, counting it, or how long to
+// wait: auth.Throttle's Try is one, which counts in its Store, so every
+// instance of the app counts together.
+type Limiter interface {
+	Try(ctx context.Context, key string) (wait time.Duration, err error)
+}
+
+// Rate keeps the kind's jobs from starting faster than l lets them: a
+// newsletter's mails go no faster than the mail provider takes them, with
+// an auth.Throttle of so many a second. Each job, as it's claimed, tries l
+// by its kind's name, and one l refuses goes back as it was, its attempts
+// unchanged, as it hasn't run, while no job of the kind is claimed until
+// l's wait is over. A limiter that fails, as when its store is down, holds
+// the job back too, for a while, rather than let it past the limit. Rate
+// needs a Store that holds a kind back, a HoldBackStore.
+func Rate(l Limiter) Option {
+	if l == nil {
+		panic("queue: Rate takes a Limiter")
+	}
+	return func(h *handler) { h.rate = l }
+}
+
+// OnFail has fn run when a job of the kind fails for good, after its last
+// attempt or a Permanent error, with the value it was pushed with and the
+// error its last attempt returned: to mark what it was about, as a post
+// whose photo never came, or to tell someone. It runs once, not after each
+// attempt, once the Store has kept the job as failed, on the instance that
+// ran it, with a context done after the kind's Timeout. Its error, or its
+// panic, goes to the log. fn takes the kind's value: Handle panics for
+// another type.
+func OnFail[T any](fn func(ctx context.Context, v T, err error) error) Option {
+	if fn == nil {
+		panic("queue: OnFail takes a function")
+	}
+	return func(h *handler) {
+		h.onFailType = reflect.TypeFor[T]()
+		h.onFail = func(ctx context.Context, payload []byte, err error) error {
+			var v T
+			if jsonErr := json.Unmarshal(payload, &v); jsonErr != nil {
+				return fmt.Errorf("its payload doesn't fit a %T, so OnFail wasn't run: %w", v, jsonErr)
+			}
+			return fn(ctx, v, err)
+		}
+	}
 }

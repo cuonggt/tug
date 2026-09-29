@@ -86,6 +86,10 @@ const (
 	// letGo is how long the jobs canceled at the end of the Grace have to
 	// return and be put back before Run returns without them.
 	letGo = 5 * time.Second
+
+	// heldOnError is how long a job waits when its kind's Rate can't say
+	// whether it may start, as when the limiter's store is down.
+	heldOnError = 10 * time.Second
 )
 
 // New returns a Queue on cfg.Store. It panics without one.
@@ -185,16 +189,19 @@ func (q *Queue) Run(ctx context.Context) error {
 }
 
 // Drain runs the jobs that are due, one at a time in the calling
-// goroutine, until none is, and returns the first error from the Store. A
-// job that fails is put back or kept as failed, as Run does, and runs
-// again in the same Drain if it's due again before the others are done.
-// It's for tests, with a Store such as queuetest.Memory, and for programs
-// that run what's due and exit.
+// goroutine, until none is, and returns the first error from the Store,
+// or ctx's once it's done. A job that fails is put back or kept as
+// failed, as Run does, and runs again in the same Drain if it's due again
+// before the others are done. It's for tests, with a Store such as
+// queuetest.Memory, and for programs that run what's due and exit.
 func (q *Queue) Drain(ctx context.Context) error {
 	q.mu.Lock()
 	hold := q.hold()
 	q.mu.Unlock()
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		j, err := q.claim(ctx, hold)
 		if err != nil || j == nil {
 			return err
@@ -222,7 +229,7 @@ func (q *Queue) pushScheduled(ctx context.Context, scheduled []scheduled, pushed
 		if at.IsZero() {
 			continue // it never comes round again
 		}
-		_, err := q.store.(ScheduleStore).PushScheduled(ctx, sc.kind, &Job{Kind: sc.kind, Payload: sc.payload, RunAt: at, Key: sc.key, OneAtATime: sc.oneAtATime})
+		_, err := q.store.(ScheduleStore).PushScheduled(ctx, sc.kind, &Job{Kind: sc.kind, Payload: sc.payload, RunAt: at, Key: sc.key, OneAtATime: sc.oneAtATime, AtOnce: sc.atOnce})
 		if err != nil {
 			if ctx.Err() == nil {
 				slog.Error("the job queue can't push a scheduled job", "kind", sc.kind, "at", at, "err", err)
@@ -260,7 +267,17 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		// where the kind is new: one that knows it may claim it next time.
 		h = &handler{attempts: defaultAttempts, timeout: defaultTimeout, backoff: backoff}
 	}
+	if h.rate != nil {
+		if held, err := q.held(ctx, h, j); held || err != nil {
+			return err
+		}
+	}
 	err := h.call(ctx, j)
+	if h.atOnce > 0 || h.oneAtATime {
+		// A job of its kind that waited for this one to end, which the
+		// claims passed over, may run now, rather than at the next poll.
+		defer q.poke()
+	}
 
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
 	defer cancel()
@@ -274,7 +291,11 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 	case errors.As(err, new(permanentError)) || j.Attempts >= h.attempts:
 		j.Error, j.FailedAt = err.Error(), q.now()
 		slog.Error("a job failed, and won't run again", "kind", j.Kind, "job", j.ID, "attempts", j.Attempts, "err", err)
-		return q.store.Fail(sctx, j)
+		if failErr := q.store.Fail(sctx, j); failErr != nil {
+			return failErr
+		}
+		h.failed(ctx, j, err)
+		return nil
 	default:
 		j.RunAt, j.Error = q.now().Add(h.backoff(j.Attempts)), err.Error()
 		slog.Warn("a job failed, and will run again", "kind", j.Kind, "job", j.ID, "attempt", j.Attempts, "at", j.RunAt, "err", err)
@@ -286,6 +307,32 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		}
 		return nil
 	}
+}
+
+// held tries the Rate of j's kind, and when it refuses j, puts j back as
+// it was before its claim, with the kind held back until the rate lets
+// one of its jobs start, and says so. A limiter that fails holds j back
+// too, for heldOnError, rather than let it past the limit, or count it an
+// attempt; and as the queue stops, j goes back to run at the next start.
+func (q *Queue) held(ctx context.Context, h *handler, j *Job) (bool, error) {
+	wait, err := h.rate.Try(ctx, j.Kind)
+	switch {
+	case ctx.Err() != nil:
+		wait = 0
+	case err != nil:
+		slog.Error("the job queue can't tell whether a job's rate lets it start, and holds it back", "kind", j.Kind, "job", j.ID, "for", heldOnError, "err", err)
+		wait = heldOnError
+	case wait <= 0:
+		return false, nil
+	default:
+		slog.Debug("a job's rate holds it back", "kind", j.Kind, "job", j.ID, "for", wait)
+	}
+	if h.unique {
+		j.Key = keyOf(j.Payload) // it waits with its key again, as it did
+	}
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
+	defer cancel()
+	return true, q.store.(HoldBackStore).HoldBack(sctx, j, q.now().Add(wait))
 }
 
 // Wake has Run look for jobs that are due at once, rather than at its next

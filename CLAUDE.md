@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M28 are done, which is
+the decisions behind it and where it stands: M1 to M29 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -57,7 +57,10 @@ broadcasting (v0.23.0): package `broadcast`, events on channels, to the
 pages that follow them on every instance, through `c.Events`, carried by
 the app's database, `NOTIFY` or a table, in its transaction or not at
 all, and in the auth starter, the page that asks to verify the email
-moving on once it's verified elsewhere.
+moving on once it's verified elsewhere, and the queue further (v0.24.0):
+a kind's jobs so many at once, `queue.AtOnce`, or so many a time,
+`queue.Rate`, through a `Limiter`, as `auth.Throttle`, on every instance
+together, and `queue.OnFail`, when a job has failed for good.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -427,7 +430,17 @@ dev server that isn't there: delete it.
   a `job_locks` row of a `OneAtATime` job's key, then look again
   (`claim`, `again`); MySQL's connections are `READ COMMITTED` in UTC
   (`config`), and its `PushLatest` moves a job by its ID, not by an
-  upsert, for its locks' order. `jobs.in(tx)` is the Store that pushes in
+  upsert, for its locks' order. It's an `AtOnceStore` too (`KeepsAtOnce`
+  in `jobs.go.tmpl`): an `at_once` column, which `claimable` compares with
+  a count of its kind's held jobs, by the `jobs_held` index, and which
+  Postgres's and MySQL's claims count again under the kind's own
+  `job_locks` row, its key empty, after a key's; and a `HoldBackStore`:
+  `HoldBack` upserts the kind's `held_kinds` row, only later, which
+  `claimable` checks, then takes the claim's attempt back, and gives the
+  key back, unless another job has it (SQLite's one statement, or the
+  others' `taken` fallback). MySQL's `claimable` counts the held kinds, as
+  a `NOT EXISTS` there becomes a join whose sort locks every job it reads.
+  `prune` deletes the held kinds whose time has passed. `jobs.in(tx)` is the Store that pushes in
   a handler's transaction, and `jobsCommand` the `jobs` command, which
   `newApp` adds with `app.Command`, for `Run` to run in place of the
   server.
@@ -581,15 +594,22 @@ dev server that isn't there: delete it.
   is handled (`handler.needs`): `LatestStore` (`PushLatest`, which moves
   the job that waits to the push's time), `OneAtATimeStore` (a job pushed
   with `OneAtATime` keeps its key all its life, and a claim passes over it
-  while a held job of its kind has the key; `KeepsOneAtATime` is a marker)
-  and `FailedStore` (`Failed` and `RunAgain`, for an app's command).
+  while a held job of its kind has the key; `KeepsOneAtATime` is a marker),
+  `AtOnceStore` (a job's `AtOnce`, and a claim passes over it while as
+  many of its kind are held; `KeepsAtOnce`), `HoldBackStore` (`HoldBack`,
+  for `Rate`: the claim undone, and its kind held until a time) and
+  `FailedStore` (`Failed` and `RunAgain`, for an app's command).
   `queue.go`: `Run`, one goroutine that claims while a worker slot is free,
   woken by a push through the Queue (`poke`, `wake`) or else by `Poll`;
   stopping gives the jobs running `Grace`, then cancels their context, and
   `run` puts them back. `run` records how a job went: Done, Retry after its
   `backoff` (attempt⁴ seconds), or Fail after its last attempt or a
-  `Permanent` error. `hold` is how long a claim holds a job, the longest
-  Timeout and a minute. `Drain` runs what's due in the caller. `Wake` pokes
+  `Permanent` error, then the kind's `OnFail` (`handler.failed`); before
+  the handler, `held` tries a `Rate` kind's `Limiter` and holds back what
+  it refuses, or for `heldOnError` when it fails, and an `AtOnce` or
+  `OneAtATime` kind's job pokes Run as it ends. `hold` is how long a claim holds a job, the longest
+  Timeout and a minute. `Drain` runs what's due in the caller, until its
+  context is done. `Wake` pokes
   Run, for jobs pushed in a transaction of the app's, once it has
   committed. `pushScheduled`, at the top of `Run`'s loop, pushes each
   schedule's next run once the one pushed last has come round; every
@@ -598,7 +618,9 @@ dev server that isn't there: delete it.
   JSON; `PushUnique` for a `Unique` kind, `PushLatest` for a `Latest` one)
   and `Schedule`, `In` (the kind pushing to a Store the app made from its
   transaction, which doesn't poke), and the options, `Unique`'s own
-  `UniqueOption`s among them (`Latest`, `OneAtATime`). `schedule.go`:
+  `UniqueOption`s among them (`Latest`, `OneAtATime`), `AtOnce`, `Rate`,
+  with `Limiter`, and `OnFail[T]`, whose type `Handle` checks is the
+  kind's (`onFailType`). `schedule.go`:
   `Schedule`, `Every` (time.Truncate's multiples), `Cron` (UTC, fields as
   bitsets, `clockAfter` searching from the month down) and `CronIn`, whose
   `nextIn` searches each stretch of one offset from UTC in turn, found with

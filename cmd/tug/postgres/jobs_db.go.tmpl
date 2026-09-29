@@ -33,10 +33,10 @@ func (s *jobs) PushUnique(ctx context.Context, j *queue.Job) (bool, error) {
 func (s *jobs) PushLatest(ctx context.Context, j *queue.Job) error {
 	var id int64
 	err := s.pushes().QueryRowContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key) VALUES ($1, $2, $3, NULLIF($4, ''), $5)
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, 0))
 		ON CONFLICT (kind, unique_key) WHERE unique_key IS NOT NULL DO UPDATE SET run_at = excluded.run_at
 		RETURNING id`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j)).Scan(&id)
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce).Scan(&id)
 	if err != nil {
 		return err
 	}
@@ -80,9 +80,9 @@ func (s *jobs) PushScheduled(ctx context.Context, schedule string, j *queue.Job)
 func insertJob(ctx context.Context, db dbtx, j *queue.Job) (bool, error) {
 	var id int64
 	err := db.QueryRowContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key) VALUES ($1, $2, $3, NULLIF($4, ''), $5)
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, 0))
 		ON CONFLICT DO NOTHING RETURNING id`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j)).Scan(&id)
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -94,12 +94,17 @@ func insertJob(ctx context.Context, db dbtx, j *queue.Job) (bool, error) {
 }
 
 // claimable is what a job is for a claim at $1 to take it: due, not
-// failed, and held by no claim, and a OneAtATime kind's job only while no
-// claim holds another of its kind and key.
+// failed, held by no claim, and of a kind no rate holds back; a OneAtATime
+// kind's job only while no claim holds another of its kind and key; and
+// an AtOnce kind's only while claims hold fewer of its kind than its limit.
 const claimable = `due.failed_at IS NULL AND due.run_at <= $1 AND due.held_until <= $1
+	AND NOT EXISTS (SELECT 1 FROM held_kinds AS held WHERE held.kind = due.kind AND held.held_until > $1)
 	AND (due.alone_key IS NULL OR NOT EXISTS (
 		SELECT 1 FROM jobs AS running
 		WHERE running.kind = due.kind AND running.alone_key = due.alone_key AND running.held_until > $1
+	))
+	AND (due.at_once IS NULL OR due.at_once > (
+		SELECT count(*) FROM jobs AS running WHERE running.kind = due.kind AND running.held_until > $1
 	))`
 
 // Claim holds the job due soonest that no other claim has locked, and
@@ -107,8 +112,11 @@ const claimable = `due.failed_at IS NULL AND due.run_at <= $1 AND due.held_until
 // claims at once could each take a job of one key, as neither sees the
 // other's hold until it commits: so the claim of such a job locks its key's
 // row in job_locks, and looks again once it has the lock, which waits for
-// any other claim of the key to commit. A job of a key another claim took
-// meanwhile is passed over, and the claim tries again.
+// any other claim of the key to commit. So does the claim of an AtOnce
+// kind's job, with its kind's own row, whose key is empty, as no job's is,
+// after its key's: claims at once would each count room for one more. A
+// job that another claim filled the room for meanwhile is passed over, and
+// the claim tries again.
 func (s *jobs) Claim(ctx context.Context, now, until time.Time) (*queue.Job, error) {
 	for {
 		j, again, err := s.claim(ctx, now, until)
@@ -128,10 +136,11 @@ func (s *jobs) claim(ctx context.Context, now, until time.Time) (_ *queue.Job, a
 	var id int64
 	var kind string
 	var alone sql.NullString
+	var atOnce sql.NullInt64
 	err = tx.QueryRowContext(ctx, `
-		SELECT due.id, due.kind, due.alone_key FROM jobs AS due WHERE `+claimable+`
+		SELECT due.id, due.kind, due.alone_key, due.at_once FROM jobs AS due WHERE `+claimable+`
 		ORDER BY due.run_at, due.id LIMIT 1
-		FOR UPDATE SKIP LOCKED`, now.UnixMilli()).Scan(&id, &kind, &alone)
+		FOR UPDATE SKIP LOCKED`, now.UnixMilli()).Scan(&id, &kind, &alone, &atOnce)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -152,6 +161,22 @@ func (s *jobs) claim(ctx context.Context, now, until time.Time) (_ *queue.Job, a
 			kind, alone.String, now.UnixMilli()).Scan(&held)
 		if err != nil || held {
 			return nil, held, err
+		}
+	}
+	if atOnce.Valid {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO job_locks (kind, alone_key) VALUES ($1, '')
+			ON CONFLICT (kind, alone_key) DO UPDATE SET kind = excluded.kind`, kind)
+		if err != nil {
+			return nil, false, err
+		}
+		var held int64
+		err = tx.QueryRowContext(ctx, "SELECT count(*) FROM jobs WHERE kind = $1 AND held_until > $2", kind, now.UnixMilli()).Scan(&held)
+		if err != nil {
+			return nil, false, err
+		}
+		if held >= atOnce.Int64 {
+			return nil, true, nil
 		}
 	}
 	j := &queue.Job{ID: strconv.FormatInt(id, 10)}
@@ -192,6 +217,24 @@ func (s *jobs) Retry(ctx context.Context, j *queue.Job) error {
 func (s *jobs) Fail(ctx context.Context, j *queue.Job) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE jobs SET failed_at = now(), held_until = 0, error = $1 WHERE id = $2 AND attempts = $3",
 		j.Error, jobID(j.ID), j.Attempts)
+	return err
+}
+
+// HoldBack holds j's kind back until until, then puts j back as its claim
+// found it: its attempt taken back, and its key again, unless a job pushed
+// as it ran has the key now, which the unique index says.
+func (s *jobs) HoldBack(ctx context.Context, j *queue.Job, until time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO held_kinds (kind, held_until) VALUES ($1, $2)
+		ON CONFLICT (kind) DO UPDATE SET held_until = GREATEST(held_kinds.held_until, excluded.held_until)`, j.Kind, until.UnixMilli())
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "UPDATE jobs SET attempts = attempts - 1, held_until = 0, unique_key = NULLIF($1, '') WHERE id = $2 AND attempts = $3",
+		j.Key, jobID(j.ID), j.Attempts)
+	if taken(err) {
+		_, err = s.db.ExecContext(ctx, "UPDATE jobs SET attempts = attempts - 1, held_until = 0 WHERE id = $1 AND attempts = $2", jobID(j.ID), j.Attempts)
+	}
 	return err
 }
 
@@ -239,8 +282,10 @@ func jobID(id string) int64 {
 
 // prune deletes the jobs that failed for good over a month ago: long
 // enough for someone to have looked, and the table doesn't grow for ever;
-// and the rows of job_locks whose key no job has any more. It's a job
-// itself, which newApp schedules for every night.
+// the rows of job_locks whose key no job has any more, a kind's own among
+// them, which its next claim makes again; and the kinds a rate held back,
+// once their time has passed. It's a job itself, which newApp schedules
+// for every night.
 func (s *jobs) prune(ctx context.Context, _ struct{}) error {
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM jobs WHERE failed_at < now() - interval '30 days'"); err != nil {
 		return err
@@ -249,5 +294,9 @@ func (s *jobs) prune(ctx context.Context, _ struct{}) error {
 		DELETE FROM job_locks AS l WHERE NOT EXISTS (
 			SELECT 1 FROM jobs AS j WHERE j.kind = l.kind AND j.alone_key = l.alone_key
 		)`)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "DELETE FROM held_kinds WHERE held_until <= $1", time.Now().UnixMilli())
 	return err
 }

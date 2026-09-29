@@ -32,10 +32,10 @@ func (s *jobs) PushUnique(ctx context.Context, j *queue.Job) (bool, error) {
 func (s *jobs) PushLatest(ctx context.Context, j *queue.Job) error {
 	var id int64
 	err := s.pushes().QueryRowContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key) VALUES (?, ?, ?, NULLIF(?, ''), ?)
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0))
 		ON CONFLICT (kind, unique_key) WHERE unique_key IS NOT NULL DO UPDATE SET run_at = excluded.run_at
 		RETURNING id`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j)).Scan(&id)
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce).Scan(&id)
 	if err != nil {
 		return err
 	}
@@ -78,9 +78,9 @@ func (s *jobs) PushScheduled(ctx context.Context, schedule string, j *queue.Job)
 func insertJob(ctx context.Context, db dbtx, j *queue.Job) (bool, error) {
 	var id int64
 	err := db.QueryRowContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key) VALUES (?, ?, ?, NULLIF(?, ''), ?)
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0))
 		ON CONFLICT DO NOTHING RETURNING id`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j)).Scan(&id)
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -92,12 +92,17 @@ func insertJob(ctx context.Context, db dbtx, j *queue.Job) (bool, error) {
 }
 
 // claimable is what a job is for a claim at ?1 to take it: due, not
-// failed, and held by no claim, and a OneAtATime kind's job only while no
-// claim holds another of its kind and key.
+// failed, held by no claim, and of a kind no rate holds back; a OneAtATime
+// kind's job only while no claim holds another of its kind and key; and
+// an AtOnce kind's only while claims hold fewer of its kind than its limit.
 const claimable = `due.failed_at IS NULL AND due.run_at <= ?1 AND due.held_until <= ?1
+	AND NOT EXISTS (SELECT 1 FROM held_kinds AS held WHERE held.kind = due.kind AND held.held_until > ?1)
 	AND (due.alone_key IS NULL OR NOT EXISTS (
 		SELECT 1 FROM jobs AS running
 		WHERE running.kind = due.kind AND running.alone_key = due.alone_key AND running.held_until > ?1
+	))
+	AND (due.at_once IS NULL OR due.at_once > (
+		SELECT count(*) FROM jobs AS running WHERE running.kind = due.kind AND running.held_until > ?1
 	))`
 
 // Claim looks before it claims: an idle queue asks every second, and a
@@ -157,6 +162,25 @@ func (s *jobs) Fail(ctx context.Context, j *queue.Job) error {
 	return err
 }
 
+// HoldBack holds j's kind back until until, then puts j back as its claim
+// found it: its attempt taken back, and its key again, unless a job pushed
+// as it ran has the key now. SQLite's one writer keeps a push from coming
+// between the look for the key and the write.
+func (s *jobs) HoldBack(ctx context.Context, j *queue.Job, until time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO held_kinds (kind, held_until) VALUES (?, ?)
+		ON CONFLICT (kind) DO UPDATE SET held_until = max(held_until, excluded.held_until)`, j.Kind, until.UnixMilli())
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE jobs SET attempts = attempts - 1, held_until = 0, unique_key = (
+			SELECT NULLIF(?1, '') WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE kind = ?2 AND unique_key = ?1)
+		)
+		WHERE id = ?3 AND attempts = ?4`, j.Key, j.Kind, j.ID, j.Attempts)
+	return err
+}
+
 // Failed lists the jobs that failed for good, the latest first.
 func (s *jobs) Failed(ctx context.Context) ([]*queue.Job, error) {
 	rows, err := s.db.QueryContext(ctx, `
@@ -193,9 +217,13 @@ func (s *jobs) RunAgain(ctx context.Context, id string, at time.Time) (bool, err
 }
 
 // prune deletes the jobs that failed for good over a month ago: long
-// enough for someone to have looked, and the table doesn't grow for ever.
-// It's a job itself, which newApp schedules for every night.
+// enough for someone to have looked, and the table doesn't grow for ever;
+// and the kinds a rate held back, once their time has passed. It's a job
+// itself, which newApp schedules for every night.
 func (s *jobs) prune(ctx context.Context, _ struct{}) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM jobs WHERE failed_at < datetime('now', '-30 days')")
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM jobs WHERE failed_at < datetime('now', '-30 days')"); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, "DELETE FROM held_kinds WHERE held_until <= ?", time.Now().UnixMilli())
 	return err
 }
