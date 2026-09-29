@@ -28,6 +28,10 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M20 | Languages                  | done   |
 | M21 | Pagination                 | done   |
 | M22 | Commands                   | done   |
+| M23 | Cache and locks            | next   |
+| M24 | Mail, whole                | later  |
+| M25 | Downloads and streams      | later  |
+| M26 | Encryption                 | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -1735,6 +1739,347 @@ Choices made on the way:
   given one, serving until it, on Unix, whose signals a test can send
   itself; tug gen's types whatever the arguments; the names that panic;
   and the starter's `jobs` run through `Run`, as its binary runs it.
+
+## M23 · Cache and locks — next
+
+An app that shows what's slow to work out, a dashboard's counts or a
+feed from another service, works it out at each visit, or keeps it in a
+map of its own, which each instance has apart and a restart empties. And
+work that mustn't run twice at once, an import or a report, has nothing
+to hold across instances: a job has `OneAtATime`, and a command or a
+handler nothing. Laravel's `Cache` keeps values in a store every
+instance shares, the database among them, with `Cache::remember` and
+`Cache::lock`. tug can have it as it has the queue and the throttles: an
+interface for the store, and its SQL in the starter's layers. To be
+released as v0.18.0.
+
+- **Package `cache`,** with no import of tug. A `cache.Cache` keeps
+  values under keys, each until it expires, in its `Store`: `Set` keeps
+  one, as JSON, `Get` reads it into its type, and `Delete` drops it.
+  Without a `Store`, they're in memory, as a `Throttle`'s counts are
+  without one: for one instance, and for tests.
+- **Remembering.** `cache.Remember(ctx, a.cache, "stats", time.Hour,
+  a.stats)` returns the value kept under `"stats"`, or runs `a.stats`
+  and keeps what it returns for an hour, of the type it returns.
+- **Locks.** A cache's `Lock(name, ttl)` is a lock that every instance on
+  its store shares: `Try` takes it if it's free, `Wait` waits for it
+  until a context is done, and `Release` lets it go, only for whoever
+  holds it. A holder that dies lets go when its time is up.
+- **A store for them.** A `cache.Store` keeps a value under a key until a
+  time, and has the two steps a lock needs, each in one statement: `Add`,
+  which keeps a value only where there's none, or one that has expired,
+  and `DeleteIf`, which deletes one only while it's the value given.
+- **`cache/cachetest`:** `TestStore`, a store's promises as tests, as
+  `throttletest.TestStore` has a throttle store's, which `cache`'s tests
+  run on the memory store and the starter's on its table.
+- **The auth starter's cache, in its database.** A `cache` table, with
+  its SQL in each database's layer, `cache_db.go`, which a step at the
+  end of each layer's migrations makes, and `prune-cache`, every hour,
+  which deletes what has expired. `newApp` gives the app `a.cache`, which
+  the starter keeps nothing in: it's there for the app, as Laravel's
+  `cache` table is.
+- **The guide:** a page, Cache, and Accounts, for the starter's table.
+
+Choices, to settle before any code:
+
+- **A store the app's database keeps,** as M8's jobs and M18's throttles
+  are, so tug stays without SQL: the interface is tug's, and the SQL the
+  starter's, in each database. Not Redis, which a deploy would run beside
+  the database for this alone: an app that has one writes a `Store` on
+  it, of five methods.
+- **The store is given a hash, not the key:** the SHA-256 of the key, as
+  a throttle's store is, 32 bytes for any key, which fit one index on
+  each database, and keep an email in a key out of the table. A lock's
+  is the hash of its name apart from the values', `lock`, a NUL and the
+  name, so a lock and a value never share a row.
+- **Every value expires,** as every signed link does: a time to live of
+  0 or less panics, as a page size under 1 does. A table of values no one
+  asks for again only grows, and one that must last is given days.
+- **JSON,** as the session's values and a job's payload are: readable in
+  the table, and a value comes back as the type it's read into, where gob
+  would tie the table to the Go types of the day.
+- **`Remember` runs its function once at a time for a key,** in an
+  instance: callers that miss while it runs wait for its value, as
+  `golang.org/x/sync`'s singleflight has it, written again in a few
+  lines. Across instances, each may run it once; where that costs more
+  than waiting, the function takes a lock.
+- **A store that fails is a miss,** for `Remember`: it runs the function,
+  returns its value, and logs the store's error, as the site works
+  without its cache, only slower, where a throttle that guessed would
+  stop nothing. `Get` and `Set` return the error, for an app that wants
+  it, and a lock never guesses: one that can't be taken, for an error,
+  returns it.
+- **A lock's owner is a random value,** kept as the lock's value:
+  `Release` deletes the lock only while it's the owner's, so a holder
+  whose time ran out, and whose lock another took, can't let go of the
+  other's. A lock lasts the time it's taken for, and work that may take
+  longer asks for longer.
+- **`Wait` asks again every so often,** as Laravel's `block` does, every
+  250 milliseconds, until the lock is taken or the context is done: a
+  store has no way to say it's free.
+- **The queue keeps `OneAtATime`,** where a job waits its turn without
+  holding a worker; a lock is for what isn't a job, as a command or a
+  handler, or for part of one.
+- **Throttles keep their store,** as M18 has it: a count is one step,
+  `Hit`, which a cache's get and set would make two.
+- **No counters, tags or prefixes,** which Laravel's cache has: counting
+  is a throttle's, tags need a store that lists keys, and the table is
+  the app's own, with no other app's keys to keep apart from.
+- **The table:** a row for each key, its hash, the value, and when it
+  expires, `expires_at`, in Unix milliseconds, as the throttles' times
+  are, with no index but the key's. `Get` leaves out a value that has
+  expired, so pruning is for space, and hourly will do.
+- **Tests:** `cachetest.TestStore` on the memory store, and on the
+  starter's table in each database, with 20 `Add`s at once among them, of
+  which one keeps its value; `Remember` with callers at once, with a
+  store that fails, and past a value's time; locks taken and released,
+  one whose time ran out, and one waited for; and in the starter, two
+  caches on one database, as two instances have, where a lock one holds,
+  the other can't take.
+
+## M24 · Mail, whole — later
+
+A `mail.Message` has who it's from and who it's to, a subject, and a
+body in text and HTML: no copies, no address for replies, no files, and
+no headers of the app's. An invoice goes as a PDF, a contact form's mail
+replies to whoever filled it in, and mail sent in bulk says how to
+unsubscribe in one click, which Gmail and Yahoo have asked of it since
+2024. And each app's tests write a mailer that keeps what it's sent, as
+the auth starter's `outbox` does. Laravel's mailables have copies,
+replies, files and headers, and `Mail::fake()` keeps what's sent, for
+tests. To be released as v0.19.0.
+
+- **More recipients.** `Cc`, `Bcc` and `ReplyTo`, each a list of
+  addresses, written as `To` is. `Bcc` goes to the server with the rest,
+  and in no header, so no one who gets the mail sees it.
+- **Files.** `Attachments`, each a `mail.Attachment`, its name, its type
+  and its bytes, which the mail carries in base64, after its text and
+  HTML.
+- **Headers of the app's,** as `X-Campaign`, in `Headers`.
+- **Unsubscribing in one click.** `Unsubscribe` is a link that
+  unsubscribes the recipient, which the mail carries as RFC 8058 has it,
+  in `List-Unsubscribe` and `List-Unsubscribe-Post`, so the mail program
+  shows a button that POSTs to it. A link `SignedURL` makes, to a route
+  `tug.Signed` wraps, is one no one can forge, for a recipient who
+  needn't log in.
+- **`mail/mailtest`:** `Outbox`, a `Mailer` that keeps what it's sent, for
+  a test to read mail by mail, waiting for the job that sends it, and
+  that can be down for a number of mails, as a mail server can. The auth
+  starter's tests use it, and their `outbox` goes.
+- **`Log`** writes the copies, the address for replies, the files' names
+  and sizes, and `Bcc`, which the mail itself doesn't show.
+- **The guide:** Accounts' Package mail, with an invoice, a contact
+  form's reply and a newsletter's link to unsubscribe, and Testing.
+
+Choices, to settle before any code:
+
+- **SMTP stays the one way to send:** SES, Postmark, Resend, Mailgun and
+  SendGrid all take it. A provider's HTTP API is a `Mailer` of the app's,
+  one method, where each would be a client in tug.
+- **Files are bytes,** in memory, as the whole mail is before it's sent,
+  of the type given, or else the one their first bytes say, as a disk's
+  files are served. A job that mails a file reads it as it runs, from its
+  disk or from where it's made.
+- **A file's name is written by `mime.FormatMediaType`,** which encodes a
+  name with anything but printable ASCII, `filename*=utf-8''...`, so a
+  name in Vietnamese reaches the recipient as it was, and a line break in
+  one from a user can't end its header.
+- **`multipart/mixed` around the rest:** the text and the HTML, as
+  `multipart/alternative`, then each file. No images inside the HTML, by
+  `cid:`, which is `multipart/related` too: an image in a mail is a link
+  to one of the app's, as mail sent in bulk has them, and each mail
+  stays small.
+- **`Headers` can't say what the message says,** `From`, `To`, `Bcc`,
+  `Subject`, `List-Unsubscribe` and the rest, nor have a line break in a
+  value, as the subject can't now: a value from a form can't add a
+  recipient.
+- **`Unsubscribe` is an `https` link,** as RFC 8058 has it, and the app's
+  route answers its POST, whose body is `List-Unsubscribe=One-Click`. The
+  POST comes from the mail provider's servers, with no `Origin`, which
+  `CSRF` lets through, as it does any request that isn't a browser's, so
+  the signature is what guards it. And it's a POST, as a GET is what a
+  scanner follows before anyone reads the mail: the link in the mail's
+  own text goes to a page of the app's that asks.
+- **DKIM is the provider's,** which signs what it sends with the domain's
+  key. RFC 8058 asks that the signature cover both headers, which the
+  guide says to check.
+- **Mail goes by the app's jobs,** as the starter's does: a job carries
+  IDs and makes its mail as it runs, as M8 has it. Not a queue of
+  messages, which would keep whole mails, files and all, in the jobs
+  table.
+- **`mailtest.Outbox` is the starter's `outbox`, made tug's:** `Next`,
+  the next mail, waiting five seconds for it, as a job sends it, and
+  failing the test when none comes; `None`, that no more comes; and
+  `Down(n)`, the next n mails failing, as the starter's tests of mail
+  that fails need.
+- **Tests:** a message with copies, a `Reply-To` and files, read back by
+  `net/mail` and `mime/multipart`, as a mail program reads it, with `Bcc`
+  in the envelope and nowhere else; a file's name that isn't ASCII, and
+  one with a line break; the headers refused; the unsubscribe headers;
+  `Log`; `mailtest.Outbox`, down and up; and the starter's tests on it.
+
+## M25 · Downloads and streams — later
+
+A handler writes a body it has whole: `c.Blob` takes bytes, and anything
+else is `c.Response()`, by hand. A file of the app's, an invoice made as
+a PDF, or every post as CSV, goes with a `Content-Disposition` each app
+writes itself, which is easy to get wrong: a name from a user, an
+upload's, can end the header, and one in Vietnamese arrives garbled.
+Nothing seeks, so a download that broke off starts again, and a list too
+long to hold is made whole before it's sent. And a page that follows
+work as it goes, an import's progress, asks again and again. Laravel's
+responses have `download()`, `streamDownload()`, `file()` and
+`eventStream()`. To be released as v0.20.0.
+
+- **Files.** `c.File(path)` and `c.FileFS(fsys, name)` send a file of the
+  app's, as its type, through `http.ServeContent`: with ranges, so a
+  download that broke off goes on where it stopped, and with
+  `If-Modified-Since`. A file that isn't there, or a directory, is a 404
+  for the `ErrorHandler`.
+- **Downloads.** `c.Download(name, content)` sends `content`, an
+  `io.Reader`, as a file to save as `name`: a file, bytes, or what a
+  disk's `Open` reads, under the name it was uploaded with. Content that
+  seeks, a file or a `bytes.Reader`, has ranges too.
+- **Streams.** `c.Stream(contentType, write)` sends a body as `write`
+  makes it, a row at a time as the rows are read, without holding them
+  all, and `c.StreamDownload(name, contentType, write)` has it saved as
+  `name`: every post, as CSV.
+- **Events.** `c.Events(fn)` is a stream of server-sent events, which the
+  browser's `EventSource` reads: `fn` sends each, a `tug.Event`, with its
+  name, its data as JSON and its ID, until the client goes or the app
+  shuts down. A page follows work with one, and reloads a prop when an
+  event says, with Inertia's `router.reload`.
+- **`examples/inertia`** has its posts as CSV, streamed, with a browser
+  test of the file saved and its name.
+- **The guide:** Routing, the responses, and Pages, events on a page and
+  a download's plain link.
+
+Choices, to settle before any code:
+
+- **The name, as RFC 6266 has it:** `attachment` and the name, written by
+  `mime.FormatMediaType`, which encodes a name with anything but
+  printable ASCII, `filename*=utf-8''...`, as every browser reads it: a
+  name in Vietnamese arrives as it was, and a line break becomes `%0A`,
+  never the end of the header. What's before a name's last `/` or `\`
+  is dropped: the browser saves a name, not a path.
+- **The type, as `ServeContent` finds it:** by the name's extension, or
+  else by the first bytes, with `nosniff`. A stream's is the app's to
+  give, as it has no bytes yet.
+- **`c.File` is for the app's own files,** which it shows as what they
+  are, HTML as a page: a file someone uploaded is sent by their disk's
+  route, which sends it sandboxed, as M16 has it, or by `Download`, to be
+  saved.
+- **Not `http.ServeFile`,** which lists a directory, and answers a path
+  ending in `/index.html` with a redirect: `File` opens the file and
+  hands it to `ServeContent`, and one that isn't there is tug's 404, with
+  the app's error page.
+- **The handler closes what it opened:** `Download` reads `content` to
+  its end, and leaves it open, as the `Open` that made it was the
+  handler's.
+- **Each write of a stream goes as it's made,** flushed, so a client that
+  reads as it comes, a `fetch` of lines, gets each one. A writer of many
+  small writes is buffered by whoever makes them, as `csv.Writer` is.
+- **An error once the body has started can't be an error page:** it goes
+  to the log, and the connection is cut, with `http.ErrAbortHandler`,
+  which `adapt` passes on to net/http, so the browser says the download
+  failed, where it would save half a file as the whole. Before the first
+  write, it's the `ErrorHandler`'s, as any handler's error is.
+- **An event's data is JSON,** always, as props are, for the page's
+  `JSON.parse`; its name and ID are text on one line, and one with a line
+  break is an error.
+- **A comment every 20 seconds** keeps a quiet stream open through the
+  proxies in front of the app, which close a connection idle for a
+  minute, as nginx and AWS's load balancers do unless told otherwise.
+  With `Cache-Control: no-cache`, and `X-Accel-Buffering: no`, so nginx
+  doesn't hold the events back.
+- **A stream ends as the app shuts down:** `Shutdown` waits for the
+  requests in flight, and one that never ends would hold it for all of
+  `ShutdownTimeout`. `fn`'s context is canceled as shutdown begins, and
+  the browser's `EventSource` connects again, to an instance that's up,
+  with the last event's ID in `Last-Event-ID`, for the app to go on from.
+- **Events come from where the app has them:** tug has no way yet to send
+  one instance's event to the pages open on another. That's
+  broadcasting, a milestone of its own, which this is the ground for.
+- **Not WebSockets:** events go one way, the server's, which is what a
+  page that follows work needs, over plain HTTP, which every proxy
+  passes; the page sends with Inertia, as it always does. And the
+  standard library has no WebSockets.
+- **A download is a plain link,** `<a href>`, not Inertia's `<Link>`,
+  whose visit expects a page, and shows anything else in a modal.
+- **Tests:** a file with a range, `If-Modified-Since`, one that isn't
+  there, and a directory; a download's name in Vietnamese, with a quote,
+  a line break or a path in it; a stream read as it's written, and one
+  that fails before its first write and after; events as `EventSource`
+  reads them, a quiet stream's comments, a name with a line break, a
+  client that goes, and a stream the app's shutdown ends; and in
+  `examples/inertia`, the CSV, saved by the browser.
+
+## M26 · Encryption — later
+
+`APP_KEY` encrypts the session's cookie, seals two-factor secrets, and
+signs links and tokens, each with a key derived from it for that alone.
+An app had nothing to encrypt its own with: a token for another service
+that a user connects, kept in a column, is there for whoever reads a
+copy of the database, such as a leaked backup, and the one sealer tug
+has, `auth.TwoFactor`'s, is for two-factor secrets, with their key.
+Laravel has `Crypt`, with `APP_PREVIOUS_KEYS` for a key being rotated,
+and `key:generate` for a new one. To be released as v0.21.0.
+
+- **Package `crypt`,** with no import of tug. `crypt.New(keys, purpose)`
+  is a `crypt.Box`, whose `Seal` encrypts a value for keeping, with a key
+  derived from the app's for that purpose alone, and whose `Open`
+  returns it. The first key seals and each opens, so what an old key
+  sealed opens while it's in `APP_PREVIOUS_KEYS`, and `Stale` says what
+  to seal again with the new one, as `auth.TwoFactor`'s does.
+- **Where a value belongs.** `Seal` and `Open` can be given what a value
+  belongs to, as its row, `"users 42"`: one copied to another row doesn't
+  open there.
+- **`auth.TwoFactor` seals with it,** in the form it has, so every secret
+  sealed before opens as it did.
+- **`tug key`** prints a new key, `base64:` and 32 random bytes, as
+  `APP_KEY` takes it, for a deploy's secrets or a rotation, where the
+  guide had `head -c 32 /dev/urandom | base64`.
+- **The guide:** a page, Encryption: the app's keys, what each one seals
+  or signs, and rotating them, step by step; and Accounts, the CLI and
+  Deployment where they meet it.
+
+Choices, to settle before any code:
+
+- **A purpose, always,** as tug's own keys each have one, `tug session`,
+  `tug two-factor` and `tug signed link`: a key for each is derived from
+  the app's with HKDF, so a value sealed for one purpose doesn't open as
+  another's, and a derived key that leaks gives away no other.
+- **AES-256-GCM,** with a random nonce for each value, as the session's
+  cookie has it: the same value sealed twice is two texts, and a text
+  changed by a byte doesn't open. A sealed value is base64url, for a
+  column, a cookie or a link.
+- **What a value belongs to is checked, not kept,** as the session's
+  cookie is sealed with its name: GCM's additional data. Without it,
+  whoever can write the table can copy one user's sealed token into
+  their own row, and the app would use it as theirs.
+- **Bytes in, text out:** a value is bytes, and a struct is the app's
+  JSON first, as a job's payload is.
+- **Not Laravel's format,** JSON of an IV, the AES-CBC text and an HMAC:
+  a value moved from a Laravel app is opened there, and sealed again.
+- **Jobs carry IDs,** as M8 has the starter's: a secret a job needs, it
+  reads, sealed, from where the app keeps it. Not Laravel's
+  `ShouldBeEncrypted`, which seals a payload with the secret in it.
+- **No cookies of tug's:** what the app keeps in a browser, sealed, is in
+  the session, and a cookie of its own, as a theme a script reads, is
+  `http.SetCookie`'s, as a script can't read a sealed one.
+- **`tug key` prints, and writes nothing:** production's key is set where
+  the platform keeps its secrets, and `.env`, development's, has the one
+  `tug new` wrote. A rotation is a deploy: the new key in `APP_KEY`, the
+  old one first in `APP_PREVIOUS_KEYS`, and the old one dropped once
+  what it sealed has moved.
+- **Moving to the new key is the app's,** by `Stale`, as the starter
+  moves its two-factor secrets as it starts: tug can't know where an app
+  keeps what it sealed.
+- **Tests:** a value sealed and opened, and opened with a key since
+  rotated, which `Stale` finds; one changed by a byte, one sealed for
+  another purpose, and one for another row, not opening; a two-factor
+  secret sealed before, opening; and `tug key`'s key, as
+  `session.ParseKey` reads it.
 
 ## Decisions
 
