@@ -29,20 +29,23 @@ the detail.
 8. [Accounts](auth.md): the auth starter, in SQLite, Postgres or MySQL,
    and packages `auth` and `mail`, with copies, files and a link to
    unsubscribe in one click.
-9. [Background jobs](jobs.md): package `queue`, for work that outlasts the
-   request, and runs again when it fails, runs on a schedule, in a time
-   zone too, or waits once however often it's asked for.
-10. [Cache](cache.md): package `cache`, for what's slow to work out, kept
+9. [Encryption](encryption.md): the app's key, what tug encrypts and
+   signs with it, package `crypt`, for the app's own values, and rotating
+   the key.
+10. [Background jobs](jobs.md): package `queue`, for work that outlasts
+    the request, and runs again when it fails, runs on a schedule, in a
+    time zone too, or waits once however often it's asked for.
+11. [Cache](cache.md): package `cache`, for what's slow to work out, kept
     where every instance of the app finds it, and locks for what mustn't
     run twice at once.
-11. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
-12. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
+12. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
+13. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
     tests of an app's pages, forms, uploads and logins, and `mailtest`,
     for its mail.
-13. [Deployment](deployment.md): one binary, the Dockerfile, and the
+14. [Deployment](deployment.md): one binary, the Dockerfile, and the
     environment.
-14. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang` and
-    `tug build`, in full.
+15. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
+    `tug build` and `tug key`, in full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,
 and what comes next.

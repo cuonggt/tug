@@ -391,10 +391,10 @@ an empty session. `session.Config` has three more fields:
 ### Keys
 
 `APP_KEY` is `base64:` and 32 random bytes in base64, as Laravel writes it,
-and `tug new` puts a fresh one in `.env`. To make another:
+and `tug new` puts a fresh one in `.env`. `tug key` prints another:
 
 ```sh
-echo "APP_KEY=base64:$(head -c 32 /dev/urandom | base64)"
+tug key
 ```
 
 Without one, `KeysFromEnv` returns `session.ErrNoKey`, whose message says

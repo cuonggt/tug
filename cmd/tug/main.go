@@ -5,6 +5,7 @@
 //	tug gen          write the TypeScript of the app's pages and routes
 //	tug lang vi      write the texts to translate into lang/vi.json
 //	tug build        build the app into one binary, frontend and all
+//	tug key          print a new key for APP_KEY
 //
 // Every command but new runs in the app's directory, where its go.mod,
 // main package and package.json are.
@@ -25,6 +26,7 @@ const usage = `tug makes and runs tug apps.
   tug gen          write the TypeScript of the app's pages and routes
   tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
   tug build        build the app into one binary, with its frontend in it
+  tug key          print a new key for APP_KEY
   tug version      print tug's version
 
 Run "tug <command> -h" for a command's flags.
@@ -47,6 +49,8 @@ func main() {
 		err = runLang(args)
 	case "build":
 		err = runBuild(args)
+	case "key":
+		err = runKey(args)
 	case "version":
 		fmt.Println("tug", version())
 	case "help", "-h", "--help":

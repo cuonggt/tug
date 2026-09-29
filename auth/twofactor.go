@@ -1,16 +1,11 @@
 package auth
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base32"
-	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -18,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/cuonggt/tug/internal/seal"
 )
 
 // TwoFactor has the parts of two-factor logins where a slip is a security
@@ -148,10 +145,7 @@ func (tf *TwoFactor) clock() time.Time {
 // storing, with the first of Keys. The result is base64, safe in any text
 // column.
 func (tf *TwoFactor) Seal(value string) string {
-	aead := sealer(tf.keys()[0])
-	nonce := make([]byte, aead.NonceSize(), aead.NonceSize()+len(value)+aead.Overhead())
-	rand.Read(nonce)
-	return base64.RawURLEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte(value), nil))
+	return tf.box().Seal([]byte(value), nil)
 }
 
 // Open returns the value that Seal sealed. It fails when sealed has been
@@ -174,46 +168,23 @@ var errSealed = errors.New("auth: a sealed two-factor value doesn't open: it has
 
 // open returns the value sealed, and the index of the key that sealed it.
 func (tf *TwoFactor) open(sealed string) (string, int, error) {
-	b, err := base64.RawURLEncoding.DecodeString(sealed)
+	value, i, err := tf.box().Open(sealed, nil)
 	if err != nil {
 		return "", 0, errSealed
 	}
-	for i, key := range tf.keys() {
-		aead := sealer(key)
-		n := aead.NonceSize()
-		if len(b) < n {
-			return "", 0, errSealed
-		}
-		if value, err := aead.Open(nil, b[:n], b[n:], nil); err == nil {
-			return string(value), i, nil
-		}
-	}
-	return "", 0, errSealed
+	return string(value), i, nil
 }
 
-func (tf *TwoFactor) keys() [][]byte {
-	if len(tf.Keys) == 0 {
-		panic("auth: TwoFactor.Keys is empty; session.KeysFromEnv reads the app's")
-	}
-	return tf.Keys
-}
-
-// sealer is AES-256-GCM with a key for two-factor logins alone, derived
-// from the app's.
-func sealer(appKey []byte) cipher.AEAD {
-	key, err := hkdf.Key(sha256.New, appKey, nil, "tug two-factor", 32)
+// box is AES-256-GCM with a key for two-factor logins alone, derived from
+// each of the app's, as package crypt seals the app's own values, each
+// purpose with its own. It's made at each call, as Keys are the app's to
+// set.
+func (tf *TwoFactor) box() *seal.Box {
+	b, err := seal.New(tf.Keys, "tug two-factor")
 	if err != nil {
-		panic(err) // only for a length SHA-256 can't make
+		panic("auth: TwoFactor.Keys: " + err.Error() + "; session.KeysFromEnv reads the app's")
 	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err) // only for a key that isn't 32 bytes, which HKDF made
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err)
-	}
-	return aead
+	return b
 }
 
 // NewRecoveryCodes returns eight new recovery codes, each good for one

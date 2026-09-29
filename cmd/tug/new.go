@@ -2,9 +2,7 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
 	"embed"
-	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -347,14 +345,12 @@ func writeStarter(root string, data starterData) error {
 			return err
 		}
 	}
-	key := make([]byte, 32)
-	rand.Read(key)
 	uses := "encrypts the sessions"
 	if data.Auth {
 		uses = "encrypts the sessions and two-factor secrets, and signs the links in mail and to photos"
 	}
 	env := "# Read by tug dev, and not committed. APP_KEY " + uses + ".\n" +
-		"APP_KEY=base64:" + base64.StdEncoding.EncodeToString(key) + "\nAPP_DEBUG=true\n"
+		"APP_KEY=" + newKey() + "\nAPP_DEBUG=true\n"
 	if data.Postgres() || data.MySQL() {
 		env += "# The database compose.yaml runs: docker compose up -d.\nDB_URL=" + data.DevURL() + "\n"
 	}

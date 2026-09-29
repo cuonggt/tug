@@ -394,10 +394,10 @@ APP_KEY=base64:... ADDR=127.0.0.1:8080 ./blog
 ```
 
 Without an `APP_KEY`, it stops and says so. A deployed app needs a key of
-its own: make one with `head -c 32 /dev/urandom | base64`, and set it as
-`base64:` followed by that. The app listens on `ADDR`, or on `PORT` as
-platforms such as Cloud Run and Fly.io set it, or else on `:8080`. Leave
-`APP_DEBUG` unset, so that a 500's details stay in the log.
+its own: `tug key` prints one, which `APP_KEY` takes as it is. The app
+listens on `ADDR`, or on `PORT` as platforms such as Cloud Run and Fly.io
+set it, or else on `:8080`. Leave `APP_DEBUG` unset, so that a 500's
+details stay in the log.
 
 The app's `Dockerfile` builds the frontend with Node and the binary with
 Go, and puts the binary alone on a distroless image:

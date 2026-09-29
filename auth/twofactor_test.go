@@ -19,6 +19,17 @@ func newTwoFactor(key byte) *TwoFactor {
 // The secret of RFC 6238's test vectors, "12345678901234567890", in base32.
 const rfcSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
+func TestASecretSealedBeforeTheBoxOpensAsItDid(t *testing.T) {
+	// Sealed by TwoFactor as it was, with AES-GCM of its own, before it
+	// sealed with internal/seal, as package crypt does: the same key, from
+	// the same HKDF info, and the same form, so no secret is sealed again.
+	tf := &TwoFactor{Keys: [][]byte{bytes.Repeat([]byte{7}, 32)}}
+	secret, err := tf.Open("lFbnJ4W_lYWSmmCnwWKkmSqevwxeB-L1eOGbr5MfXab80mvZekPJcIdmG70")
+	if err != nil || secret != "JBSWY3DPEHPK3PXP" {
+		t.Errorf("got %q, %v", secret, err)
+	}
+}
+
 func TestACodeIsTheOneRFC6238Makes(t *testing.T) {
 	// RFC 6238's SHA-1 vectors, whose eight digits end in these six.
 	for unix, code := range map[int64]string{

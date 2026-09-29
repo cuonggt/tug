@@ -8,6 +8,7 @@ tug dev          run the app, rebuilding and reloading it as it changes
 tug gen          write the TypeScript of the app's pages and routes
 tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
 tug build        build the app into one binary, with its frontend in it
+tug key          print a new key for APP_KEY
 tug version      print tug's version
 ```
 
@@ -327,7 +328,7 @@ starter's `main` reads `APP_KEY`, and stops without it:
 
 ```
 tug: the app stopped before writing its types (exit status 1):
-2026/09/25 16:33:11 session: APP_KEY isn't set; make one with `head -c 32 /dev/urandom | base64` and set APP_KEY=base64:<that>
+2026/09/25 16:33:11 session: APP_KEY isn't set; make one with `tug key`, and set APP_KEY to what it prints
 ```
 
 What only serving needs, `main` can leave out while `tug.Generating()`
@@ -337,7 +338,7 @@ needs neither, as when `tug new` makes the app, or `tug build` builds it
 in CI. Where there's no `.env`, as in CI, set what `main` needs:
 
 ```sh
-APP_KEY=base64:$(head -c 32 /dev/urandom | base64) tug gen
+APP_KEY=$(tug key) tug gen
 ```
 
 The app has 30 seconds to write its types. One that runs longer, or exits
@@ -425,6 +426,18 @@ because the starter's `main.go` embeds `public/`, with
 `GOARCH` set for another, the first step can't run the app it has built,
 and stops. The starter's `Dockerfile` builds on Linux, with the same
 `go build` as step 4: [Deployment](deployment.md) covers it.
+
+## `tug key`
+
+```
+tug key
+```
+
+Prints a new key for `APP_KEY`: 32 random bytes, in base64, after
+`base64:`, as Laravel writes them and the app reads them. It writes it
+nowhere: `.env` has the one `tug new` made, and a deployed app's goes
+where its platform keeps secrets. It's how to make a key to rotate to:
+[Encryption](encryption.md#rotating-the-key) has the steps.
 
 ## `tug version`
 

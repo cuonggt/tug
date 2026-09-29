@@ -143,6 +143,11 @@ func showPost(c *tug.Ctx) error {
   `Accept-Language`, from a JSON file for each language, keyed by the
   English, as Laravel's `lang/vi.json` is, with plurals by each language's
   rules. `tug lang vi` writes the file, with every text the app says.
+- **Encryption** (package `crypt`): the app's own values, as a token for
+  another service kept in a column, sealed with AES-256-GCM, under a key
+  for their purpose alone, derived from `APP_KEY`, bound to their row if
+  the app likes, and moved to a new key after a rotation, as tug's own
+  are. `tug key` makes a key.
 - **Sessions** (package `session`): in an encrypted cookie, keyed by
   `APP_KEY`, with flash data. `c.Flash` reaches the next page shown, after
   a redirect or not, and only that one.

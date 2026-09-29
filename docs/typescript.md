@@ -172,7 +172,7 @@ it. Both starters stop without an `APP_KEY`, and tug gen shows why:
 
 ```
 tug: the app stopped before writing its types (exit status 1):
-2026/09/25 15:56:12 session: APP_KEY isn't set; make one with `head -c 32 /dev/urandom | base64` and set APP_KEY=base64:<that>
+2026/09/25 15:56:12 session: APP_KEY isn't set; make one with `tug key`, and set APP_KEY to what it prints
 ```
 
 The auth starter's database, and its `APP_URL`, it leaves alone while
@@ -438,15 +438,14 @@ weren't committed.
 
 In an app's own CI, `go run github.com/cuonggt/tug/cmd/tug` runs the CLI
 of the tug that go.mod requires, with nothing to install. The app runs as
-`main` has it, so give it what it needs to reach `Run`. Any key will do,
-as it serves nothing; the auth starter also needs `APP_DEBUG` on, or an
-`APP_URL`:
+`main` has it, so give it what it needs to reach `Run`: a key, and any
+will do, as it serves nothing.
 
 ```yaml
 - run: npm ci
 - name: the types are the Go ones
   run: |
-    export APP_KEY=base64:$(head -c 32 /dev/urandom | base64) APP_DEBUG=true
+    export APP_KEY=base64:$(head -c 32 /dev/urandom | base64)
     go run github.com/cuonggt/tug/cmd/tug gen
     git diff --exit-code resources/js/tug
 - run: npm run typecheck

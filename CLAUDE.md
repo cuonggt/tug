@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M25 are done, which is
+the decisions behind it and where it stands: M1 to M26 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -46,7 +46,10 @@ headers, and a link to unsubscribe in one click, in `mail.Message`, and
 streams (v0.20.0): `c.File` and `FileFS`, with ranges, `c.Download`, a
 file to save by its name however it's written, `c.Stream` and
 `StreamDownload`, a body made as it's sent, and `c.Events`, server-sent
-events, which the app's shutdown ends.
+events, which the app's shutdown ends, and encryption (v0.21.0):
+package `crypt`, the app's own values sealed under a key for their
+purpose alone, bound to their owner, with `Stale` for a rotation,
+`auth.TwoFactor` sealing the same way, and `tug key`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -276,6 +279,15 @@ dev server that isn't there: delete it.
   a form's own counts (`interval`, `{0}`, `[2,*]`) first, then
   `pluralIndex`, Laravel's rules by language (`pluralRules`). A nil
   Catalog, and the zero Words, are English.
+- `crypt`: the app's own values, sealed, with no import of tug. `New`
+  makes a `Box` for a purpose, whose key is derived with the info `tug
+  crypt ` and the purpose, so none is one of tug's own; `Seal`, `Open`
+  (`ErrOpen`) and `Stale` take an owner, whose parts, each after its
+  length and a colon (`ad`), are the AEAD's additional data.
+- `internal/seal`: AES-256-GCM under a key HKDF derives from each of the
+  app's with an info, the first sealing and each opening (`Open` says
+  which), the nonce first, in base64url; `crypt` and `auth.TwoFactor`
+  seal with it.
 - `internal/label`: how a message names a field: `Of`, its label tag or
   `Readable`, its key in words (`first_name` and `firstName` as "first
   name", `URLPath` as "url path"), which validate, Bind and tug lang
@@ -322,7 +334,8 @@ dev server that isn't there: delete it.
   `Choice` literals, and `fieldTexts`, the names of fields with validate,
   form, query or path tags, eqfield's others, and file_type's names),
   added to `lang/<lang>.json` (`addTexts`, sorted, only when it adds);
-  `dev.go` runs Vite and the app
+  `key.go` is tug key, which prints `newKey`, as `tug new`'s `.env` has
+  one; `dev.go` runs Vite and the app
   as processes in their own groups (`proc`, `proc_unix.go`), polls for
   changes (`watch`, `snapshot`), touches `.tug/reload` for the starter's
   Vite plugin to reload the browser, and shows 127.0.0.1 as localhost
@@ -470,7 +483,8 @@ dev server that isn't there: delete it.
   purpose alone, over the expiry and their parts; `reset.go` (the ID and
   the password hash) and `verify.go` (the ID and the email) use it.
   `twofactor.go`: TOTP (RFC 6238, the last step used kept by the app),
-  secrets and recovery codes sealed with AES-GCM under an HKDF key, and
+  secrets and recovery codes sealed by `internal/seal` (`box`, with the
+  info `tug two-factor`, as before it, so what it sealed opens), and
   `Stale` for rotation. `throttle.go`: `Throttle`, whose `Try`, `Wait`
   and `Clear` take a context and return the store's error, over a
   `ThrottleStore` (`Hit` counts and reads back in one step, `Tries`,

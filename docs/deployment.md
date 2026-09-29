@@ -130,15 +130,18 @@ The auth starter reads these as well:
 | `MAIL_FROM_ADDRESS` | Who mail is from. It's needed with `MAIL_HOST`. | none | `mail.FromEnv` |
 | `MAIL_FROM_NAME`    | The name that goes with it. | none | `mail.FromEnv` |
 
-A key is 32 random bytes in base64, after `base64:`:
+A key is 32 random bytes in base64, after `base64:`, which `tug key`
+prints:
 
 ```sh
-echo "APP_KEY=base64:$(head -c 32 /dev/urandom | base64)"
+tug key
 ```
 
 The `.env` that `tug new` writes has a key for development. A deployed app
 needs a key of its own, kept secret, and the same one in every copy of the
 app that runs: a session one copy writes, another reads.
+[Encryption](encryption.md) has what the key encrypts and signs, and how
+to rotate it.
 
 `ADDR` wins over `PORT`. The Dockerfiles set neither, so the app listens on
 `:8080`, or on the `PORT` that a platform such as Cloud Run sets.

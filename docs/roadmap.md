@@ -31,7 +31,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M23 | Cache and locks            | done   |
 | M24 | Mail, whole                | done   |
 | M25 | Downloads and streams      | done   |
-| M26 | Encryption                 | later  |
+| M26 | Encryption                 | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2106,14 +2106,14 @@ Choices made on the way:
   `Serve`; and in `examples/inertia`, the CSV, in Go and saved by the
   browser.
 
-## M26 · Encryption — later
+## M26 · Encryption — done
 
 `APP_KEY` encrypts the session's cookie, seals two-factor secrets, and
 signs links and tokens, each with a key derived from it for that alone.
 An app had nothing to encrypt its own with: a token for another service
 that a user connects, kept in a column, is there for whoever reads a
 copy of the database, such as a leaked backup, and the one sealer tug
-has, `auth.TwoFactor`'s, is for two-factor secrets, with their key.
+had, `auth.TwoFactor`'s, is for two-factor secrets, with their key.
 Laravel has `Crypt`, with `APP_PREVIOUS_KEYS` for a key being rotated,
 and `key:generate` for a new one. To be released as v0.21.0.
 
@@ -2124,23 +2124,35 @@ and `key:generate` for a new one. To be released as v0.21.0.
   sealed opens while it's in `APP_PREVIOUS_KEYS`, and `Stale` says what
   to seal again with the new one, as `auth.TwoFactor`'s does.
 - **Where a value belongs.** `Seal` and `Open` can be given what a value
-  belongs to, as its row, `"users 42"`: one copied to another row doesn't
-  open there.
-- **`auth.TwoFactor` seals with it,** in the form it has, so every secret
-  sealed before opens as it did.
+  belongs to, as its table and row, `"users", "42"`: one copied to
+  another row doesn't open there.
+- **`auth.TwoFactor` seals as `crypt` does,** through `internal/seal`, in
+  the form it had, so every secret sealed before opens as it did.
 - **`tug key`** prints a new key, `base64:` and 32 random bytes, as
   `APP_KEY` takes it, for a deploy's secrets or a rotation, where the
   guide had `head -c 32 /dev/urandom | base64`.
 - **The guide:** a page, Encryption: the app's keys, what each one seals
-  or signs, and rotating them, step by step; and Accounts, the CLI and
-  Deployment where they meet it.
+  or signs, package `crypt`, and rotating the key, step by step; and
+  Accounts, Forms, the CLI, Getting started and Deployment where they
+  meet it.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A purpose, always,** as tug's own keys each have one, `tug session`,
-  `tug two-factor` and `tug signed link`: a key for each is derived from
-  the app's with HKDF, so a value sealed for one purpose doesn't open as
-  another's, and a derived key that leaks gives away no other.
+  `tug two-factor` and `tug signed link` among them: a key for each is
+  derived from the app's with HKDF, so a value sealed for one purpose
+  doesn't open as another's, and a derived key that leaks gives away no
+  other. A `Box`'s is derived with `tug crypt ` and its purpose, which
+  none of tug's own begins with, so an app's purpose can't name one of
+  them, and seal what tug would open as its own.
+- **One way to seal, `internal/seal`,** which `crypt` and
+  `auth.TwoFactor` share: AES-256-GCM under a key HKDF derives from each
+  of the app's with an info, the first sealing and each opening, the
+  nonce first, in base64url. `TwoFactor`'s info is `tug two-factor`, as
+  it was, and its form the same, which a secret sealed by its code before
+  shows, in a test that opens it. The session's cookie seals the same
+  way, with its name bound to it, and keeps its own code: moving it was
+  no part of this.
 - **AES-256-GCM,** with a random nonce for each value, as the session's
   cookie has it: the same value sealed twice is two texts, and a text
   changed by a byte doesn't open. A sealed value is base64url, for a
@@ -2148,7 +2160,17 @@ Choices, to settle before any code:
 - **What a value belongs to is checked, not kept,** as the session's
   cookie is sealed with its name: GCM's additional data. Without it,
   whoever can write the table can copy one user's sealed token into
-  their own row, and the app would use it as theirs.
+  their own row, and the app would use it as theirs. It's any number of
+  parts, `"users", "42"`, each after its length and a colon, as tug signs
+  its links' parts, so that `"users42"` and `"users4", "2"` are others; a
+  value sealed with no owner opens with none.
+- **An error, not a panic,** from `crypt.New` for no purpose, no keys, or
+  a key that isn't 32 bytes, as `session.New` has it: keys come from the
+  environment. `Open`'s error is `crypt.ErrOpen`, whatever the reason, and
+  a value that doesn't open isn't `Stale`. `TwoFactor`, which panicked for
+  no keys, panics for a key that isn't 32 bytes too, where it derived from
+  any length: a shorter key is a weaker one, and `session.KeysFromEnv`'s
+  are 32.
 - **Bytes in, text out:** a value is bytes, and a struct is the app's
   JSON first, as a job's payload is.
 - **Not Laravel's format,** JSON of an IV, the AES-CBC text and an HMAC:
@@ -2161,17 +2183,24 @@ Choices, to settle before any code:
   `http.SetCookie`'s, as a script can't read a sealed one.
 - **`tug key` prints, and writes nothing:** production's key is set where
   the platform keeps its secrets, and `.env`, development's, has the one
-  `tug new` wrote. A rotation is a deploy: the new key in `APP_KEY`, the
-  old one first in `APP_PREVIOUS_KEYS`, and the old one dropped once
-  what it sealed has moved.
+  `tug new` wrote, which `newKey` now makes for both. A rotation is a
+  deploy: the new key in `APP_KEY`, the old one first in
+  `APP_PREVIOUS_KEYS`, and the old one dropped once what it sealed has
+  moved. `session.ErrNoKey`, and the starters' `.env.example`, say to
+  run it where they had `head -c 32 /dev/urandom | base64`, which the
+  guide keeps for CI, where there's no tug.
 - **Moving to the new key is the app's,** by `Stale`, as the starter
   moves its two-factor secrets as it starts: tug can't know where an app
   keeps what it sealed.
-- **Tests:** a value sealed and opened, and opened with a key since
-  rotated, which `Stale` finds; one changed by a byte, one sealed for
-  another purpose, and one for another row, not opening; a two-factor
-  secret sealed before, opening; and `tug key`'s key, as
-  `session.ParseKey` reads it.
+- **Tests:** a value sealed and opened, twice as two texts, and opened
+  with a key since rotated, which `Stale` finds, and not once it's
+  dropped; one changed in each of its bytes, and text that isn't one; one
+  sealed for another purpose, and for another owner, its parts run
+  together among them; a `Box` named for two-factor secrets, which opens
+  none; a `Box` without a purpose or keys, or with a short key; seals at
+  once; a two-factor secret sealed by the code before, opening; and `tug
+  key`'s key, as `session.ParseKey` reads it. The guide's CI example lost
+  an `APP_DEBUG` it hasn't needed since M19.
 
 ## Decisions
 

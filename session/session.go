@@ -60,7 +60,7 @@ type Config struct {
 }
 
 // ErrNoKey is KeysFromEnv's error when APP_KEY isn't set.
-var ErrNoKey = errors.New("session: APP_KEY isn't set; make one with `head -c 32 /dev/urandom | base64` and set APP_KEY=base64:<that>")
+var ErrNoKey = errors.New("session: APP_KEY isn't set; make one with `tug key`, and set APP_KEY to what it prints")
 
 // KeysFromEnv reads the session keys from the environment, as Laravel
 // names them: APP_KEY, and APP_PREVIOUS_KEYS, comma separated, for keys
@@ -89,7 +89,7 @@ func KeysFromEnv() ([][]byte, error) {
 func ParseKey(s string) ([]byte, error) {
 	k, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(s, "base64:"))
 	if err != nil || len(k) != 32 {
-		return nil, errors.New("session: a key is 32 bytes in base64, as `head -c 32 /dev/urandom | base64` makes")
+		return nil, errors.New("session: a key is 32 bytes in base64, as `tug key` makes one")
 	}
 	return k, nil
 }

@@ -385,6 +385,8 @@ backup, doesn't give away the second factor along with the first. After
 `APP_KEY` changes, with the old key in `APP_PREVIOUS_KEYS`, `newApp` seals
 every user's again with the new one as the app starts (`resealTwoFactor`),
 so the old key can go without taking anyone's second factor with it.
+They're sealed as package `crypt` seals the app's own values, with a key
+of their own ([Encryption](encryption.md)).
 
 ### Passkeys
 
@@ -1221,9 +1223,10 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
   in use keeps itself alive. Changing the password, in the security
   settings, ends every other login. A new `APP_KEY`, without the old one in
   `APP_PREVIOUS_KEYS`, ends every session at once, and every link mailed.
-- **Rotating `APP_KEY`**: keep the old key in `APP_PREVIOUS_KEYS` for a
-  month, as long as a remembered login lasts. The two-factor secrets move
-  to the new key as the app starts, and the sessions as they're used.
+- **Rotating `APP_KEY`**: `tug key` makes the new one. Keep the old key in
+  `APP_PREVIOUS_KEYS` for a month, as long as a remembered login lasts.
+  The two-factor secrets move to the new key as the app starts, and the
+  sessions as they're used ([Encryption](encryption.md#rotating-the-key)).
 - **The browser's history**: Inertia keeps each page's props in it for
   Back. The starter has it encrypted, with `EncryptHistory: true` in
   `newApp`'s `inertia.Config`, and `logout` clears it, so after logging out
