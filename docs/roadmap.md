@@ -2213,7 +2213,7 @@ keeps. Laravel's Sanctum gives each user tokens they make and revoke,
 each with what it may do, which a request sends in `Authorization:
 Bearer`. A token is a password for the API, and made, kept and checked
 where a slip is a security hole, in `auth`. And an API that another
-site's pages call needs CORS, which tug had none of. To be released as
+site's pages call needs CORS, which tug had none of. Released as
 v0.22.0.
 
 - **Tokens:** `auth.AccessTokens` makes a token, random, after the app's
@@ -2306,7 +2306,7 @@ hear of. Laravel broadcasts an event on a channel, through Reverb or
 Pusher, and every page listening on it hears it, through Echo. tug does
 it with no server of its own: the app's database carries an event
 between the instances, as it carries the jobs, and `c.Events` takes it
-to the pages. To be released as v0.23.0.
+to the pages. Released as v0.23.0.
 
 - **Package `broadcast`,** with no import of tug. A `broadcast.Hub`
   publishes an event on a channel, as `posts` or `users.42`, and every
