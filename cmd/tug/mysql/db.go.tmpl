@@ -19,7 +19,7 @@ import (
 // development: docker compose up -d. This file opens it and makes its
 // tables, and the SQL of each is beside the Go that's the same on any
 // database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go,
-// cache_db.go and tokens_db.go.
+// cache_db.go, tokens_db.go and broadcasts_db.go.
 
 // dbFromEnv opens the database the environment names, with its tables up
 // to date: DB_URL, with the driver's settings in its query, as
@@ -162,6 +162,13 @@ var migrations = []string{
 		KEY access_tokens_user (user_id),
 		FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 	) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`,
+	// The events the hub carries between the app's instances, each kept a
+	// minute: broadcasts_db.go.
+	`CREATE TABLE broadcasts (
+		id         BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+		event      BLOB NOT NULL,
+		created_at BIGINT NOT NULL
+	)`,
 }
 
 // openDB opens the MySQL database at url, a mysql:// URL, and brings its

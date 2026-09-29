@@ -13,6 +13,19 @@ test('someone registers, follows the link mailed to them, and has their dashboar
   await expect(page.getByText('Thanks: your email is verified.')).toBeVisible()
 })
 
+test('the page that asks to verify the email moves on once the link is followed in another tab', async ({ page, context }, info) => {
+  const user = newUser()
+  const listening = page.waitForResponse((r) => r.url().endsWith('/broadcasts'))
+  await register(page, user)
+  await listening
+
+  const other = await context.newPage()
+  await other.goto(await mailedLink(info, user.email, '/verify-email/'))
+  await expect(dashboard(other, user)).toBeVisible()
+  await expect(dashboard(page, user)).toBeVisible()
+  await expect(page).toHaveURL(/\/dashboard$/)
+})
+
 test('a taken email is said so as the field is left, before the form is sent', async ({ page }, info) => {
   const user = await registered(page, info)
   await logOut(page)

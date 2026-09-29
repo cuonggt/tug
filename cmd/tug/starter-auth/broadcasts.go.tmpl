@@ -1,0 +1,34 @@
+package main
+
+import (
+	"context"
+
+	"github.com/cuonggt/tug"
+)
+
+// Broadcasts: events the app's broadcast.Hub carries between its
+// instances, to the pages open on any of them, through the database:
+// broadcasts_db.go. A user's pages listen on their own channel, at
+// /broadcasts, as the page that asks to verify the email does, which
+// moves on when the email is verified, in another tab or on another
+// device.
+
+// userChannel is a user's own channel, which their pages alone listen on.
+func userChannel(u *User) string {
+	return "users." + u.authID()
+}
+
+// userEvents is /broadcasts: the events on the user's own channel, which
+// their pages follow with EventSource. The stream ends as the hub closes
+// the subscription, as for a page that fell behind, and the page, which
+// connects again, reloads what it shows.
+func (a *app) userEvents(c *tug.Ctx, user *User) error {
+	return c.Events(func(ctx context.Context, send func(tug.Event) error) error {
+		for e := range a.hub.Subscribe(ctx, userChannel(user)) {
+			if err := send(tug.Event{Name: e.Name, Data: e.Data}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

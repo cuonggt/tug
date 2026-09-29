@@ -38,13 +38,16 @@ the detail.
 11. [Cache](cache.md): package `cache`, for what's slow to work out, kept
     where every instance of the app finds it, and locks for what mustn't
     run twice at once.
-12. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
-13. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
-    tests of an app's pages, forms, uploads and logins, and `mailtest`,
-    for its mail.
-14. [Deployment](deployment.md): one binary, the Dockerfile, and the
+12. [Broadcasting](broadcasting.md): package `broadcast`, events on
+    channels, carried by the app's database to the pages open on every
+    instance, which reload what changed.
+13. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
+14. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
+    tests of an app's pages, forms, uploads and logins, `mailtest`, for
+    its mail, and its events.
+15. [Deployment](deployment.md): one binary, the Dockerfile, and the
     environment.
-15. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
+16. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
     `tug build` and `tug key`, in full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,

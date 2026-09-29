@@ -13,8 +13,8 @@ import (
 // The app's database is SQLite: one file, app.db, or wherever DB_PATH
 // says. This file opens it and makes its tables, and the SQL of each is
 // beside the Go that's the same on any database: users_db.go,
-// passkeys_db.go, jobs_db.go, throttles_db.go, cache_db.go and
-// tokens_db.go.
+// passkeys_db.go, jobs_db.go, throttles_db.go, cache_db.go,
+// tokens_db.go and broadcasts_db.go.
 
 // dbFromEnv opens the database the environment names, DB_PATH or else
 // app.db, making it when it's not there, with its tables up to date.
@@ -113,6 +113,15 @@ var migrations = []string{
 		created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX access_tokens_user ON access_tokens (user_id)`,
+	// The events the hub carries between the app's instances, each kept a
+	// minute: broadcasts_db.go. AUTOINCREMENT keeps an ID from being used
+	// again once its row is pruned, as an instance reads what's after the
+	// last it read.
+	`CREATE TABLE broadcasts (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		event      BLOB NOT NULL,
+		created_at INTEGER NOT NULL
+	)`,
 }
 
 // openDB opens the SQLite database at path, making it when it's not there,

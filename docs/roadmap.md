@@ -33,7 +33,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M25 | Downloads and streams      | done   |
 | M26 | Encryption                 | done   |
 | M27 | API tokens                 | done   |
-| M28 | Broadcasting               | later  |
+| M28 | Broadcasting               | done   |
 | M29 | The queue, further         | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
@@ -2298,13 +2298,13 @@ Choices made on the way:
   deleted, the page asking for the password again, and CORS; and in each
   frontend, a token made, used, shown once and revoked.
 
-## M28 · Broadcasting — later
+## M28 · Broadcasting — done
 
-`c.Events` sends a page the events its own instance has, and nothing of
-another's: a post one instance saves, the pages open on the others don't
+`c.Events` sent a page the events its own instance had, and nothing of
+another's: a post one instance saved, the pages open on the others didn't
 hear of. Laravel broadcasts an event on a channel, through Reverb or
-Pusher, and every page listening on it hears it, through Echo. tug can
-do it with no server of its own: the app's database carries an event
+Pusher, and every page listening on it hears it, through Echo. tug does
+it with no server of its own: the app's database carries an event
 between the instances, as it carries the jobs, and `c.Events` takes it
 to the pages. To be released as v0.23.0.
 
@@ -2312,44 +2312,94 @@ to the pages. To be released as v0.23.0.
   publishes an event on a channel, as `posts` or `users.42`, and every
   subscriber to the channel, on any instance, gets it: `Publish(ctx,
   channel, name, data)`, and `Subscribe(ctx, channels...)`, which a route
-  of `c.Events` sends on.
-- **A store for them,** a `broadcast.Store`, which carries what one
-  instance publishes to the others: in memory, for one instance, and in
-  the starter's database, Postgres's `LISTEN` and `NOTIFY`, and in SQLite
-  and MySQL a table of what's new.
+  of `c.Events` sends on; `In(store)` publishes in the app's own
+  transaction, and `Run`, which the app runs with `App.Go`, listens.
+- **A store for them,** a `broadcast.Store`, `Publish` and `Listen`,
+  which carries what one instance publishes to the others: none, for one
+  instance, `broadcasttest.Memory` for tests, and the starter's database,
+  Postgres's `LISTEN` and `NOTIFY`, and in SQLite and MySQL a table of
+  what's new. `broadcasttest.TestStore` checks a store's promises.
 - **Who may listen** is the app's: a channel's route checks its user may,
-  as `users.42` is user 42's alone.
+  as the starter's `/broadcasts` is the user's own channel.
 - **The auth starter:** the page that asks to verify the email moves on
   once it's verified, in another tab or on another device, by an event on
-  the user's channel.
-- **`examples/inertia`:** a post made in one browser shows in the others.
-- **The guide:** a page, Broadcasting, and Pages, where one listens.
+  the user's channel, in each frontend; and `a.broadcasts`, for an event
+  in a handler's transaction.
+- **`examples/inertia`:** a post made, changed or deleted in one browser
+  shows in the others: the archive reloads its page, and the list its
+  stats, with `useEvents`, a hook of its own.
+- **The guide:** a page, Broadcasting, and Pages, where one listens,
+  Routing's events, Accounts, Testing and Deployment.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Over server-sent events, as M25 has them:** not WebSockets, nor a
-  server of its own, as Reverb is.
-- **At most once:** an event reaches the pages listening as it's
-  published. A page that wasn't, or that connects again after it, reloads
-  its props, which have what the event said. Nothing is replayed.
+  server of its own, as Reverb is. A page's requests carry what it says
+  back.
+- **At most once:** an event reaches the subscribers there are as it's
+  published, and nothing is replayed. A page that wasn't following, or
+  that connects again after it, reloads its props, which have what the
+  event said: the starter's page and the example's reload as their
+  `EventSource` opens again.
+- **A subscriber that falls behind is closed,** with 16 events it hasn't
+  taken, rather than hold the others up, or lose an event and go on: its
+  stream ends, and its page connects again and reloads. When the store
+  stops listening, as a connection drops, `Run` closes every subscriber,
+  as each may have missed one, and listens again, after a second,
+  doubling to a minute.
 - **The app's database carries it,** as it carries the jobs: Postgres's
   `NOTIFY`, which every listening connection gets as the transaction that
-  sent it commits, so an event published with what it's about goes with
-  it, or not at all; and elsewhere a table, which each instance reads
-  every quarter of a second, and prunes after a minute. Not Redis.
+  sent it commits, and elsewhere a table, which each instance reads every
+  quarter of a second, from its newest row as it starts, and which a
+  job, `prune-broadcasts`, rids of what's a minute old every minute. Not
+  Redis.
+- **With what it's about, or not at all:** `Hub.In` publishes through a
+  store of the app's transaction, the starter's `a.broadcasts.in(tx)`, as
+  `Kind.In` pushes a job in one: a `NOTIFY` goes as the transaction
+  commits, and a row is there as it commits.
+- **MySQL's IDs out of order:** MySQL hands out an ID as a row is written,
+  not as it commits, a rolled-back row's never comes, and a server that
+  counts by more than one, as one of several primaries, leaves some out.
+  So an ID below the highest read is waited for, 10 seconds from when it
+  was first missed, and then passed over, and each event is handed on
+  once. SQLite writes a transaction at a time, and its `AUTOINCREMENT`
+  keeps an ID from coming again once its row is pruned, so its IDs come
+  in the order they commit.
 - **An event says what changed, not the whole of it:** a `NOTIFY` holds
-  8000 bytes, and a page reloads what it shows.
+  8000 bytes, so the hub refuses an event over `MaxEvent`, 7000, its
+  channel, name and data together, whatever the store, and a page
+  reloads what it shows.
 - **One listener an instance,** the hub's, which hands each event to its
   own subscribers, where a connection each would take one from the pool
-  for every page open.
+  for every page open. Postgres's is a connection taken out of the pool
+  as long as it listens, and dropped after, as one that `LISTEN`ed is no
+  use to anything else.
 - **Channels are names,** the app's, and a private one is a route that
   checks: no protocol of their own, as Echo's `/broadcasting/auth` is.
+  The starter's `/broadcasts` takes no channel from the request: it's the
+  user's own, `users.` and their ID.
+- **The verify page's event is a nicety:** the email is verified whether
+  the page hears or not, so a publish that fails is logged, not the
+  request's error, and the page moves on as it's next reloaded.
+- **The example's list is left as it is:** its pages, which scroll, merge
+  by ID, so a reload would keep a post that's gone, and fetch the page in
+  view where a new post goes on the last. The archive, whose page a
+  reload replaces, shows a post where it falls, and the list reloads its
+  stats.
 - **Tests:** `broadcasttest.TestStore` on the memory store and the
-  starter's, in each database; an event published in a transaction that
-  rolls back, which no one gets; two instances on one database, where a
-  page on one hears the other's; a channel a user may not listen to; and
-  in the browser, the starter's verification in another tab, and
-  `examples/inertia`'s post in another page.
+  starter's, in each database: every listener hears, its own too, in
+  order, nothing from before it listened, events published at once each
+  once, one of `MaxEvent` bytes whole, and `Listen` ending with its
+  context; the hub's channels, a subscriber that falls behind, one whose
+  context ends, what it can't publish, an event the store carries that
+  isn't one, and `Run` listening again; in the starter, an event in a
+  transaction that rolls back, which no one hears, one that commits after
+  a later one's, on Postgres and MySQL, two instances on one database,
+  the verify page's event, a guest turned away, a user's stream that
+  carries their channel alone, and the table pruned; the example's
+  stream of posts made, changed and deleted; and in the browser, the
+  starter's verification in another tab, in each frontend, and
+  `examples/inertia`'s post in another browser.
 
 ## M29 · The queue, further — later
 

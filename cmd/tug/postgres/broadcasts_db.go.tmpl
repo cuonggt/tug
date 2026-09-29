@@ -1,0 +1,66 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
+
+	"github.com/jackc/pgx/v5/stdlib"
+)
+
+// broadcasts carries the hub's events between the app's instances, by
+// Postgres's NOTIFY, which each instance LISTENs for on a connection of
+// its own: a broadcast.Store, for the broadcast.Hub main makes. A NOTIFY
+// in a transaction goes as it commits, so an event published with what
+// it's about goes with it, or not at all: see in.
+type broadcasts struct {
+	db   *sql.DB
+	exec dbtx // what Publish goes through: the database, or a handler's transaction
+}
+
+// in is the broadcasts as tx publishes them, for Hub.In: they go as tx
+// commits.
+func (bs *broadcasts) in(tx *sql.Tx) *broadcasts {
+	return &broadcasts{db: bs.db, exec: tx}
+}
+
+func (bs *broadcasts) Publish(ctx context.Context, event []byte) error {
+	through := bs.exec
+	if through == nil {
+		through = bs.db
+	}
+	_, err := through.ExecContext(ctx, "SELECT pg_notify('tug_broadcasts', $1)", string(event))
+	return err
+}
+
+// Listen LISTENs on a connection it takes from the pool, and discards as
+// it's done, as a connection that LISTENs is no use to anything else.
+func (bs *broadcasts) Listen(ctx context.Context, deliver func([]byte)) error {
+	conn, err := bs.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	var stopped error
+	err = conn.Raw(func(dc any) error {
+		pg := dc.(*stdlib.Conn).Conn()
+		if _, stopped = pg.Exec(ctx, "LISTEN tug_broadcasts"); stopped != nil {
+			return driver.ErrBadConn
+		}
+		for {
+			n, err := pg.WaitForNotification(ctx)
+			if err != nil {
+				stopped = err
+				return driver.ErrBadConn
+			}
+			deliver([]byte(n.Payload))
+		}
+	})
+	switch {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case stopped != nil:
+		return stopped
+	}
+	return err // Raw's own, as for a connection that had closed
+}

@@ -1,5 +1,6 @@
-import { Form, Head, Link, usePage } from '@inertiajs/react'
+import { Form, Head, Link, router, usePage } from '@inertiajs/react'
 import { LoaderCircle } from 'lucide-react'
+import { useEffect } from 'react'
 import TextLink from '@/components/text-link'
 import { Button } from '@/components/ui/button'
 import { route } from '@/tug/routes'
@@ -9,6 +10,21 @@ import { route } from '@/tug/routes'
 // MAIL_HOST in .env, the mail is written to tug dev's terminal.
 export default function VerifyEmail() {
   const { auth } = usePage().props
+  // Verified in another tab, or on the phone the mail went to, the email
+  // moves this page on: the app says so on the user's own channel, which
+  // /broadcasts is, in broadcasts.go. The browser connects again when the
+  // stream ends, as when the app restarts, and the page reloads then, as it
+  // may have missed the event: the email verified, it moves on.
+  useEffect(() => {
+    const events = new EventSource(route('broadcasts'))
+    let opened = false
+    events.addEventListener('open', () => {
+      if (opened) router.reload()
+      opened = true
+    })
+    events.addEventListener('verified', () => router.visit(route('dashboard')))
+    return () => events.close()
+  }, [])
   return (
     <>
       <Head title="Verify your email" />

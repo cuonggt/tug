@@ -55,6 +55,7 @@ pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
 | `GET`, `POST /confirm-password`           | `password.confirm`, `password.confirm.store`  | users |
 | `GET`, `POST /verify-email`               | `verification.notice`, `verification.send`    | users |
 | `GET /verify-email/{id}/{token}`          | `verification.verify`                         | anyone with the link |
+| `GET /broadcasts`                         | `broadcasts`                                  | users, their own events |
 | `GET /settings`                           | `settings`                                    | goes to the profile |
 | `GET`, `PATCH`, `DELETE /settings/profile` | `profile.edit`, `profile.update`, `profile.destroy` | users, password confirmed |
 | `POST`, `DELETE /settings/profile/photo`  | `profile.photo.update`, `profile.photo.destroy` | users, password confirmed |
@@ -81,8 +82,10 @@ them.
   logging in and out, a forgotten password, and asking for the password
   again.
 - `verify.go`: verifying an email. `twofactor.go`: two-factor logins.
-  `settings.go`: the settings pages. `photos.go`: a user's photo, on the
-  app's disk. `mail.go`: the mail the app sends.
+  `passkeys.go`: passkeys. `settings.go`: the settings pages.
+  `photos.go`: a user's photo, on the app's disk. `tokens.go`: API
+  tokens. `broadcasts.go`: the events a user's pages follow. `mail.go`:
+  the mail the app sends.
 - `jobs.go`: the background jobs, in tables of their own, for package
   `queue`, which runs them beside the server, and the `jobs` command,
   which lists the ones that failed for good and runs them again. The mail
@@ -92,14 +95,16 @@ them.
   its case.
 - The database's: `db.go`, which opens it, from the environment, and has
   the migrations that make its tables; `users_db.go`, `passkeys_db.go`,
-  `jobs_db.go` and `throttles_db.go`, the SQL of each table; `db_test.go`,
-  the tests' databases and the migrations' tests; and on Postgres or
-  MySQL, `compose.yaml`, which runs the database in development.
+  `jobs_db.go`, `throttles_db.go`, `cache_db.go`, `tokens_db.go` and
+  `broadcasts_db.go`, the SQL of each; `db_test.go`, the tests' databases
+  and the migrations' tests; and on Postgres or MySQL, `compose.yaml`,
+  which runs the database in development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
   `passkeys_test.go`, `photos_test.go`, `jobs_test.go`,
-  `throttles_test.go`: a test of each flow, in browsers of
-  package `tugtest`, with the mail kept in memory, the photos in a
-  temporary directory, and a database of each test's own.
+  `throttles_test.go`, `cache_test.go`, `tokens_test.go`,
+  `broadcasts_test.go`: a test of each flow, in browsers of package
+  `tugtest`, with the mail kept in memory, the photos in a temporary
+  directory, and a database of each test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
   page's layout; `layouts/`, the app's, the login card's, and the
   settings'; `components/`, the app's own and shadcn's in
@@ -267,6 +272,13 @@ works in any browser, logged in or not, such as the phone the mail was read
 on: `verifyEmail` checks the token against the user's email now, stores
 `email_verified_at`, and goes to the dashboard, by way of the login page
 for a guest, where "your email is verified" waits.
+
+The page that asks to verify, open in another tab, or on the computer the
+user registered on while they read the mail on their phone, moves on to
+the dashboard as the link is followed: `verifyEmail` publishes `verified`
+on the user's own channel, which the page follows
+([Broadcasting](#broadcasting), below). A page that doesn't hear it, as
+when the database is down, moves on as it's next reloaded.
 
 - A link for an email the user has changed since, or one tampered with,
   verifies nothing: the user goes to the page that asks them to verify,
@@ -630,9 +642,9 @@ each database in its own way:
   migrations have the same gap on MySQL.
 
 The SQL of each table is in a file of its own, `users_db.go`,
-`passkeys_db.go`, `jobs_db.go`, `throttles_db.go` and `cache_db.go`,
-beside the Go that's the same on any database, and it's written for its database, where
-they differ:
+`passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,
+`tokens_db.go` and `broadcasts_db.go`, beside the Go that's the same on
+any database, and it's written for its database, where they differ:
 
 | | SQLite | Postgres | MySQL |
 |---|---|---|---|
@@ -708,6 +720,25 @@ out, and for locks that hold across its instances: package `cache`
 ([Cache](cache.md)). It's in the database too, in a `cache` table, whose
 SQL is in `cache_db.go`, and every hour a scheduled job, `prune-cache`,
 deletes what has expired. The starter keeps nothing in it itself.
+
+### Broadcasting
+
+The starter gives the app a hub, `a.hub`, which carries events to the
+pages open on every instance: package `broadcast`
+([Broadcasting](broadcasting.md)). `main` runs it with `app.Go`, and its
+store is the database, `a.broadcasts`, whose SQL is in
+`broadcasts_db.go`: Postgres's `NOTIFY`, and in SQLite and MySQL a
+`broadcasts` table, which each instance reads four times a second, and
+which a scheduled job, `prune-broadcasts`, rids of what's a minute old,
+every minute.
+
+A user's pages follow their own channel, `users.` and their ID, at
+`/broadcasts`, in `broadcasts.go`, which only their logins reach: the
+page that asks to verify the email listens for `verified`, and goes to
+the dashboard. An event of the app's for the user goes the same way,
+`a.hub.Publish(ctx, userChannel(user), name, data)`, and in a handler's
+transaction, with what it tells of, through
+`a.hub.In(a.broadcasts.in(tx))`.
 
 ### Health checks
 

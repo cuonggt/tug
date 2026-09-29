@@ -163,3 +163,28 @@ test('deleting a post goes back to the list, without it', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Hello, tug' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Delete me' })).toHaveCount(0)
 })
+
+test('a post made in another browser shows in this one, on its page and in the stats', async ({ page, context, browser }) => {
+  const archiveListens = page.waitForResponse((r) => r.url().endsWith('/posts/events'))
+  await page.goto('/posts?page=3')
+  await archiveListens
+  const index = await context.newPage()
+  const indexListens = index.waitForResponse((r) => r.url().endsWith('/posts/events'))
+  await index.goto('/')
+  await indexListens
+  const counted = Number((await index.getByTestId('stats').innerText()).match(/^(\d+) posts/)![1])
+
+  const elsewhere = await browser.newPage()
+  await elsewhere.goto('/posts/create')
+  await elsewhere.getByLabel('Title').fill('Made elsewhere')
+  await elsewhere.getByLabel('Body').fill('Shown in the other browser as it is made.')
+  await elsewhere.getByRole('button', { name: 'Create post' }).click()
+  await expect(elsewhere.getByRole('heading', { name: 'Made elsewhere' })).toBeVisible()
+  await elsewhere.close()
+
+  // The last page of every post, where the new one goes, and the list's
+  // stats, each without a visit.
+  await expect(page.locator('.posts li').last()).toHaveText('Made elsewhere')
+  await expect(page.getByText(`of ${counted + 1}`)).toBeVisible()
+  await expect(index.getByTestId('stats')).toContainText(`${counted + 1} posts`)
+})

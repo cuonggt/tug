@@ -1,7 +1,9 @@
 // Command inertia is tug's example of an Inertia app: posts, shown by React
 // pages that get their props from Go handlers, and written with forms that
 // check themselves as they're filled in. The list's stats are a deferred
-// prop, so the list shows before they're counted.
+// prop, so the list shows before they're counted. A post made, changed or
+// deleted in one browser shows in the others, which hear of it on the
+// posts channel, a broadcast.Hub's, and reload what they show of it.
 //
 // With the Vite dev server, which reloads the pages as they change:
 //
@@ -19,6 +21,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/csv"
@@ -37,6 +40,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/broadcast"
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/middleware"
 	"github.com/cuonggt/tug/session"
@@ -106,10 +110,14 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTim
 	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 
-	p := newPosts(countTime)
+	// The events go to the pages open on this instance alone, as the posts
+	// are kept in its memory: an app of several gives the hub a Store, its
+	// database, and runs it with app.Go(hub.Run).
+	p := newPosts(countTime, &broadcast.Hub{})
 	app.Get("/", p.index).Name("posts.index")
 	app.Get("/posts", p.archive).Name("posts.archive")
 	app.Get("/posts.csv", p.export).Name("posts.export")
+	app.Get("/posts/events", p.events).Name("posts.events")
 	app.Get("/posts/create", p.create).Name("posts.create")
 	app.Post("/posts", p.store).Name("posts.store")
 	app.Get("/posts/{id}", p.show).Name("posts.show")
@@ -180,16 +188,18 @@ func (in PostInput) post(id int64) Post {
 	return Post{ID: id, Title: strings.TrimSpace(in.Title), Body: in.Body, Tags: tags}
 }
 
-// posts keeps the posts in memory.
+// posts keeps the posts in memory, and tells the pages open of each
+// change, on hub's posts channel.
 type posts struct {
 	mu        sync.Mutex
 	byID      map[int64]Post
 	last      int64
 	countTime time.Duration
+	hub       *broadcast.Hub
 }
 
-func newPosts(countTime time.Duration) *posts {
-	p := &posts{byID: make(map[int64]Post), countTime: countTime}
+func newPosts(countTime time.Duration, hub *broadcast.Hub) *posts {
+	p := &posts{byID: make(map[int64]Post), countTime: countTime, hub: hub}
 	for _, post := range []Post{
 		{ID: 1, Title: "Hello, tug", Body: "Pages rendered by React, with props from Go handlers.", Tags: []string{"go", "inertia"}},
 		{ID: 2, Title: "No API in between", Body: "A handler returns its page and props, and Inertia does the rest.", Tags: []string{"react"}},
@@ -316,6 +326,7 @@ func (p *posts) store(c *tug.Ctx) error {
 	p.byID[post.ID] = post
 	p.mu.Unlock()
 
+	p.changed(c, "created", post.ID)
 	c.Flash("success", "Post created")
 	return c.RedirectRoute("posts.show", post.ID)
 }
@@ -368,6 +379,7 @@ func (p *posts) update(c *tug.Ctx) error {
 	p.byID[post.ID] = in.post(post.ID)
 	p.mu.Unlock()
 
+	p.changed(c, "updated", post.ID)
 	c.Flash("success", "Post updated")
 	return c.RedirectRoute("posts.show", post.ID)
 }
@@ -381,6 +393,30 @@ func (p *posts) destroy(c *tug.Ctx) error {
 	delete(p.byID, post.ID)
 	p.mu.Unlock()
 
+	p.changed(c, "deleted", post.ID)
 	c.Flash("success", "Post deleted")
 	return c.RedirectRoute("posts.index")
+}
+
+// changed tells the pages open that the post with id was created, updated
+// or deleted, for them to reload what they show of it. The event says what
+// changed, not the post, which a page asks for as it reloads.
+func (p *posts) changed(c *tug.Ctx, what string, id int64) {
+	if err := p.hub.Publish(c.Context(), "posts", what, map[string]int64{"id": id}); err != nil {
+		slog.WarnContext(c.Context(), "the pages open weren't told of a post", "post", id, "err", err)
+	}
+}
+
+// events is the posts channel, as server-sent events, which the pages
+// follow with EventSource. A page that falls behind has its stream ended,
+// and connects again, reloading what it shows.
+func (p *posts) events(c *tug.Ctx) error {
+	return c.Events(func(ctx context.Context, send func(tug.Event) error) error {
+		for e := range p.hub.Subscribe(ctx, "posts") {
+			if err := send(tug.Event{Name: e.Name, Data: e.Data}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

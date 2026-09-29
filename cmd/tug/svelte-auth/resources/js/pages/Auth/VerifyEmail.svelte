@@ -3,8 +3,9 @@
 </script>
 
 <script lang="ts">
-  import { Form, Link, page } from '@inertiajs/svelte'
+  import { Form, Link, page, router } from '@inertiajs/svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import { onMount } from 'svelte'
   import Head from '@/Head.svelte'
   import TextLink from '@/components/TextLink.svelte'
   import { Button } from '@/components/ui/button'
@@ -13,6 +14,22 @@
   // VerifyEmail is where the pages for verified users send someone who
   // hasn't followed the link mailed to them yet. In development, without
   // MAIL_HOST in .env, the mail is written to tug dev's terminal.
+
+  // Verified in another tab, or on the phone the mail went to, the email
+  // moves this page on: the app says so on the user's own channel, which
+  // /broadcasts is, in broadcasts.go. The browser connects again when the
+  // stream ends, as when the app restarts, and the page reloads then, as it
+  // may have missed the event: the email verified, it moves on.
+  onMount(() => {
+    const events = new EventSource(route('broadcasts'))
+    let opened = false
+    events.addEventListener('open', () => {
+      if (opened) router.reload()
+      opened = true
+    })
+    events.addEventListener('verified', () => router.visit(route('dashboard')))
+    return () => events.close()
+  })
 </script>
 
 <Head title="Verify your email" />

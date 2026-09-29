@@ -23,6 +23,7 @@ import (
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/broadcast"
 	"github.com/cuonggt/tug/cache"
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/lang"
@@ -105,8 +106,11 @@ func main() {
 		log.Fatal("QUEUE_WORKERS is how many jobs the app runs at once, such as 4, or 0 for none")
 	}
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers})
+	// Events, to the pages open on any instance, which the database carries
+	// between them: broadcasts.go.
+	hub := &broadcast.Hub{Store: &broadcasts{db: db}}
 	app, err := newApp(tug.ConfigFromEnv(), env{
-		Build: build, Keys: keys, DB: db, Disk: disk, Mailer: mailer, Queue: q,
+		Build: build, Keys: keys, DB: db, Disk: disk, Mailer: mailer, Queue: q, Hub: hub,
 [[- if .SSR ]]
 		SSR: bundle,
 [[- end ]]
@@ -121,6 +125,7 @@ func main() {
 	if workers > 0 {
 		app.Go(q.Run)
 	}
+	app.Go(hub.Run)
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
@@ -138,6 +143,10 @@ type env struct {
 	// Queue is where the app pushes its background jobs, its mail, and what
 	// runs them: main runs it beside the server, and the tests on its own.
 	Queue *queue.Queue
+
+	// Hub carries events to the pages open on any of the app's instances,
+	// which main runs beside the server, and the tests on its own.
+	Hub *broadcast.Hub
 [[- if .SSR ]]
 
 	// SSR is the SSR build: the pages, for Node to render on the server.
@@ -171,6 +180,12 @@ type app struct {
 	// keeps nothing in it; it's there for the app.
 	cache *cache.Cache
 
+	// hub carries events to the pages open on any instance, through the
+	// database, broadcasts, which a handler's transaction publishes in with
+	// a.hub.In(a.broadcasts.in(tx)): broadcasts.go.
+	hub        *broadcast.Hub
+	broadcasts *broadcasts
+
 	// The users' API tokens: accessTokens makes a token and its hash, which
 	// apiTokens keeps, and each token has apiRequests a minute: tokens.go.
 	accessTokens *auth.AccessTokens
@@ -192,8 +207,9 @@ type app struct {
 }
 
 // inTx runs fn in one transaction, which it commits, and then wakes the
-// queue: what fn writes through the stores in(tx) makes, and the jobs it
-// pushes about it with Kind.In(a.jobs.in(tx)), are kept together, or not
+// queue: what fn writes through the stores in(tx) makes, the jobs it
+// pushes about it with Kind.In(a.jobs.in(tx)), and the events it
+// publishes with a.hub.In(a.broadcasts.in(tx)), are kept together, or not
 // at all. fn writes through tx alone, as a write outside it may wait for
 // it, and does no slow work, such as hashing a password: the transaction
 // holds what it writes until it ends,
@@ -274,6 +290,8 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		verifications: &auth.Verifications{Keys: e.Keys},
 		twoFactor:     &auth.TwoFactor{Keys: e.Keys, Issuer: appName},
 		cache:         &cache.Cache{Store: cached},
+		hub:           e.Hub,
+		broadcasts:    &broadcasts{db: e.DB},
 		accessTokens:  &auth.AccessTokens{Prefix: tokenPrefix},
 		apiTokens:     &apiTokens{db: e.DB},
 		apiRequests:   &auth.Throttle{Name: "api", Max: 60, Window: time.Minute, Store: counts},
@@ -296,6 +314,11 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	queue.Handle(e.Queue, "prune-jobs", a.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
 	queue.Handle(e.Queue, "prune-throttles", counts.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	queue.Handle(e.Queue, "prune-cache", cached.prune).Schedule(queue.Every(time.Hour), struct{}{})
+[[- if not .Postgres ]]
+	// The events the hub carried go after a minute, which every instance
+	// has read them in.
+	queue.Handle(e.Queue, "prune-broadcasts", a.broadcasts.prune).Schedule(queue.Every(time.Minute), struct{}{})
+[[- end ]]
 	if len(e.Keys) > 1 && !tug.Generating() {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
 		// two-factor secrets over to the new one before it's dropped.
@@ -383,6 +406,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Get("/verify-email", a.usersOnly(verifyEmailPage)).Name("verification.notice")
 	app.Post("/verify-email", a.usersOnly(a.resendVerification)).Name("verification.send")
 	app.Get("/verify-email/{id}/{token}", a.verifyEmail).Name("verification.verify")
+
+	// The user's own events, which their pages listen for: broadcasts.go.
+	app.Get("/broadcasts", a.usersOnly(a.userEvents)).Name("broadcasts")
 
 	// Settings: settings.go, two-factor logins in twofactor.go, and passkeys
 	// in passkeys.go. What could hand the account to someone else asks for

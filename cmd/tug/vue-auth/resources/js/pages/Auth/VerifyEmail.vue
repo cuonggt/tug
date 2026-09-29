@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Form, Head, Link, usePage } from '@inertiajs/vue3'
+import { Form, Head, Link, router, usePage } from '@inertiajs/vue3'
 import { LoaderCircle } from '@lucide/vue'
+import { onMounted, onUnmounted } from 'vue'
 import TextLink from '@/components/TextLink.vue'
 import { Button } from '@/components/ui/button'
 import { route } from '@/tug/routes'
@@ -12,6 +13,23 @@ defineOptions({
   layout: { title: 'Verify your email', description: 'One more step, and the app is yours to use.' },
 })
 const page = usePage()
+
+// Verified in another tab, or on the phone the mail went to, the email
+// moves this page on: the app says so on the user's own channel, which
+// /broadcasts is, in broadcasts.go. The browser connects again when the
+// stream ends, as when the app restarts, and the page reloads then, as it
+// may have missed the event: the email verified, it moves on.
+let events: EventSource | undefined
+onMounted(() => {
+  events = new EventSource(route('broadcasts'))
+  let opened = false
+  events.addEventListener('open', () => {
+    if (opened) router.reload()
+    opened = true
+  })
+  events.addEventListener('verified', () => router.visit(route('dashboard')))
+})
+onUnmounted(() => events?.close())
 </script>
 
 <template>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
@@ -116,6 +117,12 @@ func (a *app) verifyEmail(c *tug.Ctx) error {
 	}
 	if err := a.users.setVerified(c.Context(), u.ID, u.Email); err != nil {
 		return err
+	}
+	// The page that asks to verify, open in another tab or on another
+	// device, moves on. The email is verified whether it hears or not: a
+	// page that doesn't moves on as it's reloaded.
+	if err := a.hub.Publish(c.Context(), userChannel(u), "verified", nil); err != nil {
+		slog.WarnContext(c.Context(), "the page asking to verify the email wasn't told it's verified", "user", u.ID, "err", err)
 	}
 	c.Flash("success", "Thanks: your email is verified.")
 	return c.RedirectRoute("dashboard")

@@ -41,6 +41,10 @@ go test ./...
   which a user makes in their settings, for a script or another service,
   and the API, `/api`, which takes one in place of a login, as
   `curl -H "Authorization: Bearer <token>" .../api/user`.
+  `broadcasts.go`: the events a user's pages follow at `/broadcasts`, on
+  their own channel, through tug's package `broadcast`, which the database
+  carries to every instance of the app: the page that asks to verify the
+  email moves on as the link is followed, in another tab or on a phone.
 - `users.go`: the users. `jobs.go`: the background jobs, in the same
   database, for tug's package `queue`, which runs them beside the server.
   The mail goes by jobs, so a mail server that's down, or a restart,
@@ -52,16 +56,17 @@ go test ./...
   `database/sql`, and the migrations that make and change its tables.
   The SQL of each table is beside the Go that's the same on any
   database: `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
-  `throttles_db.go`, `tokens_db.go`, and `cache_db.go`, the app's cache,
-  for tug's package `cache`, which the starter keeps nothing in yet.
+  `throttles_db.go`, `tokens_db.go`, `broadcasts_db.go`, and
+  `cache_db.go`, the app's cache, for tug's package `cache`, which the
+  starter keeps nothing in yet.
 [[- else ]]
 - `db.go`: the database, [[ if .MySQL ]]MySQL[[ else ]]Postgres[[ end ]] at `DB_URL`, through `database/sql`, and
   the migrations that make and change its tables. `compose.yaml` runs it
   in development, and the tests make a database each on it. The SQL of
   each table is beside the Go that's the same on any database:
   `users_db.go`, `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`,
-  `tokens_db.go`, and `cache_db.go`, the app's cache, for tug's package
-  `cache`, which the starter keeps nothing in yet.
+  `tokens_db.go`, `broadcasts_db.go`, and `cache_db.go`, the app's cache,
+  for tug's package `cache`, which the starter keeps nothing in yet.
 [[- end ]]
 [[- if .Vue ]]
 - `resources/js`: Vue with Tailwind and [shadcn-vue](https://www.shadcn-vue.com)

@@ -522,8 +522,16 @@ useEffect(() => {
 }, [id])
 ```
 
+A change made elsewhere, by another person, on another instance, reaches
+the page the same way, through package `broadcast`
+([Broadcasting](broadcasting.md)): the page follows a channel, as
+`posts`, on a route of `c.Events`, and reloads what it shows of the post
+an event names, and again when its `EventSource` connects again, for what
+it missed.
+
 `examples/inertia`'s archive has its posts as CSV, made a row at a time
-with `c.StreamDownload`.
+with `c.StreamDownload`, and reloads its page of posts as one is made,
+changed or deleted, in this browser or another.
 
 ## Error pages
 

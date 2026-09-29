@@ -288,6 +288,34 @@ An `Outbox` refuses a message an SMTP server wouldn't be sent, as
 `mail.Log` does, so a mail that couldn't go in production fails its test.
 The auth starter's tests use one ([Accounts](auth.md#testing)).
 
+## Events
+
+The events a handler publishes go through the app's hub
+([Broadcasting](broadcasting.md)), which a test subscribes to, as a
+page's route would, as the auth starter's test of its verify page does:
+
+```go
+func TestTheVerifyPageHearsTheEmailVerified(t *testing.T) {
+	app := newTestApp(t)
+	c := app.client()
+	register(c, "Ann", "ann@example.com", "correct horse")
+	ann := user(c.Get("/verify-email"))
+	events := listening(t, app.hub, userChannel(ann))
+	// The link, followed in another browser, as on the user's phone.
+	app.client().Get(link(t, app.outbox.Next(t), "/verify-email/"))
+	heard(t, events, "verified")
+}
+```
+
+A subscription hears what's published once the store carries it, a
+moment after, and a quarter of a second in a table, so `listening`, in
+the starter's `broadcasts_test.go`, publishes an event until it comes
+back, and `heard` waits for one by its name. A client's visit returns
+once the response is whole, which a stream never is: a test of a route
+of `c.Events` runs the app on an `httptest.Server`, and reads the stream
+as it comes, as the starter's `TestAUsersPagesHearTheirOwnChannelAlone`
+does.
+
 ## When a test fails
 
 The client fails the test, with `t.Fatalf`, when the test asks it for

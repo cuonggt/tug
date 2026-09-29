@@ -2,8 +2,14 @@ import { Deferred, Head, InfiniteScroll, Link, router } from '@inertiajs/react'
 import Layout from '../../Layout'
 import type { PageProps, Stats } from '../../tug/pages'
 import { route } from '../../tug/routes'
+import { useEvents } from '../../useEvents'
 
 export default function Index({ posts, stats }: PageProps<'Posts/Index'>) {
+  // A post made, changed or deleted, here or in another browser, is counted
+  // in the stats again. The list is left as it is, as its pages merge by
+  // ID: a reload would keep a post that's gone, and a new post goes on the
+  // last page, which the list may not have yet.
+  useEvents(route('posts.events'), ['created', 'updated', 'deleted'], () => router.reload({ only: ['stats'] }))
   return (
     <Layout>
       <Head title="Posts" />

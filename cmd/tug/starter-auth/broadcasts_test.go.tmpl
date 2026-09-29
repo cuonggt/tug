@@ -1,0 +1,258 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/broadcast"
+	"github.com/cuonggt/tug/broadcast/broadcasttest"
+)
+
+func TestTheBroadcastsKeepTheirPromises(t *testing.T) {
+	broadcasttest.TestStore(t, func(t *testing.T) broadcast.Store {
+		return &broadcasts{db: testDB(t)}
+	})
+}
+
+// heard waits for an event on events that says name, and fails the test
+// when none does in 10 seconds.
+func heard(t *testing.T, events <-chan broadcast.Event, name string) broadcast.Event {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case e, ok := <-events:
+			if !ok {
+				t.Fatalf("the subscription closed before %s came", name)
+			}
+			if e.Name == name {
+				return e
+			}
+		case <-deadline:
+			t.Fatalf("%s didn't come in 10 seconds", name)
+		}
+	}
+}
+
+// listening subscribes to channel on hub, and returns once the hub hears
+// what's published on it, as it may not the moment it starts.
+func listening(t *testing.T, hub *broadcast.Hub, channel string) <-chan broadcast.Event {
+	t.Helper()
+	events := hub.Subscribe(t.Context(), channel)
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		if err := hub.Publish(t.Context(), channel, "ready", nil); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case e := <-events:
+			if e.Name == "ready" {
+				return events
+			}
+		case <-time.After(300 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the hub heard nothing in 10 seconds")
+		}
+	}
+}
+
+func TestTheAppsInstancesHearEachOthersEvents(t *testing.T) {
+	db := testDB(t)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	one, other := &broadcast.Hub{Store: &broadcasts{db: db}}, &broadcast.Hub{Store: &broadcasts{db: db}}
+	go one.Run(ctx)
+	go other.Run(ctx)
+	listening(t, one, "posts")
+	events := listening(t, other, "posts")
+	if err := one.Publish(ctx, "posts", "created", 26); err != nil {
+		t.Fatal(err)
+	}
+	if e := heard(t, events, "created"); string(e.Data) != "26" {
+		t.Errorf("the other instance heard %+v", e)
+	}
+}
+
+func TestAnEventPublishedInATransactionThatRollsBackIsntHeard(t *testing.T) {
+	db := testDB(t)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	bs := &broadcasts{db: db}
+	hub := &broadcast.Hub{Store: bs}
+	go hub.Run(ctx)
+	events := listening(t, hub, "posts")
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.In(bs.in(tx)).Publish(ctx, "posts", "rolled-back", nil); err != nil {
+		t.Fatal(err)
+	}
+	tx.Rollback()
+	hub.Publish(ctx, "posts", "created", nil)
+	if e := heard(t, events, "created"); e.Name != "created" {
+		t.Errorf("heard %+v", e)
+	}
+	select {
+	case e := <-events:
+		t.Errorf("heard %+v after", e)
+	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+[[- if not .SQLite ]]
+
+// An event published in a transaction goes as it commits, which may be
+// after one published later has gone.
+func TestAnEventThatCommitsAfterALaterOneIsHeardToo(t *testing.T) {
+	db := testDB(t)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	bs := &broadcasts{db: db}
+	hub := &broadcast.Hub{Store: bs}
+	go hub.Run(ctx)
+	events := listening(t, hub, "posts")
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := hub.In(bs.in(tx)).Publish(ctx, "posts", "first", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.Publish(ctx, "posts", "second", nil); err != nil {
+		t.Fatal(err)
+	}
+	heard(t, events, "second")
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	heard(t, events, "first")
+}
+[[- end ]]
+
+func TestTheVerifyPageHearsTheEmailVerified(t *testing.T) {
+	app := newTestApp(t)
+	c := app.client()
+	register(c, "Ann", "ann@example.com", "correct horse")
+	ann := user(c.Get("/verify-email"))
+	events := listening(t, app.hub, userChannel(ann))
+	// The link, followed in another browser, as on the user's phone.
+	app.client().Get(link(t, app.outbox.Next(t), "/verify-email/"))
+	heard(t, events, "verified")
+}
+
+func TestAGuestHasNoEventsToHear(t *testing.T) {
+	app := newTestApp(t)
+	if r := app.client().Get("/broadcasts"); r.Location() != "/login" {
+		t.Errorf("a guest: %v", r)
+	}
+}
+
+// streamed reads the names of the events of an event stream, as they
+// come, until it ends.
+func streamed(body io.Reader) <-chan string {
+	names := make(chan string, 100)
+	go func() {
+		defer close(names)
+		lines := bufio.NewScanner(body)
+		for lines.Scan() {
+			if name, ok := strings.CutPrefix(lines.Text(), "event: "); ok {
+				names <- name
+			}
+		}
+	}()
+	return names
+}
+
+func TestAUsersPagesHearTheirOwnChannelAlone(t *testing.T) {
+	app := newTestApp(t)
+	c := app.client()
+	cookie := register(c, "Ann", "ann@example.com", "correct horse").Cookie("tug_session")
+	ann := user(c.Get("/verify-email"))
+	if cookie == nil || ann == nil {
+		t.Fatal("Ann isn't logged in")
+	}
+	// A stream stays open, as tugtest's client doesn't: a server, and Ann's
+	// page on it.
+	srv := httptest.NewServer(app)
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel() // before srv.Close, which waits for the stream
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/broadcasts", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(cookie)
+	res, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("Ann's page got %s, %s", res.Status, res.Header.Get("Content-Type"))
+	}
+	names := streamed(res.Body)
+	// The page is listening once it hears what's published, as the stream
+	// opens before the hub hands it anything.
+	heardReady := func() bool {
+		if err := app.hub.Publish(ctx, userChannel(ann), "ready", nil); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case name, ok := <-names:
+			if !ok {
+				t.Fatal("Ann's stream ended")
+			}
+			return name == "ready"
+		case <-time.After(300 * time.Millisecond):
+			return false
+		}
+	}
+	for deadline := time.Now().Add(10 * time.Second); !heardReady(); {
+		if time.Now().After(deadline) {
+			t.Fatal("Ann's page heard nothing in 10 seconds")
+		}
+	}
+
+	bob := &User{ID: ann.ID + 1}
+	app.hub.Publish(ctx, userChannel(bob), "verified", nil)
+	app.hub.Publish(ctx, userChannel(ann), "created", nil)
+	for name := range names {
+		if name == "created" {
+			return
+		}
+		if name != "ready" {
+			t.Fatalf("Ann's page heard %s, on Bob's channel", name)
+		}
+	}
+	t.Fatal("the stream ended before Ann's own event came")
+}
+[[- if not .Postgres ]]
+
+func TestTheAppPrunesTheEventsItCarried(t *testing.T) {
+	bs := &broadcasts{db: testDB(t)}
+	ctx := context.Background()
+	event := []byte(`{"channel":"posts","name":"created","data":null}`)
+	if _, err := bs.db.Exec("INSERT INTO broadcasts (event, created_at) VALUES (?, ?)", event, time.Now().Add(-time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if err := bs.Publish(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if err := bs.prune(ctx, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	bs.db.QueryRow("SELECT count(*) FROM broadcasts").Scan(&n)
+	if n != 1 {
+		t.Errorf("%d events left, want the one not a minute old", n)
+	}
+}
+[[- end ]]

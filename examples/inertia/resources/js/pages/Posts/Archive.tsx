@@ -1,10 +1,14 @@
-import { Head, Link } from '@inertiajs/react'
+import { Head, Link, router } from '@inertiajs/react'
 import Layout from '../../Layout'
 import Pager from '../../Pager'
 import type { PageProps } from '../../tug/pages'
 import { route } from '../../tug/routes'
+import { useEvents } from '../../useEvents'
 
 export default function Archive({ posts }: PageProps<'Posts/Archive'>) {
+  // A post made, changed or deleted, here or in another browser: the page
+  // in view is asked for again, with the posts on it now.
+  useEvents(route('posts.events'), ['created', 'updated', 'deleted'], () => router.reload({ only: ['posts'] }))
   return (
     <Layout>
       <Head title="Every post" />

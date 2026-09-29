@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
+	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/inertia"
@@ -33,13 +38,18 @@ func build() fstest.MapFS {
 	}
 }
 
-// newClient is a browser with the example open, running the build.
-func newClient(t *testing.T) *tugtest.Client {
+// newTestApp is the example, running the build.
+func newTestApp(t *testing.T) *tug.App {
 	app, err := newApp(tug.Config{}, build(), "", [][]byte{bytes.Repeat([]byte{1}, 32)}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tugtest.New(t, app)
+	return app
+}
+
+// newClient is a browser with the example open.
+func newClient(t *testing.T) *tugtest.Client {
+	return tugtest.New(t, newTestApp(t))
 }
 
 func TestTheFirstVisitLoadsTheBuildAndLeavesTheStatsForLater(t *testing.T) {
@@ -238,4 +248,92 @@ func TestTheBuildIsServed(t *testing.T) {
 	if r.Code != 200 || r.Body != "createInertiaApp()" || !strings.Contains(r.Header.Get("Cache-Control"), "immutable") {
 		t.Fatalf("got %v with %v", r, r.Header)
 	}
+}
+
+// event is one of an event stream's, as a page's EventSource gets it.
+type event struct {
+	name, data string
+}
+
+// streamed reads the events of an event stream as they come, until it
+// ends.
+func streamed(body io.Reader) <-chan event {
+	events := make(chan event, 100)
+	go func() {
+		defer close(events)
+		var e event
+		lines := bufio.NewScanner(body)
+		for lines.Scan() {
+			line := lines.Text()
+			if name, ok := strings.CutPrefix(line, "event: "); ok {
+				e.name = name
+			} else if data, ok := strings.CutPrefix(line, "data: "); ok {
+				e.data = data
+			} else if line == "" && e.name != "" {
+				events <- e
+				e = event{}
+			}
+		}
+	}()
+	return events
+}
+
+func TestThePagesOpenHearOfEachPostMadeChangedAndDeleted(t *testing.T) {
+	app := newTestApp(t)
+	c := tugtest.New(t, app)
+	// A stream stays open, as tugtest's client doesn't: a server, and a page
+	// open on it.
+	srv := httptest.NewServer(app)
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel() // before srv.Close, which waits for the stream
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/posts/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("got %s, %s", res.Status, res.Header.Get("Content-Type"))
+	}
+	events := streamed(res.Body)
+	// The page is listening once it hears of a post made: the stream opens
+	// before the hub hands it anything.
+	for i := 1; ; i++ {
+		if i > 20 {
+			t.Fatal("the page heard of none of 20 posts made")
+		}
+		c.Post("/posts", map[string]any{"title": fmt.Sprintf("Live %d", i), "body": "Made to see the page listening."})
+		select {
+		case <-events:
+		case <-time.After(300 * time.Millisecond):
+			continue
+		}
+		break
+	}
+	heard := func(want event) {
+		t.Helper()
+		for deadline := time.After(5 * time.Second); ; {
+			select {
+			case e := <-events:
+				if e == want {
+					return
+				}
+			case <-deadline:
+				t.Fatalf("the page didn't hear %+v", want)
+			}
+		}
+	}
+
+	r := c.Post("/posts", map[string]any{"title": "Made elsewhere", "body": "Heard of as it's made."})
+	post := r.Location()
+	said := fmt.Sprintf(`{"id":%s}`, strings.TrimPrefix(post, "/posts/"))
+	heard(event{"created", said})
+	c.Put(post, map[string]any{"title": "Changed elsewhere", "body": "Heard of as it's changed."})
+	heard(event{"updated", said})
+	c.Delete(post, nil)
+	heard(event{"deleted", said})
 }

@@ -61,8 +61,9 @@ func create(c *tug.Ctx) error {
 
 [`examples/inertia`](examples/inertia/main.go) is the whole app: React
 pages, a deferred prop, forms that check each field as it's left, flash
-messages, the Vite dev server with hot reload, and the frontend embedded in
-the binary for production. Handlers that aren't pages look like this:
+messages, posts that show in every browser open as they're made, the Vite
+dev server with hot reload, and the frontend embedded in the binary for
+production. Handlers that aren't pages look like this:
 
 ```go
 func main() {
@@ -204,6 +205,13 @@ func showPost(c *tug.Ctx) error {
   value out once however many ask for it at once, and locks that hold
   across the instances, for an import or a command that mustn't run twice
   at once.
+- **Broadcasting** (package `broadcast`): events on channels, as `posts`
+  or `users.42`, to the pages that follow them on every instance of the
+  app, through `c.Events`, carried by its database, as the auth starter
+  has it: Postgres's `NOTIFY`, or a table in SQLite and MySQL, and in the
+  transaction that makes the change, or not at all. A post made in one
+  browser shows in the others, and the auth starter's page that asks to
+  verify the email moves on once the link is followed on the phone.
 - **Tests** (package `tugtest`): Inertia's client, for Go's tests of an
   app's pages, which need no browser or frontend build. Its visits keep
   the cookies the app sets and follow its redirects, upload files as the

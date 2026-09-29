@@ -611,8 +611,9 @@ a line break, or data JSON can't hold, is `send`'s error, and isn't sent.
 - `fn`'s error is logged, as the response has started; a client that went
   away, or the app's shutdown, isn't an error.
 - The events are the instance's own: a page on one instance doesn't hear
-  an event another instance has. Sending one to every page that follows,
-  whichever instance it's on, isn't here yet.
+  an event another instance has. Package `broadcast` sends one to every
+  page that follows a channel, whichever instance it's on
+  ([Broadcasting](broadcasting.md)).
 
 ## Binding
 

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M27 are done, which is
+the decisions behind it and where it stands: M1 to M28 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -52,7 +52,12 @@ purpose alone, bound to their owner, with `Stale` for a rotation,
 `auth.TwoFactor` sealing the same way, and `tug key`, and API tokens
 (v0.22.0): `auth.AccessTokens`, kept as their hashes, `middleware.CORS`,
 `CSRF`'s paths let through, and in the auth starter, a settings page of
-tokens, and `/api`, which takes one in place of a login.
+tokens, and `/api`, which takes one in place of a login, and
+broadcasting (v0.23.0): package `broadcast`, events on channels, to the
+pages that follow them on every instance, through `c.Events`, carried by
+the app's database, `NOTIFY` or a table, in its transaction or not at
+all, and in the auth starter, the page that asks to verify the email
+moving on once it's verified elsewhere.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -455,7 +460,25 @@ dev server that isn't there: delete it.
   ability, 60 a minute by the token's ID (`apiRequests`); `tokenPrefix` is
   `starterData.TokenPrefix`, the app's name in letters and digits, and
   `abilities` lists what the page offers, `user:read`, which `/api/user`
-  asks for. `tokens_test.go` and `e2e/tests/tokens.spec.ts` test it. The
+  asks for. `tokens_test.go` and `e2e/tests/tokens.spec.ts` test it.
+  Every layer's `broadcasts_db.go` is `broadcasts`, a `broadcast.Store`,
+  which `main` gives the `broadcast.Hub` it runs with `app.Go`, and
+  `newApp` the app as `a.hub`, with `a.broadcasts` for `in(tx)`: in
+  Postgres a `pg_notify` on `tug_broadcasts`, which `Listen` hears on a
+  connection it takes from the pool (`Raw`, pgx's `WaitForNotification`)
+  and discards (`driver.ErrBadConn`); in SQLite and MySQL a `broadcasts`
+  table read every `pollEvery`, 250 ms, past the last ID read, from its
+  `MAX(id)` as it starts, which `prune` empties of what's a minute old
+  every minute as `prune-broadcasts` (not in Postgres); MySQL's IDs
+  can commit out of order, so an ID below the `highest` read is
+  `missing`, waited for `gapWait`, 10 s, from when it was first missed,
+  then passed over, and `seen` hands each on once. `broadcasts.go.tmpl`
+  is the user's own channel, `userChannel`, `users.` and the ID, at
+  `/broadcasts` (`userEvents`), which `verifyEmail` publishes `verified`
+  on, and each frontend's `Auth/VerifyEmail` follows with `EventSource`,
+  visiting the dashboard as it hears it, and reloading as it connects
+  again; `broadcasts_test.go` runs `broadcasttest.TestStore` on it, and
+  `e2e/tests/accounts.spec.ts` follows the link in another tab. The
   throttles count by `c.IP()`, behind the proxies `TRUSTED_PROXIES`
   names, which both starters hand `TrustProxies`; the links in mail are
   `a.routes.AbsoluteURL`'s, and `newApp` stops without `APP_URL`, but
@@ -599,6 +622,20 @@ dev server that isn't there: delete it.
   `Get` or an `Add` was given. `cachetest`: `TestStore`, which `cache`'s
   own tests run on the memory store (`export_test.go`); the tests of what
   waits run in `testing/synctest`.
+- `broadcast`: events on channels between an app's instances, with no
+  import of tug and no idea where they're carried. `broadcast.go`:
+  `Hub` (`Publish`, `Subscribe`, `In`, which returns a `Publisher`
+  through another `Store`, and `Run`) and `Store` (`Publish`, `Listen`);
+  an event goes to the store as `wire`, JSON of its channel, name and
+  data, `MaxEvent` bytes at most, and `deliver` hands it to the
+  `subscriber`s of its channel, a buffer of 16 each, and `drop`s one
+  that's full; without a Store, `publish` delivers in place. `Run` calls
+  `Listen` again after it fails, `listenAgain`, a second, doubling to a
+  minute, having dropped every subscriber. `broadcasttest`: `Memory`, and
+  `TestStore`, whose `listen` sends `probe` events until one comes back,
+  as a store listens from a moment after `Listen` is called; the hub's
+  own tests run it on `Memory`, and those of what waits in
+  `testing/synctest`.
 - `tugtest`: Inertia's client for an app's Go tests, a browser with the
   app open. `tugtest.go`: `Client`, whose visits (`Visit`, and `Get` to
   `Delete`) send X-Inertia, the `Version` it runs, and the page it's on as
@@ -625,6 +662,10 @@ dev server that isn't there: delete it.
   numbered pages with `Pager.tsx`, are both `tug.Paginate` of the posts,
   and `/posts.csv` is every post as CSV, `c.StreamDownload`'s (`export`),
   with `cell` putting a quote before one that would run as a formula.
+  A post made, changed or deleted is an event on the posts channel of a
+  `broadcast.Hub` in memory (`changed`), which `/posts/events` sends on
+  (`events`), and which the archive, reloading its page, and the list,
+  reloading its stats, follow with `resources/js/useEvents.ts`.
   `resources/js/tug` is written by tug gen and committed (CI checks it's
   current); `resources/js/types.ts` has only the flash type.
 

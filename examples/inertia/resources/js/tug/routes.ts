@@ -7,6 +7,7 @@ export const routes = {
   'posts.create': { method: 'get', path: '/posts/create' },
   'posts.destroy': { method: 'delete', path: '/posts/{id}' },
   'posts.edit': { method: 'get', path: '/posts/{id}/edit' },
+  'posts.events': { method: 'get', path: '/posts/events' },
   'posts.export': { method: 'get', path: '/posts.csv' },
   'posts.index': { method: 'get', path: '/{$}' },
   'posts.show': { method: 'get', path: '/posts/{id}' },
@@ -20,6 +21,7 @@ export interface Params {
   'posts.create': Record<string, never>
   'posts.destroy': { id: string | number }
   'posts.edit': { id: string | number }
+  'posts.events': Record<string, never>
   'posts.export': Record<string, never>
   'posts.index': Record<string, never>
   'posts.show': { id: string | number }
