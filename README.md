@@ -185,6 +185,12 @@ func showPost(c *tug.Ctx) error {
   on Postgres or MySQL the claims of several instances skip each other's
   jobs rather than wait for them, and its binary lists the jobs that
   failed for good, and runs them again: `./blog jobs`.
+- **Cache** (package `cache`): what's slow to work out, kept for a while
+  where every instance of the app finds it, such as a table in its
+  database, as the auth starter has, with `cache.Remember`, which works a
+  value out once however many ask for it at once, and locks that hold
+  across the instances, for an import or a command that mustn't run twice
+  at once.
 - **Tests** (package `tugtest`): Inertia's client, for Go's tests of an
   app's pages, which need no browser or frontend build. Its visits keep
   the cookies the app sets and follow its redirects, upload files as the

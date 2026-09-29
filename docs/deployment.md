@@ -255,9 +255,9 @@ instances starting at once take turns ([Accounts](auth.md#the-database)).
 With the photos in a bucket as well, `FILESYSTEM_DISK=s3`, an instance
 keeps nothing of its own, and as many as the database takes can run
 side by side, anywhere that reaches it: the jobs, the throttles' counts
-of the tries at logging in, and the sessions, in their cookies, are the
-same whichever instance a request reaches. The starter is tested on
-Postgres 18 and MySQL 8.4.
+of the tries at logging in, the cache and its locks, and the sessions, in
+their cookies, are the same whichever instance a request reaches. The
+starter is tested on Postgres 18 and MySQL 8.4.
 
 The app's `compose.yaml` is for development: it runs the database on
 `127.0.0.1`, with a password everyone knows. A deployed app's database is

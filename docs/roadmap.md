@@ -28,7 +28,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M20 | Languages                  | done   |
 | M21 | Pagination                 | done   |
 | M22 | Commands                   | done   |
-| M23 | Cache and locks            | next   |
+| M23 | Cache and locks            | done   |
 | M24 | Mail, whole                | later  |
 | M25 | Downloads and streams      | later  |
 | M26 | Encryption                 | later  |
@@ -1740,23 +1740,23 @@ Choices made on the way:
   itself; tug gen's types whatever the arguments; the names that panic;
   and the starter's `jobs` run through `Run`, as its binary runs it.
 
-## M23 · Cache and locks — next
+## M23 · Cache and locks — done
 
-An app that shows what's slow to work out, a dashboard's counts or a
-feed from another service, works it out at each visit, or keeps it in a
-map of its own, which each instance has apart and a restart empties. And
-work that mustn't run twice at once, an import or a report, has nothing
-to hold across instances: a job has `OneAtATime`, and a command or a
+An app that showed what was slow to work out, a dashboard's counts or a
+feed from another service, worked it out at each visit, or kept it in a
+map of its own, which each instance had apart and a restart emptied. And
+work that mustn't run twice at once, an import or a report, had nothing
+to hold across instances: a job had `OneAtATime`, and a command or a
 handler nothing. Laravel's `Cache` keeps values in a store every
 instance shares, the database among them, with `Cache::remember` and
-`Cache::lock`. tug can have it as it has the queue and the throttles: an
+`Cache::lock`. tug has it now as it has the queue and the throttles: an
 interface for the store, and its SQL in the starter's layers. To be
 released as v0.18.0.
 
 - **Package `cache`,** with no import of tug. A `cache.Cache` keeps
   values under keys, each until it expires, in its `Store`: `Set` keeps
-  one, as JSON, `Get` reads it into its type, and `Delete` drops it.
-  Without a `Store`, they're in memory, as a `Throttle`'s counts are
+  one, as JSON, `cache.Get` reads it into its type, and `Delete` drops
+  it. Without a `Store`, they're in memory, as a `Throttle`'s counts are
   without one: for one instance, and for tests.
 - **Remembering.** `cache.Remember(ctx, a.cache, "stats", time.Hour,
   a.stats)` returns the value kept under `"stats"`, or runs `a.stats`
@@ -1778,45 +1778,63 @@ released as v0.18.0.
   which deletes what has expired. `newApp` gives the app `a.cache`, which
   the starter keeps nothing in: it's there for the app, as Laravel's
   `cache` table is.
-- **The guide:** a page, Cache, and Accounts, for the starter's table.
+- **The guide:** a page, Cache, and Accounts, for the starter's table,
+  Deployment, where the instances share it, and Background jobs, where a
+  lock is for what isn't a job.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A store the app's database keeps,** as M8's jobs and M18's throttles
   are, so tug stays without SQL: the interface is tug's, and the SQL the
   starter's, in each database. Not Redis, which a deploy would run beside
   the database for this alone: an app that has one writes a `Store` on
   it, of five methods.
-- **The store is given a hash, not the key:** the SHA-256 of the key, as
-  a throttle's store is, 32 bytes for any key, which fit one index on
-  each database, and keep an email in a key out of the table. A lock's
-  is the hash of its name apart from the values', `lock`, a NUL and the
-  name, so a lock and a value never share a row.
+- **The store is given a hash, not the key:** the SHA-256 of `value` or
+  `lock`, a NUL, and the key or the lock's name, as a throttle's store is
+  given one, 32 bytes for any key, which fit one index on each database,
+  and keep an email in a key out of the table. The plan had a value's be
+  of its key alone, which a value keyed `lock`, a NUL and a name would
+  have shared with that lock.
 - **Every value expires,** as every signed link does: a time to live of
   0 or less panics, as a page size under 1 does. A table of values no one
   asks for again only grows, and one that must last is given days.
 - **JSON,** as the session's values and a job's payload are: readable in
   the table, and a value comes back as the type it's read into, where gob
-  would tie the table to the Go types of the day.
+  would tie the table to the Go types of the day. A value that isn't its
+  type's JSON, as one an older build kept may not be once the type has
+  changed, is none: `Get` says so, and `Remember` works it out again, in
+  its place.
 - **`Remember` runs its function once at a time for a key,** in an
   instance: callers that miss while it runs wait for its value, as
   `golang.org/x/sync`'s singleflight has it, written again in a few
-  lines. Across instances, each may run it once; where that costs more
-  than waiting, the function takes a lock.
+  lines. The wait takes in the store's read too, so callers at once make
+  one query, whether the value is there or not. Across instances, each
+  may run it once; where that costs more than waiting, the function takes
+  a lock.
+- **Callers that waited for a run that failed work it out themselves,**
+  rather than take its error, which may be the first caller's alone, as
+  a client that went away; a run that panics lets them go too, and the
+  panic is its caller's, as a handler's is. A caller whose own context is
+  done stops waiting.
+- **A value's time starts once it's worked out,** however long the
+  function took.
 - **A store that fails is a miss,** for `Remember`: it runs the function,
   returns its value, and logs the store's error, as the site works
   without its cache, only slower, where a throttle that guessed would
-  stop nothing. `Get` and `Set` return the error, for an app that wants
-  it, and a lock never guesses: one that can't be taken, for an error,
-  returns it.
+  stop nothing. It logs nothing for a context that's done, as a client
+  that went away is no failure of the store's. `Get` and `Set` return the
+  error, for an app that wants it, and a lock never guesses: one that
+  can't be taken, for an error, returns it.
 - **A lock's owner is a random value,** kept as the lock's value:
   `Release` deletes the lock only while it's the owner's, so a holder
   whose time ran out, and whose lock another took, can't let go of the
-  other's. A lock lasts the time it's taken for, and work that may take
-  longer asks for longer.
-- **`Wait` asks again every so often,** as Laravel's `block` does, every
-  250 milliseconds, until the lock is taken or the context is done: a
-  store has no way to say it's free.
+  other's; it says nothing of that, as the lock is the other's to hold. A
+  lock lasts the time it's taken for, and work that may take longer asks
+  for longer. A `Lock` that holds its lock can't take it again.
+- **`Wait` asks again every 250 milliseconds,** as Laravel's `block`
+  does, until the lock is taken or the context is done, whose error it
+  returns: a store has no way to say it's free, and
+  `context.WithTimeout` says how long to wait.
 - **The queue keeps `OneAtATime`,** where a job waits its turn without
   holding a worker; a lock is for what isn't a job, as a command or a
   handler, or for part of one.
@@ -1825,17 +1843,30 @@ Choices, to settle before any code:
 - **No counters, tags or prefixes,** which Laravel's cache has: counting
   is a throttle's, tags need a store that lists keys, and the table is
   the app's own, with no other app's keys to keep apart from.
+- **The memory store sweeps what has expired** as it doubles, as a
+  throttle's does, by the latest time a `Get` or an `Add` was given: `Set`
+  is given none, and the wall clock isn't the app's, as a test's isn't.
 - **The table:** a row for each key, its hash, the value, and when it
   expires, `expires_at`, in Unix milliseconds, as the throttles' times
   are, with no index but the key's. `Get` leaves out a value that has
-  expired, so pruning is for space, and hourly will do.
+  expired, so pruning is for room, and hourly will do. `Add` is an upsert
+  whose update replaces only a value that has expired: in SQLite and
+  Postgres, `ON CONFLICT DO UPDATE` with a `WHERE`, and in MySQL, `IF`s,
+  the value's first, as it reads the time the second one changes, and a
+  row left as it was counts as none affected, as the jobs' `PushScheduled`
+  has it. MySQL's value is a `MEDIUMBLOB`, up to 16 MB, where a `BLOB`'s
+  64 KB would fail a value of a megabyte, as a test's does.
 - **Tests:** `cachetest.TestStore` on the memory store, and on the
   starter's table in each database, with 20 `Add`s at once among them, of
-  which one keeps its value; `Remember` with callers at once, with a
-  store that fails, and past a value's time; locks taken and released,
-  one whose time ran out, and one waited for; and in the starter, two
-  caches on one database, as two instances have, where a lock one holds,
-  the other can't take.
+  which one keeps its value, and a megabyte of every byte; `Remember`
+  with callers at once, in `testing/synctest`, whose clock waits for them,
+  a run that fails, one that panics and a caller that stops waiting; a
+  store that fails, and one that fails for a context that's done; a
+  value past its time, one of another type, and one JSON can't hold;
+  locks taken and released, one whose time ran out, one waited for and
+  one given up on; the hashes a store is given; and in the starter, two
+  caches on one database, as two instances have, which share a value and
+  a lock, and the prune.
 
 ## M24 · Mail, whole — later
 

@@ -17,7 +17,8 @@ import (
 // The app's database is Postgres, at DB_URL, which compose.yaml runs in
 // development: docker compose up -d. This file opens it and makes its
 // tables, and the SQL of each is beside the Go that's the same on any
-// database: users_db.go, passkeys_db.go, jobs_db.go and throttles_db.go.
+// database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go and
+// cache_db.go.
 
 // dbFromEnv opens the database the environment names, with its tables up
 // to date: DB_URL, with the driver's settings in its query, as
@@ -125,6 +126,13 @@ var migrations = []string{
 		key_hash bytea PRIMARY KEY,
 		tries    integer NOT NULL,
 		ends_at  bigint NOT NULL
+	)`,
+	// The cache's values, and its locks, where every instance of the app
+	// finds them: cache_db.go.
+	`CREATE TABLE cache (
+		key_hash   bytea PRIMARY KEY,
+		value      bytea NOT NULL,
+		expires_at bigint NOT NULL
 	)`,
 }
 

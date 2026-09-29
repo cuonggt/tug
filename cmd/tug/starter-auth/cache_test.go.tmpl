@@ -1,0 +1,89 @@
+package main
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/cache"
+	"github.com/cuonggt/tug/cache/cachetest"
+)
+
+func TestTheCacheTableKeepsItsPromises(t *testing.T) {
+	cachetest.TestStore(t, func(t *testing.T) cache.Store {
+		return &cacheTable{db: testDB(t)}
+	})
+}
+
+func TestTheAppsInstancesShareTheCache(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	// Two caches on one database, as two instances of the app have.
+	one, other := &cache.Cache{Store: &cacheTable{db: db}}, &cache.Cache{Store: &cacheTable{db: db}}
+	if _, err := cache.Remember(ctx, one, "stats", time.Hour, func(context.Context) (int, error) { return 12, nil }); err != nil {
+		t.Fatal(err)
+	}
+	n, err := cache.Remember(ctx, other, "stats", time.Hour, func(context.Context) (int, error) {
+		t.Error("the other instance worked the value out again")
+		return 0, nil
+	})
+	if n != 12 || err != nil {
+		t.Errorf("the other instance's value: %v, %v", n, err)
+	}
+
+	held := one.Lock("import", time.Minute)
+	if ok, err := held.Try(ctx); !ok || err != nil {
+		t.Fatalf("a free lock: %v, %v", ok, err)
+	}
+	if ok, err := other.Lock("import", time.Minute).Try(ctx); ok || err != nil {
+		t.Errorf("the other instance took the lock one holds: %v, %v", ok, err)
+	}
+	if err := held.Release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := other.Lock("import", time.Minute).Try(ctx); !ok || err != nil {
+		t.Errorf("the other instance, once it's released: %v, %v", ok, err)
+	}
+}
+
+func TestTheValuesThatHaveExpiredArePruned(t *testing.T) {
+	ct := &cacheTable{db: testDB(t)}
+	ctx, now := context.Background(), time.Now()
+	for key, expires := range map[string]time.Time{"expired": now.Add(-time.Minute), "kept": now.Add(time.Hour)} {
+		if err := ct.Set(ctx, hashed(key), []byte(`"`+key+`"`), expires); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ct.prune(ctx, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := ct.db.QueryRow("SELECT count(*) FROM cache").Scan(&rows); err != nil || rows != 1 {
+		t.Errorf("%d rows left, %v: want the one still kept", rows, err)
+	}
+	if _, ok, err := ct.Get(ctx, hashed("kept"), now); !ok || err != nil {
+		t.Errorf("the one still kept: %v, %v", ok, err)
+	}
+}
+
+func TestTheAppPrunesTheCacheEveryHour(t *testing.T) {
+	started := time.Now().UTC()
+	app := newTestApp(t)
+	var runAt int64
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		err := app.db.QueryRow("SELECT run_at FROM jobs WHERE kind = 'prune-cache'").Scan(&runAt)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the prune job wasn't pushed: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The next hour, or the one after, should one have come round as the
+	// app started.
+	next := started.Truncate(time.Hour).Add(time.Hour)
+	if got := time.UnixMilli(runAt).UTC(); !got.Equal(next) && !got.Equal(next.Add(time.Hour)) {
+		t.Errorf("the prune job runs at %v, want the next hour, %v", got, next)
+	}
+}

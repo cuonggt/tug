@@ -13,7 +13,7 @@ import (
 // The app's database is SQLite: one file, app.db, or wherever DB_PATH
 // says. This file opens it and makes its tables, and the SQL of each is
 // beside the Go that's the same on any database: users_db.go,
-// passkeys_db.go, jobs_db.go and throttles_db.go.
+// passkeys_db.go, jobs_db.go, throttles_db.go and cache_db.go.
 
 // dbFromEnv opens the database the environment names, DB_PATH or else
 // app.db, making it when it's not there, with its tables up to date.
@@ -91,6 +91,13 @@ var migrations = []string{
 		key_hash BLOB PRIMARY KEY,
 		tries    INTEGER NOT NULL,
 		ends_at  INTEGER NOT NULL
+	)`,
+	// The cache's values, and its locks, where every instance of the app
+	// finds them: cache_db.go.
+	`CREATE TABLE cache (
+		key_hash   BLOB PRIMARY KEY,
+		value      BLOB NOT NULL,
+		expires_at INTEGER NOT NULL
 	)`,
 }
 

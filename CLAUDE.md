@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M22 are done, which is
+the decisions behind it and where it stands: M1 to M23 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -35,9 +35,11 @@ languages (v0.15.0): package `lang`, what tug says, a form's errors among
 it, and `c.T`, in the request's language, fields named by their `label`
 tags or their keys in words, `validate.Rule`, and `tug lang`,
 pagination (v0.16.0): `tug.Paginate`, `SimplePaginate` and
-`CursorPaginate`, with the app's own queries, and commands (v0.17.0):
+`CursorPaginate`, with the app's own queries, commands (v0.17.0):
 `app.Command`, which `Run` runs in place of serving, as the auth
-starter's `jobs`.
+starter's `jobs`, and cache and locks (v0.18.0): package `cache`, with
+`cache.Remember`, and locks that hold across instances, and the auth
+starter's cache in its database.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -395,10 +397,17 @@ dev server that isn't there: delete it.
   upsert with `RETURNING`, or in MySQL a transaction that reads back),
   whose `prune` runs every hour as `prune-throttles`; `throttles_test.go`
   runs `throttletest.TestStore` on it, and two instances on one database
-  share a login's count. They count by `c.IP()`, behind the proxies
-  `TRUSTED_PROXIES` names, which both starters hand `TrustProxies`; the
-  links in mail are `a.routes.AbsoluteURL`'s, and `newApp` stops without
-  `APP_URL`, but under tug gen. Both starters embed `lang/` (a
+  share a login's count. Every layer's `cache_db.go` is `cacheTable`, a
+  `cache.Store` (`Add` an upsert that replaces only a value that has
+  expired: `ON CONFLICT ... DO UPDATE ... WHERE`, or MySQL's `IF`s, whose
+  row unchanged counts as none affected), which `newApp` gives the app as
+  `a.cache`, keeping nothing in it itself, and whose `prune` runs every
+  hour as `prune-cache`; `cache_test.go` runs `cachetest.TestStore` on
+  it, and two caches on one database share a value and a lock. The
+  throttles count by `c.IP()`, behind the proxies `TRUSTED_PROXIES`
+  names, which both starters hand `TrustProxies`; the links in mail are
+  `a.routes.AbsoluteURL`'s, and `newApp` stops without `APP_URL`, but
+  under tug gen. Both starters embed `lang/` (a
   `.gitkeep` until there's a file) and load it in `newApp`, with
   `APP_LOCALE` for the default.
   The mail goes by jobs (`VerifyMail` in `verify.go.tmpl`, `ResetMail` in
@@ -500,6 +509,20 @@ dev server that isn't there: delete it.
   `queuetest`: `Memory`, and `TestStore`, the Store's promises as tests,
   which every Store's own tests run. `queue_test.go` is an external
   package, for `Memory`, with `export_test.go` for the clock.
+- `cache`: values kept for a while, and locks, with no import of tug and
+  no idea where they're kept. `cache.go`: `Cache` (`Set`, `Get`, `Delete`,
+  and `Remember`, which works a key's value out once at a time in the
+  process, the callers meanwhile waiting on its `flight`, and takes a
+  store that fails for no value, which `logFailure` logs unless the
+  context is done) and `Store` (`Get`, `Set`, `Add`, `Delete` and
+  `DeleteIf`), given `hash`: the SHA-256 of `value` or `lock`, a NUL, and
+  the key; `mustLive` panics for a time to live of 0 or less. `lock.go`:
+  `Lock`, whose `owner` is random, `Try` (`Add`), `Wait` (`Try` every
+  `retry`, 250 ms) and `Release` (`DeleteIf`). `memory.go`: `memoryStore`,
+  a Cache's without a Store, swept as it doubles, by the latest time a
+  `Get` or an `Add` was given. `cachetest`: `TestStore`, which `cache`'s
+  own tests run on the memory store (`export_test.go`); the tests of what
+  waits run in `testing/synctest`.
 - `tugtest`: Inertia's client for an app's Go tests, a browser with the
   app open. `tugtest.go`: `Client`, whose visits (`Visit`, and `Get` to
   `Delete`) send X-Inertia, the `Version` it runs, and the page it's on as

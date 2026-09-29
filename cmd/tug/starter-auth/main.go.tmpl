@@ -23,6 +23,7 @@ import (
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/cache"
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/lang"
 	"github.com/cuonggt/tug/mail"
@@ -164,6 +165,12 @@ type app struct {
 	verifications *auth.Verifications
 	twoFactor     *auth.TwoFactor
 
+	// cache keeps what's slow to work out for a while, in the database,
+	// where every instance of the app finds it, and has locks for what
+	// mustn't run twice at once, on any of them: cache_db.go. The starter
+	// keeps nothing in it; it's there for the app.
+	cache *cache.Cache
+
 	// Tries, counted so that none can be made fast enough to guess: logins
 	// by email and address; the password of someone logged in, and the
 	// codes of a login waiting for its second factor, by user; and mail,
@@ -247,6 +254,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		return nil, err
 	}
 	counts := &throttles{db: e.DB}
+	cached := &cacheTable{db: e.DB}
 	a := &app{
 		db:            e.DB,
 		queue:         e.Queue,
@@ -259,6 +267,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		resets:        &auth.Resets{Keys: e.Keys},
 		verifications: &auth.Verifications{Keys: e.Keys},
 		twoFactor:     &auth.TwoFactor{Keys: e.Keys, Issuer: appName},
+		cache:         &cache.Cache{Store: cached},
 		logins:        &auth.Throttle{Name: "logins", Max: 5, Window: time.Minute, Store: counts},
 		passwords:     &auth.Throttle{Name: "passwords", Max: 5, Window: time.Minute, Store: counts},
 		codes:         &auth.Throttle{Name: "codes", Max: 5, Window: time.Minute, Store: counts},
@@ -269,13 +278,15 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// auth.go and passkeys.go. So do the files that nothing names any more,
 	// such as a replaced photo: photos.go. Every night, a job deletes the
 	// jobs that failed for good over a month ago: prune, in jobs_db.go; and
-	// every hour, the throttles' counts that count nothing any more.
+	// every hour, the throttles' counts that count nothing any more, and
+	// what the cache kept that has expired.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
 	a.passkeyMail = queue.Handle(e.Queue, "passkey-mail", a.mailPasskey)
 	a.deleteFile = queue.Handle(e.Queue, "delete-file", a.deleteStoredFile)
 	queue.Handle(e.Queue, "prune-jobs", a.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
 	queue.Handle(e.Queue, "prune-throttles", counts.prune).Schedule(queue.Every(time.Hour), struct{}{})
+	queue.Handle(e.Queue, "prune-cache", cached.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	if len(e.Keys) > 1 && !tug.Generating() {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
 		// two-factor secrets over to the new one before it's dropped.

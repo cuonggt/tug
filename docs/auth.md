@@ -586,8 +586,8 @@ each database in its own way:
   migrations have the same gap on MySQL.
 
 The SQL of each table is in a file of its own, `users_db.go`,
-`passkeys_db.go`, `jobs_db.go` and `throttles_db.go`, beside the Go
-that's the same on any database, and it's written for its database, where
+`passkeys_db.go`, `jobs_db.go`, `throttles_db.go` and `cache_db.go`,
+beside the Go that's the same on any database, and it's written for its database, where
 they differ:
 
 | | SQLite | Postgres | MySQL |
@@ -656,6 +656,14 @@ A throttle that can't count, as when the database is down, has an error
 for the handler to return, as any of the database's: the login is a 500,
 rather than let in unthrottled, or turned away as though it had tried too
 often.
+
+### The cache
+
+The starter gives the app a cache, `a.cache`, for what's slow to work
+out, and for locks that hold across its instances: package `cache`
+([Cache](cache.md)). It's in the database too, in a `cache` table, whose
+SQL is in `cache_db.go`, and every hour a scheduled job, `prune-cache`,
+deletes what has expired. The starter keeps nothing in it itself.
 
 ### Health checks
 

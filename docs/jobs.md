@@ -327,6 +327,8 @@ stays locked while the job runs, and a job that lost its worker lets the
 next go as any claim does. Where claims run at once, as in Postgres and
 MySQL, those of one value take turns for the moment they claim: see the
 [auth starter's Stores there](#the-auth-starters-in-postgres-and-mysql).
+What isn't a job, a command or a handler, runs one at a time across the
+instances with a lock of package `cache` ([Cache](cache.md#locks)).
 
 ## Running the jobs
 

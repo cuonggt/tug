@@ -18,7 +18,8 @@ import (
 // The app's database is MySQL, at DB_URL, which compose.yaml runs in
 // development: docker compose up -d. This file opens it and makes its
 // tables, and the SQL of each is beside the Go that's the same on any
-// database: users_db.go, passkeys_db.go, jobs_db.go and throttles_db.go.
+// database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go and
+// cache_db.go.
 
 // dbFromEnv opens the database the environment names, with its tables up
 // to date: DB_URL, with the driver's settings in its query, as
@@ -138,6 +139,13 @@ var migrations = []string{
 		key_hash BINARY(32) NOT NULL PRIMARY KEY,
 		tries    INT NOT NULL,
 		ends_at  BIGINT NOT NULL
+	)`,
+	// The cache's values, and its locks, where every instance of the app
+	// finds them: cache_db.go. A value is up to 16 MB, a MEDIUMBLOB's.
+	`CREATE TABLE cache (
+		key_hash   BINARY(32) NOT NULL PRIMARY KEY,
+		value      MEDIUMBLOB NOT NULL,
+		expires_at BIGINT NOT NULL
 	)`,
 }
 
