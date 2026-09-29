@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 
 // The tests share one server and run in order: the first ones need the 25
@@ -74,6 +75,20 @@ test('every post comes in numbered pages, with a pager', async ({ page }) => {
   await pager.getByRole('link', { name: 'Previous' }).click()
   await expect(page).toHaveURL(/\/posts\?page=2$/)
   await expect(page.locator('.posts li').first()).toHaveText('Post 11')
+})
+
+test('every post downloads as CSV, a file to save', async ({ page }) => {
+  await page.goto('/posts')
+  const download = page.waitForEvent('download')
+  await page.getByRole('link', { name: 'Download as CSV' }).click()
+  const file = await download
+  expect(file.suggestedFilename()).toBe('posts.csv')
+  const lines = (await readFile(await file.path(), 'utf8')).trimEnd().split('\n')
+  expect(lines[0]).toBe('id,title,tags')
+  expect(lines[1]).toBe('1,"Hello, tug","go, inertia"')
+  expect(lines).toHaveLength(26)
+  // The page is still the one the link was on.
+  await expect(page).toHaveURL(/\/posts$/)
 })
 
 test('a page that is not there is shown as the error page, with its status', async ({ page }) => {

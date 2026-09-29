@@ -110,6 +110,24 @@ func TestEveryPostComesInNumberedPagesWithAPager(t *testing.T) {
 	}
 }
 
+func TestEveryPostDownloadsAsCSV(t *testing.T) {
+	c := newClient(t)
+	c.Get("/posts/create")
+	c.Post("/posts", map[string]any{"title": "=1+2", "body": "A title that looks like a sum."})
+	r := c.Do(httptest.NewRequest("GET", "/posts.csv", nil))
+	if r.Code != 200 || r.Header.Get("Content-Type") != "text/csv; charset=utf-8" || r.Header.Get("Content-Disposition") != "attachment; filename=posts.csv" {
+		t.Fatalf("got %v with %v", r, r.Header)
+	}
+	lines := strings.Split(strings.TrimSuffix(r.Body, "\n"), "\n")
+	if len(lines) != 27 || lines[0] != "id,title,tags" || lines[1] != `1,"Hello, tug","go, inertia"` {
+		t.Errorf("%d lines, beginning %q", len(lines), lines[:2])
+	}
+	// A title a spreadsheet would run as a formula stays text.
+	if last := lines[len(lines)-1]; last != "26,'=1+2," {
+		t.Errorf("the new post's row: %q", last)
+	}
+}
+
 func TestTheStatsComeWithTheReloadThatAsksForThem(t *testing.T) {
 	c := newClient(t)
 	c.Get("/")

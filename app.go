@@ -131,6 +131,11 @@ type App struct {
 	// commands are the app's commands, which Run runs in place of serving,
 	// in the order they were added.
 	commands []command
+
+	// stopping is done as Serve begins to shut down, which ends the event
+	// streams, as Shutdown waits for the requests in flight.
+	stopping context.Context
+	stop     context.CancelFunc
 }
 
 // New returns an App. Without a Config it reads one from the environment
@@ -169,6 +174,7 @@ func New(config ...Config) *App {
 
 	a := &App{config: cfg, mux: http.NewServeMux(), names: make(map[string]*Route)}
 	a.Router = &Router{app: a}
+	a.stopping, a.stop = context.WithCancel(context.Background())
 	return a
 }
 
@@ -424,6 +430,7 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	}
 
 	stopWork()
+	a.stop()
 	slog.Info("shutting down", "timeout", a.config.ShutdownTimeout)
 	sctx, cancel := context.WithTimeout(context.Background(), a.config.ShutdownTimeout)
 	defer cancel()

@@ -482,6 +482,122 @@ A `Ctx` has more for pages, such as `Inertia` and `Location`, in
 [pages.md](pages.md), and for forms, such as `BindValid`, `Session` and
 `Flash`, in [forms.md](forms.md).
 
+### Files and downloads
+
+```go
+app.Get("/terms", func(c *tug.Ctx) error {
+	return c.File("legal/terms.pdf") // shown in the browser, as a PDF is
+})
+
+app.Get("/invoices/{id}", func(c *tug.Ctx) error {
+	pdf, err := a.invoicePDF(c.Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.Download("invoice-"+c.Param("id")+".pdf", bytes.NewReader(pdf))
+})
+```
+
+- `c.File(path)` sends one of the app's files, shown as its type: a PDF
+  as a PDF, HTML as a page. `http.ServeContent` sends it, with ranges, so
+  a download that broke off goes on where it stopped, and with
+  `If-Modified-Since`, for the browser's cache. A file that isn't there,
+  or a directory, is a 404 for the `ErrorHandler`.
+- `path` is the app's, never a request's. `c.File("reports/" +
+  c.Param("name"))` would send `app.db` to a request for
+  `/reports/..%2Fapp.db`, as one part of a path can carry a slash, as
+  `%2F`. `c.FileFS(fsys, name)` sends a file
+  of an `fs.FS`, such as `os.DirFS("reports")`, or an `os.Root`'s `FS`,
+  which keeps symbolic links inside as well, where a name that would
+  leave it isn't there, a 404. It's how an embedded file is sent too.
+- `c.Download(name, content)` sends `content`, an `io.Reader`, as a file
+  to save as `name`: the browser saves it rather than shows it. The name
+  goes in `Content-Disposition` however it's written, in Vietnamese, with
+  quotes or with a line break, which can't end the header, and what's
+  before its last `/` or `\` is dropped, as the browser saves a name, not
+  a path. Its type is its name's extension's, or else what its first
+  bytes say. Content that seeks, a file or a `bytes.Reader`, has ranges,
+  and a file its time for `If-Modified-Since`; other content, as a
+  response from another service, goes as it's read. Closing it is the
+  handler's.
+- A file someone uploaded goes by its disk's route
+  ([Files](files.md#links)), which sends it as what its bytes are, or by
+  `Download`, under the name it was uploaded with: `File` would show HTML
+  as a page of the app's.
+
+### Streams
+
+```go
+app.Get("/posts.csv", func(c *tug.Ctx) error {
+	return c.StreamDownload("posts.csv", "text/csv; charset=utf-8", func(w io.Writer) error {
+		out := csv.NewWriter(w)
+		err := a.posts.each(c.Context(), func(p Post) error {
+			return out.Write([]string{strconv.FormatInt(p.ID, 10), p.Title})
+		})
+		out.Flush()
+		return cmp.Or(err, out.Error())
+	})
+})
+```
+
+`c.Stream(contentType, write)` sends a body as `write` makes it, for one
+too long to hold, made as it's read: every post as CSV, a row at a time,
+as the query returns them. `c.StreamDownload(name, contentType, write)`
+sends it as a file to save, named as `Download` names one. Each write
+goes to the client as it's made, flushed, so a client that reads as it
+comes, a `fetch` of lines, gets each one; many small writes are buffered
+by whoever makes them, as `csv.Writer` does.
+
+`write`'s error before its first write is the handler's, for the
+`ErrorHandler`, as any is. Once the body has started, there's no error
+page to show: the error goes to the log, and the connection is cut, so
+the browser says the download failed, where it would have saved half a
+file as the whole. A stream takes as long as it takes, as the server has
+no timeout for a response, and the app's shutdown waits for it, up to
+`ShutdownTimeout`, as it does for any request.
+
+### Events
+
+```go
+app.Get("/imports/{id}/progress", func(c *tug.Ctx) error {
+	return c.Events(func(ctx context.Context, send func(tug.Event) error) error {
+		for p := range a.imports.progress(ctx, c.Param("id")) {
+			if err := send(tug.Event{Name: "progress", Data: p}); err != nil {
+				return err
+			}
+		}
+		return send(tug.Event{Name: "done"})
+	})
+})
+```
+
+`c.Events(fn)` sends server-sent events, which a page reads with the
+browser's `EventSource` ([Pages](pages.md#downloads-and-events)): an
+import's progress, or a change a page should show. `fn` sends each, a
+`tug.Event`: its `Name`, which the page listens for, its `ID`, and its
+`Data`, as JSON, which the page reads with `JSON.parse`. A name or ID with
+a line break, or data JSON can't hold, is `send`'s error, and isn't sent.
+
+- The stream lasts as long as `fn`. `fn`'s context is done when the
+  client goes away, and when the app shuts down, as `Serve` waits for the
+  requests in flight, which a stream would hold up; `send` fails once it
+  is.
+- An `EventSource` connects again when its stream ends, the app's
+  shutdown's among them, to an instance that's up, and sends the last
+  event's ID in `Last-Event-ID`, which `c.Request().Header` has, for the
+  app to go on from. A page that has what it waited for closes its
+  `EventSource`.
+- A quiet stream sends a comment every 20 seconds, which the browser
+  passes over, so the proxies in front of the app, which close a
+  connection that says nothing for a minute, don't. The stream has
+  `Cache-Control: no-cache`, and `X-Accel-Buffering: no`, so nginx doesn't
+  hold the events back.
+- `fn`'s error is logged, as the response has started; a client that went
+  away, or the app's shutdown, isn't an error.
+- The events are the instance's own: a page on one instance doesn't hear
+  an event another instance has. Sending one to every page that follows,
+  whichever instance it's on, isn't here yet.
+
 ## Binding
 
 ```go

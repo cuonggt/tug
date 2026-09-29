@@ -12,9 +12,10 @@ the detail.
    it, and add a page and a form.
 2. [Routing and handlers](routing.md): the App, routes, whole and signed
    links, groups, middleware, the client's address behind a proxy, `Ctx`,
-   binding requests, and errors.
+   files, downloads, streams and events, binding requests, and errors.
 3. [Pages](pages.md): Inertia pages and their props, the props worked out
-   later, shared props, redirects, error pages, and Vite.
+   later, shared props, redirects, downloads and events on a page, error
+   pages, and Vite.
 4. [Server-side rendering](ssr.md): pages rendered on the server for a
    first visit, by Node beside the app, and package `ssr`.
 5. [Forms and sessions](forms.md): validation, rules of the app's own,

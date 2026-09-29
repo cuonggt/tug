@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M24 are done, which is
+the decisions behind it and where it stands: M1 to M25 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -42,7 +42,11 @@ starter's `jobs`, cache and locks (v0.18.0): package `cache`, with
 starter's cache in its database, and mail made whole (v0.19.0): copies,
 a `Bcc` no one sees, replies to another address, files, the app's own
 headers, and a link to unsubscribe in one click, in `mail.Message`, and
-`mailtest.Outbox`, which the auth starter's tests use.
+`mailtest.Outbox`, which the auth starter's tests use, and downloads and
+streams (v0.20.0): `c.File` and `FileFS`, with ranges, `c.Download`, a
+file to save by its name however it's written, `c.Stream` and
+`StreamDownload`, a body made as it's sent, and `c.Events`, server-sent
+events, which the app's shutdown ends.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -120,6 +124,8 @@ dev server that isn't there: delete it.
     `Go` adds work to run beside the server (`background`): `Serve` starts
     it with a context canceled as shutdown begins, waits for it, and shuts
     down when it fails first; `stopped` drops its `context.Canceled`.
+    `stopping`, the App's own context, is done as `Serve` shuts down, for
+    the event streams, which `Shutdown` would otherwise wait for.
     `Generating` says tug gen started the app (`TUG_GEN`), for `main` to
     leave out what only serving needs, as the auth starter's database.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
@@ -185,6 +191,21 @@ dev server that isn't there: delete it.
     `span` is `from` and `to`, and the items never nil; `Paging` of each
     is where it sits for `inertia.Scroll`; `PageName` names another
     parameter.
+  - `files.go`: `File` and `FileFS` (`serveFile`: `http.ServeContent`,
+    with nosniff; `missing` is a 404 for a file that isn't there, or a
+    name that isn't one, and a directory is too), and `Download`
+    (`attachment`, the Content-Disposition, by `mime.FormatMediaType`, of
+    `baseName`, the name after its last slash or backslash; content that
+    seeks goes by `ServeContent`, with its `Stat`'s time, and the rest by
+    `sendAll`, typed by `typeOf`: the extension, or else the first bytes).
+  - `stream.go`: `Stream` (`streamWriter` flushes each write; an error
+    before the first is the handler's, with the Content-Disposition
+    dropped, after it a log line and `http.ErrAbortHandler`, unless the
+    client went), `StreamDownload`, and `Events` (headers flushed at once,
+    `send` through `Event.encode`, a data line always, a comment every
+    `keepAlive`, 20 s, from a goroutine, both through one lock, and a
+    context done by the client, fn's end, or the App's `stopping`; fn's
+    error is returned unless that context was done).
   - `pages.go`: `Page[P]`, which declares a component with its props
     type in the registry tug gen reads (`declare`, `declaredPages`) and
     returns a `PageOf[P]` that renders only those props, `Ctx.Inertia`
@@ -564,7 +585,9 @@ dev server that isn't there: delete it.
   before one). `main_test.go` runs on tugtest without Node, against a fake
   manifest; `e2e/` drives the real build in a browser, in order: the later
   tests change the posts. The list's scroll and the archive, `/posts`, in
-  numbered pages with `Pager.tsx`, are both `tug.Paginate` of the posts.
+  numbered pages with `Pager.tsx`, are both `tug.Paginate` of the posts,
+  and `/posts.csv` is every post as CSV, `c.StreamDownload`'s (`export`),
+  with `cell` putting a quote before one that would run as a formula.
   `resources/js/tug` is written by tug gen and committed (CI checks it's
   current); `resources/js/types.ts` has only the flash type.
 

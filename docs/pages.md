@@ -495,6 +495,36 @@ works the other way: the page after it tells the client to keep the
 fragment the visit had, so a comment sent from `/posts/1#comments` comes
 back to the comments. Like flash data, that needs `Config.Session`.
 
+## Downloads and events
+
+A download is a plain link, `<a href>`, not Inertia's `<Link>`, whose
+visit asks for a page, and shows anything else in a dialog. The browser
+saves the file, as `Content-Disposition` says, and stays on the page:
+
+```tsx
+<a href={route('posts.export')}>Download as CSV</a>
+```
+
+A page follows work on the server, as an import's progress, with an
+`EventSource` on a route of `c.Events`
+([Routing](routing.md#events)), and reloads the props the work changed
+with Inertia's `router.reload`:
+
+```tsx
+useEffect(() => {
+  const events = new EventSource(route('imports.progress', { id }))
+  events.addEventListener('progress', (e) => setDone(JSON.parse(e.data).done))
+  events.addEventListener('done', () => {
+    events.close() // or it connects again, as it does when a stream ends
+    router.reload({ only: ['posts'] })
+  })
+  return () => events.close()
+}, [id])
+```
+
+`examples/inertia`'s archive has its posts as CSV, made a row at a time
+with `c.StreamDownload`.
+
 ## Error pages
 
 With `Config.ErrorPage` set, as the starter sets it to `"Error"`, the

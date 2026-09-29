@@ -216,6 +216,11 @@ func showPost(c *tug.Ctx) error {
   picks the status. Any other error is a 500 whose details stay in the log,
   or show in the response with `APP_DEBUG=true`. A panic is a 500 with its
   stack in the log. Errors are JSON for a client that asks for JSON.
+- **Files, downloads and streams:** `c.File` sends one of the app's
+  files, with ranges, `c.Download` a file to save, its name however it's
+  written, Vietnamese, quotes and all, `c.StreamDownload` a CSV made a row
+  at a time, and `c.Events` server-sent events, for a page to follow work
+  as it goes, ended as the app shuts down.
 - **`c.Bind`** fills a struct from path values, the query, and a JSON or
   form body, files included, by struct tags. A value that doesn't parse is
   a 400 that names the field, "age must be a whole number"; a bad path value

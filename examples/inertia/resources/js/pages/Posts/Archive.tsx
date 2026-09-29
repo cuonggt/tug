@@ -20,6 +20,10 @@ export default function Archive({ posts }: PageProps<'Posts/Archive'>) {
         ))}
       </ol>
       <Pager page={posts} />
+      {/* A plain link: Inertia's <Link> visits a page, where this is a file to save. */}
+      <p>
+        <a href={route('posts.export')}>Download as CSV</a>
+      </p>
     </Layout>
   )
 }

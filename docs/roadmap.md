@@ -30,7 +30,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M22 | Commands                   | done   |
 | M23 | Cache and locks            | done   |
 | M24 | Mail, whole                | done   |
-| M25 | Downloads and streams      | later  |
+| M25 | Downloads and streams      | done   |
 | M26 | Encryption                 | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
@@ -1975,17 +1975,17 @@ Choices made on the way:
   in `testing/synctest` for what waits, down and up, and a message it
   refuses; and the starter's tests on it.
 
-## M25 · Downloads and streams — later
+## M25 · Downloads and streams — done
 
-A handler writes a body it has whole: `c.Blob` takes bytes, and anything
-else is `c.Response()`, by hand. A file of the app's, an invoice made as
-a PDF, or every post as CSV, goes with a `Content-Disposition` each app
-writes itself, which is easy to get wrong: a name from a user, an
+A handler wrote a body it had whole: `c.Blob` takes bytes, and anything
+else was `c.Response()`, by hand. A file of the app's, an invoice made as
+a PDF, or every post as CSV, went with a `Content-Disposition` each app
+wrote itself, which is easy to get wrong: a name from a user, an
 upload's, can end the header, and one in Vietnamese arrives garbled.
-Nothing seeks, so a download that broke off starts again, and a list too
-long to hold is made whole before it's sent. And a page that follows
-work as it goes, an import's progress, asks again and again. Laravel's
-responses have `download()`, `streamDownload()`, `file()` and
+Nothing seeked, so a download that broke off started again, and a list
+too long to hold was made whole before it was sent. And a page that
+follows work as it goes, an import's progress, asked again and again.
+Laravel's responses have `download()`, `streamDownload()`, `file()` and
 `eventStream()`. To be released as v0.20.0.
 
 - **Files.** `c.File(path)` and `c.FileFS(fsys, name)` send a file of the
@@ -2006,19 +2006,21 @@ responses have `download()`, `streamDownload()`, `file()` and
   name, its data as JSON and its ID, until the client goes or the app
   shuts down. A page follows work with one, and reloads a prop when an
   event says, with Inertia's `router.reload`.
-- **`examples/inertia`** has its posts as CSV, streamed, with a browser
-  test of the file saved and its name.
-- **The guide:** Routing, the responses, and Pages, events on a page and
-  a download's plain link.
+- **`examples/inertia`** has its posts as CSV, streamed, at `/posts.csv`,
+  linked from the archive, with a browser test of the file saved and its
+  name.
+- **The guide:** Routing, a section each on files and downloads, streams
+  and events, and Pages, a download's plain link and events on a page.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **The name, as RFC 6266 has it:** `attachment` and the name, written by
   `mime.FormatMediaType`, which encodes a name with anything but
-  printable ASCII, `filename*=utf-8''...`, as every browser reads it: a
-  name in Vietnamese arrives as it was, and a line break becomes `%0A`,
-  never the end of the header. What's before a name's last `/` or `\`
-  is dropped: the browser saves a name, not a path.
+  printable ASCII, as `filename*`, in UTF-8 and percent escapes, which
+  every browser reads: a name in Vietnamese arrives as it was, and a line
+  break becomes `%0A`, never the end of the header. What's before a
+  name's last `/` or `\` is dropped: the browser saves a name, not a
+  path.
 - **The type, as `ServeContent` finds it:** by the name's extension, or
   else by the first bytes, with `nosniff`. A stream's is the app's to
   give, as it has no bytes yet.
@@ -2026,34 +2028,58 @@ Choices, to settle before any code:
   are, HTML as a page: a file someone uploaded is sent by their disk's
   route, which sends it sandboxed, as M16 has it, or by `Download`, to be
   saved.
+- **A name a request gives is `FileFS`'s:** one part of a path can carry
+  a slash, as `%2F`, so `..%2Fapp.db` reaches a handler as `../app.db`,
+  which `File` would open, and an `fs.FS`, as `os.DirFS`'s or an
+  `os.Root`'s, turns away, as a name that isn't one: a 404, as for a file
+  that isn't there. The guide says so, with the example.
 - **Not `http.ServeFile`,** which lists a directory, and answers a path
   ending in `/index.html` with a redirect: `File` opens the file and
   hands it to `ServeContent`, and one that isn't there is tug's 404, with
   the app's error page.
+- **What doesn't seek goes as it's read,** through `Stream`, as a
+  download of a response from another service does, and a file of an
+  `fs.FS` that can't seek, as a zip's: no ranges, and its type by its
+  extension or else its first bytes, read ahead. Content with a `Stat`, as
+  a file, has its time for `If-Modified-Since`.
 - **The handler closes what it opened:** `Download` reads `content` to
   its end, and leaves it open, as the `Open` that made it was the
   handler's.
 - **Each write of a stream goes as it's made,** flushed, so a client that
   reads as it comes, a `fetch` of lines, gets each one. A writer of many
-  small writes is buffered by whoever makes them, as `csv.Writer` is.
+  small writes is buffered by whoever makes them, as `csv.Writer` is. A
+  stream that writes nothing is an empty body.
 - **An error once the body has started can't be an error page:** it goes
   to the log, and the connection is cut, with `http.ErrAbortHandler`,
   which `adapt` passes on to net/http, so the browser says the download
   failed, where it would save half a file as the whole. Before the first
-  write, it's the `ErrorHandler`'s, as any handler's error is.
+  write, it's the `ErrorHandler`'s, as any handler's error is, without the
+  `Content-Disposition`, as the error page isn't a file to save. A client
+  that went away is no failure, and isn't logged.
 - **An event's data is JSON,** always, as props are, for the page's
-  `JSON.parse`; its name and ID are text on one line, and one with a line
-  break is an error.
-- **A comment every 20 seconds** keeps a quiet stream open through the
-  proxies in front of the app, which close a connection idle for a
-  minute, as nginx and AWS's load balancers do unless told otherwise.
-  With `Cache-Control: no-cache`, and `X-Accel-Buffering: no`, so nginx
-  doesn't hold the events back.
+  `JSON.parse`, with a data line for every event, `null` for none, as the
+  browser drops an event without one. Its name and ID are text on one
+  line, and one with a line break is `send`'s error, as is an ID with a
+  NUL, which the browser drops.
+- **The headers go at once,** flushed, so the page's `EventSource` opens
+  before the first event.
+- **A comment every 20 seconds,** `:` alone, keeps a quiet stream open
+  through the proxies in front of the app, which close a connection idle
+  for a minute, as nginx and AWS's load balancers do unless told
+  otherwise. With `Cache-Control: no-cache`, and `X-Accel-Buffering: no`,
+  so nginx doesn't hold the events back.
 - **A stream ends as the app shuts down:** `Shutdown` waits for the
   requests in flight, and one that never ends would hold it for all of
-  `ShutdownTimeout`. `fn`'s context is canceled as shutdown begins, and
-  the browser's `EventSource` connects again, to an instance that's up,
-  with the last event's ID in `Last-Event-ID`, for the app to go on from.
+  `ShutdownTimeout`. The app has a context of its own, done as `Serve`
+  begins to shut down, beside the one what `Go` runs has, and `fn`'s is
+  done with it; `send` fails once it is. The browser's `EventSource`
+  connects again, to an instance that's up, with the last event's ID in
+  `Last-Event-ID`, for the app to go on from. A server the app didn't
+  start, which calls `ServeHTTP`, has no shutdown of tug's, and its
+  streams end with their clients.
+- **`fn`'s error is `Events`'**, for the `ErrorHandler`, which logs it, as
+  the response has started, unless the client went away, or the app is
+  shutting down, which is how a stream ends.
 - **Events come from where the app has them:** tug has no way yet to send
   one instance's event to the pages open on another. That's
   broadcasting, a milestone of its own, which this is the ground for.
@@ -2062,14 +2088,23 @@ Choices, to settle before any code:
   passes; the page sends with Inertia, as it always does. And the
   standard library has no WebSockets.
 - **A download is a plain link,** `<a href>`, not Inertia's `<Link>`,
-  whose visit expects a page, and shows anything else in a modal.
+  whose visit expects a page, and shows anything else in a dialog.
+- **`examples/inertia`'s CSV quotes a formula:** a cell of a title that
+  starts as one does, with `=`, `+`, `-` or `@`, would run as one when a
+  spreadsheet opened the file, and a `'` before it keeps it text, as
+  OWASP has it.
 - **Tests:** a file with a range, `If-Modified-Since`, one that isn't
-  there, and a directory; a download's name in Vietnamese, with a quote,
-  a line break or a path in it; a stream read as it's written, and one
-  that fails before its first write and after; events as `EventSource`
-  reads them, a quiet stream's comments, a name with a line break, a
-  client that goes, and a stream the app's shutdown ends; and in
-  `examples/inertia`, the CSV, saved by the browser.
+  there, and a directory; a file of an `fs.FS`, and a name with `..` in
+  it, as `%2F` carries it; a download's name in Vietnamese, with quotes, a
+  line break or a path in it; content that seeks, with its time, and
+  content that doesn't; a stream read as it's written, through a real
+  server, with a client that gives up rather than wait, so a stream that
+  isn't flushed fails its test rather than hang it; one that fails before
+  its first write and after; events as `EventSource` reads them; events
+  that can't be sent; a quiet stream's comments, in `testing/synctest`;
+  a client that goes, and a stream the app's shutdown ends, through
+  `Serve`; and in `examples/inertia`, the CSV, in Go and saved by the
+  browser.
 
 ## M26 · Encryption — later
 

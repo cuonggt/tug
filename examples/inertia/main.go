@@ -21,14 +21,17 @@ import (
 	"cmp"
 	"crypto/rand"
 	"embed"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -106,6 +109,7 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTim
 	p := newPosts(countTime)
 	app.Get("/", p.index).Name("posts.index")
 	app.Get("/posts", p.archive).Name("posts.archive")
+	app.Get("/posts.csv", p.export).Name("posts.export")
 	app.Get("/posts/create", p.create).Name("posts.create")
 	app.Post("/posts", p.store).Name("posts.store")
 	app.Get("/posts/{id}", p.show).Name("posts.show")
@@ -271,6 +275,30 @@ func (p *posts) archive(c *tug.Ctx) error {
 		return err
 	}
 	return PostsArchive.Render(c, PostsArchiveProps{Posts: page})
+}
+
+// export is every post as CSV, for a spreadsheet, written a row at a time
+// as the rows would come from a query, rather than all at once.
+func (p *posts) export(c *tug.Ctx) error {
+	return c.StreamDownload("posts.csv", "text/csv; charset=utf-8", func(w io.Writer) error {
+		out := csv.NewWriter(w)
+		out.Write([]string{"id", "title", "tags"})
+		for _, post := range p.list() {
+			out.Write([]string{strconv.FormatInt(post.ID, 10), cell(post.Title), cell(strings.Join(post.Tags, ", "))})
+		}
+		out.Flush()
+		return out.Error()
+	})
+}
+
+// cell is what someone wrote, as a spreadsheet's cell: one that starts as a
+// formula does, as =HYPERLINK(...), would run as one when the file is
+// opened, and a quote before it keeps it text.
+func cell(s string) string {
+	if s != "" && strings.ContainsRune("=+-@\t\r", rune(s[0])) {
+		return "'" + s
+	}
+	return s
 }
 
 func (p *posts) create(c *tug.Ctx) error {
