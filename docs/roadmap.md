@@ -1750,8 +1750,8 @@ to hold across instances: a job had `OneAtATime`, and a command or a
 handler nothing. Laravel's `Cache` keeps values in a store every
 instance shares, the database among them, with `Cache::remember` and
 `Cache::lock`. tug has it now as it has the queue and the throttles: an
-interface for the store, and its SQL in the starter's layers. To be
-released as v0.18.0.
+interface for the store, and its SQL in the starter's layers. Released
+as v0.18.0.
 
 - **Package `cache`,** with no import of tug. A `cache.Cache` keeps
   values under keys, each until it expires, in its `Store`: `Set` keeps
@@ -1878,7 +1878,7 @@ unsubscribe in one click, which Gmail and Yahoo have asked of it since
 2024. And each app's tests wrote a mailer that keeps what it's sent, as
 the auth starter's `outbox` did. Laravel's mailables have copies,
 replies, files and headers, and `Mail::fake()` keeps what's sent, for
-tests. To be released as v0.19.0.
+tests. Released as v0.19.0.
 
 - **More recipients.** `Cc`, `Bcc` and `ReplyTo`, each a list of
   addresses, written as `To` is. `Bcc` goes to the server with the rest,
@@ -1986,7 +1986,7 @@ Nothing seeked, so a download that broke off started again, and a list
 too long to hold was made whole before it was sent. And a page that
 follows work as it goes, an import's progress, asked again and again.
 Laravel's responses have `download()`, `streamDownload()`, `file()` and
-`eventStream()`. To be released as v0.20.0.
+`eventStream()`. Released as v0.20.0.
 
 - **Files.** `c.File(path)` and `c.FileFS(fsys, name)` send a file of the
   app's, as its type, through `http.ServeContent`: with ranges, so a
@@ -2115,7 +2115,7 @@ that a user connects, kept in a column, is there for whoever reads a
 copy of the database, such as a leaked backup, and the one sealer tug
 had, `auth.TwoFactor`'s, is for two-factor secrets, with their key.
 Laravel has `Crypt`, with `APP_PREVIOUS_KEYS` for a key being rotated,
-and `key:generate` for a new one. To be released as v0.21.0.
+and `key:generate` for a new one. Released as v0.21.0.
 
 - **Package `crypt`,** with no import of tug. `crypt.New(keys, purpose)`
   is a `crypt.Box`, whose `Seal` encrypts a value for keeping, with a key
