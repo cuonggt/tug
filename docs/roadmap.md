@@ -2767,8 +2767,8 @@ one both make the next step, and a database that ran one branch's counts
 it as run, whichever step takes its place in the merge; and nothing says
 which steps a database has, or makes the next one. Laravel's migrations
 are files, named for when they were made, which `make:migration` writes,
-`migrate` runs, and `migrate:status` lists; Rails' are too. To be released
-as v0.28.0.
+`migrate` runs, and `migrate:status` lists; Rails' are too. Released as
+v0.28.0.
 
 - **Migrations are files:** `migrations/`, a `.sql` file each, named for
   when it was made, as `20261001093000_create_posts.sql`, embedded in the

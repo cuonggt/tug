@@ -6,7 +6,7 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.27.0 is the latest release: the framework, its CLI,
+**Status: early.** v0.28.0 is the latest release: the framework, its CLI,
 background jobs, on a schedule in any time zone too, pushed in the app's
 own transactions, and so many at once or a second across the instances,
 server-side rendering, tests of an app's pages, uploads kept on the app's
@@ -18,7 +18,8 @@ mail with copies, files and a link to unsubscribe, downloads, streams and
 server-sent events, the app's own values encrypted, events broadcast to
 the pages open on every instance, what a user may do with a thing,
 headers that say what a browser may do with a page, a
-Content-Security-Policy that runs its own scripts alone, and starters in
+Content-Security-Policy that runs its own scripts alone, the database's
+tables made and changed by files of SQL, each run once, and starters in
 React, Vue or Svelte, one with accounts, from registering to two-factor
 logins, passkeys, a profile photo, API tokens, admins, and notifications
 in the app and by mail, in SQLite, Postgres or MySQL.
