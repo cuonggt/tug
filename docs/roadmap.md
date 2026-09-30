@@ -36,7 +36,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M28 | Broadcasting               | done   |
 | M29 | The queue, further         | done   |
 | M30 | Authorization              | done   |
-| M31 | Notifications              | later  |
+| M31 | Notifications              | done   |
 | M32 | Security headers           | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
@@ -2569,55 +2569,85 @@ Choices made on the way:
   all of them; and in the browser, in each frontend, a user's 403 and an
   admin, made by the command, finding the page in the header.
 
-## M31 · Notifications — later
+## M31 · Notifications — done
 
 An app tells its users what happened to their account or their work: a
-passkey added, a report ready, a reply. The auth starter mails the few it
-has, so a user who doesn't read the mail sees nothing in the app, and the
-owner of an account whose email was changed hears nothing at the old
+passkey added, a report ready, a reply. The auth starter mailed the few it
+had, so a user who didn't read the mail saw nothing in the app, and the
+owner of an account whose email was changed heard nothing at the old
 one. Laravel's notifications go by mail, into the database, where the app
-lists them, and to the pages open, each by the channels it names. tug has
+lists them, and to the pages open, each by the channels it names. tug had
 each part, mail, the queue, the database's stores and broadcasting, and
 the auth starter puts them together. To be released as v0.26.0.
 
 - **Kept for the user:** a `notifications` table in each database's
-  layer, of a notification's kind, its data as JSON, and when it was read,
-  kept in the transaction that makes the change it tells of.
+  layer, of a notification's kind, its data as JSON, and when it was made
+  and read, kept in the transaction that makes the change it tells of.
 - **Told at once:** published on the user's channel as the transaction
   commits, so the header's bell counts it without a reload.
-- **And mailed,** for a kind that matters as it happens, by a job pushed
-  in the same transaction.
+- **And mailed,** by a job pushed in the same transaction, made from the
+  notification as it runs.
 - **A bell and a list:** the header's bell, with the unread count, a
-  shared prop; a page of the user's notifications, the newest first, a
-  page at a time, each with its line and its link; and marking them read.
-- **The account's changes:** a new password, a new email, told at the old
-  one too, two-factor logins turned off, a passkey or an API token added:
-  each a notification and a mail, so the owner hears of a change they
-  didn't make.
-- **The guide:** Accounts, a section on notifications.
+  shared prop, `bell`; a page of the user's notifications, the newest
+  first, 20 at a time, each with its line and its link; and marking them
+  read as the page shows them.
+- **The account's changes:** a new password, in the settings or by a
+  reset, a new email, told at the old one too, two-factor logins turned
+  off, a passkey added and an API token made: each a notification and a
+  mail, so the owner hears of a change they didn't make.
+- **`mailtest.Outbox.NextTo`,** the next mail to an address, as a change
+  that mails two addresses mails them in any order.
+- **The guide:** Accounts, a section on notifications; Testing, `NextTo`;
+  and Broadcasting.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **The app's code, not a package:** its kinds, their text and their
   channels are the app's, on tug's mail, queue and broadcast, as its mail
-  is. A package would be an interface for each of them, around what the
-  starter writes as a function.
+  is: `notices`, in `notifications.go`, a line, a page and a mail for
+  each, and `a.notify`, what a handler calls.
 - **Kept, then told:** in the transaction with the change, so a
   notification of a change that rolled back is never shown, mailed or
-  heard.
+  heard. So the changes that wrote on their own now write in one: a new
+  password, a reset, two-factor logins turned off, a token made.
+- **One mail job for them all,** `notification-mail`, which carries the
+  notification's ID, and makes the mail from it as it runs. The passkey's
+  mail, a job of its own, is its notification's now, in the same words.
 - **The line at read time,** from the kind and its data, in the reader's
-  language: a notification outlasts the language it was made in.
+  language, `c.T`: a notification outlasts the language it was made in.
+  Its mail is in the app's words, as the rest of its mail is.
 - **The old email hears of a new one,** as the address the owner may
-  still read; the new one gets its link to verify, as before.
-- **Read as the list shows it,** or by a button: Laravel's `markAsRead`
-  is the app's call either way.
+  still read, with a link to log in; the new one gets its link to verify,
+  as before.
+- **Read as the list shows it,** by the range of the IDs it shows, which
+  a notification made since is past: no button, as the bell's count drops
+  as the page renders, and a dot says which were new to it.
+- **A kind the version doesn't have is still shown,** with a line of its
+  own, and marked read: left out, it would shorten a page, which
+  `SimplePaginate` takes for the last, and stay in the bell for good.
+- **The bell is shared as `bell`,** and the page's list is `list`, as a
+  page's prop of a shared one's name would hide the shared.
+- **One connection a page:** `listen`, in `resources/js/lib/broadcasts.ts`,
+  shared by all three frontends, keeps one `EventSource` for whatever
+  listens, the bell, the list and the verify page, and calls each
+  listener as its event comes and as the connection is made again. The
+  verify page reloads on `verified`, as its handler sends a verified user
+  to the dashboard.
 - **Kept a while:** a notification read over 90 days ago goes, by a
-  scheduled job.
-- **Not each user's choice of channels yet:** a kind has its own.
-- **Tests:** each change's notification, kept only as its transaction
-  commits, heard on the user's channel and mailed; another user's never
-  listed; the count, and the list a page at a time; marking read; the
-  prune; and in the browser, a notification arriving in another tab.
+  scheduled job, `prune-notifications`, every night.
+- **Not each user's choice of channels yet:** each kind has its own.
+- **Tests read mail by address** where two can come at once: `NextTo`,
+  which takes the next mail to an address, and leaves the others for
+  `Next`. And a test that claims jobs of its own stops the app's queue
+  first, `stopQueue`, as the admins' test of M30 didn't, and now and then
+  lost its job to the queue, which runs beside it.
+- **Tests:** each change's notification, in the list, the bell and the
+  mail, the new email's at the old one; one whose change was rolled back,
+  never kept; one heard on the user's channel; the list, the user's own,
+  the newest first, a page at a time, marked read as shown, with a kind
+  long gone; the prune, and its schedule; `NextTo`, taking one and
+  leaving the rest; and in the browser, in each frontend, a token made in
+  another tab ringing the bell, and the list showing it read.
 
 ## M32 · Security headers — later
 

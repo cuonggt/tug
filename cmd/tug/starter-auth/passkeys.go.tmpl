@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -87,8 +86,9 @@ type NewPasskeyInput struct {
 	Credential json.RawMessage `json:"credential" validate:"required"`
 }
 
-// addPasskey keeps the passkey the browser made, and mails the user: a
-// passkey is a way into the account, which its owner should hear of.
+// addPasskey keeps the passkey the browser made, and tells the user, in
+// the app and by mail: a passkey is a way into the account, which its
+// owner should hear of.
 func (a *app) addPasskey(c *tug.Ctx, user *User) error {
 	var in NewPasskeyInput
 	if err := c.BindValid(&in); err != nil {
@@ -113,14 +113,14 @@ func (a *app) addPasskey(c *tug.Ctx, user *User) error {
 	if len(listed) >= maxPasskeys {
 		return validate.Errors{"passkey": tooManyPasskeys}
 	}
-	// The passkey and the mail that tells its owner of it are kept
+	// The passkey and the notification that tells its owner of it are kept
 	// together: a way into the account no one hears of is worse than none.
 	name := strings.TrimSpace(in.Name)
 	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
 		if err := a.passkeys.in(tx).add(c.Context(), user.ID, name, pk); err != nil {
 			return err
 		}
-		return a.passkeyMail.In(a.jobs.in(tx)).Push(c.Context(), PasskeyMail{User: user.ID, Name: name})
+		return a.notify(c.Context(), tx, user.ID, "passkey-added", noticeData{Name: name})
 	})
 	if errors.Is(err, errPasskeyTaken) {
 		return validate.Errors{"passkey": "That passkey is on an account already."}
@@ -266,36 +266,6 @@ func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
 	}
 	auth.SetPasswordConfirmed(c.Session())
 	return toIntended(c)
-}
-
-// PasskeyMail is the job that tells a user a passkey was added to their
-// account.
-type PasskeyMail struct {
-	User int64  `json:"user"`
-	Name string `json:"name"` // the passkey's
-}
-
-// mailPasskey runs PasskeyMail jobs.
-func (a *app) mailPasskey(ctx context.Context, job PasskeyMail) error {
-	u, err := a.users.byID(ctx, job.User)
-	if errors.Is(err, errNoUser) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	link, err := a.routes.AbsoluteURL("security.edit")
-	if err != nil {
-		return err
-	}
-	return a.mailer.Send(ctx, message{
-		To:      u,
-		Subject: "A passkey was added to your " + appName + " account",
-		Intro:   "A passkey called “" + job.Name + "” was added to your account, and logs in with no password.",
-		Action:  "See your passkeys",
-		URL:     link,
-		Outro:   "If that wasn't you, remove it there, and change your password: someone else has been in your account.",
-	}.mail())
 }
 
 var (

@@ -169,7 +169,9 @@ func showPost(c *tug.Ctx) error {
   once they turn that on, or with a passkey and no password at all, reset
   a forgotten password by email, change their profile and photo, password
   and appearance in settings, and make API tokens, for a script or another
-  service to call the app's API with, and where admins, whom a command
+  service to call the app's API with, hear of each change to their
+  account that could hand it to someone else, at once in the app, by its
+  bell, and by mail, the old email too, and where admins, whom a command
   makes, have a page of the jobs that failed, with the users in SQLite,
   or with `-postgres` or `-mysql`, in Postgres or MySQL, and a frontend of
   Tailwind and shadcn's components, as Laravel's starter kits have, in
@@ -186,7 +188,8 @@ func showPost(c *tug.Ctx) error {
   written out where `tug dev` shows it, links and all, with copies, a
   `Bcc` no one sees, replies to another address, files, and a link to
   unsubscribe in one click, as Gmail and Yahoo ask of mail sent in bulk.
-  `mailtest.Outbox` keeps what an app sends, for its tests.
+  `mailtest.Outbox` keeps what an app sends, for its tests, which read it
+  in order, or by who it went to.
 - **Background jobs** (package `queue`): work a request starts and doesn't
   wait for, such as a mail, kept by a store such as a table in the app's
   database, so a failure or a restart doesn't lose it. A job that fails

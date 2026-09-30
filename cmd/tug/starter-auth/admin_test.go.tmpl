@@ -81,6 +81,9 @@ func TestAnAdminRunsTheJobsThatFailedAgain(t *testing.T) {
 	app := newTestApp(t)
 	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
 	app.makeAdmin("ann@example.com")
+	// The jobs this test fails are its own to claim, where the app's queue
+	// would take them first, now and then, and the ones run again stay put.
+	app.stopQueue()
 	s := &jobs{db: app.db}
 	failJob(t, s, `{"user":7}`, "550 no such mailbox: bob@example.com")
 

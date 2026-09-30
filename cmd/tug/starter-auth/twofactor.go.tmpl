@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strconv"
 	"strings"
@@ -171,11 +172,18 @@ func (a *app) confirmTwoFactor(c *tug.Ctx, user *User) error {
 	return c.RedirectRoute("security.edit")
 }
 
-// stopTwoFactor turns two-factor logins off, or stops turning them on.
+// stopTwoFactor turns two-factor logins off, which their user is told of,
+// or stops turning them on.
 func (a *app) stopTwoFactor(c *tug.Ctx, user *User) error {
 	c.Session().Delete(setupKey)
 	if user.TwoFactor {
-		if err := a.users.setTwoFactor(c.Context(), user.ID, "", "", 0); err != nil {
+		err := a.inTx(c.Context(), func(tx *sql.Tx) error {
+			if err := a.users.in(tx).setTwoFactor(c.Context(), user.ID, "", "", 0); err != nil {
+				return err
+			}
+			return a.notify(c.Context(), tx, user.ID, "two-factor-off", noticeData{})
+		})
+		if err != nil {
 			return err
 		}
 		c.Flash("success", "Two-factor logins are off.")

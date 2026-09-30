@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M30 are done, which is
+the decisions behind it and where it stands: M1 to M31 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -65,7 +65,10 @@ authorization (v0.25.0): `auth.NewAbility`, what a user may do with a
 thing, whose no, an `auth.Denial`, tug answers with a 403 by its
 `StatusCode`, and an `auth.Gate` asked first, and in the auth starter,
 admins, whom the `admins` command makes, and their page of the jobs that
-failed.
+failed, and notifications (v0.26.0): in the auth starter, each change to
+an account that could hand it to someone else kept in its transaction,
+heard on the user's channel by the header's bell, listed, and mailed, the
+old email told of a new one, and `mailtest.Outbox`'s `NextTo`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -493,6 +496,24 @@ dev server that isn't there: delete it.
   `adminsCommand`, the `admins` command (`users.setAdmin`, `admins`, in
   each layer's `users_db.go`); `admin_test.go` and
   `e2e/tests/admin.spec.ts` test them.
+  `notifications.go.tmpl` has the `notifications` table's Go (each
+  layer's `notifications_db.go`: a user's notifications, their kind,
+  `noticeData` as JSON, and times in Unix milliseconds): `notices`, each
+  kind's line, made as it's read with `c.T`, its page, and its mail, which
+  `mailNotification` sends by the `notification-mail` job (`someKind` for
+  a kind the version has none of); `a.notify`, which a handler calls in
+  its transaction, keeping the notification, publishing `notification`
+  on the user's channel, and pushing the mail; `Notifications`, the page
+  at `/notifications`, `SimplePaginate`d, which marks read what it shows
+  (`markRead`, by the IDs' range); and `Bell`, shared as `bell`, the
+  unread count. A new password, in the settings or by a reset, a new
+  email, told at the old one, two-factor logins off, a passkey added (its
+  own mail's job gone) and a token made notify; `prune-notifications`
+  deletes what was read 90 days ago. The browser's side: each layout's
+  bell, and `resources/js/lib/broadcasts.ts`'s `listen`, one connection
+  to `/broadcasts` a page, whose listeners reload as their event comes
+  and as it connects again, as the verify page, the bell and the list do.
+  `notifications_test.go` and `e2e/tests/notifications.spec.ts` test it.
   Every layer's `broadcasts_db.go` is `broadcasts`, a `broadcast.Store`,
   which `main` gives the `broadcast.Hub` it runs with `app.Go`, and
   `newApp` the app as `a.hub`, with `a.broadcasts` for `in(tx)`: in
@@ -598,8 +619,10 @@ dev server that isn't there: delete it.
   file, in base64 in lines of 76 (`writeBase64`), its type and name
   written by `mime.FormatMediaType` (`Attachment.header`), its type
   sniffed when it has none. `mailtest`: `Outbox`, a Mailer for tests,
-  whose `Next` waits for a mail (`next`, on `arrived`), `None`, `Down`
-  (`ErrDown`) and `Sent`; it refuses what `Log` does.
+  whose `Next` waits for a mail (`next`, on `arrived`, the first `read`
+  isn't set for that it `wants`), `NextTo`, the next to an address, which
+  leaves the rest for `Next`, `None`, `Down` (`ErrDown`) and `Sent`; it
+  refuses what `Log` does.
 - `ssr`: server-side rendering through Inertia's own SSR, with no import of
   tug. `ssr.go`: `Gateway`, an `inertia.Renderer`: the dev server's
   `/__inertia_ssr` while it runs, otherwise `URL` (SSR_URL) or `Server`'s

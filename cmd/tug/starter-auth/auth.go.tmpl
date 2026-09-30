@@ -52,14 +52,14 @@ func (a *app) user(r *http.Request) (*User, error) {
 	return u, nil
 }
 
-// shareAuth is the auth prop, and can, what its user may do, for each
-// page as it's rendered.
+// shareAuth is the auth prop, can, what its user may do, and bell, what
+// the header's bell shows them, for each page as it's rendered.
 func (a *app) shareAuth(r *http.Request) inertia.Props {
 	u, err := a.user(r)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "the user of a page couldn't be found, so it shows them as a guest", "err", err)
 	}
-	return inertia.Props{"auth": Auth{User: u}, "can": can(r.Context(), u)}
+	return inertia.Props{"auth": Auth{User: u}, "can": can(r.Context(), u), "bell": a.bell(r.Context(), u)}
 }
 
 // userHandler is a handler for users who've logged in, which is handed the
@@ -387,11 +387,18 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 		return validate.Errors{"email": "this link has expired, or been used"}
 	}
 	u.PasswordHash = auth.HashPassword(in.Password)
-	if err := a.users.setPassword(c.Context(), u.ID, u.PasswordHash); err != nil {
-		return err
-	}
-	// The link came to the email, which it shows is theirs.
-	if err := a.users.setVerified(c.Context(), u.ID, u.Email); err != nil {
+	// The link came to the email, which it shows is theirs; and the owner
+	// is told, as for any new password.
+	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
+		if err := a.users.in(tx).setPassword(c.Context(), u.ID, u.PasswordHash); err != nil {
+			return err
+		}
+		if err := a.users.in(tx).setVerified(c.Context(), u.ID, u.Email); err != nil {
+			return err
+		}
+		return a.notify(c.Context(), tx, u.ID, "password-changed", noticeData{})
+	})
+	if err != nil {
 		return err
 	}
 	// The new password ends every login made with the old one, and the

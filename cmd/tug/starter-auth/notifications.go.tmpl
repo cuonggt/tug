@@ -1,0 +1,300 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/queue"
+)
+
+// Notifications: what happened to a user's account, which the app tells
+// them of in the app, by the header's bell and a page of them, and by
+// mail, so its owner hears of a change they didn't make. A handler
+// notifies in the transaction that makes the change: as it commits, the
+// notification is kept, heard on the user's channel, and mailed, by a job,
+// or not at all. Its line is made as it's read, in the reader's language.
+// The table's SQL is in notifications_db.go.
+
+// noticeData is what a notification says of its change, kept as JSON: the
+// name of the passkey or token it's about, or the emails, old and new.
+type noticeData struct {
+	Name     string `json:"name,omitempty"`
+	OldEmail string `json:"oldEmail,omitempty"`
+	NewEmail string `json:"newEmail,omitempty"`
+}
+
+// A notice is a kind of notification: its line, in the reader's language,
+// the page it leads to, and its mail, which leads to mailLink.
+type notice struct {
+	line     func(c *tug.Ctx, d noticeData) string
+	link     string
+	mailLink string
+	mail     func(u *User, d noticeData, link string) message
+}
+
+// notices are the kinds of notification, by the name the table keeps.
+// Each change to an account that could hand it to someone else is one.
+var notices = map[string]notice{
+	"password-changed": {
+		line: func(c *tug.Ctx, _ noticeData) string { return c.T("Your password was changed.") },
+		link: "security.edit", mailLink: "password.request",
+		mail: func(u *User, _ noticeData, link string) message {
+			return message{
+				To: u, Subject: "Your " + appName + " password was changed",
+				Intro:  "The password of your account was changed, and every other login ended.",
+				Action: "Reset your password", URL: link,
+				Outro: "If that wasn't you, reset it now: someone else knows it.",
+			}
+		},
+	},
+	"email-changed": {
+		line: func(c *tug.Ctx, d noticeData) string {
+			return c.T("Your email was changed to :email.", "email", d.NewEmail)
+		},
+		link: "profile.edit", mailLink: "login",
+		// To the old email, which the owner may still read: the new one gets
+		// its link to verify.
+		mail: func(u *User, d noticeData, link string) message {
+			return message{
+				To: &User{Name: u.Name, Email: d.OldEmail}, Subject: "Your " + appName + " email was changed",
+				Intro:  "The email of your account was changed from " + d.OldEmail + " to " + d.NewEmail + ", where its mail goes from now on.",
+				Action: "Log in", URL: link,
+				Outro: "If that wasn't you, log in and change it back, and your password: someone else has been in your account.",
+			}
+		},
+	},
+	"two-factor-off": {
+		line: func(c *tug.Ctx, _ noticeData) string { return c.T("Two-factor logins were turned off.") },
+		link: "security.edit", mailLink: "security.edit",
+		mail: func(u *User, _ noticeData, link string) message {
+			return message{
+				To: u, Subject: "Two-factor logins are off for your " + appName + " account",
+				Intro:  "Two-factor logins were turned off: logging in takes your password alone.",
+				Action: "See your security settings", URL: link,
+				Outro: "If that wasn't you, turn them on again, and change your password: someone else has been in your account.",
+			}
+		},
+	},
+	"passkey-added": {
+		line: func(c *tug.Ctx, d noticeData) string {
+			return c.T("A passkey, :name, was added to your account.", "name", d.Name)
+		},
+		link: "security.edit", mailLink: "security.edit",
+		mail: func(u *User, d noticeData, link string) message {
+			return message{
+				To: u, Subject: "A passkey was added to your " + appName + " account",
+				Intro:  "A passkey called “" + d.Name + "” was added to your account, and logs in with no password.",
+				Action: "See your passkeys", URL: link,
+				Outro: "If that wasn't you, remove it there, and change your password: someone else has been in your account.",
+			}
+		},
+	},
+	"token-added": {
+		line: func(c *tug.Ctx, d noticeData) string {
+			return c.T("An API token, :name, was made.", "name", d.Name)
+		},
+		link: "tokens.index", mailLink: "tokens.index",
+		mail: func(u *User, d noticeData, link string) message {
+			return message{
+				To: u, Subject: "An API token was made for your " + appName + " account",
+				Intro:  "An API token called “" + d.Name + "” was made, which calls the app's API as you.",
+				Action: "See your API tokens", URL: link,
+				Outro: "If that wasn't you, revoke it there, and change your password: someone else has been in your account.",
+			}
+		},
+	},
+}
+
+// someKind is what a notification of a kind this version of the app
+// doesn't have says: one a later version made, or an earlier one that's
+// gone. It's still shown, and marked read, as the bell counts it.
+var someKind = notice{
+	line: func(c *tug.Ctx, _ noticeData) string { return c.T("Something happened to your account.") },
+	link: "dashboard",
+}
+
+// notification is a notification as the table keeps it.
+type notification struct {
+	ID        int64
+	User      int64
+	Kind      string
+	Data      noticeData
+	CreatedAt time.Time
+	ReadAt    *time.Time
+}
+
+var errNoNotification = errors.New("no such notification")
+
+// notificationColumns are a notification's columns, in the order
+// scanNotification reads them.
+const notificationColumns = "id, user_id, kind, data, created_at, read_at"
+
+// scanNotification reads a notification from a row of notificationColumns,
+// its times Unix milliseconds, as the jobs' are.
+func scanNotification(row interface{ Scan(...any) error }) (*notification, error) {
+	n := &notification{}
+	var data string
+	var created int64
+	var read sql.NullInt64
+	err := row.Scan(&n.ID, &n.User, &n.Kind, &data, &created, &read)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errNoNotification
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(data), &n.Data); err != nil {
+		return nil, fmt.Errorf("notification %d's data: %w", n.ID, err)
+	}
+	n.CreatedAt, n.ReadAt = time.UnixMilli(created), fromUnixMilli(read)
+	return n, nil
+}
+
+// notifications are the users' notifications, in the database: the
+// notifications table, whose queries are in notifications_db.go.
+type notifications struct {
+	db dbtx
+}
+
+// in is the notifications as tx writes them: see notify.
+func (ns *notifications) in(tx *sql.Tx) *notifications {
+	return &notifications{db: tx}
+}
+
+// notify tells the user with the ID of a change, of kind, in tx, the
+// transaction that makes it: as tx commits, the notification is in their
+// list, heard on their channel, which the header's bell counts, and
+// mailed, by a job pushed in tx; as tx rolls back, none of it is.
+func (a *app) notify(ctx context.Context, tx *sql.Tx, userID int64, kind string, d noticeData) error {
+	if _, ok := notices[kind]; !ok {
+		return fmt.Errorf("no kind of notification %q", kind)
+	}
+	id, err := a.notifications.in(tx).add(ctx, userID, kind, d, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := a.hub.In(a.broadcasts.in(tx)).Publish(ctx, userChannel(&User{ID: userID}), "notification", nil); err != nil {
+		return err
+	}
+	return a.notificationMail.In(a.jobs.in(tx)).Push(ctx, NotificationMail{Notification: id})
+}
+
+// NotificationMail is the job that mails a notification, made as it runs
+// from the notification, which carries what it's about.
+type NotificationMail struct {
+	Notification int64 `json:"notification"`
+}
+
+// mailNotification runs NotificationMail jobs. A notification that's gone,
+// with its user, mails no one.
+func (a *app) mailNotification(ctx context.Context, job NotificationMail) error {
+	n, err := a.notifications.byID(ctx, job.Notification)
+	if errors.Is(err, errNoNotification) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	u, err := a.users.byID(ctx, n.User)
+	if errors.Is(err, errNoUser) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	kind, ok := notices[n.Kind]
+	if !ok {
+		return queue.Permanent(fmt.Errorf("no kind of notification %q, which notification %d is", n.Kind, n.ID))
+	}
+	link, err := a.routes.AbsoluteURL(kind.mailLink)
+	if err != nil {
+		return err
+	}
+	return a.mailer.Send(ctx, kind.mail(u, n.Data, link).mail())
+}
+
+// notificationsPerPage is how many notifications a page of them has.
+const notificationsPerPage = 20
+
+var Notifications = tug.Page[NotificationsProps]("Notifications")
+
+// NotificationsProps are the user's notifications, the newest first, a
+// page at a time.
+type NotificationsProps struct {
+	List tug.SimplePaginated[Notification] `json:"list"`
+}
+
+// Notification is a notification as its page shows it: its line, in the
+// reader's language, the page it leads to, and whether it was new as it
+// was shown.
+type Notification struct {
+	ID        int64     `json:"id"`
+	Line      string    `json:"line"`
+	Link      string    `json:"link"`
+	New       bool      `json:"new"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// notificationsPage shows the user's notifications, and marks the ones it
+// shows read: its user has seen them, which the bell's count says as the
+// page renders.
+func (a *app) notificationsPage(c *tug.Ctx, user *User) error {
+	list, err := tug.SimplePaginate(c, notificationsPerPage, func(limit, offset int) ([]Notification, error) {
+		kept, err := a.notifications.page(c.Context(), user.ID, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		shown := make([]Notification, 0, len(kept))
+		for _, n := range kept {
+			kind, ok := notices[n.Kind]
+			if !ok {
+				kind = someKind
+			}
+			link, err := a.routes.URL(kind.link)
+			if err != nil {
+				return nil, err
+			}
+			shown = append(shown, Notification{ID: n.ID, Line: kind.line(c, n.Data), Link: link, New: n.ReadAt == nil, CreatedAt: n.CreatedAt})
+		}
+		return shown, nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(list.Data) > 0 {
+		newest, oldest := list.Data[0].ID, list.Data[len(list.Data)-1].ID
+		if err := a.notifications.markRead(c.Context(), user.ID, oldest, newest, time.Now()); err != nil {
+			return err
+		}
+	}
+	return Notifications.Render(c, NotificationsProps{List: list})
+}
+
+// Bell is what the header's bell shows, which every page has, shared: how
+// many of the user's notifications they haven't read.
+type Bell struct {
+	Unread int `json:"unread"`
+}
+
+// bell is what the header's bell shows u: a count that fails is none,
+// which the log says why of, as the page shows either way.
+func (a *app) bell(ctx context.Context, u *User) Bell {
+	if u == nil {
+		return Bell{}
+	}
+	n, err := a.notifications.unread(ctx, u.ID)
+	if err != nil {
+		slog.ErrorContext(ctx, "the notifications a page's user hasn't read couldn't be counted", "user", u.ID, "err", err)
+	}
+	return Bell{Unread: n}
+}
+
+// readFor is how long a notification is kept once it's read: prune
+// deletes it after, every night.
+const readFor = 90 * 24 * time.Hour

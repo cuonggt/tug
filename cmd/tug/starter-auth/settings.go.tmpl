@@ -40,7 +40,8 @@ type ProfileInput struct {
 }
 
 // updateProfile saves a user's name and email. A new email isn't verified
-// until they follow the link mailed to it.
+// until they follow the link mailed to it, and the old one is told of it,
+// as the address the account's owner may still read.
 func (a *app) updateProfile(c *tug.Ctx, user *User) error {
 	var in ProfileInput
 	newEmail := func() bool { return !strings.EqualFold(in.Email, user.Email) }
@@ -55,13 +56,17 @@ func (a *app) updateProfile(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
-	// A new email and the mail that verifies it are kept together.
+	// A new email, the mail that verifies it, and the notification of it
+	// are kept together.
 	changed := newEmail()
 	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
 		if err := a.users.in(tx).setProfile(c.Context(), user.ID, in.Name, in.Email); err != nil || !changed {
 			return err
 		}
-		return a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), verification(&User{ID: user.ID, Name: in.Name, Email: in.Email}))
+		if err := a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), verification(&User{ID: user.ID, Name: in.Name, Email: in.Email})); err != nil {
+			return err
+		}
+		return a.notify(c.Context(), tx, user.ID, "email-changed", noticeData{OldEmail: user.Email, NewEmail: in.Email})
 	})
 	if errors.Is(err, errEmailTaken) {
 		return validate.Errors{"email": "email has an account already"}
@@ -168,7 +173,13 @@ func (a *app) updatePassword(c *tug.Ctx, user *User) error {
 		return err
 	}
 	hash := auth.HashPassword(in.Password)
-	if err := a.users.setPassword(c.Context(), user.ID, hash); err != nil {
+	err := a.inTx(c.Context(), func(tx *sql.Tx) error {
+		if err := a.users.in(tx).setPassword(c.Context(), user.ID, hash); err != nil {
+			return err
+		}
+		return a.notify(c.Context(), tx, user.ID, "password-changed", noticeData{})
+	})
+	if err != nil {
 		return err
 	}
 	// The new hash ends every login made with the old one, which is the

@@ -13,8 +13,9 @@ its own, as Laravel's Reverb, and no WebSockets.
 
 The auth starter's hub is on its database, SQLite, Postgres or MySQL: the
 page that asks to verify the email moves on once the email is verified,
-in another tab or on another device. `examples/inertia`'s posts show in
-every browser as they're made.
+in another tab or on another device, and the header's bell counts a
+notification as it's made. `examples/inertia`'s posts show in every
+browser as they're made.
 
 ## Publishing and following
 

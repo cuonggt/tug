@@ -9,6 +9,7 @@
   import Head from '@/Head.svelte'
   import TextLink from '@/components/TextLink.svelte'
   import { Button } from '@/components/ui/button'
+  import { listen } from '@/lib/broadcasts'
   import { route } from '@/tug/routes'
 
   // VerifyEmail is where the pages for verified users send someone who
@@ -16,20 +17,10 @@
   // MAIL_HOST in .env, the mail is written to tug dev's terminal.
 
   // Verified in another tab, or on the phone the mail went to, the email
-  // moves this page on: the app says so on the user's own channel, which
-  // /broadcasts is, in broadcasts.go. The browser connects again when the
-  // stream ends, as when the app restarts, and the page reloads then, as it
-  // may have missed the event: the email verified, it moves on.
-  onMount(() => {
-    const events = new EventSource(route('broadcasts'))
-    let opened = false
-    events.addEventListener('open', () => {
-      if (opened) router.reload()
-      opened = true
-    })
-    events.addEventListener('verified', () => router.visit(route('dashboard')))
-    return () => events.close()
-  })
+  // moves this page on: the app says so on the user's own channel, and the
+  // page reloads, which its handler, in verify.go, answers with the
+  // dashboard once the email is verified.
+  onMount(() => listen('verified', () => router.reload()))
 </script>
 
 <Head title="Verify your email" />

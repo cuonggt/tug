@@ -34,6 +34,10 @@ type testApp struct {
 	files  string           // the directory the app's disk keeps its files in
 	outbox *mailtest.Outbox // the mail the app sends, which Next reads
 	hub    *broadcast.Hub   // carries the app's events, which a test can subscribe to
+
+	// stopQueue stops the app's queue, which runs beside the test, for a
+	// test that claims jobs of its own, and returns once it has.
+	stopQueue func()
 }
 
 func key(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
@@ -58,22 +62,29 @@ func startApp(t *testing.T, db *sql.DB, keys [][]byte) *testApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, stop := context.WithCancel(context.Background())
-	ran := make(chan struct{}, 2)
+	queueCtx, stopQueue := context.WithCancel(context.Background())
+	queueRan := make(chan struct{})
 	go func() {
-		q.Run(ctx)
-		ran <- struct{}{}
+		q.Run(queueCtx)
+		close(queueRan)
 	}()
+	hubCtx, stopHub := context.WithCancel(context.Background())
+	hubRan := make(chan struct{})
 	go func() {
-		hub.Run(ctx)
-		ran <- struct{}{}
+		hub.Run(hubCtx)
+		close(hubRan)
 	}()
+	a := &testApp{App: app, t: t, db: db, keys: keys, files: files, outbox: out, hub: hub}
+	a.stopQueue = func() {
+		stopQueue()
+		<-queueRan
+	}
 	t.Cleanup(func() {
-		stop()
-		<-ran
-		<-ran
+		a.stopQueue()
+		stopHub()
+		<-hubRan
 	})
-	return &testApp{App: app, t: t, db: db, keys: keys, files: files, outbox: out, hub: hub}
+	return a
 }
 
 // link returns the path of the link to path that m carries.
@@ -117,7 +128,7 @@ func (a *testApp) verifiedUser(name, email, password string) *tugtest.Client {
 	if r := register(c, name, email, password); r.Location() != "/dashboard" {
 		a.t.Fatalf("registering %s: %v", email, r)
 	}
-	if r := c.Get(link(a.t, a.outbox.Next(a.t), "/verify-email/")); r.Location() != "/dashboard" {
+	if r := c.Get(link(a.t, a.outbox.NextTo(a.t, email), "/verify-email/")); r.Location() != "/dashboard" {
 		a.t.Fatalf("verifying %s: %v", email, r)
 	}
 	return c

@@ -60,6 +60,11 @@ type apiTokens struct {
 	db dbtx
 }
 
+// in is the tokens as tx writes them: see inTx.
+func (ts *apiTokens) in(tx *sql.Tx) *apiTokens {
+	return &apiTokens{db: tx}
+}
+
 // TokensProps are the tokens page's props.
 type TokensProps struct {
 	Tokens    []AccessToken `json:"tokens"`
@@ -82,7 +87,8 @@ type NewTokenInput struct {
 }
 
 // createToken makes a token, and shows it once, in the flash: the table
-// keeps its hash alone.
+// keeps its hash alone. The token and the notification that tells its
+// user of it are kept together, as a token calls the API as them.
 func (a *app) createToken(c *tug.Ctx, user *User) error {
 	var in NewTokenInput
 	err := c.BindValid(&in, func(errs validate.Errors) {
@@ -101,7 +107,13 @@ func (a *app) createToken(c *tug.Ctx, user *User) error {
 		expires = &at
 	}
 	token, hash := a.accessTokens.New()
-	if err := a.apiTokens.create(c.Context(), user.ID, in.Name, hash, in.Abilities, expires); err != nil {
+	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
+		if err := a.apiTokens.in(tx).create(c.Context(), user.ID, in.Name, hash, in.Abilities, expires); err != nil {
+			return err
+		}
+		return a.notify(c.Context(), tx, user.ID, "token-added", noticeData{Name: in.Name})
+	})
+	if err != nil {
 		return err
 	}
 	c.Flash("success", "Token made. Copy it now: it won't be shown again.")

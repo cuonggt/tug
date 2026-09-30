@@ -278,6 +278,11 @@ func TestANewAccountIsMailedALinkToVerifyItsEmail(t *testing.T) {
   were sent, waiting up to five seconds for it, as a job may send it once
   the request that pushed it has been answered. It fails the test when
   none comes.
+- `NextTo(t, address)` returns the next mail to an address, in its `To`,
+  `Cc` or `Bcc`, that the test hasn't had, waiting as `Next` does, and
+  leaves the mail to others for `Next`: a change that mails two addresses
+  at once, as a new email mails its link to the new one and a notice to
+  the old, mails them in any order, as their jobs run.
 - `None(t)` checks that no more comes, now or in the next 100
   milliseconds, as after a form that mustn't mail anyone.
 - `Down(n)` has the next n mails fail, with `mailtest.ErrDown`, as they

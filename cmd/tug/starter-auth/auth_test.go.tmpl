@@ -64,7 +64,8 @@ func TestAVerificationLinkForAnOldEmailOrTamperedWithVerifiesNothing(t *testing.
 	register(c, "Ann", "ann@example.com", "correct horse")
 	old := link(t, app.outbox.Next(t), "/verify-email/")
 	c.Patch("/settings/profile", map[string]any{"name": "Ann", "email": "ann@elsewhere.example"})
-	app.outbox.Next(t) // the link for the new email
+	app.outbox.NextTo(t, "ann@elsewhere.example") // the link for the new email
+	app.outbox.NextTo(t, "ann@example.com")       // and the notice of it, to the old
 
 	for _, bad := range []string{old, old + "x", strings.Replace(old, "/verify-email/1/", "/verify-email/2/", 1)} {
 		if r := c.Get(bad); r.Location() != "/verify-email" {
@@ -242,8 +243,8 @@ func resetLink(t *testing.T, app *testApp, email string) string {
 	if r := app.client().Post("/forgot-password", map[string]any{"email": email}); r.Location() != "/forgot-password" {
 		t.Fatalf("asking for a link: %v", r)
 	}
-	m := app.outbox.Next(t)
-	if m.To[0] != email || !strings.HasPrefix(m.Subject, "Reset your") {
+	m := app.outbox.NextTo(t, email)
+	if !strings.HasPrefix(m.Subject, "Reset your") {
 		t.Fatalf("mail to %v: %s", m.To, m.Subject)
 	}
 	return link(t, m, "/reset-password/")

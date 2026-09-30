@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { Link, page } from '@inertiajs/svelte'
+  import { Link, page, router } from '@inertiajs/svelte'
+  import Bell from '@lucide/svelte/icons/bell'
   import type { Snippet } from 'svelte'
   import AppLogo from '@/components/AppLogo.svelte'
   import UserMenu from '@/components/UserMenu.svelte'
   import { buttonVariants } from '@/components/ui/button'
+  import { listen } from '@/lib/broadcasts'
   import { cn } from '@/lib/utils'
   import { route } from '@/tug/routes'
 
@@ -19,6 +21,16 @@
   let { children }: { children: Snippet } = $props()
   let user = $derived(page.props.auth.user)
   let items = $derived([...nav, ...(page.props.can.seeFailedJobs ? adminNav : [])])
+  let unread = $derived(page.props.bell.unread)
+  let userID = $derived(user?.id)
+
+  // A notification made in another tab, or on another device, is counted
+  // at once: the app says so on the user's own channel. By the user's ID,
+  // so a page's new props don't start it again.
+  $effect(() => {
+    if (!userID) return
+    return listen('notification', () => router.reload({ only: ['bell'] }))
+  })
 </script>
 
 <div class="flex min-h-svh flex-col">
@@ -44,6 +56,20 @@
       {/if}
       <div class="ml-auto flex items-center gap-2">
         {#if user}
+          <Link
+            href={route('notifications.index')}
+            class={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'relative')}
+            aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+          >
+            <Bell />
+            {#if unread > 0}
+              <span
+                class="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground"
+              >
+                {unread > 99 ? '99+' : unread}
+              </span>
+            {/if}
+          </Link>
           <UserMenu {user} />
         {:else}
           <Link href={route('login')} class={buttonVariants({ variant: 'ghost', size: 'sm' })}>Log in</Link>

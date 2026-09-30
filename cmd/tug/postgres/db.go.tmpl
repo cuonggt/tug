@@ -18,7 +18,7 @@ import (
 // development: docker compose up -d. This file opens it and makes its
 // tables, and the SQL of each is beside the Go that's the same on any
 // database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go,
-// cache_db.go, tokens_db.go and broadcasts_db.go.
+// cache_db.go, tokens_db.go, broadcasts_db.go and notifications_db.go.
 
 // dbFromEnv opens the database the environment names, with its tables up
 // to date: DB_URL, with the driver's settings in its query, as
@@ -160,6 +160,17 @@ var migrations = []string{
 	// An admin may do what the app's abilities name, as see the jobs that
 	// failed, which the admins command makes someone: abilities.go.
 	`ALTER TABLE users ADD COLUMN admin boolean NOT NULL DEFAULT false`,
+	// What happened to a user's account, which the app tells them of, the
+	// newest first; a read one goes after 90 days: notifications.go.
+	`CREATE TABLE notifications (
+		id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+		user_id    bigint NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+		kind       text NOT NULL,
+		data       text NOT NULL,
+		created_at bigint NOT NULL,
+		read_at    bigint
+	);
+	CREATE INDEX notifications_user ON notifications (user_id, id)`,
 }
 
 // openDB opens the Postgres database at url, and brings its tables up to

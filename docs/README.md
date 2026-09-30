@@ -27,8 +27,8 @@ the detail.
    kept on the app's disk or in S3 with package `storage`, and links to
    them, public or signed.
 8. [Accounts](auth.md): the auth starter, in SQLite, Postgres or MySQL,
-   its API tokens and admins, and packages `auth` and `mail`, with copies,
-   files and a link to unsubscribe in one click.
+   its API tokens, admins and notifications, and packages `auth` and
+   `mail`, with copies, files and a link to unsubscribe in one click.
 9. [Authorization](authorization.md): what a user may do with a thing,
    package `auth`'s abilities, a no as a 403 that says why, and what a
    page's user may do in its props.

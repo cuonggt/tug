@@ -56,6 +56,7 @@ pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
 | `GET`, `POST /verify-email`               | `verification.notice`, `verification.send`    | users |
 | `GET /verify-email/{id}/{token}`          | `verification.verify`                         | anyone with the link |
 | `GET /broadcasts`                         | `broadcasts`                                  | users, their own events |
+| `GET /notifications`                      | `notifications.index`                         | users |
 | `GET /admin/failed-jobs`                  | `failed-jobs.index`                           | admins |
 | `POST /admin/failed-jobs/{id}/retry`, `/admin/failed-jobs/retry` | `failed-jobs.retry`, `failed-jobs.retry-all` | admins |
 | `GET /settings`                           | `settings`                                    | goes to the profile |
@@ -88,7 +89,8 @@ them.
   `photos.go`: a user's photo, on the app's disk. `tokens.go`: API
   tokens. `broadcasts.go`: the events a user's pages follow.
   `abilities.go`: what users may do, and `admin.go`, the admins' page and
-  the `admins` command. `mail.go`: the mail the app sends.
+  the `admins` command. `notifications.go`: what happened to an account,
+  in the app and by mail. `mail.go`: the mail the app sends.
 - `jobs.go`: the background jobs, in tables of their own, for package
   `queue`, which runs them beside the server, and the `jobs` command,
   which lists the ones that failed for good and runs them again. The mail
@@ -98,16 +100,18 @@ them.
   its case.
 - The database's: `db.go`, which opens it, from the environment, and has
   the migrations that make its tables; `users_db.go`, `passkeys_db.go`,
-  `jobs_db.go`, `throttles_db.go`, `cache_db.go`, `tokens_db.go` and
-  `broadcasts_db.go`, the SQL of each; `db_test.go`, the tests' databases
+  `jobs_db.go`, `throttles_db.go`, `cache_db.go`, `tokens_db.go`,
+  `broadcasts_db.go` and `notifications_db.go`, the SQL of each;
+  `db_test.go`, the tests' databases
   and the migrations' tests; and on Postgres or MySQL, `compose.yaml`,
   which runs the database in development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
   `passkeys_test.go`, `photos_test.go`, `jobs_test.go`,
   `throttles_test.go`, `cache_test.go`, `tokens_test.go`,
-  `broadcasts_test.go`, `admin_test.go`: a test of each flow, in
-  browsers of package `tugtest`, with the mail kept in memory, the photos
-  in a temporary directory, and a database of each test's own.
+  `broadcasts_test.go`, `admin_test.go`, `notifications_test.go`: a test
+  of each flow, in browsers of package `tugtest`, with the mail kept in
+  memory, the photos in a temporary directory, and a database of each
+  test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
   page's layout; `layouts/`, the app's, the login card's, and the
   settings'; `components/`, the app's own and shadcn's in
@@ -241,7 +245,8 @@ component, as in `layouts/app-layout.tsx`.
 secret and recovery codes are tagged `json:"-"`, so they never reach a
 page, and so is `Admin`: a page asks `can`, what its user may do, which
 `shareAuth` shares beside `auth`, from `abilities.go`, as
-`usePage().props.can.seeFailedJobs` ([Authorization](authorization.md#on-the-page)). [Pages](pages.md#shared-props) has more on shared props, and
+`usePage().props.can.seeFailedJobs` ([Authorization](authorization.md#on-the-page)),
+and `bell`, the notifications they haven't read ([Notifications](#notifications)). [Pages](pages.md#shared-props) has more on shared props, and
 [TypeScript](typescript.md) on the types.
 
 ### Registering
@@ -626,8 +631,9 @@ night. `main` runs the jobs beside the server with `app.Go`.
 [jobs.md](jobs.md) has the queue.
 
 A mail about what a handler writes is pushed in the same transaction:
-the account and the mail that verifies its email, a passkey and the mail
-that tells its owner of it, a new email and its link. `a.inTx` runs the
+the account and the mail that verifies its email, a new email and its
+link, and a change to the account and its notification's mail
+([Notifications](#notifications), below). `a.inTx` runs the
 handler's writes in one transaction, with the stores made from it, as
 `a.users.in(tx)`, and the jobs pushed with `Kind.In(a.jobs.in(tx))`,
 commits it, and wakes the queue: the two are kept together, or neither
@@ -643,6 +649,51 @@ which runs in place of the server, on the same database, and exits:
 `./blog jobs retry 42`, or `retry all`, runs them again. In the image,
 it's `docker exec <container> /server jobs`. `./blog help` lists the
 commands, for an app that adds more.
+
+### Notifications
+
+What happens to an account, of the kind that could hand it to someone
+else, its owner hears of, in the app and by mail: a new password, set in
+the settings or by a reset link; a new email, told at the old one, the
+address its owner may still read, as the new one gets its link to
+verify; two-factor logins turned off; a passkey added; and an API token
+made.
+
+```go
+err := a.inTx(c.Context(), func(tx *sql.Tx) error {
+	if err := a.users.in(tx).setPassword(c.Context(), user.ID, hash); err != nil {
+		return err
+	}
+	return a.notify(c.Context(), tx, user.ID, "password-changed", noticeData{})
+})
+```
+
+`a.notify` keeps a notification in the handler's transaction, in the
+`notifications` table, with its kind and its data as JSON; publishes
+`notification` on the user's channel ([Broadcasting](broadcasting.md));
+and pushes the job that mails it. As the transaction commits, the three
+happen together, and as it rolls back, none does: a change that wasn't
+made is never heard of.
+
+- The header's bell counts the notifications the user hasn't read, a
+  prop every page shares, `bell.unread`, and counts a new one at once,
+  as the layout follows the user's channel and reloads it.
+- `/notifications` lists them, the newest first, 20 a page, and marks
+  the ones it shows read, with a dot on those new to it; one that comes
+  while it's open shows at once.
+- A notification's line is made as it's read, from its kind and data,
+  in the reader's language, with `c.T`: a notification outlasts the
+  language it was made in. Its mail, made as its job runs, goes in the
+  app's words, as the rest of its mail does.
+- `notices`, in `notifications.go`, has the kinds: each one's line, the
+  page it leads to, and its mail. Add the app's own there, and call
+  `a.notify` in the transaction that makes the change. A kind a version
+  of the app no longer has still shows, with a line of its own, and is
+  marked read.
+- A notification read over 90 days ago goes, as a scheduled job,
+  `prune-notifications`, deletes them every night.
+
+A passkey's mail, which was a job of its own, is now its notification's.
 
 ### The database
 
@@ -683,8 +734,9 @@ each database in its own way:
 
 The SQL of each table is in a file of its own, `users_db.go`,
 `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,
-`tokens_db.go` and `broadcasts_db.go`, beside the Go that's the same on
-any database, and it's written for its database, where they differ:
+`tokens_db.go`, `broadcasts_db.go` and `notifications_db.go`, beside the
+Go that's the same on any database, and it's written for its database,
+where they differ:
 
 | | SQLite | Postgres | MySQL |
 |---|---|---|---|
@@ -773,9 +825,14 @@ which a scheduled job, `prune-broadcasts`, rids of what's a minute old,
 every minute.
 
 A user's pages follow their own channel, `users.` and their ID, at
-`/broadcasts`, in `broadcasts.go`, which only their logins reach: the
-page that asks to verify the email listens for `verified`, and goes to
-the dashboard. An event of the app's for the user goes the same way,
+`/broadcasts`, in `broadcasts.go`, which only their logins reach, on one
+connection a page, which `listen`, in `resources/js/lib/broadcasts.ts`,
+shares among whatever listens: the page that asks to verify the email
+listens for `verified`, and the layout's bell and the notifications'
+page for `notification`. Each reloads what it shows, as each event
+comes, and as the connection is made again, for what it missed: the
+verify page's reload goes to the dashboard once the email is verified.
+An event of the app's for the user goes the same way,
 `a.hub.Publish(ctx, userChannel(user), name, data)`, and in a handler's
 transaction, with what it tells of, through
 `a.hub.In(a.broadcasts.in(tx))`.
@@ -1430,6 +1487,4 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
 - **A list of the sessions logged in**, to end one: logins live in
   cookies, so there's nothing to list. A new password ends them all but
   this browser's.
-- **Telling the old email** when the email changes, or the password, as
-  some apps do so that the owner hears of a change they didn't make.
 - **Logging in with another site**, such as GitHub or Google.

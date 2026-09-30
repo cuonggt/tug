@@ -1,8 +1,10 @@
-import { Link, usePage } from '@inertiajs/react'
-import type { ReactNode } from 'react'
+import { Link, router, usePage } from '@inertiajs/react'
+import { Bell } from 'lucide-react'
+import { type ReactNode, useEffect } from 'react'
 import AppLogo from '@/components/app-logo'
 import UserMenu from '@/components/user-menu'
 import { Button } from '@/components/ui/button'
+import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
 import { route } from '@/tug/routes'
 
@@ -16,6 +18,13 @@ const adminNav = [{ title: 'Failed jobs', href: route('failed-jobs.index') }]
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { props, url } = usePage()
   const user = props.auth.user
+  const unread = props.bell.unread
+  // A notification made in another tab, or on another device, is counted
+  // at once: the app says so on the user's own channel.
+  useEffect(() => {
+    if (!user) return
+    return listen('notification', () => router.reload({ only: ['bell'] }))
+  }, [user?.id])
   return (
     <div className="flex min-h-svh flex-col">
       <header className="border-b">
@@ -41,7 +50,22 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           )}
           <div className="ml-auto flex items-center gap-2">
             {user ? (
-              <UserMenu user={user} />
+              <>
+                <Button variant="ghost" size="icon" className="relative" asChild>
+                  <Link
+                    href={route('notifications.index')}
+                    aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+                  >
+                    <Bell />
+                    {unread > 0 && (
+                      <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                        {unread > 99 ? '99+' : unread}
+                      </span>
+                    )}
+                  </Link>
+                </Button>
+                <UserMenu user={user} />
+              </>
             ) : (
               <>
                 <Button variant="ghost" size="sm" asChild>

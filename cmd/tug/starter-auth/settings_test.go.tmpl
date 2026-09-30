@@ -37,10 +37,7 @@ func TestANewEmailIsntVerifiedUntilItsLinkIsFollowed(t *testing.T) {
 	if r.Page.Flash["success"] != "Profile saved. We've mailed a link to ann@elsewhere.example to verify it." {
 		t.Errorf("flash %v", r.Page.Flash)
 	}
-	m := app.outbox.Next(t)
-	if m.To[0] != "ann@elsewhere.example" {
-		t.Fatalf("the link went to %v", m.To)
-	}
+	m := app.outbox.NextTo(t, "ann@elsewhere.example")
 	if r := c.Get("/dashboard"); r.Location() != "/verify-email" {
 		t.Errorf("the dashboard with the new email: %v", r)
 	}

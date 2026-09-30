@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ import (
 type Outbox struct {
 	mu      sync.Mutex
 	sent    []mail.Message
-	read    int           // how many of sent Next has returned
+	read    []bool        // which of sent Next or NextTo has returned
 	down    int           // how many sends to fail
 	arrived chan struct{} // closed as a mail comes, for Next and None to wait on
 }
@@ -50,6 +51,7 @@ func (o *Outbox) Send(ctx context.Context, m mail.Message) error {
 		return ErrDown
 	}
 	o.sent = append(o.sent, m)
+	o.read = append(o.read, false)
 	if o.arrived != nil {
 		close(o.arrived)
 		o.arrived = nil
@@ -79,9 +81,24 @@ const (
 // none comes. Call it from the test's own goroutine, as t.Fatal needs.
 func (o *Outbox) Next(t testing.TB) mail.Message {
 	t.Helper()
-	m, ok := o.next(waitForMail)
+	m, ok := o.next(waitForMail, func(mail.Message) bool { return true })
 	if !ok {
 		t.Fatal("mailtest: no mail came in 5 seconds")
+	}
+	return m
+}
+
+// NextTo returns the next mail to address that the test hasn't had, to it
+// or a copy, as Next does, and leaves the mail to others for Next: a
+// change that mails more than one address, whose jobs run in any order,
+// or a test's users each mailed in turn.
+func (o *Outbox) NextTo(t testing.TB, address string) mail.Message {
+	t.Helper()
+	m, ok := o.next(waitForMail, func(m mail.Message) bool {
+		return slices.Contains(m.To, address) || slices.Contains(m.Cc, address) || slices.Contains(m.Bcc, address)
+	})
+	if !ok {
+		t.Fatalf("mailtest: no mail to %s came in 5 seconds", address)
 	}
 	return m
 }
@@ -90,22 +107,23 @@ func (o *Outbox) Next(t testing.TB) mail.Message {
 // the next 100 milliseconds. It fails the test with the one that comes.
 func (o *Outbox) None(t testing.TB) {
 	t.Helper()
-	if m, ok := o.next(waitForNoMail); ok {
+	if m, ok := o.next(waitForNoMail, func(mail.Message) bool { return true }); ok {
 		t.Errorf("mailtest: a mail went to %v: %s", m.To, m.Subject)
 	}
 }
 
-// next returns the next mail the test hasn't had, waiting up to wait for
-// it, and false when none comes.
-func (o *Outbox) next(wait time.Duration) (mail.Message, bool) {
+// next returns the next mail the test hasn't had that it wants, waiting up
+// to wait for it, and false when none comes.
+func (o *Outbox) next(wait time.Duration, wants func(mail.Message) bool) (mail.Message, bool) {
 	deadline := time.After(wait)
 	for {
 		o.mu.Lock()
-		if o.read < len(o.sent) {
-			m := o.sent[o.read]
-			o.read++
-			o.mu.Unlock()
-			return m, true
+		for i, m := range o.sent {
+			if !o.read[i] && wants(m) {
+				o.read[i] = true
+				o.mu.Unlock()
+				return m, true
+			}
 		}
 		if o.arrived == nil {
 			o.arrived = make(chan struct{})
@@ -120,8 +138,8 @@ func (o *Outbox) next(wait time.Duration) (mail.Message, bool) {
 	}
 }
 
-// Sent returns every mail sent so far, in order, the ones Next has
-// returned among them.
+// Sent returns every mail sent so far, in order, the ones Next and NextTo
+// have returned among them.
 func (o *Outbox) Sent() []mail.Message {
 	o.mu.Lock()
 	defer o.mu.Unlock()

@@ -1,0 +1,232 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/auth/passkeytest"
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// unread is how many notifications the bell on c's next page counts: the
+// home page, which a user whose new email isn't verified yet sees too.
+func unread(c *tugtest.Client) int {
+	return tugtest.Prop[Bell](c.Get("/"), "bell").Unread
+}
+
+// lines are the lines of a page of c's user's notifications, the newest
+// first, which shows them read.
+func lines(c *tugtest.Client, page string) []string {
+	var got []string
+	for _, n := range tugtest.Props(c.Get("/notifications"+page), Notifications).List.Data {
+		got = append(got, n.Line)
+	}
+	return got
+}
+
+func TestEachChangeToAnAccountIsToldOfInTheAppAndByMail(t *testing.T) {
+	for name, change := range map[string]struct {
+		// make makes the change, in the browser c, and returns the browser
+		// logged in after it.
+		make    func(t *testing.T, app *testApp, c *tugtest.Client) *tugtest.Client
+		line    string
+		to      string
+		subject string
+		link    string
+	}{
+		"a new password": {
+			make: func(t *testing.T, _ *testApp, c *tugtest.Client) *tugtest.Client {
+				r := c.Put("/settings/password", map[string]any{"current_password": "correct horse", "password": "battery staple", "password_confirmation": "battery staple"})
+				if r.Location() != "/settings/security" {
+					t.Fatalf("changing the password: %v", r)
+				}
+				return c
+			},
+			line: "Your password was changed.", to: "ann@example.com", subject: "Your " + appName + " password was changed", link: "/forgot-password",
+		},
+		"a password reset": {
+			make: func(t *testing.T, app *testApp, _ *tugtest.Client) *tugtest.Client {
+				c := app.client()
+				resetPassword(t, c, resetLink(t, app, "ann@example.com"), "battery staple")
+				return c
+			},
+			line: "Your password was changed.", to: "ann@example.com", subject: "Your " + appName + " password was changed", link: "/forgot-password",
+		},
+		"a new email, told at the old one": {
+			make: func(t *testing.T, app *testApp, c *tugtest.Client) *tugtest.Client {
+				c.Patch("/settings/profile", map[string]any{"name": "Ann", "email": "ann@elsewhere.example"})
+				link(t, app.outbox.NextTo(t, "ann@elsewhere.example"), "/verify-email/") // the new one's, as before
+				return c
+			},
+			line: "Your email was changed to ann@elsewhere.example.", to: "ann@example.com", subject: "Your " + appName + " email was changed", link: "/login",
+		},
+		"two-factor logins turned off": {
+			make: func(t *testing.T, app *testApp, c *tugtest.Client) *tugtest.Client {
+				turnOnTwoFactor(t, app, c)
+				c.Delete("/settings/two-factor", nil)
+				return c
+			},
+			line: "Two-factor logins were turned off.", to: "ann@example.com", subject: "Two-factor logins are off for your " + appName + " account", link: "/settings/security",
+		},
+		"a passkey added": {
+			make: func(t *testing.T, _ *testApp, c *tugtest.Client) *tugtest.Client {
+				addPasskey(t, c, passkeytest.New("https://app.example"), "Ann's phone")
+				return c
+			},
+			line: "A passkey, Ann's phone, was added to your account.", to: "ann@example.com", subject: "A passkey was added to your " + appName + " account", link: "/settings/security",
+		},
+		"an API token made": {
+			make: func(t *testing.T, _ *testApp, c *tugtest.Client) *tugtest.Client {
+				makeToken(t, c, "My script", []string{"user:read"}, "0")
+				return c
+			},
+			line: "An API token, My script, was made.", to: "ann@example.com", subject: "An API token was made for your " + appName + " account", link: "/settings/tokens",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			app := newTestApp(t)
+			c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+			if n := unread(c); n != 0 {
+				t.Fatalf("%d unread before the change", n)
+			}
+			c = change.make(t, app, c)
+			if n := unread(c); n != 1 {
+				t.Errorf("the bell counts %d, want the change's", n)
+			}
+			if got := lines(c, ""); !slices.Equal(got, []string{change.line}) {
+				t.Errorf("listed %q, want %q", got, change.line)
+			}
+			if n := unread(c); n != 0 {
+				t.Errorf("the bell counts %d once the list showed it", n)
+			}
+			m := app.outbox.NextTo(t, change.to)
+			if m.Subject != change.subject {
+				t.Errorf("mailed %q, want %q", m.Subject, change.subject)
+			}
+			link(t, m, change.link)
+		})
+	}
+}
+
+func TestANotificationIsntKeptWhenItsChangeIsnt(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	jobsDown(t, app.db)
+	r := c.Put("/settings/password", map[string]any{"current_password": "correct horse", "password": "battery staple", "password_confirmation": "battery staple"})
+	if r.Code != http.StatusInternalServerError {
+		t.Fatalf("changing the password with the jobs table down: %v", r)
+	}
+	if n, got := unread(c), lines(c, ""); n != 0 || len(got) != 0 {
+		t.Errorf("the bell counts %d, and the list has %q, of a change that wasn't made", n, got)
+	}
+	if r := logIn(app.client(), "ann@example.com", "correct horse"); r.Location() != "/dashboard" {
+		t.Errorf("the old password: %v", r)
+	}
+}
+
+func TestANotificationIsHeardOnItsUsersChannel(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	events := listening(t, app.hub, userChannel(user(c.Get("/dashboard"))))
+	makeToken(t, c, "My script", []string{"user:read"}, "0")
+	heard(t, events, "notification")
+}
+
+func TestTheListIsTheUsersOwnTheNewestFirstAPageAtATime(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	bob := app.verifiedUser("Bob", "bob@example.com", "battery staple")
+	ns := &notifications{db: app.db}
+	ctx := context.Background()
+	add := func(u *User, name string) {
+		t.Helper()
+		if _, err := ns.add(ctx, u.ID, "token-added", noticeData{Name: name}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ann := user(c.Get("/dashboard"))
+	for i := range 24 {
+		add(ann, fmt.Sprintf("Token %d", i))
+	}
+	add(user(bob.Get("/dashboard")), "Bob's")
+	if _, err := ns.add(ctx, ann.ID, "a-kind-long-gone", noticeData{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := unread(c); n != 25 {
+		t.Fatalf("the bell counts %d, want 25", n)
+	}
+	r := c.Get("/notifications")
+	page := tugtest.Props(r, Notifications).List
+	if len(page.Data) != 20 || page.Data[0].Line != "Something happened to your account." || page.Data[1].Line != "An API token, Token 23, was made." || !page.Data[0].New || page.NextPageURL == nil {
+		t.Fatalf("the first page: %+v", page)
+	}
+	if n := unread(c); n != 5 {
+		t.Errorf("the bell counts %d once the first page showed 20, want 5", n)
+	}
+	if again := tugtest.Props(c.Get("/notifications"), Notifications).List.Data; again[0].New {
+		t.Error("a notification shown once is still new")
+	}
+	got := lines(c, "?page=2")
+	if len(got) != 5 || got[0] != "An API token, Token 4, was made." || got[4] != "An API token, Token 0, was made." {
+		t.Errorf("the second page: %q", got)
+	}
+	if n := unread(c); n != 0 {
+		t.Errorf("the bell counts %d once both pages showed them", n)
+	}
+	if got := lines(bob, ""); !slices.Equal(got, []string{"An API token, Bob's, was made."}) {
+		t.Errorf("Bob's list: %q", got)
+	}
+}
+
+func TestNotificationsReadThreeMonthsAgoArePruned(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	ann := user(c.Get("/dashboard"))
+	ns := &notifications{db: app.db}
+	ctx := context.Background()
+	for name, readDaysAgo := range map[string]int{"read long ago": 91, "read lately": 10, "never read": -1} {
+		id, err := ns.add(ctx, ann.ID, "token-added", noticeData{Name: name}, time.Now().AddDate(0, 0, -200))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if readDaysAgo >= 0 {
+			if err := ns.markRead(ctx, ann.ID, id, id, time.Now().AddDate(0, 0, -readDaysAgo)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := ns.prune(ctx, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	left, err := ns.page(ctx, ann.ID, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, n := range left {
+		names = append(names, n.Data.Name)
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, []string{"never read", "read lately"}) {
+		t.Errorf("left %q", names)
+	}
+}
+
+func TestTheAppPrunesTheNotificationsReadEveryNight(t *testing.T) {
+	app := newTestApp(t)
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		var n int
+		app.db.QueryRow("SELECT count(*) FROM jobs WHERE kind = 'prune-notifications'").Scan(&n)
+		if n == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the prune job wasn't pushed")
+		}
+	}
+}

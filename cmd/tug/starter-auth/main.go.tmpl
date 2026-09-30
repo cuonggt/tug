@@ -167,7 +167,6 @@ type app struct {
 	routes        *tug.App       // for the links in mail, which jobs make with no request
 	verifyMail    *queue.Kind[VerifyMail]
 	resetMail     *queue.Kind[ResetMail]
-	passkeyMail   *queue.Kind[PasskeyMail]
 	deleteFile    *queue.Kind[DeleteFile]
 	passkeys      *passkeys
 	resets        *auth.Resets
@@ -179,6 +178,11 @@ type app struct {
 	// mustn't run twice at once, on any of them: cache_db.go. The starter
 	// keeps nothing in it; it's there for the app.
 	cache *cache.Cache
+
+	// What happened to each user's account, which they're told of in the
+	// app and by mail, by a job: notifications.go.
+	notifications    *notifications
+	notificationMail *queue.Kind[NotificationMail]
 
 	// hub carries events to the pages open on any instance, through the
 	// database, broadcasts, which a handler's transaction publishes in with
@@ -294,6 +298,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		broadcasts:    &broadcasts{db: e.DB},
 		accessTokens:  &auth.AccessTokens{Prefix: tokenPrefix},
 		apiTokens:     &apiTokens{db: e.DB},
+		notifications: &notifications{db: e.DB},
 		apiRequests:   &auth.Throttle{Name: "api", Max: 60, Window: time.Minute, Store: counts},
 		logins:        &auth.Throttle{Name: "logins", Max: 5, Window: time.Minute, Store: counts},
 		passwords:     &auth.Throttle{Name: "passwords", Max: 5, Window: time.Minute, Store: counts},
@@ -302,16 +307,18 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		resetAsks:     &auth.Throttle{Name: "reset-asks", Max: 5, Window: time.Minute, Store: counts},
 	}
 	// The mail goes by jobs, which make each mail as it goes: in verify.go,
-	// auth.go and passkeys.go. So do the files that nothing names any more,
-	// such as a replaced photo: photos.go. Every night, a job deletes the
-	// jobs that failed for good over a month ago: prune, in jobs_db.go; and
-	// every hour, the throttles' counts that count nothing any more, and
-	// what the cache kept that has expired.
+	// auth.go and notifications.go. So do the files that nothing names any
+	// more, such as a replaced photo: photos.go. Every night, a job deletes
+	// the jobs that failed for good over a month ago: prune, in jobs_db.go,
+	// and another the notifications read three months ago; and every hour,
+	// the throttles' counts that count nothing any more, and what the cache
+	// kept that has expired.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
-	a.passkeyMail = queue.Handle(e.Queue, "passkey-mail", a.mailPasskey)
+	a.notificationMail = queue.Handle(e.Queue, "notification-mail", a.mailNotification)
 	a.deleteFile = queue.Handle(e.Queue, "delete-file", a.deleteStoredFile)
 	queue.Handle(e.Queue, "prune-jobs", a.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
+	queue.Handle(e.Queue, "prune-notifications", a.notifications.prune).Schedule(queue.Cron("@daily"), struct{}{})
 	queue.Handle(e.Queue, "prune-throttles", counts.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	queue.Handle(e.Queue, "prune-cache", cached.prune).Schedule(queue.Every(time.Hour), struct{}{})
 [[- if not .Postgres ]]
@@ -331,9 +338,11 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// Every page has auth.user: null for a guest, as shared here, which is
 	// also where tug gen learns its type, and the user for someone who has
 	// logged in, shared as each page is rendered; and can, what the user
-	// may do, in abilities.go.
+	// may do, in abilities.go, and bell, the notifications they haven't
+	// read, in notifications.go.
 	pages.Share("auth", Auth{})
 	pages.Share("can", Can{})
+	pages.Share("bell", Bell{})
 	pages.ShareFunc(a.shareAuth)
 
 	// The app's languages: a file each in lang/, as tug lang vi writes
@@ -415,6 +424,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 
 	// The user's own events, which their pages listen for: broadcasts.go.
 	app.Get("/broadcasts", a.usersOnly(a.userEvents)).Name("broadcasts")
+
+	// What happened to the user's account: notifications.go.
+	app.Get("/notifications", a.usersOnly(a.notificationsPage)).Name("notifications.index")
 
 	// For admins alone, whom the admins command makes, as abilities.go
 	// has it: the jobs that failed for good, run again: admin.go.

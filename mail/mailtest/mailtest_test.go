@@ -28,6 +28,9 @@ type failures struct {
 
 func (f *failures) Helper()           {}
 func (f *failures) Fatal(args ...any) { f.said = append(f.said, fmt.Sprint(args...)) }
+func (f *failures) Fatalf(format string, args ...any) {
+	f.said = append(f.said, fmt.Sprintf(format, args...))
+}
 func (f *failures) Errorf(format string, args ...any) {
 	f.said = append(f.said, fmt.Sprintf(format, args...))
 }
@@ -67,6 +70,37 @@ func TestNextFailsTheTestWhenNoMailComes(t *testing.T) {
 		out.Next(f)
 		if len(f.said) != 1 || !strings.Contains(f.said[0], "no mail came in 5 seconds") || time.Since(start) != 5*time.Second {
 			t.Errorf("after %v, failed with %q", time.Since(start), f.said)
+		}
+	})
+}
+
+func TestNextToTakesTheMailToAnAddressAndLeavesTheRestForNext(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		out := &mailtest.Outbox{}
+		out.Send(ctx, to("ann@example.com", "For Ann"))
+		out.Send(ctx, to("bob@example.com", "For Bob"))
+		out.Send(ctx, mail.Message{To: []string{"ann@example.com"}, Cc: []string{"carol@example.com"}, Subject: "For Carol too", Text: "Hi."})
+		for address, want := range map[string]string{"bob@example.com": "For Bob", "carol@example.com": "For Carol too"} {
+			if m := out.NextTo(t, address); m.Subject != want {
+				t.Errorf("next to %s: %s, want %s", address, m.Subject, want)
+			}
+		}
+		if m := out.Next(t); m.Subject != "For Ann" {
+			t.Errorf("next: %s, want the one left", m.Subject)
+		}
+		out.None(t)
+
+		go func() {
+			time.Sleep(2 * time.Second) // a job, after the request was answered
+			out.Send(ctx, to("dan@example.com", "For Dan"))
+		}()
+		if m := out.NextTo(t, "dan@example.com"); m.Subject != "For Dan" {
+			t.Errorf("next to Dan: %s", m.Subject)
+		}
+		f := &failures{}
+		out.NextTo(f, "eve@example.com")
+		if len(f.said) != 1 || !strings.Contains(f.said[0], "no mail to eve@example.com came in 5 seconds") {
+			t.Errorf("with none to Eve, failed with %q", f.said)
 		}
 	})
 }

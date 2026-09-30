@@ -1,0 +1,72 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+)
+
+// The notifications table's queries, in MySQL, which has no RETURNING: an
+// insert reads the ID it made from its result.
+
+// add keeps a notification of kind for the user with the ID, made at at,
+// and returns its ID.
+func (ns *notifications) add(ctx context.Context, userID int64, kind string, d noticeData, at time.Time) (int64, error) {
+	data, err := json.Marshal(d)
+	if err != nil {
+		return 0, err
+	}
+	res, err := ns.db.ExecContext(ctx, "INSERT INTO notifications (user_id, kind, data, created_at) VALUES (?, ?, ?, ?)",
+		userID, kind, string(data), at.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// byID returns the notification with the ID, or errNoNotification.
+func (ns *notifications) byID(ctx context.Context, id int64) (*notification, error) {
+	return scanNotification(ns.db.QueryRowContext(ctx, "SELECT "+notificationColumns+" FROM notifications WHERE id = ?", id))
+}
+
+// page returns limit of the user's notifications, from offset, the newest
+// first.
+func (ns *notifications) page(ctx context.Context, userID int64, limit, offset int) ([]*notification, error) {
+	rows, err := ns.db.QueryContext(ctx, "SELECT "+notificationColumns+" FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?", userID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var page []*notification
+	for rows.Next() {
+		n, err := scanNotification(rows)
+		if err != nil {
+			return nil, err
+		}
+		page = append(page, n)
+	}
+	return page, rows.Err()
+}
+
+// markRead marks the user's notifications from oldest to newest, the IDs
+// of a page of them, read at at, but those read already.
+func (ns *notifications) markRead(ctx context.Context, userID, oldest, newest int64, at time.Time) error {
+	_, err := ns.db.ExecContext(ctx, "UPDATE notifications SET read_at = ? WHERE user_id = ? AND id BETWEEN ? AND ? AND read_at IS NULL",
+		at.UnixMilli(), userID, oldest, newest)
+	return err
+}
+
+// unread counts the user's notifications not read yet.
+func (ns *notifications) unread(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := ns.db.QueryRowContext(ctx, "SELECT count(*) FROM notifications WHERE user_id = ? AND read_at IS NULL", userID).Scan(&n)
+	return n, err
+}
+
+// prune deletes the notifications read over readFor ago, which their
+// users have seen, and which would otherwise pile up. It's a job, which
+// newApp schedules for every night.
+func (ns *notifications) prune(ctx context.Context, _ struct{}) error {
+	_, err := ns.db.ExecContext(ctx, "DELETE FROM notifications WHERE read_at <= ?", time.Now().Add(-readFor).UnixMilli())
+	return err
+}
