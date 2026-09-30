@@ -2498,8 +2498,8 @@ gates say what a user may do with a thing, `authorize` turns a no into a
 403, and an Inertia page gets what its user may do as props. And the auth
 starter's users were all alike, so the jobs that failed for good were
 listed by its binary's command alone: a page for them waited, in
-Background jobs, for someone who may see every user's jobs. To be
-released as v0.25.0.
+Background jobs, for someone who may see every user's jobs. Released as
+v0.25.0.
 
 - **Abilities, in package `auth`:** `auth.NewAbility`, what a user may do
   with a thing, as edit a post: a check of the user and the thing that
@@ -2578,7 +2578,7 @@ owner of an account whose email was changed heard nothing at the old
 one. Laravel's notifications go by mail, into the database, where the app
 lists them, and to the pages open, each by the channels it names. tug had
 each part, mail, the queue, the database's stores and broadcasting, and
-the auth starter puts them together. To be released as v0.26.0.
+the auth starter puts them together. Released as v0.26.0.
 
 - **Kept for the user:** a `notifications` table in each database's
   layer, of a notification's kind, its data as JSON, and when it was made
