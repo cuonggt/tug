@@ -862,6 +862,13 @@ variables, one set for light and one for dark.
 landing page. A page names its card's title with a static `layout`, as
 `Login.layout = { title: 'Log in', ... }`.
 
+The pages run under the Content-Security-Policy `main.go` sends
+([Security headers](deployment.md#security-headers)): `app.html`'s script,
+which sets light or dark before the page paints, carries the page's nonce,
+as Vite's tags do, and what the policy blocks, the browser reports to
+`/csp-reports`, which the app logs. Its photos, on a bucket, come from the
+bucket's address, which the policy lets images come from.
+
 What a handler flashes with `c.Flash("success", ...)` or `"error"` shows
 as a toast, with sonner. `app.tsx` listens for Inertia's `flash` event from
 the start, so the flash that comes with the first page, as after following

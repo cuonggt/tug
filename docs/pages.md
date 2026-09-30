@@ -65,8 +65,8 @@ a redirect ([forms.md](forms.md)). The root template, `app.html`:
   <head>
     <meta charset="utf-8">
     <title data-inertia>blog</title>
-    {{ viteReactRefresh }}
-    {{ vite "resources/js/app.tsx" (printf "resources/js/pages/%s.tsx" .Page.Component) }}
+    {{ viteReactRefresh .Nonce }}
+    {{ vite .Nonce "resources/js/app.tsx" (printf "resources/js/pages/%s.tsx" .Page.Component) }}
   </head>
   <body>
     {{ .Inertia }}
@@ -83,6 +83,16 @@ with the app's, so a first visit fetches both at once. With server-side
 rendering, the `<div id="app">` has the page's HTML in it, and
 `{{ .InertiaHead }}`, in the head, has the tags of its `<Head>`, its
 `<title>` first: [ssr.md](ssr.md).
+
+`.Nonce` is the response's Content-Security-Policy nonce, which
+`middleware.CSP` makes ([deployment.md](deployment.md#security-headers)),
+and its policy runs a script by: `vite` and `viteReactRefresh` take it
+first, for their scripts to carry, and a script of the template's own
+carries it too, as `<script nonce="{{ .Nonce }}">`, or the policy doesn't
+run it. The scripts in `{{ .InertiaHead }}` carry it as well: in the
+browser, Inertia adds a `<Head>`'s script to the page itself, which the
+policy lets run, and rendered on the server, it's the nonce that does.
+Without `CSP`, `.Nonce` is `""`, and the tags have none.
 
 ## Declaring and rendering pages
 
@@ -585,6 +595,11 @@ the build is served under, `/build/` unless it's set, which must be the
 `base` that `vite.config.ts` gives `vite build`. `HotFile` is the file the
 dev server writes its URL to while it runs.
 
+`vite` takes the page's nonce first, and then its entries, as
+`vite.config.ts` names its inputs; `viteReactRefresh` the nonce alone. A
+template written before the nonce, whose first argument is an entry, is an
+error that says to pass `.Nonce` first.
+
 While the hot file is there, `vite` loads each entry from the dev server,
 after its client, which does the hot reloading, and `viteReactRefresh`
 adds the preamble `@vitejs/plugin-react` needs, which Vue's and Svelte's
@@ -597,7 +612,7 @@ a dev server that isn't there: delete it.
 
 Otherwise the tags come from the build's manifest: each entry's script, its
 CSS and that of the chunks it imports, and a `modulepreload` for each of
-those chunks. An entry the manifest doesn't have is an error that names it,
+those chunks, the scripts and the preloads with the nonce. An entry the manifest doesn't have is an error that names it,
 as is having no build at all, and a first visit is then a 500.
 `assets.Version()` is a hash of the manifest, `""` before a build: it's
 what `inertia.Config.Version` wants, since each build has its own manifest.
@@ -628,7 +643,7 @@ import (
 
 const root = `<!doctype html>
 <html>
-  <head>{{ viteReactRefresh }}{{ vite "resources/js/app.tsx" }}</head>
+  <head>{{ viteReactRefresh .Nonce }}{{ vite .Nonce "resources/js/app.tsx" }}</head>
   <body>{{ .Inertia }}</body>
 </html>`
 

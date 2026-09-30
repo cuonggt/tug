@@ -39,7 +39,7 @@ func newVite(t *testing.T, cfg Config) *Vite {
 
 func TestTagsForABuildLoadTheEntryItsCSSAndItsImports(t *testing.T) {
 	v := newVite(t, Config{Build: build()})
-	got, err := v.Tags("views/foo.js")
+	got, err := v.Tags("", "views/foo.js")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestTagsForABuildLoadTheEntryItsCSSAndItsImports(t *testing.T) {
 
 func TestTagsNameEachFileOnceAcrossEntries(t *testing.T) {
 	v := newVite(t, Config{Build: build(), Base: "/static/"})
-	got, err := v.Tags("styles/app.css", "views/foo.js", "views/bar.js")
+	got, err := v.Tags("", "styles/app.css", "views/foo.js", "views/bar.js")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,12 +73,12 @@ func TestTagsWhileTheDevServerRunsLoadFromIt(t *testing.T) {
 	hot := filepath.Join(t.TempDir(), "hot")
 	v := newVite(t, Config{Build: build(), HotFile: hot})
 
-	if refresh := v.ReactRefresh(); refresh != "" {
+	if refresh := v.ReactRefresh(""); refresh != "" {
 		t.Errorf("a build got the React preamble: %s", refresh)
 	}
 	os.WriteFile(hot, []byte("http://localhost:5173/\n"), 0o644)
 
-	got, err := v.Tags("resources/js/app.tsx", "resources/css/app.css")
+	got, err := v.Tags("", "resources/js/app.tsx", "resources/css/app.css")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,24 +88,24 @@ func TestTagsWhileTheDevServerRunsLoadFromIt(t *testing.T) {
 	if string(got) != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
-	if refresh := v.ReactRefresh(); !strings.Contains(string(refresh), "import RefreshRuntime from 'http://localhost:5173/@react-refresh'") {
+	if refresh := v.ReactRefresh(""); !strings.Contains(string(refresh), "import RefreshRuntime from 'http://localhost:5173/@react-refresh'") {
 		t.Errorf("preamble %s", refresh)
 	}
 
 	// The dev server stops, and the build takes over without a restart.
 	os.Remove(hot)
-	if got, _ := v.Tags("views/foo.js"); strings.Contains(string(got), "5173") {
+	if got, _ := v.Tags("", "views/foo.js"); strings.Contains(string(got), "5173") {
 		t.Errorf("still loading from the dev server: %s", got)
 	}
 }
 
 func TestTagsSayWhatToRunWhenThereIsNothingToLoad(t *testing.T) {
 	v := newVite(t, Config{Build: fstest.MapFS{}})
-	if _, err := v.Tags("resources/js/app.tsx"); err == nil || !strings.Contains(err.Error(), "npm run build") {
+	if _, err := v.Tags("", "resources/js/app.tsx"); err == nil || !strings.Contains(err.Error(), "npm run build") {
 		t.Errorf("err = %v", err)
 	}
 	v = newVite(t, Config{Build: build()})
-	if _, err := v.Tags("resources/js/pages/Nope.tsx"); err == nil || !strings.Contains(err.Error(), "resources/js/pages/Nope.tsx") {
+	if _, err := v.Tags("", "resources/js/pages/Nope.tsx"); err == nil || !strings.Contains(err.Error(), "resources/js/pages/Nope.tsx") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -125,12 +125,12 @@ func TestTheVersionIsAHashOfTheManifest(t *testing.T) {
 
 func TestFuncsWorkInATemplate(t *testing.T) {
 	v := newVite(t, Config{Build: build()})
-	tmpl := template.Must(template.New("").Funcs(v.Funcs()).Parse(`{{ viteReactRefresh }}{{ vite "views/foo.js" }}`))
+	tmpl := template.Must(template.New("").Funcs(v.Funcs()).Parse(`{{ viteReactRefresh .Nonce }}{{ vite .Nonce "views/foo.js" }}`))
 	var b strings.Builder
-	if err := tmpl.Execute(&b, nil); err != nil {
+	if err := tmpl.Execute(&b, struct{ Nonce string }{"N0nce"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(b.String(), `<script type="module" src="/build/assets/foo-BRBmoGS9.js"></script>`) {
+	if !strings.Contains(b.String(), `<script type="module" src="/build/assets/foo-BRBmoGS9.js" nonce="N0nce"></script>`) {
 		t.Fatalf("got %s", b.String())
 	}
 }
@@ -161,5 +161,47 @@ func TestBaseStartsAndEndsWithASlash(t *testing.T) {
 		if _, err := New(Config{Base: base}); err == nil {
 			t.Errorf("New took the base %q", base)
 		}
+	}
+}
+
+func TestTheScriptsTagsLoadCarryThePagesNonce(t *testing.T) {
+	v := newVite(t, Config{Build: build()})
+	got, err := v.Tags("N0nce", "views/foo.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Styles go by the policy's style-src, which a nonce has no part in.
+	want := `<link rel="stylesheet" href="/build/assets/foo-5UjPuW-k.css">` +
+		`<link rel="stylesheet" href="/build/assets/shared-ChJ_j-JJ.css">` +
+		`<link rel="modulepreload" href="/build/assets/shared-B7PI925R.js" nonce="N0nce">` +
+		`<script type="module" src="/build/assets/foo-BRBmoGS9.js" nonce="N0nce"></script>`
+	if string(got) != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+
+	hot := filepath.Join(t.TempDir(), "hot")
+	os.WriteFile(hot, []byte("http://localhost:5173"), 0o644)
+	v = newVite(t, Config{Build: build(), HotFile: hot})
+	got, err = v.Tags("N0nce", "resources/js/app.tsx", "resources/css/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = `<script type="module" src="http://localhost:5173/@vite/client" nonce="N0nce"></script>` +
+		`<script type="module" src="http://localhost:5173/resources/js/app.tsx" nonce="N0nce"></script>` +
+		`<link rel="stylesheet" href="http://localhost:5173/resources/css/app.css">`
+	if string(got) != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	if refresh := v.ReactRefresh("N0nce"); !strings.HasPrefix(string(refresh), `<script type="module" nonce="N0nce">`) {
+		t.Errorf("preamble %s", refresh)
+	}
+}
+
+func TestTagsTakeThePagesNonceFirst(t *testing.T) {
+	v := newVite(t, Config{Build: build()})
+	// As a template written before the nonce names its entries.
+	_, err := v.Tags("views/foo.js", "views/bar.js")
+	if err == nil || !strings.Contains(err.Error(), `{{ vite .Nonce "resources/js/app.tsx" }}`) {
+		t.Errorf("err = %v", err)
 	}
 }

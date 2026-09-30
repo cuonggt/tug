@@ -323,12 +323,23 @@ app.Get("/static/{path...}", tug.WrapHandler(http.StripPrefix("/static", http.Fi
 
 ### Package `middleware`
 
-Package `middleware` has six, each a plain
+Package `middleware` has eight, each a plain
 `func(http.Handler) http.Handler` that works with any router. The order in
 `app.Use` above is the usual one: `RequestID` first, so every log line
 carries the ID, and `Logger` before `Recover`, so a panic is logged as the
 500 that `Recover` makes of it. Behind a proxy, `TrustProxies` goes before
-them all. `CORS`, for an API another site's pages call, goes before `CSRF`.
+them all. `Headers` and `CSP` go after `Recover`, and `CORS`, for an API
+another site's pages call, before `CSRF`, as the starters have them:
+
+```go
+app.Use(
+	middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...),
+	middleware.RequestID(), middleware.Logger(), middleware.Recover(),
+	middleware.Headers(middleware.HeadersConfig{HSTS: strings.HasPrefix(cfg.URL, "https://")}),
+	middleware.CSP(middleware.CSPConfig{ReportPath: "/csp-reports", DevServer: assets.DevServer}),
+	middleware.CSRF(),
+)
+```
 
 - `TrustProxies(proxies...)` gives a request that came through the app's
   proxies, such as a load balancer, the address of the client it came
@@ -374,6 +385,22 @@ them all. `CORS`, for an API another site's pages call, goes before `CSRF`.
   tokens, which a page sends itself. `Retry-After` is exposed, for a
   limit's 429. A blank origin is skipped, and one that isn't an origin
   panics, as `CSRF`'s do.
+- `Headers(cfg)` says what a browser may do with each response:
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin`, `Cross-Origin-Opener-Policy:
+  same-origin` and `X-Frame-Options: SAMEORIGIN`, and with `HSTS`,
+  `Strict-Transport-Security` for a year. A handler that needs another sets
+  its own.
+- `CSP(cfg)` sends a Content-Security-Policy, which runs the scripts that
+  carry a nonce made for the response, and what they load, and lets a
+  page load the app's own alone. `middleware.NonceFrom(ctx)` reads the
+  nonce, which package `inertia` hands the root template as `.Nonce`.
+  `ReportOnly` sends it as `Content-Security-Policy-Report-Only`,
+  `ReportPath` is where the browser reports what it blocks, which `CSP`
+  answers itself and logs, `Sources` adds to its directives, and
+  `DevServer` lets Vite's dev server in. It panics on a source or a path it
+  can't put in the header. See
+  [deployment.md](deployment.md#security-headers).
 
 ### The client's address
 

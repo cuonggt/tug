@@ -229,7 +229,8 @@ func showPost(c *tug.Ctx) error {
   it.
 - **Vite** (package `vite`): tags from the dev server while it runs, with
   the React refresh preamble, and from the build's manifest otherwise, with
-  CSS and preloads. The built files are served, and cached for a year.
+  CSS and preloads, the scripts with the page's nonce. The built files are
+  served, and cached for a year.
 - **Routing** on net/http's `ServeMux`: method routes, groups with their own
   middleware, and named routes with `app.URL("posts.show", 42)`. Paths match
   exactly, so `/` is only the home page, and `{name...}` takes everything
@@ -255,9 +256,14 @@ func showPost(c *tug.Ctx) error {
 - **Middleware** is `func(http.Handler) http.Handler`: `RequestID`, `Logger`
   (through slog), `Recover`, `CSRF`, which is Go's
   `http.CrossOriginProtection`, so there are no tokens, `CORS`, for an API
-  other sites' pages call, and
+  other sites' pages call,
   `TrustProxies`, which reads the client's address past the app's load
-  balancers, from the end of `X-Forwarded-For`, for `c.IP()`.
+  balancers, from the end of `X-Forwarded-For`, for `c.IP()`, `Headers`,
+  which says what a browser may do with a response, as be framed by
+  another site, and holds it to HTTPS, and `CSP`, a
+  Content-Security-Policy that runs only the scripts that carry a nonce
+  made for the response, which the root template gives Vite's tags and its
+  own, and logs what browsers report it blocked.
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking
   connections and lets the requests in flight finish. Given one of the
   app's commands, as `./blog jobs`, which `app.Command` adds, it runs

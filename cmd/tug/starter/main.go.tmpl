@@ -135,8 +135,18 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 [[- end ]]
 	// Behind a proxy, such as a load balancer, a request comes from the
 	// proxy's address: TRUSTED_PROXIES names the proxies the app believes
-	// when they say whose it is, for c.IP.
-	app.Use(middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...), middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
+	// when they say whose it is, for c.IP. Each response says what a
+	// browser may do with it: over HTTPS, keep to HTTPS; and a page, run
+	// the scripts that carry its nonce, as app.html's do, and what they
+	// load, with the dev server's under tug dev. What it blocks, the
+	// browser reports to /csp-reports, which the app logs.
+	app.Use(
+		middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...),
+		middleware.RequestID(), middleware.Logger(), middleware.Recover(),
+		middleware.Headers(middleware.HeadersConfig{HSTS: strings.HasPrefix(cfg.URL, "https://")}),
+		middleware.CSP(middleware.CSPConfig{ReportPath: "/csp-reports", DevServer: assets.DevServer}),
+		middleware.CSRF(),
+	)
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 
 	app.Get("/", home).Name("home")

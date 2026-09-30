@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -383,6 +384,244 @@ func TestTrustProxiesPanicsOnAProxyThatIsNotAnAddressOrARange(t *testing.T) {
 				}
 			}()
 			TrustProxies(proxy)
+		}()
+	}
+}
+
+func TestHeadersSayWhatABrowserMayDoWithEveryResponse(t *testing.T) {
+	for _, status := range []int{200, 404, 500} {
+		rec := httptest.NewRecorder()
+		Headers(HeadersConfig{})(respond(status, "")).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+		for name, want := range map[string]string{
+			"X-Content-Type-Options":     "nosniff",
+			"Referrer-Policy":            "strict-origin-when-cross-origin",
+			"Cross-Origin-Opener-Policy": "same-origin",
+			"X-Frame-Options":            "SAMEORIGIN",
+		} {
+			if got := rec.Header().Get(name); got != want {
+				t.Errorf("%d: %s is %q, want %q", status, name, got, want)
+			}
+		}
+		if hsts := rec.Header().Get("Strict-Transport-Security"); hsts != "" {
+			t.Errorf("%d: HSTS %q, with no HTTPS to hold the browser to", status, hsts)
+		}
+	}
+}
+
+func TestHeadersHoldTheBrowserToHTTPSForAYearWhenTheAppIsServedOverIt(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Headers(HeadersConfig{HSTS: true})(respond(200, "")).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if hsts := rec.Header().Get("Strict-Transport-Security"); hsts != "max-age=31536000" {
+		t.Errorf("HSTS %q: a year, for the app's host alone, and not preloaded", hsts)
+	}
+}
+
+func TestAHandlerChangesTheHeadersOfItsOwnResponse(t *testing.T) {
+	rec := httptest.NewRecorder()
+	framed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Del("X-Frame-Options")
+	})
+	Headers(HeadersConfig{})(framed).ServeHTTP(rec, httptest.NewRequest("GET", "/embed", nil))
+	if _, ok := rec.Header()["X-Frame-Options"]; ok {
+		t.Error("the handler's own choice was overridden")
+	}
+}
+
+// policyOf serves a request through CSP(cfg), and returns the policy it
+// sent, and the nonce the handler was given.
+func policyOf(t *testing.T, cfg CSPConfig) (policy map[string][]string, n string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	CSP(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n = NonceFrom(r.Context())
+	})).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	header := rec.Header().Get("Content-Security-Policy")
+	if cfg.ReportOnly {
+		if header != "" {
+			t.Fatalf("a report-only policy enforced: %q", header)
+		}
+		header = rec.Header().Get("Content-Security-Policy-Report-Only")
+	}
+	policy = map[string][]string{}
+	for _, d := range strings.Split(header, "; ") {
+		fields := strings.Fields(d)
+		if len(fields) == 0 {
+			t.Fatalf("an empty directive in %q", header)
+		}
+		policy[fields[0]] = fields[1:]
+	}
+	return policy, n
+}
+
+func TestCSPGivesEachResponseANonceOfItsOwn(t *testing.T) {
+	first, n := policyOf(t, CSPConfig{})
+	if len(n) < 22 {
+		t.Fatalf("the nonce %q is too short to guess", n)
+	}
+	if want := []string{"'nonce-" + n + "'", "'strict-dynamic'"}; !slices.Equal(first["script-src"], want) {
+		t.Errorf("script-src %v, want %v", first["script-src"], want)
+	}
+	second, again := policyOf(t, CSPConfig{})
+	if again == n || slices.Equal(first["script-src"], second["script-src"]) {
+		t.Errorf("two responses had the nonce %q", n)
+	}
+	if NonceFrom(httptest.NewRequest("GET", "/", nil).Context()) != "" {
+		t.Error("a request without CSP has a nonce")
+	}
+}
+
+func TestCSPLetsAPageLoadTheAppsOwnAlone(t *testing.T) {
+	policy, _ := policyOf(t, CSPConfig{})
+	for name, want := range map[string][]string{
+		"default-src":     {"'self'"},
+		"style-src":       {"'self'", "'unsafe-inline'"},
+		"img-src":         {"'self'", "data:", "blob:"},
+		"font-src":        {"'self'", "data:"},
+		"connect-src":     {"'self'"},
+		"object-src":      {"'none'"},
+		"base-uri":        {"'none'"},
+		"form-action":     {"'self'"},
+		"frame-ancestors": {"'self'"},
+	} {
+		if !slices.Equal(policy[name], want) {
+			t.Errorf("%s %v, want %v", name, policy[name], want)
+		}
+	}
+	if _, ok := policy["report-uri"]; ok {
+		t.Error("a report-uri with no ReportPath")
+	}
+}
+
+func TestCSPReportOnlyBlocksNothing(t *testing.T) {
+	policy, _ := policyOf(t, CSPConfig{ReportOnly: true})
+	if len(policy["script-src"]) != 2 {
+		t.Errorf("script-src %v", policy["script-src"])
+	}
+}
+
+func TestCSPAddsTheSourcesItsGiven(t *testing.T) {
+	policy, _ := policyOf(t, CSPConfig{Sources: map[string][]string{
+		"img-src":   {"https://photos.s3.us-east-1.amazonaws.com", " ", "data:"},
+		"media-src": {"https://videos.example.com"},
+	}})
+	if want := []string{"'self'", "data:", "blob:", "https://photos.s3.us-east-1.amazonaws.com"}; !slices.Equal(policy["img-src"], want) {
+		t.Errorf("img-src %v, want %v", policy["img-src"], want)
+	}
+	if want := []string{"https://videos.example.com"}; !slices.Equal(policy["media-src"], want) {
+		t.Errorf("media-src %v, want %v", policy["media-src"], want)
+	}
+	if want := []string{"'self'"}; !slices.Equal(policy["default-src"], want) {
+		t.Errorf("another directive changed: default-src %v", policy["default-src"])
+	}
+	// The policy the map came from is left as it was, for the next CSP.
+	if again, _ := policyOf(t, CSPConfig{}); len(again["img-src"]) != 3 {
+		t.Errorf("img-src %v after another CSP's sources", again["img-src"])
+	}
+}
+
+func TestCSPLetsInTheDevServerWhileItRuns(t *testing.T) {
+	dev := "http://localhost:5173"
+	policy, n := policyOf(t, CSPConfig{DevServer: func() string { return dev }})
+	for name, want := range map[string][]string{
+		"style-src":   {"'self'", "'unsafe-inline'", dev},
+		"img-src":     {"'self'", "data:", "blob:", dev},
+		"font-src":    {"'self'", "data:", dev},
+		"connect-src": {"'self'", dev, "ws://localhost:5173"},
+		"script-src":  {"'nonce-" + n + "'", "'strict-dynamic'"},
+	} {
+		if !slices.Equal(policy[name], want) {
+			t.Errorf("%s %v, want %v", name, policy[name], want)
+		}
+	}
+	dev = ""
+	if policy, _ := policyOf(t, CSPConfig{DevServer: func() string { return dev }}); len(policy["connect-src"]) != 1 {
+		t.Errorf("connect-src %v once the dev server stopped", policy["connect-src"])
+	}
+}
+
+// report is what Chrome sends report-uri of a script its policy blocked.
+const report = `{"csp-report":{"document-uri":"https://example.com/posts","referrer":"","violated-directive":"script-src-elem","effective-directive":"script-src-elem","original-policy":"...","disposition":"enforce","blocked-uri":"https://cdn.example.net/x.js","line-number":12,"source-file":"https://example.com/posts","status-code":200,"script-sample":""}}`
+
+func TestCSPLogsWhatABrowserReportsItBlocked(t *testing.T) {
+	for _, reportOnly := range []bool{false, true} {
+		logs := captureLog(t)
+		policy, _ := policyOf(t, CSPConfig{ReportOnly: reportOnly, ReportPath: "/csp-reports"})
+		if want := []string{"/csp-reports"}; !slices.Equal(policy["report-uri"], want) {
+			t.Errorf("report-uri %v, want %v", policy["report-uri"], want)
+		}
+		routed := false
+		h := CSP(CSPConfig{ReportOnly: reportOnly, ReportPath: "/csp-reports"})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			routed = true
+		}))
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/csp-reports", strings.NewReader(report))
+		req.Header.Set("Content-Type", "application/csp-report")
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent || routed {
+			t.Fatalf("report-only %v: %d, and routed %v", reportOnly, rec.Code, routed)
+		}
+		var line map[string]any
+		if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
+			t.Fatalf("log line %q: %v", logs, err)
+		}
+		msg := "a page's Content-Security-Policy blocked what it asked for"
+		if reportOnly {
+			msg = "a page's Content-Security-Policy would have blocked what it asked for"
+		}
+		for key, want := range map[string]any{
+			"level": "WARN", "msg": msg, "page": "https://example.com/posts", "directive": "script-src-elem",
+			"blocked": "https://cdn.example.net/x.js", "source": "https://example.com/posts:12",
+		} {
+			if line[key] != want {
+				t.Errorf("report-only %v: %s = %v, want %v", reportOnly, key, line[key], want)
+			}
+		}
+		if _, ok := line["sample"]; ok {
+			t.Errorf("report-only %v: logged an empty sample", reportOnly)
+		}
+	}
+}
+
+func TestCSPTurnsAwayWhatIsntAReport(t *testing.T) {
+	logs := captureLog(t)
+	var routed []string
+	h := CSP(CSPConfig{ReportPath: "/csp-reports"})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routed = append(routed, r.Method+" "+r.URL.Path)
+	}))
+	for _, body := range []string{"", "{}", "not JSON", `{"csp-report":` + strings.Repeat(" ", maxReport) + `{}}`} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("POST", "/csp-reports", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%.20q: %d", body, rec.Code)
+		}
+	}
+	if logs.Len() != 0 {
+		t.Errorf("logged %s", logs)
+	}
+	// Only a POST to the path is a report; the rest are the app's.
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/csp-reports", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/csp-reports/more", strings.NewReader(report)))
+	if want := []string{"GET /csp-reports", "POST /csp-reports/more"}; !slices.Equal(routed, want) {
+		t.Errorf("routed %v, want %v", routed, want)
+	}
+}
+
+func TestCSPPanicsOnWhatItCantPutInTheHeader(t *testing.T) {
+	for _, cfg := range []CSPConfig{
+		{Sources: map[string][]string{"img src": {"https://photos.example.com"}}},
+		{Sources: map[string][]string{"IMG-SRC": {"https://photos.example.com"}}},
+		{Sources: map[string][]string{"img-src": {"https://photos.example.com; script-src *"}}},
+		{Sources: map[string][]string{"img-src": {"https://a.example.com https://b.example.com"}}},
+		{ReportPath: "csp-reports"},
+		{ReportPath: "/csp-reports; script-src *"},
+	} {
+		func() {
+			defer func() {
+				if msg, _ := recover().(string); !strings.HasPrefix(msg, "middleware: CSP: ") {
+					t.Errorf("%+v: panicked with %q", cfg, msg)
+				}
+			}()
+			CSP(cfg)
 		}()
 	}
 }

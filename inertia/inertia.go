@@ -25,6 +25,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/cuonggt/tug/internal/nonce"
 )
 
 const (
@@ -78,8 +80,16 @@ type TemplateData struct {
 
 	// InertiaHead is what a page rendered on the server puts in the head,
 	// such as its <title>: {{ .InertiaHead }}. It's empty without
-	// Config.SSR, or for a page rendered in the browser.
+	// Config.SSR, or for a page rendered in the browser. Its scripts carry
+	// the Nonce, as the page's <Head> puts them in the head in the browser,
+	// where the policy lets them run.
 	InertiaHead template.HTML
+
+	// Nonce is the response's Content-Security-Policy nonce, which
+	// middleware.CSP made, for the template's own scripts to carry, as
+	// <script nonce="{{ .Nonce }}">, and Vite's tags, as
+	// {{ vite .Nonce "resources/js/app.tsx" }}: "" without a policy.
+	Nonce string
 }
 
 // Config is how pages are rendered.
@@ -205,6 +215,7 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 	td := TemplateData{
 		Page:    page,
 		Inertia: template.HTML(`<script data-page="app" type="application/json">` + string(data) + `</script><div id="app"></div>`),
+		Nonce:   nonce.From(r.Context()),
 	}
 	if i.ssr != nil && !skipsSSR(r.Context()) {
 		rendered, err := i.ssr.Render(r.Context(), data)
@@ -212,7 +223,7 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 		case err != nil:
 			slog.WarnContext(r.Context(), "inertia: a page wasn't rendered on the server, so it renders in the browser", "component", component, "err", err)
 		case rendered.Body != "":
-			td.Inertia, td.InertiaHead = template.HTML(rendered.Body), template.HTML(strings.Join(rendered.Head, "\n"))
+			td.Inertia, td.InertiaHead = template.HTML(rendered.Body), template.HTML(strings.Join(nonced(rendered.Head, td.Nonce), "\n"))
 		}
 	}
 	var buf bytes.Buffer
@@ -224,6 +235,25 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 	w.WriteHeader(code)
 	w.Write(buf.Bytes())
 	return nil
+}
+
+// nonced gives each script of head, the elements a page rendered on the
+// server puts in the head, the nonce n. In the browser, the page's <Head>
+// makes those scripts itself, which the policy lets run, as a script with
+// the nonce made them; in the page as it's parsed, the nonce alone lets
+// them run.
+func nonced(head []string, n string) []string {
+	if n == "" {
+		return head
+	}
+	out := slices.Clone(head)
+	for i, el := range out {
+		tag := strings.TrimLeft(el, " \t\r\n")
+		if len(tag) > len("<script") && strings.EqualFold(tag[:len("<script")], "<script") && strings.ContainsRune(" \t\r\n>", rune(tag[len("<script")])) {
+			out[i] = el[:len(el)-len(tag)] + `<script nonce="` + template.HTMLEscapeString(n) + `"` + tag[len("<script"):]
+		}
+	}
+	return out
 }
 
 func (i *Inertia) page(r *http.Request, component string, props any) (*Page, error) {

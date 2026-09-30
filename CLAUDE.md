@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M31 are done, which is
+the decisions behind it and where it stands: M1 to M32 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -68,8 +68,12 @@ admins, whom the `admins` command makes, and their page of the jobs that
 failed, and notifications (v0.26.0): in the auth starter, each change to
 an account that could hand it to someone else kept in its transaction,
 heard on the user's channel by the header's bell, listed, and mailed, the
-old email told of a new one, and `mailtest.Outbox`'s `NextTo`.
-`README.md` is the front door, and `docs/` the guide, a page per part of
+old email told of a new one, and `mailtest.Outbox`'s `NextTo`, and
+security headers (v0.27.0): `middleware.Headers`, and `middleware.CSP`,
+a Content-Security-Policy that runs the scripts with a nonce made for the
+response, which inertia hands the root template as `.Nonce`, and Vite's
+tags take first, and logs the reports it answers itself, and the
+starters' pages under it. `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
 ## Commands
@@ -250,7 +254,9 @@ dev server that isn't there: delete it.
   tug. `inertia.go` renders (HTML first visit, JSON after, `RenderStatus`
   for other statuses; a first visit asks `Config.SSR`, a `Renderer`, for
   the page's head and body, and keeps the browser's when it has none or
-  fails, which it logs; `WithoutSSR` skips it), and holds the middleware (Vary, the 409 for another
+  fails, which it logs; `WithoutSSR` skips it; `TemplateData.Nonce` is
+  the context's nonce, `internal/nonce`'s, which `nonced` gives the scripts
+  of the head from SSR), and holds the middleware (Vary, the 409 for another
   build, and `redirects`: 302 → 303, and a redirect to a #fragment → 409
   with X-Inertia-Redirect) and the context helpers. `props.go` has the
   prop types: generic structs, each with its `behavior` (first load,
@@ -327,7 +333,8 @@ dev server that isn't there: delete it.
   header signed; `presign`, the query), a put streamed as
   UNSIGNED-PAYLOAD, `failure` reading S3's XML errors; a private link is
   presigned for the seven days that end at its expiry, so the same expiry
-  makes the same link. `env.go`: `FromEnv`, Laravel's variables. Its tests
+  makes the same link; `Origin` is the address its links are at, for a
+  page's policy. `env.go`: `FromEnv`, Laravel's variables. Its tests
   check SigV4 against AWS's published examples (`sigv4_test.go`), and run
   against a MinIO (`minio` in `s3_test.go`) when `TUG_TEST_S3` names one.
 - `internal/filetype`: what a file is by its first 512 bytes, as
@@ -337,8 +344,15 @@ dev server that isn't there: delete it.
   image a browser shows. validate and storage share it.
 - `vite`: dev-server tags while the hot file exists (read on each render),
   manifest tags otherwise, `Version` from the manifest's hash, `ServeHTTP`
-  for the build, and `DevServer`, the dev server's URL, for package ssr.
-  No import of tug or inertia; it meets them through template funcs.
+  for the build, and `DevServer`, the dev server's URL, for package ssr
+  and `middleware.CSP`. No import of tug or inertia; it meets them through
+  template funcs, `vite` and `viteReactRefresh`, which take the page's
+  nonce first (`Tags`, `ReactRefresh`; `isNonce` refuses an entry, as a
+  template from before names first), for the scripts and preloads to
+  carry (`nonceAttr`).
+- `internal/nonce`: the response's Content-Security-Policy nonce in the
+  request's context, which `middleware.CSP` sets and inertia reads,
+  neither importing the other.
 - `internal/rw`: the ResponseWriter wrapper that records status and size,
   and keeps Flush, Hijack, ReadFrom and `Unwrap`.
 - `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
@@ -537,7 +551,14 @@ dev server that isn't there: delete it.
   throttles count by `c.IP()`, behind the proxies `TRUSTED_PROXIES`
   names, which both starters hand `TrustProxies`; the links in mail are
   `a.routes.AbsoluteURL`'s, and `newApp` stops without `APP_URL`, but
-  under tug gen. Both starters embed `lang/` (a
+  under tug gen. Both starters send `middleware.Headers`, HSTS by an
+  https:// `APP_URL`, and `middleware.CSP`, enforced, reporting to
+  `/csp-reports`, with Vite's `DevServer`, and the auth starter's bucket's
+  `Origin` in `img-src`; their `app.html`'s scripts, and Vite's tags, carry
+  `.Nonce`. `e2e/tests/headers.spec.ts` checks the headers, and a script
+  the page didn't bring blocked, and reported to the app's log, and
+  `tug_test.go`'s `rendersOnTheServer` a served page's scripts' nonce.
+  Both starters embed `lang/` (a
   `.gitkeep` until there's a file) and load it in `newApp`, with
   `APP_LOCALE` for the default.
   The mail goes by jobs (`VerifyMail` in `verify.go.tmpl`, `ResetMail` in
@@ -558,7 +579,15 @@ dev server that isn't there: delete it.
   keyed by the user's photo, in all three, as an avatar keeps the image it
   loaded once the image is gone.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
-  tug: `RequestID`, `Logger`, `Recover`, `CSRF` (an entry that's a path is
+  tug: `Headers` (`headers.go`: nosniff, `Referrer-Policy`,
+  `Cross-Origin-Opener-Policy`, `X-Frame-Options`, and HSTS when its config
+  says), `CSP` (`csp.go`: `policy`, the directives, which `Sources` adds
+  to, with a nonce, `rand.Text`, in script-src for each response, in its
+  context through `internal/nonce`, which `NonceFrom` reads, the dev
+  server's sources, `devSources`, from `DevServer` at each request, and
+  `logReport`, which answers a POST to `ReportPath`, report-uri's, before
+  any route; `ReportOnly` sends it as `-Report-Only`), `RequestID`,
+  `Logger`, `Recover`, `CSRF` (an entry that's a path is
   `CrossOriginProtection`'s bypass, `bypass`, and the rest trusted
   origins), `CORS` (`cors.go`: `isOrigin`; a preflight from an origin
   named answered with a 204 before any route; credentials never), and

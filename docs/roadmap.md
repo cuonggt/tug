@@ -37,7 +37,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M29 | The queue, further         | done   |
 | M30 | Authorization              | done   |
 | M31 | Notifications              | done   |
-| M32 | Security headers           | later  |
+| M32 | Security headers           | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2656,7 +2656,7 @@ Choices made on the way:
   another tab ringing the bell, and the list showing it read, and a new
   token and the recovery codes still shown as it rings.
 
-## M32 · Security headers — later
+## M32 · Security headers — done
 
 A page tug serves says nothing of what a browser may do with it: be put
 in another site's frame, send its whole URL to the next site as the
@@ -2680,26 +2680,78 @@ released as v0.27.0.
   would have blocked, for an app to see before it enforces.
 - **The starters** send both, the appearance script in their `app.html`
   with the nonce, and `tug dev` lets Vite's dev server in.
-- **The guide:** Deployment, and Pages, the root template.
+- **The guide:** Deployment, a section on them; Pages, the root
+  template's nonce; Routing, the two middlewares; and SSR, Files and
+  Accounts, what's theirs.
 
-Choices, to settle before any code:
+Choices made on the way:
 
-- **Middleware, as the rest is,** with no import of tug; the nonce in the
-  request's context, which inertia hands the template.
+- **Middleware, as the rest is,** with no import of tug: two, `Headers`
+  and `CSP`, each with a config of its own, as the policy has its nonce,
+  its reports and its sources, and an app may send the headers without
+  it.
+- **The nonce in the request's context,** which inertia hands the
+  template: in `internal/nonce`, which `CSP` sets and inertia reads, as
+  neither imports the other, the way `internal/rw` is shared;
+  `middleware.NonceFrom` is the app's.
 - **Scripts by nonce, with `'strict-dynamic'`,** as the modules Vite's
   entry loads carry none; not hashes, as a template's scripts change.
+- **Vite's tags take the nonce first,** `{{ vite .Nonce
+  "resources/js/app.tsx" }}` and `{{ viteReactRefresh .Nonce }}`, as a
+  template's function can't see the request. A template from before,
+  whose first argument is an entry, is an error that says to pass
+  `.Nonce` first, rather than tags that load nothing; an app without a
+  policy passes `""`, and its tags have no nonce. The styles' links carry
+  none, as `style-src` takes none.
 - **Styles as they are:** shadcn's components and Inertia's progress bar
   set styles inline, and an injected style does little a script can't;
   `style-src` allows them.
+- **Reports by `report-uri`,** which every browser sends as it happens,
+  answered by `CSP` itself, before any route and `CSRF`, as `CORS`
+  answers a preflight, and logged as a warning, leaving out what the
+  browser left empty; not `report-to`, which Chrome alone sends, batched,
+  and to HTTPS alone.
+- **The policy, beyond the plan:** `data:` images and fonts, as the
+  starters' favicon and Vite's small fonts are, and `blob:` images, for a
+  photo shown from the file chosen; `object-src 'none'`; `base-uri
+  'none'`, as a `<base>` would send the paths of the scripts that carry
+  the nonce to another site; `form-action 'self'`; and `frame-ancestors
+  'self'`, with `X-Frame-Options` for a policy that's report-only.
+  `Sources` adds to a directive, as a payment provider's frames.
+- **The headers:** `Referrer-Policy: strict-origin-when-cross-origin`,
+  the origin alone to another site; `Cross-Origin-Opener-Policy:
+  same-origin`; and HSTS for a year, without preload, a promise to the
+  browsers that's slow to take back, and without `includeSubDomains`, one
+  about hosts not the app's. It goes when the app says it's served over
+  HTTPS, as an https:// `APP_URL` says in the starters, as the session
+  cookie's `Secure` does, behind a proxy that ends TLS.
+- **The SSR head's scripts get the nonce,** as a `<Head>`'s script runs in
+  the browser, where Inertia makes it from a script with the nonce: in
+  the page the server rendered, the nonce alone lets it run. The page
+  object is data, and runs as no script.
+- **The starters enforce the policy,** as their scripts all carry the
+  nonce, and report to `/csp-reports`; report-only is for an app that has
+  grown. `tug dev` needs nothing of its own: the policy asks Vite's
+  `DevServer`, at each request, as the tags do.
 - **Images from the app's disk:** S3's origin, when the files are there,
-  as the starters' photos are links to it.
-- **HSTS without preload,** for a year, only over HTTPS: preload is a
-  promise to the browsers that's slow to take back.
-- **Tests:** the headers on pages, JSON, errors and files; the nonce in
-  the template, Vite's tags and the head from SSR, a new one each
-  response; the report route; and in the browser, each starter's pages,
-  in each frontend, with the policy enforced and nothing blocked, which
-  the browser suite's check of the console sees.
+  as the auth starter's photos are links to it: `(*storage.S3).Origin()`,
+  the address its links are at, added to `img-src`.
+- **`examples/inertia`** sends both too, and its test finds the header's
+  nonce on its scripts.
+- **Not yet:** a `Permissions-Policy`, Trusted Types, or styles by nonce.
+- **Tests:** each header, on every status, HSTS only when asked for, and
+  a handler's own; a nonce for each response, which `NonceFrom` reads;
+  the policy's directives, report-only, the sources added, and the dev
+  server's; a report logged, in either mode, and what isn't one turned
+  away; the settings `CSP` can't send, which panic; the template's nonce,
+  and the scripts of the head from SSR, but not the page object; Vite's
+  tags, built and from the dev server, with the nonce, and a template
+  from before refused; S3's origin; a page, JSON, a file, an error and a
+  404 through tug, with the headers; the example's scripts with its
+  header's nonce; each SSR app `tug new` makes, served, its scripts with
+  the nonce; and in the browser, in each frontend, the headers on a page
+  and a 404, a script the page didn't bring blocked, its report in the
+  app's log, and every other test's pages with nothing blocked.
 
 ## Decisions
 

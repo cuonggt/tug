@@ -133,7 +133,9 @@ A component renders first in Node, which has no browser:
   hydrates as the server rendered it and then shows the browser's choice.
 - **The head.** A page's `<Head>` tags come in `{{ .InertiaHead }}`, its
   `<title>` first. The root template's own `<title>` comes after, for a
-  page without one.
+  page without one. A script among them carries the response's nonce, as
+  the page's policy runs it in the browser, where Inertia adds it to the
+  page itself ([Security headers](deployment.md#security-headers)).
 
 ## Development
 

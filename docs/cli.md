@@ -280,7 +280,10 @@ together while the dev server runs:
   renders a page. While it's there, pages load their scripts from the dev
   server, with React's refresh; otherwise, from the build in
   `public/build`. So the Go server needn't restart when Vite starts or
-  stops.
+  stops. The starters' Content-Security-Policy reads it too, and lets in
+  the dev server's styles, images and fonts, and the connection it
+  reloads the pages by, while it runs
+  ([Security headers](deployment.md#security-headers)).
 - **`.tug/reload`.** The plugin watches this file, which `tug dev` writes
   after each restart of the app, and has Vite tell the browser to reload
   the page.

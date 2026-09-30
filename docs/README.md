@@ -11,11 +11,12 @@ the detail.
 1. [Getting started](getting-started.md): install tug, make an app, run
    it, and add a page and a form.
 2. [Routing and handlers](routing.md): the App, routes, whole and signed
-   links, groups, middleware, the client's address behind a proxy, `Ctx`,
-   files, downloads, streams and events, binding requests, and errors.
-3. [Pages](pages.md): Inertia pages and their props, the props worked out
-   later, shared props, redirects, downloads and events on a page, error
-   pages, and Vite.
+   links, groups, middleware, security headers among them, the client's
+   address behind a proxy, `Ctx`, files, downloads, streams and events,
+   binding requests, and errors.
+3. [Pages](pages.md): Inertia pages and their props, the root template
+   and its nonce, the props worked out later, shared props, redirects,
+   downloads and events on a page, error pages, and Vite.
 4. [Server-side rendering](ssr.md): pages rendered on the server for a
    first visit, by Node beside the app, and package `ssr`.
 5. [Forms and sessions](forms.md): validation, rules of the app's own,
@@ -50,8 +51,9 @@ the detail.
 15. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
     tests of an app's pages, forms, uploads and logins, `mailtest`, for
     its mail, and its events.
-16. [Deployment](deployment.md): one binary, the Dockerfile, and the
-    environment.
+16. [Deployment](deployment.md): one binary, the Dockerfile, the
+    environment, and the headers that say what a browser may do with the
+    app's pages, a Content-Security-Policy among them.
 17. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
     `tug build` and `tug key`, in full.
 

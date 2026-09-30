@@ -138,3 +138,23 @@ func TestTheBucketGoesInThePathWithPathStyle(t *testing.T) {
 		t.Errorf("AWS's, by the region: %s", u)
 	}
 }
+
+func TestAnS3sOriginIsWhereItsLinksAre(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		s    S3
+		want string
+	}{
+		{"a bucket on AWS", *example, "https://examplebucket.s3.amazonaws.com"},
+		{"one on AWS by its region", S3{Bucket: "files", Region: "eu-west-1"}, "https://files.s3.eu-west-1.amazonaws.com"},
+		{"a MinIO's, in the path", S3{Bucket: "files", Endpoint: "http://127.0.0.1:9000/", PathStyle: true}, "http://127.0.0.1:9000"},
+		{"a public one's CDN", S3{Bucket: "files", Public: true, BaseURL: "https://cdn.example.com/photos/"}, "https://cdn.example.com"},
+		// A private disk's links are presigned, from the bucket.
+		{"a private one with a CDN", S3{Bucket: "files", Region: "eu-west-1", BaseURL: "https://cdn.example.com"}, "https://files.s3.eu-west-1.amazonaws.com"},
+		{"an endpoint that isn't one", S3{Bucket: "files", Endpoint: "localhost:9000"}, ""},
+	} {
+		if got := tc.s.Origin(); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

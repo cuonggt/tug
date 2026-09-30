@@ -13,8 +13,9 @@
     {{/* Light or dark before the page paints, rather than a flash of the
          wrong one: the choice on the appearance page, kept in the browser,
          or else the system's. [[ .AppearanceFile ]] keeps
-         it from then on. */}}
-    <script>
+         it from then on. It carries the page's nonce, which its policy
+         runs scripts by. */}}
+    <script nonce="{{ .Nonce }}">
       (function () {
         var appearance = localStorage.getItem('appearance')
         var dark = appearance === 'dark' || (appearance !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
@@ -26,11 +27,12 @@
       html { background-color: oklch(1 0 0); }
       html.dark { background-color: oklch(0.145 0 0); }
     </style>
+    {{/* The scripts carry the page's nonce too, and the page's own
+         component loads alongside the app, not after it. */}}
 [[- if .React ]]
-    {{ viteReactRefresh }}
+    {{ viteReactRefresh .Nonce }}
 [[- end ]]
-    {{/* The page's own component loads alongside the app, not after it. */}}
-    {{ vite "resources/js/app.[[ .Script ]]" (printf "resources/js/pages/%s.[[ .Component ]]" .Page.Component) }}
+    {{ vite .Nonce "resources/js/app.[[ .Script ]]" (printf "resources/js/pages/%s.[[ .Component ]]" .Page.Component) }}
   </head>
   <body>
     {{ .Inertia }}

@@ -54,10 +54,16 @@ func newClient(t *testing.T) *tugtest.Client {
 
 func TestTheFirstVisitLoadsTheBuildAndLeavesTheStatsForLater(t *testing.T) {
 	r := newClient(t).FirstVisit("/")
+	// The scripts carry the nonce the page's policy runs scripts by.
+	_, nonce, _ := strings.Cut(r.Header.Get("Content-Security-Policy"), "'nonce-")
+	nonce, _, _ = strings.Cut(nonce, "'")
+	if nonce == "" {
+		t.Fatalf("no nonce in the policy %q", r.Header.Get("Content-Security-Policy"))
+	}
 	for _, tag := range []string{
 		`<link rel="stylesheet" href="/build/assets/app-1.css">`,
-		`<script type="module" src="/build/assets/app-1.js"></script>`,
-		`<script type="module" src="/build/assets/Index-1.js"></script>`,
+		`<script type="module" src="/build/assets/app-1.js" nonce="` + nonce + `"></script>`,
+		`<script type="module" src="/build/assets/Index-1.js" nonce="` + nonce + `"></script>`,
 	} {
 		if !strings.Contains(r.Body, tag) {
 			t.Errorf("no %s in %s", tag, r.Body)

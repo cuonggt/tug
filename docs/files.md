@@ -238,6 +238,13 @@ expires := time.Now().UTC().Truncate(24 * time.Hour).Add(48 * time.Hour)
 link, err := disk.URL(user.PhotoKey, expires)
 ```
 
+An S3 disk's links are at its bucket's address, or a public one's
+`BaseURL`'s, which `Origin()` says, as `https://photos.s3.amazonaws.com`,
+for a page's Content-Security-Policy, which lets images come from the
+app's own address alone unless it's told another: the auth starter adds
+it to `img-src` ([Security headers](deployment.md#security-headers)). A
+local disk's links are the app's own.
+
 A private local disk's files go out with `Cache-Control: private`, so a
 shared cache keeps none of them.
 

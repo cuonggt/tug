@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title data-inertia>tug</title>
     <link rel="icon" href="data:,">
-    {{ viteReactRefresh }}
-    {{/* The page's own component loads alongside the app, not after it. */}}
-    {{ vite "resources/js/app.tsx" (printf "resources/js/pages/%s.tsx" .Page.Component) }}
+    {{/* The scripts carry the page's nonce, which its policy runs scripts
+         by, and the page's own component loads alongside the app, not
+         after it. */}}
+    {{ viteReactRefresh .Nonce }}
+    {{ vite .Nonce "resources/js/app.tsx" (printf "resources/js/pages/%s.tsx" .Page.Component) }}
   </head>
   <body>
     {{ .Inertia }}

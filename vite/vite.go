@@ -2,11 +2,13 @@
 // the tags that load it, from the dev server while that runs and from the
 // build's manifest otherwise, and a handler that serves the built files.
 //
-// The tags go in a root template through Funcs:
+// The tags go in a root template through Funcs, with the page's nonce,
+// which its Content-Security-Policy lets its scripts run by, "" without
+// one:
 //
 //	<head>
-//	  {{ viteReactRefresh }}
-//	  {{ vite "resources/js/app.tsx" }}
+//	  {{ viteReactRefresh .Nonce }}
+//	  {{ vite .Nonce "resources/js/app.tsx" }}
 //	</head>
 //
 // See https://vite.dev/guide/backend-integration for the Vite side.
@@ -108,20 +110,25 @@ func (v *Vite) DevServer() string {
 }
 
 // Tags returns the tags that load entries, named as vite.config names its
-// inputs ("resources/js/app.tsx"). While the dev server runs, they load
-// each entry from it, after its client, which does the hot reloading.
-// Otherwise they load the built files, with each entry's CSS and that of
-// the chunks it imports, and preload those chunks.
-func (v *Vite) Tags(entries ...string) (template.HTML, error) {
+// inputs ("resources/js/app.tsx"), whose scripts, and the chunks they
+// preload, carry nonce, the page's: "" without one. While the dev server
+// runs, they load each entry from it, after its client, which does the hot
+// reloading. Otherwise they load the built files, with each entry's CSS and
+// that of the chunks it imports, and preload those chunks.
+func (v *Vite) Tags(nonce string, entries ...string) (template.HTML, error) {
+	if !isNonce(nonce) {
+		return "", fmt.Errorf(`vite: %q isn't a nonce: the tags take the page's first, as {{ vite .Nonce "resources/js/app.tsx" }}`, nonce)
+	}
+	n := nonceAttr(nonce)
 	if dev := v.DevServer(); dev != "" {
 		var b strings.Builder
-		fmt.Fprintf(&b, `<script type="module" src="%s"></script>`, html.EscapeString(dev+"/@vite/client"))
+		fmt.Fprintf(&b, `<script type="module" src="%s"%s></script>`, html.EscapeString(dev+"/@vite/client"), n)
 		for _, e := range entries {
 			src := html.EscapeString(dev + "/" + e)
 			if isCSS(e) {
 				fmt.Fprintf(&b, `<link rel="stylesheet" href="%s">`, src)
 			} else {
-				fmt.Fprintf(&b, `<script type="module" src="%s"></script>`, src)
+				fmt.Fprintf(&b, `<script type="module" src="%s"%s></script>`, src, n)
 			}
 		}
 		return template.HTML(b.String()), nil
@@ -152,11 +159,11 @@ func (v *Vite) Tags(entries ...string) (template.HTML, error) {
 	}
 	for _, f := range preloads {
 		if !slices.Contains(scripts, f) {
-			fmt.Fprintf(&b, `<link rel="modulepreload" href="%s">`, html.EscapeString(v.base+f))
+			fmt.Fprintf(&b, `<link rel="modulepreload" href="%s"%s>`, html.EscapeString(v.base+f), n)
 		}
 	}
 	for _, f := range scripts {
-		fmt.Fprintf(&b, `<script type="module" src="%s"></script>`, html.EscapeString(v.base+f))
+		fmt.Fprintf(&b, `<script type="module" src="%s"%s></script>`, html.EscapeString(v.base+f), n)
 	}
 	return template.HTML(b.String()), nil
 }
@@ -185,6 +192,22 @@ func appendNew(list []string, items ...string) []string {
 	return list
 }
 
+// isNonce reports whether nonce is written as a Content-Security-Policy
+// nonce is, in base64, or is "", for none: an entry, as a template that
+// hasn't passed the nonce first names, has a dot.
+func isNonce(nonce string) bool {
+	return strings.Trim(nonce, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/-_=") == ""
+}
+
+// nonceAttr is the nonce attribute of a script that carries nonce, or
+// nothing for no nonce.
+func nonceAttr(nonce string) string {
+	if nonce == "" {
+		return ""
+	}
+	return ` nonce="` + html.EscapeString(nonce) + `"`
+}
+
 func isCSS(path string) bool {
 	for _, ext := range []string{".css", ".scss", ".sass", ".less", ".styl", ".stylus", ".pcss", ".postcss"} {
 		if strings.HasSuffix(path, ext) {
@@ -196,13 +219,14 @@ func isCSS(path string) bool {
 
 // ReactRefresh returns the preamble that @vitejs/plugin-react needs before
 // the first script while the dev server runs, without which React
-// components don't hot reload. For a build it's empty.
-func (v *Vite) ReactRefresh() template.HTML {
+// components don't hot reload, carrying nonce, the page's: "" without one.
+// For a build it's empty.
+func (v *Vite) ReactRefresh(nonce string) template.HTML {
 	dev := v.DevServer()
 	if dev == "" {
 		return ""
 	}
-	return template.HTML(`<script type="module">
+	return template.HTML(`<script type="module"` + nonceAttr(nonce) + `>
 import RefreshRuntime from '` + template.JSEscapeString(dev) + `/@react-refresh'
 RefreshRuntime.injectIntoGlobalHook(window)
 window.$RefreshReg$ = () => {}

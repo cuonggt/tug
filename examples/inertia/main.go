@@ -107,7 +107,15 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTim
 	cfg.Session = sessions
 	cfg.ErrorPage = "Error"
 	app := tug.New(cfg)
-	app.Use(middleware.RequestID(), middleware.Logger(), middleware.Recover(), middleware.CSRF())
+	// Each response says what a browser may do with it, and a page, which
+	// scripts it may run: those that carry its nonce, as app.html's do, and
+	// what they load, with the dev server's while it runs.
+	app.Use(
+		middleware.RequestID(), middleware.Logger(), middleware.Recover(),
+		middleware.Headers(middleware.HeadersConfig{HSTS: strings.HasPrefix(cfg.URL, "https://")}),
+		middleware.CSP(middleware.CSPConfig{ReportPath: "/csp-reports", DevServer: assets.DevServer}),
+		middleware.CSRF(),
+	)
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 
 	// The events go to the pages open on this instance alone, as the posts

@@ -108,7 +108,7 @@ behind: delete it.
 | `ADDR`              | Where the app listens, as `host:port`. | `:8080`, every interface | `tug.ConfigFromEnv` |
 | `PORT`              | The port, when `ADDR` isn't set, as Cloud Run and Fly.io set it. | none | `tug.ConfigFromEnv` |
 | `APP_DEBUG`         | `true` or `1` puts a 500's error, and a panic's stack, in the response. Leave it off in production. | off | `tug.ConfigFromEnv` |
-| `APP_URL`           | The app's address, such as `https://example.com`, which the links that leave it start with: `AbsoluteURL` and `SignedURL`'s, and the auth starter's mail, whose passkeys are for it too. With `https://`, the starters' session cookie is for HTTPS only. `tug dev` sets it to the address it shows. | none: the auth starter stops without it | `tug.ConfigFromEnv` |
+| `APP_URL`           | The app's address, such as `https://example.com`, which the links that leave it start with: `AbsoluteURL` and `SignedURL`'s, and the auth starter's mail, whose passkeys are for it too. With `https://`, the starters' session cookie is for HTTPS only, and their pages hold the browser to HTTPS ([Security headers](#security-headers)). `tug dev` sets it to the address it shows. | none: the auth starter stops without it | `tug.ConfigFromEnv` |
 | `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail and to its photos, as `SignedURL` signs. | none: the starters stop without it | `session.KeysFromEnv` |
 | `APP_PREVIOUS_KEYS` | Keys being rotated out, comma separated. They still decrypt sessions and check links. | none | `session.KeysFromEnv` |
 | `TRUSTED_PROXIES`   | The proxies in front of the app, such as a load balancer, whose `X-Forwarded-For` says whose each request is: addresses or ranges, comma separated, as `10.0.0.0/8`, or `*` for whatever connects. See [Behind a proxy](#behind-a-proxy). | none: a request is from whatever connected | the starters' `main.go`, for `middleware.TrustProxies` |
@@ -348,6 +348,94 @@ the proxy's idle timeout, for its connections to the app, under the app's
 two minutes, so that it never sends a request on a connection the app is
 closing. A body that `Bind` reads is limited to `Config.BodyLimit`,
 32 MiB, and the proxy may have a smaller limit of its own.
+
+## Security headers
+
+Each response of the starters says what a browser may do with it, by two
+of package `middleware`'s, which `main.go` has:
+
+```go
+middleware.Headers(middleware.HeadersConfig{HSTS: strings.HasPrefix(cfg.URL, "https://")}),
+middleware.CSP(middleware.CSPConfig{ReportPath: "/csp-reports", DevServer: assets.DevServer}),
+```
+
+`Headers` sends `X-Content-Type-Options: nosniff`, so a file is only ever
+the type it's sent as; `Referrer-Policy: strict-origin-when-cross-origin`,
+so a link to another site tells it which site it came from, and not the
+page's whole URL; `Cross-Origin-Opener-Policy: same-origin`, so another
+site's window can't reach into a page; and `X-Frame-Options: SAMEORIGIN`,
+so another site can't put a page in a frame, under a page of its own, to
+have a person click what they can't see. With `HSTS`, which the starters
+set when `APP_URL` is `https://`, it sends `Strict-Transport-Security:
+max-age=31536000`: a browser that has reached the app over HTTPS keeps to
+HTTPS for a year, whatever a link says, so a network in between can't hand
+it a page over plain HTTP. It's for the app's host alone, with no
+`includeSubDomains`, and isn't preloaded, as both promise more than the
+app, and are slow to take back. A handler whose response needs one of them
+otherwise sets its own, as a page another site frames.
+
+`CSP` sends a Content-Security-Policy, which says what a page may run and
+load, so a script that got into it some way but the app's own, as in a
+person's text that an escape missed, doesn't run:
+
+```
+default-src 'self'; script-src 'nonce-…' 'strict-dynamic'; style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none';
+base-uri 'none'; form-action 'self'; frame-ancestors 'self'; report-uri /csp-reports
+```
+
+- A script runs when it carries the response's nonce, a new random one
+  each response, which the root template has as `.Nonce`, for Vite's tags
+  and its own scripts ([Pages](pages.md#setting-up)), or when such a
+  script loads it, as Vite's entry loads the app's modules:
+  `'strict-dynamic'`, which every browser in use has.
+- Styles may be inline, as shadcn's components and Inertia's progress bar
+  set them, and a style that gets into a page does little a script can't.
+- Images may be `data:` and `blob:` URLs, as the starters' favicon is, and
+  fonts `data:`, as Vite writes small ones into the CSS.
+- Otherwise what a page loads and connects to is the app's own, a form
+  goes to the app alone, nothing runs as a plugin, no `<base>` moves the
+  page's links, and only the app's own pages may frame it.
+- `Sources` adds to a directive. The auth starter adds its bucket's
+  address, `(*storage.S3).Origin()`, to `img-src`, when its photos are on
+  S3, as they're links to it. An app that uses what's another site's adds
+  it the same way, as a payment provider's frames and API:
+
+  ```go
+  middleware.CSP(middleware.CSPConfig{
+  	ReportPath: "/csp-reports",
+  	Sources: map[string][]string{
+  		"frame-src":   {"https://js.stripe.com"},
+  		"connect-src": {"https://api.stripe.com"},
+  	},
+  })
+  ```
+
+  Its script needs no source: `<script src="https://js.stripe.com/v3"
+  nonce="{{ .Nonce }}"></script>` in the root template runs by the nonce.
+- `DevServer` is Vite's. Under `tug dev`, while the dev server runs, its
+  styles, images and fonts are let in, and its connection that reloads the
+  pages as they change.
+
+What the policy blocks, the browser says in its console, and reports to
+`ReportPath`, which `CSP` answers itself, before any route and `CSRF`, and
+logs, as a warning with the page, the directive, what was blocked and
+where it was asked for. It's `report-uri`, which every browser sends as it
+happens: Chrome's newer `report-to` batches its reports, and sends them
+over HTTPS alone. A report needs no login, as a browser sends one
+without, so a report in the log is what a browser said, or what anyone
+made up.
+
+An app that has grown, whose templates have scripts that don't carry the
+nonce yet, can send the policy as `Content-Security-Policy-Report-Only`
+first, with `ReportOnly: true`: the browser blocks nothing, and reports
+what it would have, for the log to show what to fix before the app
+enforces it. `X-Frame-Options` keeps other sites from framing the pages
+meanwhile.
+
+`storage.Local` sends a policy of its own with each file it serves,
+`sandbox`, in place of the app's, so a file that's a page can't run
+anything.
 
 ## Shutting down
 

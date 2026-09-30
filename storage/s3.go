@@ -196,6 +196,25 @@ func (s *S3) URL(key string, expires time.Time) (string, error) {
 	return s.presign(u, signed, longestLink), nil
 }
 
+// Origin is the scheme and host of the disk's links, as a page's
+// Content-Security-Policy names where the images it shows may come from: a
+// public disk's BaseURL's, or else the bucket's, in the endpoint's host,
+// or with the PathStyle, the endpoint's. It's "" for an Endpoint or a
+// BaseURL that isn't an address, as there's no link to one either.
+func (s *S3) Origin() string {
+	var u *url.URL
+	var err error
+	if s.Public && s.BaseURL != "" {
+		u, err = url.Parse(s.BaseURL)
+	} else {
+		u, err = s.objectURL("")
+	}
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 // request is a request for the object under key.
 func (s *S3) request(ctx context.Context, method, key string, body io.Reader) (*http.Request, error) {
 	if s.Bucket == "" || s.AccessKeyID == "" || s.SecretAccessKey == "" {

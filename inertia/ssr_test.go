@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/cuonggt/tug/internal/nonce"
 )
 
 // renderer is a Renderer that answers as it's told, and keeps the pages it
@@ -84,5 +86,50 @@ func TestInertiaVisitsAndPagesWithoutSSRArentRenderedOnTheServer(t *testing.T) {
 	rec, _ := render(t, i, r.WithContext(WithoutSSR(r.Context())), "Posts/Index", nil)
 	if len(ssr.pages) != 0 || !strings.Contains(rec.Body.String(), `<div id="app"></div>`) {
 		t.Errorf("the server rendered %d pages; the first visit got %s", len(ssr.pages), rec.Body)
+	}
+}
+
+func TestTheRootTemplateHasTheResponsesNonce(t *testing.T) {
+	i := newInertia(t, Config{Template: `<script nonce="{{ .Nonce }}">theme()</script>{{ .Inertia }}`})
+	r := httptest.NewRequest("GET", "/posts", nil)
+	rec, _ := render(t, i, r.WithContext(nonce.With(r.Context(), "N0nce")), "Posts/Index", nil)
+	if body := rec.Body.String(); !strings.HasPrefix(body, `<script nonce="N0nce">theme()</script>`) {
+		t.Errorf("got %s", body)
+	}
+	// Without a policy there's no nonce, and the attribute is empty.
+	rec, _ = render(t, i, httptest.NewRequest("GET", "/posts", nil), "Posts/Index", nil)
+	if body := rec.Body.String(); !strings.HasPrefix(body, `<script nonce="">`) {
+		t.Errorf("got %s", body)
+	}
+}
+
+func TestTheScriptsInTheHeadFromSSRCarryTheNonce(t *testing.T) {
+	body := `<script data-page="app" type="application/json">{"component":"Posts/Index"}</script><div data-server-rendered="true" id="app"></div>`
+	ssr := &renderer{rendered: Rendered{
+		Head: []string{
+			`<title data-inertia="">Posts</title>`,
+			`<script data-inertia="analytics" src="/stats.js"></script>`,
+			` <script>track()</script>`,
+			`<noscript data-inertia="pixel"><img src="/pixel.gif"></noscript>`,
+		},
+		Body: body,
+	}}
+	i := newInertia(t, Config{Template: ssrRoot, SSR: ssr})
+	r := httptest.NewRequest("GET", "/posts", nil)
+	rec, _ := render(t, i, r.WithContext(nonce.With(r.Context(), "N0nce")), "Posts/Index", nil)
+	want := `<head><title data-inertia="">Posts</title>` + "\n" +
+		`<script nonce="N0nce" data-inertia="analytics" src="/stats.js"></script>` + "\n" +
+		` <script nonce="N0nce">track()</script>` + "\n" +
+		`<noscript data-inertia="pixel"><img src="/pixel.gif"></noscript></head>` +
+		// The page object is data, which runs as no script.
+		`<body>` + body + `</body>`
+	if got := rec.Body.String(); !strings.Contains(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+
+	// Without a policy, the head is as the server rendered it.
+	rec, _ = render(t, i, httptest.NewRequest("GET", "/posts", nil), "Posts/Index", nil)
+	if got := rec.Body.String(); strings.Contains(got, "nonce") || !strings.Contains(got, ssr.rendered.Head[1]) {
+		t.Errorf("got\n%s", got)
 	}
 }

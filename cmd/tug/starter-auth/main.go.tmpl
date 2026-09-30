@@ -372,9 +372,25 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// The API, /api, takes a token, never the session's cookie, which
 	// another site's page can't borrow: CSRF lets it through, and CORS lets
 	// the pages of the sites CORS_ORIGINS names call it.
+	//
+	// Each response says what a browser may do with it: over HTTPS, keep
+	// to HTTPS; and a page, run the scripts that carry its nonce, as
+	// app.html's do, and what they load, with the dev server's under tug
+	// dev, and show the photos of a bucket, from its own address. What it
+	// blocks, the browser reports to /csp-reports, which the app logs.
+	var photos []string
+	if bucket, ok := e.Disk.(*storage.S3); ok {
+		photos = append(photos, bucket.Origin())
+	}
 	app.Use(
 		middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...),
 		middleware.RequestID(), middleware.Logger(), middleware.Recover(),
+		middleware.Headers(middleware.HeadersConfig{HSTS: strings.HasPrefix(cfg.URL, "https://")}),
+		middleware.CSP(middleware.CSPConfig{
+			ReportPath: "/csp-reports",
+			Sources:    map[string][]string{"img-src": photos},
+			DevServer:  assets.DevServer,
+		}),
 		middleware.CORS(strings.Split(os.Getenv("CORS_ORIGINS"), ",")...),
 		middleware.CSRF("/api/"),
 	)

@@ -259,7 +259,7 @@ func TestNewFillsInTheStarter(t *testing.T) {
 			if !strings.Contains(html, "<title data-inertia>blog</title>") || !strings.Contains(html, "{{ .Inertia }}") {
 				t.Errorf("app.html should have the name, and keep its own template: %s", html)
 			}
-			if want := `{{ vite "resources/js/app.` + data.Script() + `" (printf "resources/js/pages/%s.` + data.Component() + `" .Page.Component) }}`; !strings.Contains(html, want) {
+			if want := `{{ vite .Nonce "resources/js/app.` + data.Script() + `" (printf "resources/js/pages/%s.` + data.Component() + `" .Page.Component) }}`; !strings.Contains(html, want) {
 				t.Errorf("app.html doesn't load the app and its page from %s's files: %s", data.Framework(), html)
 			}
 			if strings.Contains(html, "viteReactRefresh") != data.React() {
@@ -641,6 +641,7 @@ func rendersOnTheServer(t *testing.T, dir string) {
 	}()
 
 	var page string
+	var header http.Header
 	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(page, `data-server-rendered="true"`); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("no first visit came back rendered on the server; the last was\n%s\nand the app said\n%s", page, out.String())
@@ -648,7 +649,31 @@ func rendersOnTheServer(t *testing.T, dir string) {
 		if resp, err := http.Get("http://" + addr + "/"); err == nil {
 			b, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			page = string(b)
+			page, header = string(b), resp.Header
 		}
+	}
+
+	// The page says what a browser may do with it, and its scripts carry
+	// the nonce its policy runs scripts by: the template's, Vite's, and
+	// those from the server's head. The page object is data, not a script.
+	policy := header.Get("Content-Security-Policy")
+	_, nonce, _ := strings.Cut(policy, "'nonce-")
+	nonce, _, _ = strings.Cut(nonce, "'")
+	if nonce == "" || header.Get("X-Frame-Options") != "SAMEORIGIN" {
+		t.Errorf("the page's policy is %q, and its headers %v", policy, header)
+	}
+	scripts := 0
+	for _, after := range strings.Split(page, "<script")[1:] {
+		tag, _, _ := strings.Cut(after, ">")
+		if strings.Contains(tag, `type="application/json"`) {
+			continue
+		}
+		scripts++
+		if !strings.Contains(tag, ` nonce="`+nonce+`"`) {
+			t.Errorf("<script%s> hasn't the page's nonce, %s", tag, nonce)
+		}
+	}
+	if scripts == 0 {
+		t.Errorf("the page runs no scripts:\n%s", page)
 	}
 }

@@ -24,7 +24,9 @@ go test ./...
 
 - `main.go`: the server, its pages and routes, and the health check at
   `/up`. A page is declared with `tug.Page[Props]("Name")`, and its
-  component is `resources/js/pages/Name.[[ .Component ]]`.
+  component is `resources/js/pages/Name.[[ .Component ]]`. Its pages run
+  the scripts that carry their nonce alone, by a Content-Security-Policy,
+  as `app.html`'s do: what it blocks, the log says.
 - `auth.go`: registering, logging in and out, a forgotten password, and
   the page that asks for the password again, on tug's package `auth`. A
   route for users is wrapped in `usersOnly`, whose handler is handed the
