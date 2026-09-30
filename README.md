@@ -6,19 +6,19 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.23.0 is the latest release: the framework, its CLI,
-background jobs, on a schedule in any time zone too, and pushed in the
-app's own transactions, server-side rendering, tests of an app's pages,
-uploads kept on the app's disk or in S3, limits on routes and on guessing
-passwords, counted across the app's instances, the client's address
-behind its proxies, signed links, what tug and the app say in the
-request's language, lists in pages, the app's own commands, a cache and
-locks across the instances, mail with copies, files and a link to
-unsubscribe, downloads, streams and server-sent events, the app's own
-values encrypted, events broadcast to the pages open on every instance,
-and starters in React, Vue or Svelte, one with accounts, from registering
-to two-factor logins, passkeys, a profile photo and API tokens, in
-SQLite, Postgres or MySQL.
+**Status: early.** v0.24.0 is the latest release: the framework, its CLI,
+background jobs, on a schedule in any time zone too, pushed in the app's
+own transactions, and so many at once or a second across the instances,
+server-side rendering, tests of an app's pages, uploads kept on the app's
+disk or in S3, limits on routes and on guessing passwords, counted across
+the app's instances, the client's address behind its proxies, signed
+links, what tug and the app say in the request's language, lists in
+pages, the app's own commands, a cache and locks across the instances,
+mail with copies, files and a link to unsubscribe, downloads, streams and
+server-sent events, the app's own values encrypted, events broadcast to
+the pages open on every instance, and starters in React, Vue or Svelte,
+one with accounts, from registering to two-factor logins, passkeys, a
+profile photo and API tokens, in SQLite, Postgres or MySQL.
 [The guide](docs/README.md) covers all of it, and
 [docs/roadmap.md](docs/roadmap.md) has what's next.
 

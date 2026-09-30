@@ -2408,8 +2408,8 @@ but one at a time for each value: a hundred photos to resize took every
 worker, and a newsletter's ten thousand mails went as fast as the workers
 took them, past what the mail provider allows a second. And a job that
 failed for good was logged, with nothing else done about it, where a job
-of Laravel's has a `failed` method, which marks what it was about. To be
-released as v0.24.0.
+of Laravel's has a `failed` method, which marks what it was about.
+Released as v0.24.0.
 
 - **At most so many at once:** `queue.AtOnce(n)`, an option of a kind's:
   no more than n of its jobs run at once, on all the instances.
