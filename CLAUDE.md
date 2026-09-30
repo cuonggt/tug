@@ -513,6 +513,8 @@ dev server that isn't there: delete it.
   bell, and `resources/js/lib/broadcasts.ts`'s `listen`, one connection
   to `/broadcasts` a page, whose listeners reload as their event comes
   and as it connects again, as the verify page, the bell and the list do.
+  A reload is a visit, and empties the page's flash, so the tokens page
+  and the recovery codes keep, in their own state, what came in it.
   `notifications_test.go` and `e2e/tests/notifications.spec.ts` test it.
   Every layer's `broadcasts_db.go` is `broadcasts`, a `broadcast.Store`,
   which `main` gives the `broadcast.Hub` it runs with `app.Go`, and

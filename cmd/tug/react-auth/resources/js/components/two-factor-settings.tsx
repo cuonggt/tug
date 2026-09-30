@@ -1,7 +1,7 @@
 import { Form, router, usePage } from '@inertiajs/react'
 import { Check, Copy, LoaderCircle, ShieldCheck } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Heading from '@/components/heading'
 import InputError from '@/components/input-error'
 import { Badge } from '@/components/ui/badge'
@@ -17,9 +17,15 @@ import { route } from '@/tug/routes'
 // handlers are in twofactor.go.
 export default function TwoFactorSettings({ user, setup, recoveryCodes }: PageProps<'Settings/Security'>) {
   const { flash } = usePage()
-  // The codes come once in the flash as two-factor logins are turned on,
-  // and again from a partial reload that asks for them.
-  const codes = flash.recoveryCodes ?? recoveryCodes
+  // The codes come once in the flash as two-factor logins are turned on, or
+  // new ones are made, and the next visit empties it, as the bell's reload
+  // does when a notification rings it: kept here, they're shown until the
+  // page is left. A partial reload that asks for them brings them again.
+  const [kept, setKept] = useState<string[]>()
+  useEffect(() => {
+    if (flash.recoveryCodes) setKept(flash.recoveryCodes)
+  }, [flash.recoveryCodes])
+  const codes = flash.recoveryCodes ?? kept ?? recoveryCodes
 
   return (
     <section className="space-y-6">

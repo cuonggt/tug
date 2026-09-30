@@ -1,4 +1,4 @@
-import { expect, registered, test } from './helpers'
+import { expect, madeToken, registered, test } from './helpers'
 
 test('a change made in another tab rings the bell at once, and the list shows it read', async ({ page, context }, info) => {
   await registered(page, info)
@@ -7,12 +7,7 @@ test('a change made in another tab rings the bell at once, and the list shows it
   await listening
   await expect(page.getByRole('link', { name: 'Notifications', exact: true })).toBeVisible()
 
-  const other = await context.newPage()
-  await other.goto('/settings/tokens')
-  await other.getByLabel('Name').fill('My script')
-  await other.getByLabel('user:read').check()
-  await other.getByRole('button', { name: 'Make a token' }).click()
-  await expect(other.getByTestId('new-token')).toBeVisible()
+  await madeToken(await context.newPage(), 'My script')
 
   const bell = page.getByRole('link', { name: 'Notifications, 1 unread' })
   await expect(bell).toBeVisible()
@@ -20,4 +15,17 @@ test('a change made in another tab rings the bell at once, and the list shows it
   await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible()
   await expect(page.getByText('An API token, My script, was made.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Notifications', exact: true })).toBeVisible()
+})
+
+// The bell's reload is a visit, and empties the page's flash, which a new
+// token comes in, once.
+test('a new token is still shown as a change in another tab rings the bell', async ({ page, context }, info) => {
+  await registered(page, info)
+  const listening = page.waitForResponse((r) => r.url().endsWith('/broadcasts'))
+  const token = await madeToken(page, 'My script')
+  await listening
+
+  await madeToken(await context.newPage(), 'Another script')
+  await expect(page.getByRole('link', { name: 'Notifications, 2 unread' })).toBeVisible()
+  await expect(page.getByTestId('new-token')).toHaveText(token)
 })

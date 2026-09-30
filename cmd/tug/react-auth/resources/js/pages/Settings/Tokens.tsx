@@ -1,6 +1,6 @@
 import { Head, router, usePage } from '@inertiajs/react'
 import { Check, Copy, KeyRound, LoaderCircle, Trash2 } from 'lucide-react'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import Heading from '@/components/heading'
 import InputError from '@/components/input-error'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,14 @@ import { route } from '@/tug/routes'
 // The handlers are in tokens.go.
 export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens'>) {
   const { flash, props } = usePage()
+  // A new token comes once, in the flash, which the next visit empties, as
+  // the bell's reload does when the token's notification rings it: kept
+  // here, it's shown until the page is left.
+  const [kept, setKept] = useState<string>()
+  useEffect(() => {
+    if (flash.token) setKept(flash.token)
+  }, [flash.token])
+  const newToken = flash.token ?? kept
   const [name, setName] = useState('')
   const [chosen, setChosen] = useState<string[]>([])
   const [expires, setExpires] = useState('30')
@@ -54,14 +62,14 @@ export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens
           title="API tokens"
           description="For a script, your phone's app or another service, which sends one to the app's API in place of logging in."
         />
-        {flash.token && (
+        {newToken && (
           <div className="space-y-3 rounded-lg border p-4">
             <p className="text-sm">Your new token. Copy it now: it won't be shown again.</p>
             <div className="flex items-start gap-2">
               <code data-testid="new-token" className="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-sm break-all">
-                {flash.token}
+                {newToken}
               </code>
-              <Button variant="outline" size="sm" onClick={() => copy(flash.token!)}>
+              <Button variant="outline" size="sm" onClick={() => copy(newToken)}>
                 {copied ? <Check /> : <Copy />}
                 {copied ? 'Copied' : 'Copy'}
               </Button>

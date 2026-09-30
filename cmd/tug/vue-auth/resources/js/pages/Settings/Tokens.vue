@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, router, usePage } from '@inertiajs/vue3'
 import { Check, Copy, KeyRound, LoaderCircle, Trash2 } from '@lucide/vue'
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Heading from '@/components/Heading.vue'
 import InputError from '@/components/InputError.vue'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +18,18 @@ import { route } from '@/tug/routes'
 // The handlers are in tokens.go.
 defineProps<Pages['Settings/Tokens'] & SharedProps>()
 const page = usePage()
+// A new token comes once, in the flash, which the next visit empties, as
+// the bell's reload does when the token's notification rings it: kept
+// here, it's shown until the page is left.
+const kept = ref<string>()
+watch(
+  () => page.flash.token,
+  (token) => {
+    if (token) kept.value = token
+  },
+  { immediate: true },
+)
+const newToken = computed(() => page.flash.token ?? kept.value)
 const name = ref('')
 const chosen = ref<string[]>([])
 const expires = ref('30')
@@ -64,11 +76,11 @@ function day(at: string): string {
       title="API tokens"
       description="For a script, your phone's app or another service, which sends one to the app's API in place of logging in."
     />
-    <div v-if="page.flash.token" class="space-y-3 rounded-lg border p-4">
+    <div v-if="newToken" class="space-y-3 rounded-lg border p-4">
       <p class="text-sm">Your new token. Copy it now: it won't be shown again.</p>
       <div class="flex items-start gap-2">
-        <code data-testid="new-token" class="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-sm break-all">{{ page.flash.token }}</code>
-        <Button variant="outline" size="sm" @click="copy(page.flash.token!)">
+        <code data-testid="new-token" class="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-sm break-all">{{ newToken }}</code>
+        <Button variant="outline" size="sm" @click="copy(newToken!)">
           <Check v-if="copied" />
           <Copy v-else />
           {{ copied ? 'Copied' : 'Copy' }}

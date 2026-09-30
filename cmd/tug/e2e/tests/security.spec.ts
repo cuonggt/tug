@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { authenticator, dashboard, expect, logIn, logOut, registered, test, totp } from './helpers'
+import { authenticator, dashboard, expect, logIn, logOut, madeToken, registered, test, totp } from './helpers'
 
 test('two-factor logins go on with a code from the app, and then each login asks for one', async ({ page }, info) => {
   const user = await registered(page, info)
@@ -15,6 +15,11 @@ test('two-factor logins go on with a code from the app, and then each login asks
   const codes = page.getByText('Keep these somewhere safe').locator('xpath=following-sibling::ul[1]/li')
   await expect(codes).toHaveCount(8)
   const recovery = await codes.first().innerText()
+  // A change in another tab rings the bell, whose reload empties the flash
+  // the codes came in: they're still shown.
+  await madeToken(await page.context().newPage(), 'My script')
+  await expect(page.getByRole('link', { name: 'Notifications, 1 unread' })).toBeVisible()
+  await expect(codes).toHaveCount(8)
 
   // A code works once, so the one that turned them on can't log in: the
   // next one does, which the server takes 30 seconds early.

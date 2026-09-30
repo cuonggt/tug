@@ -2633,6 +2633,12 @@ Choices made on the way:
   listener as its event comes and as the connection is made again. The
   verify page reloads on `verified`, as its handler sends a verified user
   to the dashboard.
+- **What comes in the flash, the page keeps:** the bell's reload is a
+  visit, and empties the page's flash, and a token's own notification
+  rings it: the new token showed for a moment, then went, as CI's browser
+  suite caught. The tokens page and the recovery codes keep what came
+  until the page is left, rather than the bell's count coming apart from
+  the page's props.
 - **Kept a while:** a notification read over 90 days ago goes, by a
   scheduled job, `prune-notifications`, every night.
 - **Not each user's choice of channels yet:** each kind has its own.
@@ -2647,7 +2653,8 @@ Choices made on the way:
   the newest first, a page at a time, marked read as shown, with a kind
   long gone; the prune, and its schedule; `NextTo`, taking one and
   leaving the rest; and in the browser, in each frontend, a token made in
-  another tab ringing the bell, and the list showing it read.
+  another tab ringing the bell, and the list showing it read, and a new
+  token and the recovery codes still shown as it rings.
 
 ## M32 · Security headers — later
 

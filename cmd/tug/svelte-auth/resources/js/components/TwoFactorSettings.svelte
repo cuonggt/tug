@@ -19,9 +19,15 @@
   // back from it; on, their recovery codes, and a button to stop. The
   // handlers are in twofactor.go.
   let { user, setup, recoveryCodes }: PageProps<'Settings/Security'> = $props()
-  // The codes come once in the flash as two-factor logins are turned on,
-  // and again from a partial reload that asks for them.
-  let codes = $derived(page.flash.recoveryCodes ?? recoveryCodes)
+  // The codes come once in the flash as two-factor logins are turned on, or
+  // new ones are made, and the next visit empties it, as the bell's reload
+  // does when a notification rings it: kept here, they're shown until the
+  // page is left. A partial reload that asks for them brings them again.
+  let kept = $state<string[]>()
+  $effect(() => {
+    if (page.flash.recoveryCodes) kept = page.flash.recoveryCodes
+  })
+  let codes = $derived(page.flash.recoveryCodes ?? kept ?? recoveryCodes)
 
   let copied = $state(false)
   async function copy(codes: string[]) {

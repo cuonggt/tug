@@ -2,7 +2,7 @@
 import { Form, router, usePage } from '@inertiajs/vue3'
 import { LoaderCircle, ShieldCheck } from '@lucide/vue'
 import { QrcodeSvg } from 'qrcode.vue'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Heading from '@/components/Heading.vue'
 import InputError from '@/components/InputError.vue'
 import RecoveryCodes from '@/components/RecoveryCodes.vue'
@@ -20,9 +20,19 @@ import { route } from '@/tug/routes'
 // handlers are in twofactor.go.
 const props = defineProps<Pages['Settings/Security'] & SharedProps>()
 const page = usePage()
-// The codes come once in the flash as two-factor logins are turned on,
-// and again from a partial reload that asks for them.
-const codes = computed(() => page.flash.recoveryCodes ?? props.recoveryCodes)
+// The codes come once in the flash as two-factor logins are turned on, or
+// new ones are made, and the next visit empties it, as the bell's reload
+// does when a notification rings it: kept here, they're shown until the
+// page is left. A partial reload that asks for them brings them again.
+const kept = ref<string[]>()
+watch(
+  () => page.flash.recoveryCodes,
+  (flashed) => {
+    if (flashed) kept.value = flashed
+  },
+  { immediate: true },
+)
+const codes = computed(() => page.flash.recoveryCodes ?? kept.value ?? props.recoveryCodes)
 // The secret, in fours, to type in by hand.
 const key = computed(() => props.setup?.secret.match(/.{1,4}/g)?.join(' '))
 </script>

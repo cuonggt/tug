@@ -76,6 +76,16 @@ export async function logOut(page: Page) {
   await expect(page).toHaveURL(/\/$/)
 }
 
+// madeToken makes an API token on the settings page, which the user is
+// told of, and returns it as the page shows it, once.
+export async function madeToken(page: Page, name: string): Promise<string> {
+  await page.goto('/settings/tokens')
+  await page.getByLabel('Name').fill(name)
+  await page.getByLabel('user:read').check()
+  await page.getByRole('button', { name: 'Make a token' }).click()
+  return page.getByTestId('new-token').innerText()
+}
+
 // mailedLink is the link in the last mail to email whose link has path in
 // it, which the app writes to its log, as it does without a MAIL_HOST. The
 // mail goes by a background job, so it waits for it a while.

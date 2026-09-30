@@ -29,6 +29,14 @@
   // in place of a login; shows a new one once; lists them; and revokes them.
   // The handlers are in tokens.go.
   let { tokens, abilities }: PageProps<'Settings/Tokens'> = $props()
+  // A new token comes once, in the flash, which the next visit empties, as
+  // the bell's reload does when the token's notification rings it: kept
+  // here, it's shown until the page is left.
+  let kept = $state<string>()
+  $effect(() => {
+    if (page.flash.token) kept = page.flash.token
+  })
+  let newToken = $derived(page.flash.token ?? kept)
   let name = $state('')
   let chosen = $state<string[]>([])
   let expires = $state('30')
@@ -69,12 +77,12 @@
     title="API tokens"
     description="For a script, your phone's app or another service, which sends one to the app's API in place of logging in."
   />
-  {#if page.flash.token}
+  {#if newToken}
     <div class="space-y-3 rounded-lg border p-4">
       <p class="text-sm">Your new token. Copy it now: it won't be shown again.</p>
       <div class="flex items-start gap-2">
-        <code data-testid="new-token" class="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-sm break-all">{page.flash.token}</code>
-        <Button variant="outline" size="sm" onclick={() => copy(page.flash.token!)}>
+        <code data-testid="new-token" class="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-sm break-all">{newToken}</code>
+        <Button variant="outline" size="sm" onclick={() => copy(newToken!)}>
           {#if copied}
             <Check />
             Copied

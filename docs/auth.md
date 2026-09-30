@@ -677,7 +677,11 @@ made is never heard of.
 
 - The header's bell counts the notifications the user hasn't read, a
   prop every page shares, `bell.unread`, and counts a new one at once,
-  as the layout follows the user's channel and reloads it.
+  as the layout follows the user's channel and reloads it. The reload is
+  a visit, and empties the page's flash, so what a page shows from its
+  flash it keeps until it's left, as the new token and the recovery
+  codes are: a page of the app's that shows its flash in place, not as a
+  toast, does the same.
 - `/notifications` lists them, the newest first, 20 a page, and marks
   the ones it shows read, with a dot on those new to it; one that comes
   while it's open shows at once.
