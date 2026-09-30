@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"go/format"
 	"io"
 	"io/fs"
 	"net"
@@ -186,6 +187,61 @@ func reader(t *testing.T, root string) func(name string) string {
 	}
 }
 
+// formatted fails the test for each Go file of the app in root that isn't
+// as gofmt writes it, naming the file and the first line gofmt changes. A
+// slip in a template, as a struct's comments aligned by hand, is in every
+// app made from it, whose gofmt -l, or editor, shows it to its owner as a
+// change of their own. The tests that make each kind with writeStarter
+// check it, with no npm: an app's Go is all the starter's, and installing
+// adds its modules, packages and types.
+func formatted(t *testing.T, root string) {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && filepath.Ext(path) == ".go" {
+			files = append(files, path)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range files {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rel, _ := filepath.Rel(root, path)
+		gofmt, err := format.Source(src)
+		switch {
+		case err != nil:
+			t.Errorf("%s isn't Go that gofmt reads: %v", rel, err)
+		case !bytes.Equal(src, gofmt):
+			line, was, is := firstDifference(src, gofmt)
+			t.Errorf("%s isn't as gofmt writes it, from line %d: %q, which gofmt writes %q", rel, line, was, is)
+		}
+	}
+}
+
+// firstDifference is the number of the first line where a and b differ,
+// and that line of each.
+func firstDifference(a, b []byte) (int, string, string) {
+	as, bs := strings.Split(string(a), "\n"), strings.Split(string(b), "\n")
+	for i := range max(len(as), len(bs)) {
+		var x, y string
+		if i < len(as) {
+			x = as[i]
+		}
+		if i < len(bs) {
+			y = bs[i]
+		}
+		if x != y {
+			return i + 1, x, y
+		}
+	}
+	return 0, "", ""
+}
+
 func TestNewFillsInTheStarter(t *testing.T) {
 	for _, frontend := range frontends {
 		t.Run(frontend, func(t *testing.T) {
@@ -194,6 +250,7 @@ func TestNewFillsInTheStarter(t *testing.T) {
 			if err := writeStarter(root, data); err != nil {
 				t.Fatal(err)
 			}
+			formatted(t, root)
 			read := reader(t, root)
 			if mod := read("go.mod"); !strings.HasPrefix(mod, "module example.com/blog\n") || !strings.Contains(mod, "replace github.com/cuonggt/tug => /src/tug") {
 				t.Errorf("go.mod:\n%s", mod)
@@ -250,6 +307,7 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 			if err := writeStarter(root, data); err != nil {
 				t.Fatal(err)
 			}
+			formatted(t, root)
 			read := reader(t, root)
 			if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
 				t.Errorf("main.go isn't the auth starter's:\n%s", main)
@@ -302,6 +360,7 @@ func TestNewWithPostgresOrMySQLLaysItsSQLOverTheAuthStarter(t *testing.T) {
 			if err := writeStarter(root, data); err != nil {
 				t.Fatal(err)
 			}
+			formatted(t, root)
 			read := reader(t, root)
 			if db := read("db.go"); !strings.Contains(db, c.driver) || strings.Contains(db, "sqlite") {
 				t.Errorf("db.go isn't %s's:\n%s", c.database, db)
@@ -383,32 +442,39 @@ func TestNewMakesAnAppWithOneFrontend(t *testing.T) {
 func TestNewWithSSRAddsTheAppOnTheServer(t *testing.T) {
 	for _, frontend := range frontends {
 		for _, auth := range []bool{false, true} {
-			root := filepath.Join(t.TempDir(), "blog")
-			data := starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Frontend: frontend, Auth: auth, SSR: true}
+			name := frontend
 			if auth {
-				data.Database = "sqlite"
+				name += " auth"
 			}
-			if err := writeStarter(root, data); err != nil {
-				t.Fatal(err)
-			}
-			read := reader(t, root)
-			for _, f := range onlySSR(data) {
-				read(f)
-			}
-			for f, want := range map[string]string{
-				"main.go":        "ssr.Gateway{DevServer: assets.DevServer",
-				"package.json":   `"build": "vite build && vite build --ssr"`,
-				"vite.config.ts": "input: 'resources/js/ssr." + data.Script() + "'",
-				"app.html":       "{{ .InertiaHead }}",
-				"Dockerfile":     "FROM gcr.io/distroless/nodejs24-debian12",
-				".gitignore":     "/ssr/build/",
-				".dockerignore":  "ssr/build",
-				".env.example":   "SSR_URL=",
-			} {
-				if got := read(f); !strings.Contains(got, want) || strings.Contains(got, "[[") {
-					t.Errorf("%s, auth %v: %s has no %q, or a placeholder left:\n%s", data.Framework(), auth, f, want, got)
+			t.Run(name, func(t *testing.T) {
+				root := filepath.Join(t.TempDir(), "blog")
+				data := starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Frontend: frontend, Auth: auth, SSR: true}
+				if auth {
+					data.Database = "sqlite"
 				}
-			}
+				if err := writeStarter(root, data); err != nil {
+					t.Fatal(err)
+				}
+				formatted(t, root)
+				read := reader(t, root)
+				for _, f := range onlySSR(data) {
+					read(f)
+				}
+				for f, want := range map[string]string{
+					"main.go":        "ssr.Gateway{DevServer: assets.DevServer",
+					"package.json":   `"build": "vite build && vite build --ssr"`,
+					"vite.config.ts": "input: 'resources/js/ssr." + data.Script() + "'",
+					"app.html":       "{{ .InertiaHead }}",
+					"Dockerfile":     "FROM gcr.io/distroless/nodejs24-debian12",
+					".gitignore":     "/ssr/build/",
+					".dockerignore":  "ssr/build",
+					".env.example":   "SSR_URL=",
+				} {
+					if got := read(f); !strings.Contains(got, want) || strings.Contains(got, "[[") {
+						t.Errorf("%s has no %q, or a placeholder left:\n%s", f, want, got)
+					}
+				}
+			})
 		}
 	}
 }
