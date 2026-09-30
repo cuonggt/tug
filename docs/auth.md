@@ -740,6 +740,8 @@ An app made before its migrations were files counted the steps it had run
 in SQLite's `user_version`, or a `schema_version` table: the starter's
 files are those steps, in their order, and the first start takes the
 count over, recording that many as run.
+[Migrations](migrations.md#apps-made-before) has what an app checks
+before that start, and how it rolls back after.
 
 The SQL of each table is in a file of its own, `users_db.go`,
 `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,

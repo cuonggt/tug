@@ -148,6 +148,30 @@ many as run, from the count, and drops it. Steps an app added to the end
 of the list go in files of their own first, named after the starter's, in
 their order: `tug migrate new`, with the step's SQL.
 
+That start records the first files by name as run, without running them,
+so they must be the steps the app ran:
+
+- **A step of the starter's the app changed in place** changes the same
+  way in its file before that start, which keeps the file's hash: a file
+  changed after it stops the next start.
+- **An app with steps of its own, but not all of the starter's, or that
+  took a step of the starter's without one before it,** leaves the files
+  of the steps it hasn't out of `migrations/` for that start, and puts
+  them back after, when they run, as any migration that hasn't does.
+  Otherwise the files counted would be some it never ran, and not some it
+  did, which would run again, and fail.
+- **More counted than there are files** stops the app, saying so: the
+  app's own steps aren't in files yet.
+
+Once the new version has started, a build from before won't start on the
+database: with no count, it runs its first step again, which fails, as
+its table is there. Its instances already running carry on. A deploy
+rolled back past the new version sets the count back, to the number of
+steps in the build's `db.go`: on SQLite, `PRAGMA user_version = <steps>`
+before it starts; on Postgres and MySQL, the build makes its
+`schema_version` table again as it starts, and fails, and `UPDATE
+schema_version SET version = <steps>` lets it start.
+
 ## Package migrate
 
 ```go
