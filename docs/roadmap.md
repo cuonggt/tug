@@ -38,6 +38,10 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M30 | Authorization              | done   |
 | M31 | Notifications              | done   |
 | M32 | Security headers           | done   |
+| M33 | Migrations                 | later  |
+| M34 | Account administration     | later  |
+| M35 | Feature flags              | later  |
+| M36 | Metrics                    | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2752,6 +2756,237 @@ Choices made on the way:
   the nonce; and in the browser, in each frontend, the headers on a page
   and a 404, a script the page didn't bring blocked, its report in the
   app's log, and every other test's pages with nothing blocked.
+
+## M33 · Migrations — later
+
+The auth starter's tables are a list of SQL steps in its `db.go`, one list
+for each database, which the app runs as it starts, counted in SQLite's
+`user_version`, or a `schema_version` table. An app adds a table of its
+own as a step at the end of the list, in Go; two branches that each add
+one both make the next step, and a database that ran one branch's counts
+it as run, whichever step takes its place in the merge; and nothing says
+which steps a database has, or makes the next one. Laravel's migrations
+are files, named for when they were made, which `make:migration` writes,
+`migrate` runs, and `migrate:status` lists; Rails' are too. To be released
+as v0.28.0.
+
+- **Migrations are files:** `migrations/`, a `.sql` file each, named for
+  when it was made, as `20261001093000_create_posts.sql`, embedded in the
+  binary, as `lang/` is, and each run once, in its name's order.
+- **Package `migrate`:** runs the files that haven't run, with no import
+  of tug, and no SQL: a Store, the app's, keeps which have run, takes the
+  lock that has instances take turns, and runs a file and records it
+  together, where its database can. `migratetest.TestStore` has a Store's
+  promises as tests, as the other packages have theirs.
+- **The commands:** `tug migrate new create_posts` writes a new file, and
+  the app's binary runs what hasn't run, `./blog migrate`, and lists what
+  has, `./blog migrate status`, commands the starter adds with
+  `app.Command`.
+- **Undoing the last one:** a file may end with a part that undoes it,
+  after a `-- down` line, which `./blog migrate down` runs, for the file
+  just written that isn't right yet.
+- **The starter's own** are files: each step its layers have in `db.go`
+  now, in the order they have them; and each layer has a Store, in its
+  database's SQL. An app made before carries on: the steps its
+  `user_version` or `schema_version` counts are the files it has run.
+- **Still as the app starts,** as now, and by the command for a deploy
+  that runs them first, and for a person to see where a database is.
+- **The guide:** a page, Migrations; Accounts, the database; Deployment;
+  and the CLI, `tug migrate`.
+
+Choices, to settle before any code:
+
+- **M6's choice reopened, at the owner's ask:** the migrations were the
+  starter's own code, a list in `db.go`; they're files an app adds, which
+  a package of tug's runs. M17's holds: tug has no SQL, and a Store in
+  each database's layer keeps what's run, as the jobs' Store does.
+- **Files of SQL, not Go:** a migration is SQL, which a person and the
+  database's own tools read. A change of data that SQL can't make is a
+  job, or a command of the app's.
+- **Named for when they were made,** to the second, in UTC, so two
+  branches' files don't take one number: each runs, in its name's order,
+  whether a later one ran first or not, as Laravel's and Rails' do.
+- **What's run is kept by name and a hash of its SQL:** a file changed
+  after it ran stops the next run, and says which, rather than leave a
+  database unlike its file. One that ran but that the files don't have,
+  as a newer version's, is left alone, as an old instance of a deploy
+  runs beside the new ones.
+- **A file is one transaction,** where the database has them for changes
+  to tables, SQLite and Postgres. MySQL commits each such statement on
+  its own, so its Store runs a file a statement at a time, split where a
+  line ends in `;`, and keeps the one under way, as `schema_version`'s
+  `running` does now: a crash between two stops the next run, saying
+  which.
+- **Down for the last one alone,** when its file says how: a step just
+  written is put right, and run again. A migration that ran long ago is
+  changed by the next one, as undoing a step on a database with data in
+  it is rarely the way back.
+- **The CLI writes, the app runs:** `tug migrate new` needs no database,
+  and running one needs the app's driver and `DB_URL`, which its binary
+  has.
+- **Tests:** the files found, and run in order, each once; under the
+  lock, as from two instances at once; a file changed after it ran, and
+  one the files don't have; a file that fails, leaving nothing, and on
+  MySQL, the statement under way; down, for the last file, and not
+  without its part; the counts of an app made before, taken over; a
+  Store's promises, on each database's; the commands; and a new file's
+  name.
+
+## M34 · Account administration — later
+
+The auth starter's admins see the jobs that failed, and nothing of the
+users: a person who writes in, locked out or unsure of what the app shows
+them, is a row an admin looks up in the database by hand, and an account
+that abuses the app is one they can stop only by deleting it. Laravel
+leaves it to packages, as Filament's pages of users, and one for logging
+in as a user; Rails to gems. To be released as v0.29.0.
+
+- **A page of the users,** for admins: the newest first, a page at a
+  time, found by their email or name, each with whether their email is
+  verified, their two-factor logins are on, they're an admin, or
+  suspended, and when they joined.
+- **Suspending an account:** an admin suspends one, and restores it. A
+  suspended account can't log in, and is told why; its logins end at
+  their next request; its API tokens are turned away; and its owner hears
+  of it, by mail, as a notification, each time.
+- **Acting as a user:** an admin sees the app as a user sees it, to help
+  them, with a line at the top of each page that says whose it is, and a
+  way back to their own account. What could hand the account to someone
+  else is refused meanwhile: the password, the email, two-factor logins,
+  passkeys, API tokens, and deleting it.
+- **In package `auth`:** acting as another, kept in the session beside
+  the login it came from, which going back restores, as a slip there is a
+  security hole.
+- **The guide:** Accounts, the admins' pages; and Authorization, a
+  suspended account.
+
+Choices, to settle before any code:
+
+- **Suspended, not deleted:** a `suspended_at` column, which keeps the
+  account and what's its, for an admin to restore; deleting it stays its
+  owner's.
+- **Its logins end as its row says:** each request reads the user, as it
+  does to check the password the login was made with, so a suspended
+  account's logins stop at their next request, with no list of them: a
+  login stays in the cookie, as M6 has it.
+- **Not an admin, and not oneself:** an admin is suspended, or acted as,
+  once the `admins` command has made them a user again, so no admin locks
+  another out, or acts with another's say.
+- **Acting keeps the admin's login** in the session, their ID and the
+  fingerprint of their password, which going back checks, as a login is
+  checked. It lasts an hour at most, and logging out ends both. It starts
+  afresh, with no password confirmed, so what asks for the password again
+  asks the admin for one they don't know.
+- **Refused while acting,** with a 403 that says why, rather than hidden:
+  the admin sees the pages the user sees.
+- **In the log, not told:** an admin starting and stopping acting as a
+  user is a line in the log, with both of them; the user isn't told, as
+  helping them is the point.
+- **Found by email or name,** a lower-cased `LIKE`, as each database has
+  it; not full-text search, which an app of many users adds.
+- **Tests:** the page refused to a user and a guest, found by email and
+  by name, a page at a time; suspending and restoring, the notifications,
+  a login refused, one that was in ended, and a token turned away; acting
+  as a user, the line on the page, what's refused, the hour, going back,
+  and logging out; not an admin, or oneself; and in the browser, in each
+  frontend, a user suspended in another browser, and an admin acting as
+  one.
+
+## M35 · Feature flags — later
+
+An app gives a feature to some of its users before the rest: its own
+people first, then a tenth of everyone, then all, and back to none when
+it breaks. Each app writes that its own way, a column or a setting, and a
+page asks its handler for a flag of its own. Laravel's Pennant defines a
+feature once, decides it for each user the first time it's asked, keeps
+what it decided, so a user doesn't see it come and go, and lets the pages
+ask. To be released as v0.30.0.
+
+- **Package `feature`:** a feature is a name and what decides it for a
+  user: the app's own check, a share of the users, `feature.Percent(10)`,
+  the same ones each time, or everyone. `Active` asks.
+- **Decided once:** what a feature decided for a user is kept, in a
+  Store, the database's in the starter, so the user keeps what they got,
+  until the app or an admin changes it, or forgets it, for it to be
+  decided again; without a Store, in memory, for tests.
+- **Turned on and off,** for a user or for everyone, by the app's code,
+  and in the auth starter by its admins: on a page of the features, each
+  with how many have it, and by its binary's `features` command.
+- **On the page:** the features its user has, a shared prop, `features`,
+  as `can` is, so a page shows what its user is to see, and the handler
+  asks again.
+- **The guide:** a page, Feature flags; and Accounts, the admins' page.
+
+Choices, to settle before any code:
+
+- **A package of its own,** with no import of tug, not in `auth`: a
+  feature is what a user sees, not what they may do, and it has a Store.
+- **Features are values,** as abilities are, generic over the app's user,
+  so a mistyped one doesn't compile; each is named, as the Store keeps
+  what it decided by its name.
+- **A user's key is the app's to say,** a function of the user, as their
+  ID; a feature of no one in particular, as the whole app's, is decided
+  for everyone at once.
+- **A share by a hash** of the feature's name and the user's key, so the
+  same users have it each time and on every instance, and a share that
+  grows from a tenth to a fifth keeps the first tenth.
+- **Kept once decided,** as Pennant keeps it, so a share that shrinks
+  takes it from no one; taking it back is turning it off.
+- **`features` lists the app's shared ones,** worked out as each page is
+  rendered: not every feature, for every page.
+- **Tests:** a feature decided, kept, changed for a user and for
+  everyone, and forgotten; a share, the same users each time, and on two
+  instances; the memory store and the starter's, by a `TestStore`, as the
+  other Stores have; the page's `features`; and in the starter, the
+  admins' page and command, and in the browser, in each frontend, a
+  feature an admin turned on showing on a user's page.
+
+## M36 · Metrics — later
+
+A deployed app says what it's doing in its log alone: how many requests
+it answers and how slowly, which fail, how many jobs wait, and whether
+the database's connections run out, a log doesn't add up. Prometheus
+reads an app's metrics from a route of it, in a text format, and Grafana
+and the rest read them from Prometheus; Go's own client for it is a tree
+of dependencies, and Laravel's Pulse is a dashboard of the app's own.
+tug writes the format on the standard library. To be released as
+v0.31.0.
+
+- **Package `metrics`:** counters, gauges and histograms, with labels, in
+  a registry of the app's, written in Prometheus's text format by its
+  handler; a gauge can be a function, read as it's scraped.
+- **Requests:** `middleware.Metrics`, how many by method, route and
+  status, how long they took, and how many are under way.
+- **Jobs:** how many ran, by kind and how they went, and how long, from
+  package `queue`; and in the starter, how many wait, by kind.
+- **The database and Go:** the app's `sql.DB`'s connections, open, in
+  use and waited for, and Go's own goroutines, memory and garbage
+  collection.
+- **The starters:** `/metrics`, for a scraper with the token
+  `METRICS_TOKEN` names, and not there without one.
+- **The guide:** Deployment, a section on metrics.
+
+Choices, to settle before any code:
+
+- **Prometheus's text format,** which every monitor reads, written on the
+  standard library; not OpenTelemetry's SDK, a tree of dependencies; and
+  not a dashboard of the app's own, as Pulse: Grafana shows them, and
+  Prometheus keeps them.
+- **Each instance its own,** as Prometheus scrapes each, and adds them up.
+- **A route's pattern, not its path,** as a label, as a path has as many
+  values as the app has posts: tug tells the middleware which route
+  answered through the request's context, as `ServeMux` sets the pattern
+  on the request it's handed, a copy the middleware in between made.
+- **The queue says how each job went** to a function the app gives it,
+  so `queue` imports no `metrics`, as the core imports no `auth`.
+- **Buckets as Prometheus's own client has them,** 5 ms to 10 s, which
+  an app can change for a histogram.
+- **Behind a token,** as the counts say what the app does, on a route of
+  its own that the proxy needn't hide.
+- **Tests:** the format, as Prometheus's published examples write it,
+  with labels escaped; the requests by route, the jobs by kind, and a
+  gauge read as it's scraped; the token; and in the starters, a request
+  and a job counted, and the route not there without a token.
 
 ## Decisions
 
