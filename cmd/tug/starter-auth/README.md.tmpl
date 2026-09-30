@@ -63,22 +63,26 @@ go test ./...
   many run at once.
 [[- if .SQLite ]]
 - `db.go`: the database, SQLite (`app.db`, or `DB_PATH`), through
-  `database/sql`, and the migrations that make and change its tables.
-  The SQL of each table is beside the Go that's the same on any
-  database: `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
+  `database/sql`. The SQL of each table is beside the Go that's the same
+  on any database: `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
   `throttles_db.go`, `tokens_db.go`, `broadcasts_db.go`,
-  `notifications_db.go`, and `cache_db.go`, the app's cache, for tug's
-  package `cache`, which the starter keeps nothing in yet.
+  `notifications_db.go`, `migrations_db.go`, and `cache_db.go`, the app's
+  cache, for tug's package `cache`, which the starter keeps nothing in
+  yet.
 [[- else ]]
-- `db.go`: the database, [[ if .MySQL ]]MySQL[[ else ]]Postgres[[ end ]] at `DB_URL`, through `database/sql`, and
-  the migrations that make and change its tables. `compose.yaml` runs it
-  in development, and the tests make a database each on it. The SQL of
-  each table is beside the Go that's the same on any database:
-  `users_db.go`, `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`,
-  `tokens_db.go`, `broadcasts_db.go`, `notifications_db.go`, and
-  `cache_db.go`, the app's cache, for tug's package `cache`, which the
-  starter keeps nothing in yet.
+- `db.go`: the database, [[ if .MySQL ]]MySQL[[ else ]]Postgres[[ end ]] at `DB_URL`, through `database/sql`.
+  `compose.yaml` runs it in development, and the tests make a database
+  each on it. The SQL of each table is beside the Go that's the same on
+  any database: `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
+  `throttles_db.go`, `tokens_db.go`, `broadcasts_db.go`,
+  `notifications_db.go`, `migrations_db.go`, and `cache_db.go`, the app's
+  cache, for tug's package `cache`, which the starter keeps nothing in
+  yet.
 [[- end ]]
+- `migrations/`: the migrations that make and change the tables, a file of
+  SQL each, named for when it was made, which run once, in order, as the
+  app starts: `migrations.go`. `tug migrate new add_bio_to_users` writes
+  the next, and `./[[ .Name ]] migrate status` lists them.
 [[- if .Vue ]]
 - `resources/js`: Vue with Tailwind and [shadcn-vue](https://www.shadcn-vue.com)
   components, which `npx shadcn-vue@latest add` adds more of.

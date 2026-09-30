@@ -30,32 +30,36 @@ the detail.
 8. [Accounts](auth.md): the auth starter, in SQLite, Postgres or MySQL,
    its API tokens, admins and notifications, and packages `auth` and
    `mail`, with copies, files and a link to unsubscribe in one click.
-9. [Authorization](authorization.md): what a user may do with a thing,
-   package `auth`'s abilities, a no as a 403 that says why, and what a
-   page's user may do in its props.
-10. [Encryption](encryption.md): the app's key, what tug encrypts and
+9. [Migrations](migrations.md): the database's tables, made and changed
+   by files of SQL, each run once, in order, as the app starts, and by its
+   `migrate` command, with `tug migrate new` for the next, and package
+   `migrate`.
+10. [Authorization](authorization.md): what a user may do with a thing,
+    package `auth`'s abilities, a no as a 403 that says why, and what a
+    page's user may do in its props.
+11. [Encryption](encryption.md): the app's key, what tug encrypts and
     signs with it, package `crypt`, for the app's own values, and rotating
     the key.
-11. [Background jobs](jobs.md): package `queue`, for work that outlasts
+12. [Background jobs](jobs.md): package `queue`, for work that outlasts
     the request, and runs again when it fails, runs on a schedule, in a
     time zone too, waits once however often it's asked for, or so many at
     once or a second, on every instance, and says when it has failed for
     good.
-12. [Cache](cache.md): package `cache`, for what's slow to work out, kept
+13. [Cache](cache.md): package `cache`, for what's slow to work out, kept
     where every instance of the app finds it, and locks for what mustn't
     run twice at once.
-13. [Broadcasting](broadcasting.md): package `broadcast`, events on
+14. [Broadcasting](broadcasting.md): package `broadcast`, events on
     channels, carried by the app's database to the pages open on every
     instance, which reload what changed.
-14. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
-15. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
+15. [TypeScript](typescript.md): the types `tug gen` writes from the Go.
+16. [Testing](testing.md): package `tugtest`, Inertia's client for Go's
     tests of an app's pages, forms, uploads and logins, `mailtest`, for
     its mail, and its events.
-16. [Deployment](deployment.md): one binary, the Dockerfile, the
+17. [Deployment](deployment.md): one binary, the Dockerfile, the
     environment, and the headers that say what a browser may do with the
     app's pages, a Content-Security-Policy among them.
-17. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
-    `tug build` and `tug key`, in full.
+18. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
+    `tug migrate`, `tug build` and `tug key`, in full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,
 and what comes next.

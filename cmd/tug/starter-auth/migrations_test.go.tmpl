@@ -1,0 +1,144 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/cuonggt/tug/migrate"
+	"github.com/cuonggt/tug/migrate/migratetest"
+)
+
+func TestTheMigrationsTableKeepsAStoresPromises(t *testing.T) {
+	migratetest.TestStore(t, func(t *testing.T) (migrate.Store, migrate.Store) {
+		open := newDB(t)
+		return &migrationsTable{db: open()}, &migrationsTable{db: open()}
+	})
+}
+
+// ranOn is the names of the migrations that have run on db.
+func ranOn(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	states, err := migrate.Status(t.Context(), &migrationsTable{db: db}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, st := range states {
+		names = append(names, st.Name)
+	}
+	return names
+}
+
+// names are the names of ms.
+func names(ms []migrate.Migration) []string {
+	var names []string
+	for _, m := range ms {
+		names = append(names, m.Name)
+	}
+	return names
+}
+
+func TestTheMigrationsRunOnceAndLeaveANewerVersionsAlone(t *testing.T) {
+	ms, err := migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := newDB(t)()
+	for range 2 {
+		if err := upToDate(t.Context(), db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ran := ranOn(t, db); !slices.Equal(ran, names(ms)) {
+		t.Fatalf("ran %v, want %v", ran, names(ms))
+	}
+	// The version after this one has run one this one hasn't, as a deploy
+	// goes, with this one's instances still running.
+	newer := migrate.Migration{Name: "20991231235959_newer", Up: "CREATE TABLE newer (id INT)"}
+	if _, err := migrate.Up(t.Context(), &migrationsTable{db: db}, []migrate.Migration{newer}); err != nil {
+		t.Fatal(err)
+	}
+	if err := upToDate(t.Context(), db); err != nil {
+		t.Errorf("a database a newer version ran on: %v", err)
+	}
+}
+
+func TestInstancesStartingAtOnceTakeTurnsAtTheMigrations(t *testing.T) {
+	open := newDB(t)
+	var wg sync.WaitGroup
+	for range 4 {
+		db := open()
+		wg.Go(func() {
+			if err := upToDate(t.Context(), db); err != nil {
+				t.Errorf("an instance starting beside the others: %v", err)
+			}
+		})
+	}
+	wg.Wait()
+	ms, _ := migrations()
+	if ran := ranOn(t, open()); !slices.Equal(ran, names(ms)) {
+		t.Errorf("ran %v, want %v", ran, names(ms))
+	}
+}
+
+func TestAnAppMadeBeforeCarriesOnFromTheCountOfItsSteps(t *testing.T) {
+	ms, err := migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Made at this version, or three steps before it.
+	for _, count := range []int{len(ms), len(ms) - 3} {
+		db := newDB(t)()
+		for _, m := range ms[:count] {
+			execSQL(t, db, m.Up)
+		}
+		oldCount(t, db, count)
+		// A step run again would fail, as its tables are there.
+		if err := upToDate(t.Context(), db); err != nil {
+			t.Fatalf("made %d steps before: %v", len(ms)-count, err)
+		}
+		if ran := ranOn(t, db); !slices.Equal(ran, names(ms)) {
+			t.Errorf("made %d steps before, ran %v", len(ms)-count, ran)
+		}
+		if !oldCountGone(t, db) {
+			t.Errorf("made %d steps before, the count is still there", len(ms)-count)
+		}
+	}
+
+	// Its own steps, after the starter's, weren't made files.
+	db := newDB(t)()
+	oldCount(t, db, len(ms)+1)
+	if err := upToDate(t.Context(), db); err == nil || !strings.Contains(err.Error(), "go in files of their own") {
+		t.Errorf("more steps counted than there are files: %v", err)
+	}
+}
+
+func TestTheMigrateCommandRunsListsAndUndoesTheMigrations(t *testing.T) {
+	ms, err := migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &migrationsTable{db: newDB(t)()}
+	command := func(args ...string) (string, error) {
+		var out strings.Builder
+		err := migrate.Command(t.Context(), s, ms, "./blog", args, &out)
+		return out.String(), err
+	}
+	if out, err := command("status"); err != nil || !strings.HasPrefix(out, fmt.Sprintf("%d migrations, %[1]d not run yet:\n", len(ms))) {
+		t.Errorf("status of a new database: %v\n%s", err, out)
+	}
+	if out, err := command(); err != nil || strings.Count(out, "Ran ") != len(ms) {
+		t.Errorf("migrate: %v\n%s", err, out)
+	}
+	if out, err := command("status"); err != nil || !strings.HasPrefix(out, fmt.Sprintf("%d migrations, each of them run:\n", len(ms))) {
+		t.Errorf("status: %v\n%s", err, out)
+	}
+	// The starter's own are for good.
+	if _, err := command("down"); err == nil || !strings.Contains(err.Error(), "has no down part") {
+		t.Errorf("down: %v", err)
+	}
+}

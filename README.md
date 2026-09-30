@@ -187,6 +187,13 @@ func showPost(c *tug.Ctx) error {
   throttles on guessing, whose counts every instance of the app shares,
   and abilities, what a user may do with a thing, whose no is a 403 that
   says why.
+- **Migrations** (package `migrate`): the database's tables, made and
+  changed by files of SQL, named for when they were made, which `tug
+  migrate new` writes, each run once, in order, as the app starts, and by
+  its binary's `migrate` command, which lists them and undoes the last.
+  What ran is kept with a hash of its SQL, so a file changed after it ran
+  is caught, and instances starting at once take turns. The auth
+  starter's tables are its migrations, in SQLite, Postgres or MySQL.
 - **Mail** (package `mail`): through an SMTP server, or in development
   written out where `tug dev` shows it, links and all, with copies, a
   `Bcc` no one sees, replies to another address, files, and a link to

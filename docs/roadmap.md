@@ -38,7 +38,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M30 | Authorization              | done   |
 | M31 | Notifications              | done   |
 | M32 | Security headers           | done   |
-| M33 | Migrations                 | later  |
+| M33 | Migrations                 | done   |
 | M34 | Account administration     | later  |
 | M35 | Feature flags              | later  |
 | M36 | Metrics                    | later  |
@@ -2757,7 +2757,7 @@ Choices made on the way:
   and a 404, a script the page didn't bring blocked, its report in the
   app's log, and every other test's pages with nothing blocked.
 
-## M33 · Migrations — later
+## M33 · Migrations — done
 
 The auth starter's tables are a list of SQL steps in its `db.go`, one list
 for each database, which the app runs as it starts, counted in SQLite's
@@ -2792,9 +2792,9 @@ as v0.28.0.
 - **Still as the app starts,** as now, and by the command for a deploy
   that runs them first, and for a person to see where a database is.
 - **The guide:** a page, Migrations; Accounts, the database; Deployment;
-  and the CLI, `tug migrate`.
+  the CLI, `tug migrate`; and the READMEs.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **M6's choice reopened, at the owner's ask:** the migrations were the
   starter's own code, a list in `db.go`; they're files an app adds, which
@@ -2805,32 +2805,61 @@ Choices, to settle before any code:
   job, or a command of the app's.
 - **Named for when they were made,** to the second, in UTC, so two
   branches' files don't take one number: each runs, in its name's order,
-  whether a later one ran first or not, as Laravel's and Rails' do.
-- **What's run is kept by name and a hash of its SQL:** a file changed
-  after it ran stops the next run, and says which, rather than leave a
-  database unlike its file. One that ran but that the files don't have,
-  as a newer version's, is left alone, as an old instance of a deploy
-  runs beside the new ones.
+  whether a later one ran first or not, as Laravel's and Rails' do. The
+  starter's own are named for the commits that added their steps, and
+  Postgres's and MySQL's first five, from M17's, a second apart.
+- **What's run is kept by name and a hash of its SQL,** the part before
+  `-- down`, with its lines ending as Unix's, so a file saved on Windows
+  is the same: a file changed after it ran stops the next run, before any
+  runs, and says which. One that ran but that the files don't have, as a
+  newer version's, is left alone, as an old instance of a deploy runs
+  beside the new ones.
 - **A file is one transaction,** where the database has them for changes
-  to tables, SQLite and Postgres. MySQL commits each such statement on
-  its own, so its Store runs a file a statement at a time, split where a
-  line ends in `;`, and keeps the one under way, as `schema_version`'s
-  `running` does now: a crash between two stops the next run, saying
-  which.
-- **Down for the last one alone,** when its file says how: a step just
-  written is put right, and run again. A migration that ran long ago is
-  changed by the next one, as undoing a step on a database with data in
-  it is rarely the way back.
-- **The CLI writes, the app runs:** `tug migrate new` needs no database,
-  and running one needs the app's driver and `DB_URL`, which its binary
-  has.
-- **Tests:** the files found, and run in order, each once; under the
-  lock, as from two instances at once; a file changed after it ran, and
-  one the files don't have; a file that fails, leaving nothing, and on
-  MySQL, the statement under way; down, for the last file, and not
-  without its part; the counts of an app made before, taken over; a
-  Store's promises, on each database's; the commands; and a new file's
-  name.
+  to tables, SQLite and Postgres, with its record, and a Store's `Run`
+  looks again there whether it has run, as SQLite has no lock for the
+  instances to take turns under. MySQL commits each such statement on its
+  own, so its Store runs a file a statement at a time, split where a line
+  ends in `;`, and keeps the one under way, as `schema_version`'s
+  `running` did: a crash, or a later statement that failed, stops the
+  next run, saying which; a first statement that failed did nothing, and
+  leaves nothing. Postgres's instances take turns under an advisory lock,
+  MySQL's under `GET_LOCK`, each on one connection.
+- **Down for the last one alone,** the name that comes last, when its file
+  says how: a step just written is put right, and run again. A migration
+  that ran long ago is changed by the next one. The starter's own have no
+  down part.
+- **The migrate command runs them itself,** where every other run of the
+  binary, the server and the other commands, runs them as it starts:
+  `main` leaves them to it, `migrating`, so `./blog migrate` in a deploy
+  says what it ran, and a new database's status says none has.
+- **The count of an app made before is taken over** under the lock, as
+  the first start of the new version: the files it counted recorded as
+  run, and the count dropped. More counted than there are files is an
+  app's own steps, which go in files of their own first.
+- **Opening waits its turn,** found by the test of instances starting at
+  once: SQLite's `busy_timeout` comes before its `journal_mode`, and a
+  new file, whose log the first open makes, is opened again while SQLite
+  turns an instance away, as two making it at once can't each wait for
+  the other; SQLite's migrations table is made in a transaction that
+  takes the lock first, as a statement that reads, then writes, fails at
+  once when another wrote meanwhile. Postgres's and MySQL's `openDB`
+  connects, so a server that isn't there is said as the app starts, with
+  compose's hint, as the migrations' first query said it before.
+- **`tug dev` builds again** when a migration is written, which the app
+  runs as it starts; a file with no SQL yet stops it, saying which.
+- **Tests:** the files loaded in order, split at their down part, and a
+  name or a file refused; the run in order, under the lock, a changed
+  file stopping it before any runs, a newer version's left alone, a
+  failure stopping the rest; down, the last by name, and none that can't;
+  the status, and the command; `tug migrate new`'s file, in UTC, a taken
+  second, and no `migrations/`; `TestStore`, on each database's table; the
+  starter's migrations run once, beside a newer version's, and by four
+  instances at once; eight instances opening a new SQLite file at once;
+  an app made before, at this version and three steps before, and with
+  its own steps not in files; on MySQL, a later statement that failed, a
+  migration stopped in its down part, and a step of an app made before
+  under way; the command; and the binary's `migrate`, on a new database,
+  which runs them itself, and its `jobs`, which runs them as it starts.
 
 ## M34 · Account administration — later
 

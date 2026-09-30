@@ -1,0 +1,59 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"embed"
+	"io/fs"
+	"log/slog"
+	"os"
+
+	"github.com/cuonggt/tug/migrate"
+)
+
+// The database's tables are made and changed by the migrations in
+// migrations/, a file of SQL each, named for when it was made, as
+// 20261001093000_create_posts.sql, which tug migrate new writes. Each runs
+// once, in the order of their names: as the app starts, and by its migrate
+// command, which also lists them, and undoes the last while it's new:
+// ./blog migrate, ./blog migrate status and ./blog migrate down. A
+// migration that has run stays as it is: the next one changes what it did.
+// Which have run, the migrations table keeps: migrations_db.go.
+
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
+// migrations are the files of migrations/, which the binary embeds.
+func migrations() ([]migrate.Migration, error) {
+	files, err := fs.Sub(migrationFiles, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	return migrate.Load(files)
+}
+
+// upToDate runs the migrations that haven't run on db, as the app starts,
+// once an app made before its migrations were files has had the count of
+// its steps taken over: adopt, in migrations_db.go.
+func upToDate(ctx context.Context, db *sql.DB) error {
+	ms, err := migrations()
+	if err != nil {
+		return err
+	}
+	t := &migrationsTable{db: db}
+	if err := t.adopt(ctx, ms); err != nil {
+		return err
+	}
+	ran, err := migrate.Up(ctx, t, ms)
+	for _, name := range ran {
+		slog.InfoContext(ctx, "ran a migration", "name", name)
+	}
+	return err
+}
+
+// migrating reports whether the binary was run as the migrate command,
+// which runs the migrations itself, where each other run of it brings the
+// tables up to date as it starts.
+func migrating() bool {
+	return len(os.Args) > 1 && os.Args[1] == "migrate"
+}

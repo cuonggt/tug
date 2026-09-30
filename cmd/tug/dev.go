@@ -349,7 +349,8 @@ func snapshot(root string) map[string]stamp {
 
 // watched reports whether the file at path, under root, is one the Go
 // server is built from: Go, go.mod and go.sum, templates, and the
-// languages in lang/, which the binary embeds.
+// languages in lang/ and the migrations in migrations/, which the binary
+// embeds.
 func watched(root, path string) bool {
 	name := filepath.Base(path)
 	switch filepath.Ext(name) {
@@ -358,6 +359,11 @@ func watched(root, path string) bool {
 	case ".json":
 		rel, err := filepath.Rel(root, path)
 		return err == nil && filepath.Dir(rel) == "lang"
+	case ".sql":
+		// The binary embeds its migrations, and runs the new one as it
+		// starts.
+		rel, err := filepath.Rel(root, path)
+		return err == nil && filepath.Dir(rel) == "migrations"
 	}
 	return name == "go.mod" || name == "go.sum"
 }

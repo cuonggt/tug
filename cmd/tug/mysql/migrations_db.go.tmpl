@@ -1,0 +1,209 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/cuonggt/tug/migrate"
+)
+
+// migrationsTable is the migrations table, which keeps the migrations that
+// have run, with the hash of each as it ran: a migrate.Store. The app's
+// instances take turns at them under a lock of MySQL's, GET_LOCK's, held on
+// one connection for as long as one runs them.
+//
+// MySQL commits each statement that changes a table on its own, so a
+// migration runs a statement at a time, each whole or not at all, as MySQL
+// 8 does them, and its row keeps the one under way in running: a migration
+// the app stopped in, or whose later statement failed, stops the next run,
+// saying which, for someone to look, rather than run what did run again.
+type migrationsTable struct{ db *sql.DB }
+
+// migrationsLock is the migrations' lock, the server's, by name, so the
+// name has the database's.
+const migrationsLock = "LEFT(CONCAT('migrations ', DATABASE()), 64)"
+
+func (t *migrationsTable) Lock(ctx context.Context) (func(), error) {
+	conn, err := t.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var got int
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK("+migrationsLock+", -1)").Scan(&got); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	unlock := func() {
+		conn.ExecContext(context.WithoutCancel(ctx), "DO RELEASE_LOCK("+migrationsLock+")")
+		conn.Close()
+	}
+	_, err = t.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS migrations (
+		name    VARCHAR(255) NOT NULL PRIMARY KEY,
+		hash    CHAR(64) NOT NULL,
+		ran_at  BIGINT,
+		running INT
+	) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`)
+	if err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
+}
+
+func (t *migrationsTable) Ran(ctx context.Context) ([]migrate.Ran, error) {
+	rows, err := t.db.QueryContext(ctx, "SELECT name, hash, ran_at, running FROM migrations ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ran []migrate.Ran
+	for rows.Next() {
+		var r migrate.Ran
+		var at, running sql.NullInt64
+		if err := rows.Scan(&r.Name, &r.Hash, &at, &running); err != nil {
+			return nil, err
+		}
+		if running.Valid {
+			return nil, stopped(r.Name, running.Int64)
+		}
+		r.At = time.UnixMilli(at.Int64).UTC()
+		ran = append(ran, r)
+	}
+	return ran, rows.Err()
+}
+
+// stopped is the error of a migration whose statement numbered at was under
+// way, as the app stopped, or as it failed, after those before it had run:
+// at is less than nothing for a statement of its down part.
+func stopped(name string, at int64) error {
+	if at < 0 {
+		return fmt.Errorf("undoing migrations/%s.sql stopped at the statement %d of its down part, after those before it ran, as the app stopped, or the statement failed: MySQL commits each on its own. Finish undoing it by hand and delete its row from the migrations table, or do what it undid again and set its running to NULL, then run the migrations again", name, -at)
+	}
+	return fmt.Errorf("migrations/%s.sql stopped at its statement %d, after those before it ran, as the app stopped, or the statement failed: MySQL commits each on its own. Finish it by hand and set its running in the migrations table to NULL, or undo what it did and delete its row, then run the migrations again", name, at)
+}
+
+func (t *migrationsTable) Run(ctx context.Context, m migrate.Migration) error {
+	var n int
+	if err := t.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM migrations WHERE name = ?", m.Name).Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	if _, err := t.db.ExecContext(ctx, "INSERT INTO migrations (name, hash, running) VALUES (?, ?, 1)", m.Name, m.Hash()); err != nil {
+		return err
+	}
+	for i, stmt := range statements(m.Up) {
+		if i > 0 {
+			if _, err := t.db.ExecContext(ctx, "UPDATE migrations SET running = ? WHERE name = ?", i+1, m.Name); err != nil {
+				return err
+			}
+		}
+		if _, err := t.db.ExecContext(ctx, stmt); err != nil {
+			if i == 0 {
+				// It did nothing, so the migration has run none of it.
+				_, forgotten := t.db.ExecContext(context.WithoutCancel(ctx), "DELETE FROM migrations WHERE name = ?", m.Name)
+				return errors.Join(err, forgotten)
+			}
+			return fmt.Errorf("its statement %d failed, after the %d before it ran: %w", i+1, i, err)
+		}
+	}
+	_, err := t.db.ExecContext(ctx, "UPDATE migrations SET ran_at = ?, running = NULL WHERE name = ?", time.Now().UnixMilli(), m.Name)
+	return err
+}
+
+func (t *migrationsTable) Undo(ctx context.Context, m migrate.Migration) error {
+	for i, stmt := range statements(m.Down) {
+		if _, err := t.db.ExecContext(ctx, "UPDATE migrations SET running = ? WHERE name = ?", -(i + 1), m.Name); err != nil {
+			return err
+		}
+		if _, err := t.db.ExecContext(ctx, stmt); err != nil {
+			if i == 0 {
+				// It did nothing, so the migration has run whole still.
+				_, kept := t.db.ExecContext(context.WithoutCancel(ctx), "UPDATE migrations SET running = NULL WHERE name = ?", m.Name)
+				return errors.Join(err, kept)
+			}
+			return fmt.Errorf("the statement %d of its down part failed, after the %d before it ran: %w", i+1, i, err)
+		}
+	}
+	_, err := t.db.ExecContext(ctx, "DELETE FROM migrations WHERE name = ?", m.Name)
+	return err
+}
+
+// statements parts a migration's SQL into its statements, each ending
+// where a line ends in ";", for MySQL to run one at a time, without the
+// ";", and leaving out what's comments alone.
+func statements(sql string) []string {
+	var stmts []string
+	var stmt strings.Builder
+	end := func() {
+		s := strings.TrimSuffix(strings.TrimSpace(stmt.String()), ";")
+		for line := range strings.Lines(s) {
+			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "--") {
+				stmts = append(stmts, s)
+				break
+			}
+		}
+		stmt.Reset()
+	}
+	for line := range strings.Lines(sql) {
+		stmt.WriteString(line)
+		if strings.HasSuffix(strings.TrimSpace(line), ";") {
+			end()
+		}
+	}
+	end()
+	return stmts
+}
+
+// adopt takes over the count of an app made before its migrations were
+// files: the schema_version table, of the number of the steps in db.go
+// that had run, and the one under way. The starter's files are those
+// steps, in their order, so the first it counts are recorded as run, and
+// the table goes after them: a start that stopped between the two finds
+// the files recorded, and drops the table alone.
+func (t *migrationsTable) adopt(ctx context.Context, ms []migrate.Migration) error {
+	unlock, err := t.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	var old int
+	if err := t.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'schema_version'").Scan(&old); err != nil || old == 0 {
+		return err
+	}
+	var count int
+	var running sql.NullInt64
+	err = t.db.QueryRowContext(ctx, "SELECT version, running FROM schema_version").Scan(&count, &running)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return err
+	case running.Valid:
+		return fmt.Errorf("migration %d was under way when the app stopped, and may have run or not: see which, then set schema_version's version to %[1]d if it ran, and its running to NULL", running.Int64)
+	case count > len(ms):
+		return fmt.Errorf("schema_version says %d steps have run, and migrations/ has %d files: the steps an app added after the starter's go in files of their own, named after the starter's, in their order", count, len(ms))
+	}
+	var ran int
+	if err := t.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM migrations").Scan(&ran); err != nil {
+		return err
+	}
+	if ran == 0 && count > 0 {
+		tx, err := t.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		for _, m := range ms[:count] {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO migrations (name, hash, ran_at) VALUES (?, ?, ?)", m.Name, m.Hash(), time.Now().UnixMilli()); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	_, err = t.db.ExecContext(ctx, "DROP TABLE schema_version")
+	return err
+}

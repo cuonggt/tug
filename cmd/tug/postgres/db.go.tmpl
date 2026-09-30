@@ -15,13 +15,14 @@ import (
 )
 
 // The app's database is Postgres, at DB_URL, which compose.yaml runs in
-// development: docker compose up -d. This file opens it and makes its
-// tables, and the SQL of each is beside the Go that's the same on any
-// database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go,
-// cache_db.go, tokens_db.go, broadcasts_db.go and notifications_db.go.
+// development: docker compose up -d. This file opens it; migrations/ makes
+// its tables, as the app starts (migrations.go); and the SQL of each is
+// beside the Go that's the same on any database: users_db.go,
+// passkeys_db.go, jobs_db.go, throttles_db.go, cache_db.go, tokens_db.go,
+// broadcasts_db.go, notifications_db.go and migrations_db.go.
 
-// dbFromEnv opens the database the environment names, with its tables up
-// to date: DB_URL, with the driver's settings in its query, as
+// dbFromEnv opens the database the environment names: DB_URL, with the
+// driver's settings in its query, as
 //
 //	postgres://user:password@host:5432/[[ .DBName ]]?sslmode=require
 //
@@ -48,190 +49,18 @@ func dbFromEnv() (*sql.DB, error) {
 	return db, err
 }
 
-// migrations make the database's tables, a step at a time. Each runs once,
-// in order, and schema_version counts the steps that have. To change the
-// tables, add a step at the end, such as an ALTER TABLE: never change one
-// that has run somewhere, as it won't run there again.
-var migrations = []string{
-	// An email is unique whatever its case, Ann@example.com being
-	// ann@example.com, by the index on lower(email), which the queries
-	// compare with. passkey_handle is the random handle a user's passkeys
-	// name them by, made with their first: passkeys.go. photo_key is where
-	// their photo is kept on the app's disk: photos.go.
-	`CREATE TABLE users (
-		id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-		name              text NOT NULL,
-		email             text NOT NULL,
-		email_verified_at timestamptz,
-		password_hash     text NOT NULL,
-		two_factor_secret text,
-		recovery_codes    text,
-		two_factor_step   bigint NOT NULL DEFAULT 0,
-		passkey_handle    bytea UNIQUE,
-		photo_key         text,
-		created_at        timestamptz NOT NULL DEFAULT now()
-	);
-	CREATE UNIQUE INDEX users_email ON users (lower(email))`,
-	// Each user's passkeys: passkeys.go.
-	`CREATE TABLE passkeys (
-		id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-		user_id       bigint NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-		credential_id bytea NOT NULL UNIQUE,
-		public_key    bytea NOT NULL,
-		sign_count    bigint NOT NULL DEFAULT 0,
-		transports    text NOT NULL DEFAULT '',
-		backed_up     boolean NOT NULL DEFAULT false,
-		name          text NOT NULL,
-		created_at    timestamptz NOT NULL DEFAULT now(),
-		last_used_at  timestamptz
-	);
-	CREATE INDEX passkeys_user ON passkeys (user_id)`,
-	// The jobs waiting to run, and the ones that failed for good: jobs.go.
-	// A unique kind's job keeps its key in unique_key while it waits, and
-	// of a kind and a key, one job can; a job of a kind that runs one at a
-	// time keeps its key in alone_key all its life.
-	`CREATE TABLE jobs (
-		id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-		kind       text NOT NULL,
-		payload    text NOT NULL,
-		run_at     bigint NOT NULL,
-		held_until bigint NOT NULL DEFAULT 0,
-		attempts   integer NOT NULL DEFAULT 0,
-		error      text,
-		failed_at  timestamptz,
-		unique_key text,
-		alone_key  text,
-		created_at timestamptz NOT NULL DEFAULT now()
-	);
-	CREATE INDEX jobs_due ON jobs (run_at) WHERE failed_at IS NULL;
-	CREATE UNIQUE INDEX jobs_unique ON jobs (kind, unique_key) WHERE unique_key IS NOT NULL;
-	CREATE INDEX jobs_alone ON jobs (kind, alone_key) WHERE alone_key IS NOT NULL`,
-	// The run of each schedule pushed last, so that one instance pushes
-	// it: jobs.go.
-	`CREATE TABLE schedules (
-		name   text PRIMARY KEY,
-		run_at bigint NOT NULL
-	)`,
-	// A row for each key of a kind that runs one at a time, which a claim
-	// of one of its jobs locks, so that two claims of the key take turns:
-	// jobs_db.go.
-	`CREATE TABLE job_locks (
-		kind      text NOT NULL,
-		alone_key text NOT NULL,
-		PRIMARY KEY (kind, alone_key)
-	)`,
-	// The throttles' counts, where every instance of the app counts:
-	// throttles_db.go.
-	`CREATE TABLE throttles (
-		key_hash bytea PRIMARY KEY,
-		tries    integer NOT NULL,
-		ends_at  bigint NOT NULL
-	)`,
-	// The cache's values, and its locks, where every instance of the app
-	// finds them: cache_db.go.
-	`CREATE TABLE cache (
-		key_hash   bytea PRIMARY KEY,
-		value      bytea NOT NULL,
-		expires_at bigint NOT NULL
-	)`,
-	// The users' API tokens, their hashes, which a request to /api sends
-	// one of in place of a login: tokens.go.
-	`CREATE TABLE access_tokens (
-		id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-		user_id      bigint NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-		name         text NOT NULL,
-		token_hash   bytea NOT NULL UNIQUE,
-		abilities    text NOT NULL,
-		last_used_at bigint,
-		expires_at   bigint,
-		created_at   timestamptz NOT NULL DEFAULT now()
-	);
-	CREATE INDEX access_tokens_user ON access_tokens (user_id)`,
-	// A kind whose jobs run so many at once at most keeps its limit with
-	// each of them in at_once, and a claim counts the jobs held, by
-	// jobs_held; a kind that a rate holds back waits in held_kinds until
-	// its time: jobs.go.
-	`ALTER TABLE jobs ADD COLUMN at_once integer;
-	CREATE INDEX jobs_held ON jobs (held_until);
-	CREATE TABLE held_kinds (
-		kind       text PRIMARY KEY,
-		held_until bigint NOT NULL
-	)`,
-	// An admin may do what the app's abilities name, as see the jobs that
-	// failed, which the admins command makes someone: abilities.go.
-	`ALTER TABLE users ADD COLUMN admin boolean NOT NULL DEFAULT false`,
-	// What happened to a user's account, which the app tells them of, the
-	// newest first; a read one goes after 90 days: notifications.go.
-	`CREATE TABLE notifications (
-		id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-		user_id    bigint NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-		kind       text NOT NULL,
-		data       text NOT NULL,
-		created_at bigint NOT NULL,
-		read_at    bigint
-	);
-	CREATE INDEX notifications_user ON notifications (user_id, id)`,
-}
-
-// openDB opens the Postgres database at url, and brings its tables up to
-// date.
+// openDB opens the Postgres database at url, and connects, so a server
+// that isn't there is said as the app starts.
 func openDB(url string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", url)
 	if err != nil {
 		return nil, err
 	}
-	if err := migrate(context.Background(), db); err != nil {
+	if err := db.PingContext(context.Background()); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return db, nil
-}
-
-// migrate runs the steps the database hasn't had, each in a transaction
-// with the count that records it, so a step that fails leaves no trace.
-// The transaction locks the count's row as it reads it: of instances
-// starting at once, one runs the step, and the others wait for it, then
-// find it counted. A database from a newer build of the app, as after a
-// deploy is rolled back, is left as it is.
-func migrate(ctx context.Context, db *sql.DB) error {
-	// The count's table and row, which the first start makes. Two starts at
-	// once can both make the table, and one fails as the other's comes: with
-	// a unique violation, 42P07, duplicate_table, or 42710, duplicate_object,
-	// by the step at which it meets the other's table, or the table's row
-	// type. The table is there all the same.
-	_, err := db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_version (id integer PRIMARY KEY CHECK (id = 1), version integer NOT NULL)")
-	var pgErr *pgconn.PgError
-	if err != nil && !(errors.As(err, &pgErr) && (pgErr.Code == uniqueViolation || pgErr.Code == "42P07" || pgErr.Code == "42710")) {
-		return err
-	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO schema_version (id, version) VALUES (1, 0) ON CONFLICT DO NOTHING"); err != nil {
-		return err
-	}
-	for {
-		tx, err := db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		var version int
-		if err := tx.QueryRowContext(ctx, "SELECT version FROM schema_version FOR UPDATE").Scan(&version); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if version >= len(migrations) {
-			return tx.Rollback()
-		}
-		if _, err := tx.ExecContext(ctx, migrations[version]); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %d: %w", version+1, err)
-		}
-		if _, err := tx.ExecContext(ctx, "UPDATE schema_version SET version = $1", version+1); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
 }
 
 // uniqueViolation is Postgres's code for a write that a unique index

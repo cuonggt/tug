@@ -1,0 +1,126 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"github.com/cuonggt/tug/migrate"
+)
+
+// migrationsTable is the migrations table, which keeps the migrations that
+// have run, with the hash of each as it ran: a migrate.Store. SQLite has no
+// lock for the app's instances to take turns at them under, but its own
+// for writing, which each migration's transaction takes as it begins: Run
+// looks there again whether its migration has run, as another instance's
+// may have while it waited.
+type migrationsTable struct{ db *sql.DB }
+
+func (t *migrationsTable) Lock(ctx context.Context) (func(), error) {
+	// In a transaction, which takes the lock for writing, and waits for it,
+	// before it reads whether the table is there: on its own, the statement
+	// would read first, and fail at once as another instance's wrote since.
+	err := t.inTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS migrations (
+			name   TEXT PRIMARY KEY,
+			hash   TEXT NOT NULL,
+			ran_at INTEGER NOT NULL
+		)`)
+		return err
+	})
+	return func() {}, err
+}
+
+func (t *migrationsTable) Ran(ctx context.Context) ([]migrate.Ran, error) {
+	rows, err := t.db.QueryContext(ctx, "SELECT name, hash, ran_at FROM migrations ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ran []migrate.Ran
+	for rows.Next() {
+		var r migrate.Ran
+		var at int64
+		if err := rows.Scan(&r.Name, &r.Hash, &at); err != nil {
+			return nil, err
+		}
+		r.At = time.UnixMilli(at).UTC()
+		ran = append(ran, r)
+	}
+	return ran, rows.Err()
+}
+
+func (t *migrationsTable) Run(ctx context.Context, m migrate.Migration) error {
+	return t.inTx(ctx, func(tx *sql.Tx) error {
+		var ran bool
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM migrations WHERE name = ?)", m.Name).Scan(&ran); err != nil || ran {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, m.Up); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "INSERT INTO migrations (name, hash, ran_at) VALUES (?, ?, ?)", m.Name, m.Hash(), time.Now().UnixMilli())
+		return err
+	})
+}
+
+func (t *migrationsTable) Undo(ctx context.Context, m migrate.Migration) error {
+	return t.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, m.Down); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "DELETE FROM migrations WHERE name = ?", m.Name)
+		return err
+	})
+}
+
+// inTx runs fn in a transaction, which it commits when fn returns nil, and
+// rolls back otherwise, with whatever a migration's SQL did.
+func (t *migrationsTable) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := t.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// adopt takes over the count of an app made before its migrations were
+// files: SQLite's user_version, the number of the steps in db.go that had
+// run. The starter's files are those steps, in their order, so the first
+// it counts are recorded as run, and the count goes, in one transaction.
+func (t *migrationsTable) adopt(ctx context.Context, ms []migrate.Migration) error {
+	unlock, err := t.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return t.inTx(ctx, func(tx *sql.Tx) error {
+		var count int
+		if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&count); err != nil || count == 0 {
+			return err
+		}
+		if count > len(ms) {
+			return fmt.Errorf("user_version says %d steps have run, and migrations/ has %d files: the steps an app added after the starter's go in files of their own, named after the starter's, in their order", count, len(ms))
+		}
+		// With files recorded as run already, the count is a leftover, and
+		// goes alone.
+		var ran int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM migrations").Scan(&ran); err != nil {
+			return err
+		}
+		if ran == 0 {
+			for _, m := range ms[:count] {
+				if _, err := tx.ExecContext(ctx, "INSERT INTO migrations (name, hash, ran_at) VALUES (?, ?, ?)", m.Name, m.Hash(), time.Now().UnixMilli()); err != nil {
+					return err
+				}
+			}
+		}
+		_, err := tx.ExecContext(ctx, "PRAGMA user_version = 0")
+		return err
+	})
+}

@@ -4,18 +4,78 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
 // testDB is a database of the test's own, with its tables made.
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := openDB(filepath.Join(t.TempDir(), "app.db"))
-	if err != nil {
+	db := newDB(t)()
+	if err := upToDate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
 	return db
+}
+
+// newDB makes an empty database of the test's own, and returns what opens
+// it, as each instance of the app does, as many times as the test likes.
+func newDB(t *testing.T) (open func() *sql.DB) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "app.db")
+	return func() *sql.DB {
+		t.Helper()
+		db, err := openDB(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.Close() })
+		return db
+	}
+}
+
+func TestInstancesOpeningANewDatabaseAtOnceEachOpenIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.db")
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			db, err := openDB(path)
+			if err != nil {
+				t.Errorf("an instance opening a new database beside the others: %v", err)
+				return
+			}
+			db.Close()
+		})
+	}
+	wg.Wait()
+}
+
+// oldCount counts n steps as having run, as an app made before its
+// migrations were files did, in SQLite's user_version.
+func oldCount(t *testing.T, db *sql.DB, n int) {
+	t.Helper()
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", n)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// oldCountGone reports whether db has no count of steps left.
+func oldCountGone(t *testing.T, db *sql.DB) bool {
+	t.Helper()
+	var n int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n == 0
+}
+
+// execSQL runs a migration's SQL on db, as a step of an app made before
+// ran, with no record of it.
+func execSQL(t *testing.T, db *sql.DB, sql string) {
+	t.Helper()
+	if _, err := db.Exec(sql); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // jobsDown has the jobs table turn every new job away, as a database can,
@@ -33,29 +93,5 @@ func failedDaysAgo(t *testing.T, db *sql.DB, id string, days int) {
 	t.Helper()
 	if _, err := db.Exec("UPDATE jobs SET failed_at = datetime('now', ?) WHERE id = ?", fmt.Sprintf("-%d days", days), id); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestTheMigrationsRunOnceAndLeaveANewerDatabaseAlone(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "app.db")
-	for range 2 {
-		db, err := openDB(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var version int
-		db.QueryRow("PRAGMA user_version").Scan(&version)
-		db.Close()
-		if version != len(migrations) {
-			t.Fatalf("user_version %d, want %d", version, len(migrations))
-		}
-	}
-	db, _ := openDB(path)
-	db.Exec("PRAGMA user_version = 1000")
-	db.Close()
-	if db, err := openDB(path); err != nil {
-		t.Errorf("a database from a newer build: %v", err)
-	} else {
-		db.Close()
 	}
 }

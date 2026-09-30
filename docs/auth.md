@@ -98,18 +98,19 @@ them.
   month ago.
 - `users.go`: `User`, and the `users` table. An email is unique whatever
   its case.
-- The database's: `db.go`, which opens it, from the environment, and has
-  the migrations that make its tables; `users_db.go`, `passkeys_db.go`,
-  `jobs_db.go`, `throttles_db.go`, `cache_db.go`, `tokens_db.go`,
-  `broadcasts_db.go` and `notifications_db.go`, the SQL of each;
-  `db_test.go`, the tests' databases
-  and the migrations' tests; and on Postgres or MySQL, `compose.yaml`,
-  which runs the database in development.
+- The database's: `db.go`, which opens it, from the environment;
+  `migrations/`, the migrations that make its tables, a file of SQL each,
+  which `migrations.go` runs as the app starts, and has the `migrate`
+  command run; `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
+  `throttles_db.go`, `cache_db.go`, `tokens_db.go`, `broadcasts_db.go`,
+  `notifications_db.go` and `migrations_db.go`, the SQL of each;
+  `db_test.go`, the tests' databases; and on Postgres or MySQL,
+  `compose.yaml`, which runs the database in development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
   `passkeys_test.go`, `photos_test.go`, `jobs_test.go`,
   `throttles_test.go`, `cache_test.go`, `tokens_test.go`,
-  `broadcasts_test.go`, `admin_test.go`, `notifications_test.go`: a test
-  of each flow, in browsers of package `tugtest`, with the mail kept in
+  `broadcasts_test.go`, `admin_test.go`, `notifications_test.go`,
+  `migrations_test.go`: a test of each flow, in browsers of package `tugtest`, with the mail kept in
   memory, the photos in a temporary directory, and a database of each
   test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
@@ -702,45 +703,49 @@ A passkey's mail, which was a job of its own, is now its notification's.
 ### The database
 
 `db.go` opens the database the environment names, `DB_PATH` for SQLite
-and `DB_URL` for the others, and runs the migrations it hasn't had, in
-order, before the app serves:
+and `DB_URL` for the others, and `migrations/` makes its tables, a file of
+SQL each, named for when it was made, run once, in order, as the app
+starts ([Migrations](migrations.md)):
 
-```go
-var migrations = []string{
-    `CREATE TABLE users (...)`,
-    `CREATE TABLE jobs (...); CREATE INDEX jobs_due ...`,
-}
+```
+migrations/20260925171438_create_users.sql
+migrations/20260926042744_create_jobs.sql
+...
+migrations/20260930042916_create_notifications.sql
 ```
 
-To change the tables, add a step at the end, such as an `ALTER TABLE`,
-and never change one that has run somewhere, since it won't run there
-again. A database from a newer build of the app, as after a deploy is
-rolled back, is left as it is. Instances starting at once take turns,
-each database in its own way:
+To change the tables, add a migration, `tug migrate new add_bio_to_users`,
+and never change one that has run somewhere: the migrations table keeps a
+hash of each as it ran, and one changed since stops the next start. A
+migration that ran but that the files haven't, a newer version's, as
+after a deploy is rolled back, is left as it is. The migrations table,
+whose SQL is in `migrations_db.go`, keeps which have run, and instances
+starting at once take turns, each database in its own way:
 
-- **SQLite** counts the steps in `PRAGMA user_version`, and runs each in a
-  transaction with its count, so one that fails leaves no trace. The
-  connection's `_txlock=immediate` takes the lock for writing as a
-  transaction begins, so two starts at once take turns rather than fail.
-- **Postgres** counts them in a table, `schema_version`, and runs each in
-  a transaction with its count too, which locks the count's row as it
-  reads it: of instances starting at once, one runs the step, and the
-  others wait, then find it counted.
+- **SQLite** runs each migration in a transaction with its record, which
+  takes the lock for writing as it begins, `_txlock=immediate`, and looks
+  there again whether it has run, as another instance's may have.
+- **Postgres** runs each in a transaction with its record too, and
+  instances take turns under an advisory lock, held on one connection
+  while one runs them.
 - **MySQL** commits a statement that changes a table as it runs, not with
-  the rest of a transaction, so each step is one statement, which MySQL 8
-  does whole or not at all, and `schema_version` counts it after. An
-  instance holds `GET_LOCK` on one connection while it runs the steps. A
-  crash in the instant between a step and its count leaves the step run
-  and uncounted, which the next start can't tell from one that never ran:
-  `schema_version`'s `running` names it, and the app stops, saying which,
-  for someone to see whether it ran, rather than guess. Laravel's
-  migrations have the same gap on MySQL.
+  the rest of a transaction, so a migration runs a statement at a time,
+  each whole or not at all, as MySQL 8 does them, and its row keeps the
+  one under way: a migration the app stopped in, or whose later statement
+  failed, stops the next start, saying which, for someone to see what
+  ran, rather than guess. Laravel's migrations have the same gap on MySQL.
+  An instance holds `GET_LOCK` on one connection while it runs them.
+
+An app made before its migrations were files counted the steps it had run
+in SQLite's `user_version`, or a `schema_version` table: the starter's
+files are those steps, in their order, and the first start takes the
+count over, recording that many as run.
 
 The SQL of each table is in a file of its own, `users_db.go`,
 `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,
-`tokens_db.go`, `broadcasts_db.go` and `notifications_db.go`, beside the
-Go that's the same on any database, and it's written for its database,
-where they differ:
+`tokens_db.go`, `broadcasts_db.go`, `notifications_db.go` and
+`migrations_db.go`, beside the Go that's the same on any database, and
+it's written for its database, where they differ:
 
 | | SQLite | Postgres | MySQL |
 |---|---|---|---|
@@ -766,8 +771,9 @@ two long-term releases, 9.7 being the newer. MariaDB isn't: its
 collations aren't MySQL's, and an app on it picks its email column's.
 
 An app that moves to another database takes that database's files from
-an app `tug new` makes on it: `db.go`, the `_db.go` files,
-`db_test.go` and `compose.yaml`. `go mod tidy` adds the driver, the app
+an app `tug new` makes on it: `db.go`, the `_db.go` files, `db_test.go`,
+`compose.yaml` and `migrations/`, with its own migrations written again
+in that database's SQL. `go mod tidy` adds the driver, the app
 is given `DB_URL`, or `DB_PATH`, where it runs, and the data it moves
 itself.
 

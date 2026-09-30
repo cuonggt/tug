@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuonggt/tug/migrate"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -53,12 +54,27 @@ type server struct {
 // testDB is a database of the test's own, with its tables made.
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := openDB(newTestDatabase(t))
-	if err != nil {
+	db := newDB(t)()
+	if err := upToDate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
 	return db
+}
+
+// newDB makes an empty database of the test's own, and returns what opens
+// it, as each instance of the app does, as many times as the test likes.
+func newDB(t *testing.T) (open func() *sql.DB) {
+	t.Helper()
+	u := newTestDatabase(t)
+	return func() *sql.DB {
+		t.Helper()
+		db, err := openDB(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.Close() })
+		return db
+	}
 }
 
 // newTestDatabase makes an empty database for the test alone, which is
@@ -101,84 +117,76 @@ func failedDaysAgo(t *testing.T, db *sql.DB, id string, days int) {
 	}
 }
 
-func TestTheMigrationsRunOnceAndLeaveANewerDatabaseAlone(t *testing.T) {
-	u := newTestDatabase(t)
-	for range 2 {
-		db, err := openDB(u)
-		if err != nil {
+// oldCount counts n steps as having run, as an app made before its
+// migrations were files did, in the schema_version table.
+func oldCount(t *testing.T, db *sql.DB, n int) {
+	t.Helper()
+	if _, err := db.Exec("CREATE TABLE schema_version (version INT NOT NULL, running INT)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO schema_version (version) VALUES (?)", n); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// oldCountGone reports whether db has no count of steps left.
+func oldCountGone(t *testing.T, db *sql.DB) bool {
+	t.Helper()
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'schema_version'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n == 0
+}
+
+// execSQL runs a migration's SQL on db, a statement at a time, as a step
+// of an app made before ran, with no record of it.
+func execSQL(t *testing.T, db *sql.DB, sql string) {
+	t.Helper()
+	for _, stmt := range statements(sql) {
+		if _, err := db.Exec(stmt); err != nil {
 			t.Fatal(err)
 		}
-		var version int
-		db.QueryRow("SELECT version FROM schema_version").Scan(&version)
-		db.Close()
-		if version != len(migrations) {
-			t.Fatalf("schema_version %d, want %d", version, len(migrations))
-		}
-	}
-	db, _ := openDB(u)
-	db.Exec("UPDATE schema_version SET version = 1000")
-	db.Close()
-	if db, err := openDB(u); err != nil {
-		t.Errorf("a database from a newer build: %v", err)
-	} else {
-		db.Close()
 	}
 }
 
-func TestInstancesStartingAtOnceTakeTurnsAtTheMigrations(t *testing.T) {
-	u := newTestDatabase(t)
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Go(func() {
-			db, err := openDB(u)
-			if err != nil {
-				t.Errorf("an instance starting beside the others: %v", err)
-				return
-			}
-			db.Close()
-		})
+func TestAMigrationWhoseLaterStatementFailedStopsTheNextRunWhereItDid(t *testing.T) {
+	s := &migrationsTable{db: newDB(t)()}
+	twice := migrate.Migration{Name: "20261001093000_twice", Up: "CREATE TABLE twice (id INT);\nCREATE TABLE twice (id INT);"}
+	_, err := migrate.Up(t.Context(), s, []migrate.Migration{twice})
+	if err == nil || !strings.Contains(err.Error(), "its statement 2 failed, after the 1 before it ran") {
+		t.Fatalf("the statement that failed: %v", err)
 	}
-	wg.Wait()
-	db, err := openDB(u)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var version int
-	if db.QueryRow("SELECT version FROM schema_version").Scan(&version); version != len(migrations) {
-		t.Errorf("schema_version %d, want %d", version, len(migrations))
+	// The next run says where, rather than run the first again.
+	want := "migrations/20261001093000_twice.sql stopped at its statement 2, after those before it ran"
+	if _, err := migrate.Up(t.Context(), s, []migrate.Migration{twice}); err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("the next run: %v, want %q", err, want)
 	}
 }
 
-func TestAStepUnderWayWhenTheAppStoppedIsNamedNotGuessed(t *testing.T) {
-	u := newTestDatabase(t)
-	db, err := openDB(u)
+func TestAMigrationTheAppStoppedInIsNamedNotGuessed(t *testing.T) {
+	db := testDB(t)
+	// As a crash while the down part's second statement ran would leave it.
+	if _, err := db.Exec("UPDATE migrations SET running = -2 WHERE name = (SELECT name FROM (SELECT max(name) AS name FROM migrations) AS last)"); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := migrations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// As a crash between the last step and its count would leave it.
-	db.Exec("UPDATE schema_version SET version = ?, running = ?", len(migrations)-1, len(migrations))
-	db.Close()
-	want := fmt.Sprintf("migration %d was under way when the app stopped", len(migrations))
-	if _, err := openDB(u); err == nil || !strings.HasPrefix(err.Error(), want) {
+	want := fmt.Sprintf("undoing migrations/%s.sql stopped at the statement 2 of its down part", ms[len(ms)-1].Name)
+	if err := upToDate(t.Context(), db); err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("starting again: %v, want %q", err, want)
 	}
 }
 
-func TestAStepThatFailsIsLeftToRunAgain(t *testing.T) {
-	u := newTestDatabase(t)
-	db, err := openDB(u)
-	if err != nil {
+func TestAStepUnderWayInAnAppMadeBeforeIsNamedNotGuessed(t *testing.T) {
+	db := newDB(t)()
+	oldCount(t, db, 3)
+	if _, err := db.Exec("UPDATE schema_version SET running = 4"); err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	defer func(steps []string) { migrations = steps }(migrations)
-	migrations = append(migrations[:len(migrations):len(migrations)], "ALTER TABLE users ADD COLUMN name TEXT")
-	if err := migrate(context.Background(), db); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("migration %d: ", len(migrations))) {
-		t.Fatalf("a step that fails: %v", err)
-	}
-	var running sql.NullInt64
-	if db.QueryRow("SELECT running FROM schema_version").Scan(&running); running.Valid {
-		t.Errorf("running is %d after a step that did nothing", running.Int64)
+	if err := upToDate(t.Context(), db); err == nil || !strings.HasPrefix(err.Error(), "migration 4 was under way when the app stopped") {
+		t.Errorf("starting: %v", err)
 	}
 }

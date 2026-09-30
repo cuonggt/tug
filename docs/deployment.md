@@ -254,8 +254,10 @@ docker run -p 8080:8080 -v blog-data:/data \
 
 or `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD`,
 as Laravel has them. The drivers, pgx and go-sql-driver/mysql, are pure
-Go too. The app brings the tables up to date as it starts, and
-instances starting at once take turns ([Accounts](auth.md#the-database)).
+Go too. The app runs the migrations it hasn't as it starts, and instances
+starting at once take turns; a release step can run them first, `./blog
+migrate`, so one that fails stops the deploy before an instance of the
+new version serves ([Migrations](migrations.md#in-a-deploy)).
 With the photos in a bucket as well, `FILESYSTEM_DISK=s3`, an instance
 keeps nothing of its own, and as many as the database takes can run
 side by side, anywhere that reaches it: the jobs, the throttles' counts

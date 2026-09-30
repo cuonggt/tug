@@ -7,6 +7,8 @@ tug new <dir>    make a new app in dir, ready to run
 tug dev          run the app, rebuilding and reloading it as it changes
 tug gen          write the TypeScript of the app's pages and routes
 tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
+tug migrate new <name>
+                 write a new migration, migrations/<when>_<name>.sql, for the app to run
 tug build        build the app into one binary, with its frontend in it
 tug key          print a new key for APP_KEY
 tug version      print tug's version
@@ -235,7 +237,9 @@ rebuild for:
 
 - `.go` files, `go.mod` and `go.sum`;
 - templates Go embeds: `.html`, `.tmpl` and `.gohtml` files;
-- the languages in `lang/`, as `lang/vi.json`, which the binary embeds.
+- the languages in `lang/`, as `lang/vi.json`, and the migrations in
+  `migrations/`, which the binary embeds: a new migration runs as the app
+  starts again.
 
 It looks in every directory but `node_modules`, `vendor`, `testdata` and
 `public`, and those whose names start with `.` or `_`. After a change, it
@@ -389,6 +393,25 @@ For tug's texts, and the app's rules, it builds the app and runs it as
 the app's Go, but its tests and the directories `tug dev` doesn't look in.
 A text made as the app runs, as `c.T(message)` of a variable, it can't
 see: a translator adds it by hand.
+
+## `tug migrate`
+
+```
+tug migrate new create_posts
+```
+
+Writes a new migration, `migrations/20261001093000_create_posts.sql`,
+named for when it's made, to the second, in UTC, and for what it does, in
+lower-case letters, digits and underscores, for the change to the
+database's tables in its SQL, and after its `-- down` line, what undoes
+it ([Migrations](migrations.md)). Two made in one second take the next
+second. It runs in the app's directory, where `migrations/` is, and needs
+no database: the app runs its migrations, as it starts and by its
+binary's `migrate` command, with its own driver.
+
+```
+tug migrate: wrote migrations/20261001093000_create_posts.sql
+```
 
 ## `tug build`
 

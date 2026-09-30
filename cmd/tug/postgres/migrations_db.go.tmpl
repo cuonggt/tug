@@ -1,0 +1,146 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"github.com/cuonggt/tug/migrate"
+)
+
+// migrationsTable is the migrations table, which keeps the migrations that
+// have run, with the hash of each as it ran: a migrate.Store. The app's
+// instances take turns at them under an advisory lock of Postgres's, held
+// on one connection for as long as one runs them, and each migration runs
+// in a transaction with its record, as Postgres changes tables in one.
+type migrationsTable struct{ db *sql.DB }
+
+// migrationsLock is the key of the migrations' advisory lock: Postgres's
+// hash of a name that says whose it is. It's the database's own, as
+// Postgres keeps an advisory lock for each.
+const migrationsLock = "hashtext('tug migrations')"
+
+func (t *migrationsTable) Lock(ctx context.Context) (func(), error) {
+	conn, err := t.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock("+migrationsLock+")"); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	unlock := func() {
+		conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock("+migrationsLock+")")
+		conn.Close()
+	}
+	_, err = t.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS migrations (
+		name   text PRIMARY KEY,
+		hash   text NOT NULL,
+		ran_at bigint NOT NULL
+	)`)
+	if err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
+}
+
+func (t *migrationsTable) Ran(ctx context.Context) ([]migrate.Ran, error) {
+	rows, err := t.db.QueryContext(ctx, "SELECT name, hash, ran_at FROM migrations ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ran []migrate.Ran
+	for rows.Next() {
+		var r migrate.Ran
+		var at int64
+		if err := rows.Scan(&r.Name, &r.Hash, &at); err != nil {
+			return nil, err
+		}
+		r.At = time.UnixMilli(at).UTC()
+		ran = append(ran, r)
+	}
+	return ran, rows.Err()
+}
+
+func (t *migrationsTable) Run(ctx context.Context, m migrate.Migration) error {
+	return t.inTx(ctx, func(tx *sql.Tx) error {
+		var ran bool
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM migrations WHERE name = $1)", m.Name).Scan(&ran); err != nil || ran {
+			return err
+		}
+		// With no arguments, pgx sends the SQL as it is, statements and all.
+		if _, err := tx.ExecContext(ctx, m.Up); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "INSERT INTO migrations (name, hash, ran_at) VALUES ($1, $2, $3)", m.Name, m.Hash(), time.Now().UnixMilli())
+		return err
+	})
+}
+
+func (t *migrationsTable) Undo(ctx context.Context, m migrate.Migration) error {
+	return t.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, m.Down); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "DELETE FROM migrations WHERE name = $1", m.Name)
+		return err
+	})
+}
+
+// inTx runs fn in a transaction, which it commits when fn returns nil, and
+// rolls back otherwise, with whatever a migration's SQL did.
+func (t *migrationsTable) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := t.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// adopt takes over the count of an app made before its migrations were
+// files: the schema_version table, of the number of the steps in db.go
+// that had run. The starter's files are those steps, in their order, so
+// the first it counts are recorded as run, and the table goes, in one
+// transaction.
+func (t *migrationsTable) adopt(ctx context.Context, ms []migrate.Migration) error {
+	unlock, err := t.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return t.inTx(ctx, func(tx *sql.Tx) error {
+		var old bool
+		if err := tx.QueryRowContext(ctx, "SELECT to_regclass('schema_version') IS NOT NULL").Scan(&old); err != nil || !old {
+			return err
+		}
+		var count int
+		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(max(version), 0) FROM schema_version").Scan(&count); err != nil {
+			return err
+		}
+		if count > len(ms) {
+			return fmt.Errorf("schema_version says %d steps have run, and migrations/ has %d files: the steps an app added after the starter's go in files of their own, named after the starter's, in their order", count, len(ms))
+		}
+		// With files recorded as run already, the count is a leftover, and
+		// goes alone.
+		var ran int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM migrations").Scan(&ran); err != nil {
+			return err
+		}
+		if ran == 0 {
+			for _, m := range ms[:count] {
+				if _, err := tx.ExecContext(ctx, "INSERT INTO migrations (name, hash, ran_at) VALUES ($1, $2, $3)", m.Name, m.Hash(), time.Now().UnixMilli()); err != nil {
+					return err
+				}
+			}
+		}
+		_, err := tx.ExecContext(ctx, "DROP TABLE schema_version")
+		return err
+	})
+}

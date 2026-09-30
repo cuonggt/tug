@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M32 are done, which is
+the decisions behind it and where it stands: M1 to M33 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -73,7 +73,12 @@ security headers (v0.27.0): `middleware.Headers`, and `middleware.CSP`,
 a Content-Security-Policy that runs the scripts with a nonce made for the
 response, which inertia hands the root template as `.Nonce`, and Vite's
 tags take first, and logs the reports it answers itself, and the
-starters' pages under it. `README.md` is the front door, and `docs/` the guide, a page per part of
+starters' pages under it, and migrations (v0.28.0): package `migrate`,
+the database's tables made and changed by files of SQL in `migrations/`,
+named for when they were made, run once each, in order, as the app
+starts, and by the auth starter's `migrate` command, kept by name and a
+hash of the SQL, through a Store in each database's layer, and `tug
+migrate new`. `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
 ## Commands
@@ -370,13 +375,15 @@ dev server that isn't there: delete it.
   form, query or path tags, eqfield's others, and file_type's names),
   added to `lang/<lang>.json` (`addTexts`, sorted, only when it adds);
   `key.go` is tug key, which prints `newKey`, as `tug new`'s `.env` has
-  one; `dev.go` runs Vite and the app
+  one; `migrate.go` is tug migrate new, which writes a migration's file
+  (`newMigration`, named in UTC, the next second when one's taken,
+  `migrationWords`); `dev.go` runs Vite and the app
   as processes in their own groups (`proc`, `proc_unix.go`), polls for
   changes (`watch`, `snapshot`), touches `.tug/reload` for the starter's
   Vite plugin to reload the browser, and shows 127.0.0.1 as localhost
   (`shown`), where browsers make passkeys, which is the app's `APP_URL`
-  unless it has one (`devEnv`), and rebuilds on `lang/*.json` too
-  (`watched`); `build.go`; `new.go`
+  unless it has one (`devEnv`), and rebuilds on `lang/*.json` and
+  `migrations/*.sql` too (`watched`); `build.go`; `new.go`
   (`writeStarter`) lays directories over each other, a later one's files
   replacing an earlier one's of the same name: `starter/`, the Go and what
   every frontend uses, then the frontend's own, `react/`, `vue/` or
@@ -405,7 +412,8 @@ dev server that isn't there: delete it.
   from (`checkoutDir`). The starters' Go files are `.tmpl` so the go tool
   doesn't build them in place; `tug_test.go` makes a real app of each
   kind, React's four and two each of Vue's and Svelte's, and runs an SSR
-  one's binary for a page rendered on the server, and one on each of
+  one's binary for a page rendered on the server, and the auth one's
+  `migrate` command on a new database (`migratesByItsCommand`), and one on each of
   Postgres and MySQL, which writes its types with no database running. Every starter makes its
   app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
   `createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
@@ -438,13 +446,23 @@ dev server that isn't there: delete it.
   Go. `users.go.tmpl`, `passkeys.go.tmpl` and `jobs.go.tmpl` have the
   types and the Go that's the same on each, and every layer the same
   files of SQL: `db.go.tmpl` (`dbFromEnv`, from `DB_PATH` or `DB_URL`,
-  `openDB`, and the migrations, counted in `user_version`, or in
-  `schema_version` under Postgres's row lock or MySQL's `GET_LOCK`, with
-  `running` for the step under way, and `taken`, a unique index's error),
+  `openDB`, which opens and connects, SQLite's trying again while `busy`,
+  as instances opening a new file at once can't each wait for the other
+  to make its log, and `taken`, a unique index's error),
+  `migrations_db.go.tmpl` (`migrationsTable`, the migrations table, a
+  `migrate.Store`: SQLite's each migration in a transaction that takes the
+  lock for writing and looks again, Postgres's under an advisory lock
+  held on one connection, and MySQL's under `GET_LOCK`, a statement at a
+  time, `statements`, with `running` for the one under way, which
+  `stopped` names; and `adopt`, which records the files an app made before
+  counted in `user_version` or `schema_version` as run, and drops the
+  count), the layer's `migrations/`, the SQL of its steps from before, a
+  file each named for the commit that added it,
   `users_db.go.tmpl`, `passkeys_db.go.tmpl`, `jobs_db.go.tmpl`,
   `db_test.go.tmpl` (`testDB`, on a server a database per test, made on
-  `DB_URL`'s or compose's and dropped, `jobsDown`, `failedDaysAgo`, and
-  the migrations' tests), and on a server, `compose.yaml.tmpl`. The jobs
+  `DB_URL`'s or compose's and dropped, `newDB`, an empty one to open as
+  often as a test likes, `jobsDown`, `failedDaysAgo`, and `oldCount`,
+  `oldCountGone` and `execSQL`, for a database an app made before left), and on a server, `compose.yaml.tmpl`. The jobs
   are in the same database: `jobs_db.go.tmpl` is a `queue.ScheduleStore`
   and a `queue.UniqueStore`, which `jobs_test.go.tmpl` runs
   `queuetest.TestStore` on, with a `schedules` table whose upsert only
@@ -470,6 +488,13 @@ dev server that isn't there: delete it.
   a handler's transaction, and `jobsCommand` the `jobs` command, which
   `newApp` adds with `app.Command`, for `Run` to run in place of the
   server.
+  `migrations.go.tmpl` embeds `migrations/` (`migrations`, through
+  `migrate.Load`), and has `upToDate`, which `main` runs as the app
+  starts, `adopt` first, unless `migrating`, the binary run as the
+  `migrate` command, which `newApp` adds, `migrate.Command`'s; the tests'
+  `testDB` runs it, and `migrations_test.go` runs `migratetest.TestStore`
+  on each database's table, and tests instances at once, a newer
+  version's migration left alone, an app made before, and the command.
   Under tug gen, `main` opens no database, and `env.DB` is nil. `a.inTx` runs a handler's writes in one
   transaction, through the stores' `in(tx)` (the tables' methods go
   through `dbtx`, the database or a transaction), and wakes the queue
@@ -723,6 +748,20 @@ dev server that isn't there: delete it.
   `Get` or an `Add` was given. `cachetest`: `TestStore`, which `cache`'s
   own tests run on the memory store (`export_test.go`); the tests of what
   waits run in `testing/synctest`.
+- `migrate`: an app's migrations, files of SQL in `migrations/`, with no
+  import of tug and no SQL. `migrate.go`: `Migration` (`Name`, `Up`,
+  `Down`, and `Hash`, the SHA-256 of `Up`), `Load` (`migrationName`, the
+  UTC time to the second and what it does; `split` at the `-- down` line,
+  with lines ending as Unix's; `hasSQL`), `Store` (`Lock`, `Ran`, `Run`,
+  which does nothing for a migration that has run, as another instance's
+  may have, and `Undo`) and `Ran`, and `Up` (a file changed since it ran,
+  `changed`, stops it before any runs; one that ran with no file, a newer
+  version's, is left alone), `Down` (the migration whose name is last, by
+  its down part, not changed, and in the files) and `Status` (`State`).
+  `command.go`: `Command`, the app's `migrate`, `status` and `down`.
+  `migratetest`: `TestStore`, with SQL every database takes, which each of
+  the auth starter's layers runs on its own; the package's own tests run
+  on a Store in memory (`memory`).
 - `broadcast`: events on channels between an app's instances, with no
   import of tug and no idea where they're carried. `broadcast.go`:
   `Hub` (`Publish`, `Subscribe`, `In`, which returns a `Publisher`

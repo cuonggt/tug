@@ -2,197 +2,57 @@ package main
 
 import (
 	"cmp"
-	"context"
 	"database/sql"
-	"fmt"
+	"errors"
 	"os"
+	"time"
 
-	_ "modernc.org/sqlite" // SQLite in pure Go, so the binary stays static
+	"modernc.org/sqlite" // SQLite in pure Go, so the binary stays static
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // The app's database is SQLite: one file, app.db, or wherever DB_PATH
-// says. This file opens it and makes its tables, and the SQL of each is
-// beside the Go that's the same on any database: users_db.go,
-// passkeys_db.go, jobs_db.go, throttles_db.go, cache_db.go,
-// tokens_db.go, broadcasts_db.go and notifications_db.go.
+// says. This file opens it; migrations/ makes its tables, as the app starts
+// (migrations.go); and the SQL of each is beside the Go that's the same on
+// any database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go,
+// cache_db.go, tokens_db.go, broadcasts_db.go, notifications_db.go and
+// migrations_db.go.
 
 // dbFromEnv opens the database the environment names, DB_PATH or else
-// app.db, making it when it's not there, with its tables up to date.
+// app.db, making it when it's not there.
 func dbFromEnv() (*sql.DB, error) {
 	return openDB(cmp.Or(os.Getenv("DB_PATH"), "app.db"))
 }
 
-// migrations make the database's tables, a step at a time. Each runs once,
-// in order, and SQLite's user_version counts the steps that have. To change
-// the tables, add a step at the end, such as an ALTER TABLE: never change
-// one that has run somewhere, as it won't run there again. An email is
-// unique whatever its case: Ann@example.com is ann@example.com.
-var migrations = []string{
-	`CREATE TABLE users (
-		id                INTEGER PRIMARY KEY,
-		name              TEXT NOT NULL,
-		email             TEXT NOT NULL UNIQUE COLLATE NOCASE,
-		email_verified_at DATETIME,
-		password_hash     TEXT NOT NULL,
-		two_factor_secret TEXT,
-		recovery_codes    TEXT,
-		two_factor_step   INTEGER NOT NULL DEFAULT 0,
-		created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	)`,
-	// The jobs waiting to run, and the ones that failed for good: jobs.go.
-	`CREATE TABLE jobs (
-		id         INTEGER PRIMARY KEY,
-		kind       TEXT NOT NULL,
-		payload    TEXT NOT NULL,
-		run_at     INTEGER NOT NULL,
-		held_until INTEGER NOT NULL DEFAULT 0,
-		attempts   INTEGER NOT NULL DEFAULT 0,
-		error      TEXT,
-		failed_at  DATETIME,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE INDEX jobs_due ON jobs (run_at) WHERE failed_at IS NULL`,
-	// The run of each schedule pushed last, so that one instance pushes
-	// it: jobs.go.
-	`CREATE TABLE schedules (
-		name   TEXT PRIMARY KEY,
-		run_at INTEGER NOT NULL
-	)`,
-	// A unique kind's job keeps its key while it waits, and of a kind and a
-	// key, one job can: jobs.go.
-	`ALTER TABLE jobs ADD COLUMN unique_key TEXT;
-	CREATE UNIQUE INDEX jobs_unique ON jobs (kind, unique_key) WHERE unique_key IS NOT NULL`,
-	// Each user's passkeys, and the random handle they name the user by,
-	// made with their first: passkeys.go.
-	`ALTER TABLE users ADD COLUMN passkey_handle BLOB;
-	CREATE UNIQUE INDEX users_passkey_handle ON users (passkey_handle) WHERE passkey_handle IS NOT NULL;
-	CREATE TABLE passkeys (
-		id            INTEGER PRIMARY KEY,
-		user_id       INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-		credential_id BLOB NOT NULL UNIQUE,
-		public_key    BLOB NOT NULL,
-		sign_count    INTEGER NOT NULL DEFAULT 0,
-		transports    TEXT NOT NULL DEFAULT '',
-		backed_up     INTEGER NOT NULL DEFAULT 0,
-		name          TEXT NOT NULL,
-		created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		last_used_at  DATETIME
-	);
-	CREATE INDEX passkeys_user ON passkeys (user_id)`,
-	// A job of a kind that runs one at a time keeps its key all its life,
-	// where a claim lets unique_key go, for a claim to see whether another
-	// of the key runs: jobs.go.
-	`ALTER TABLE jobs ADD COLUMN alone_key TEXT;
-	CREATE INDEX jobs_alone ON jobs (kind, alone_key) WHERE alone_key IS NOT NULL`,
-	// Where each user's photo is kept on the app's disk: photos.go.
-	`ALTER TABLE users ADD COLUMN photo_key TEXT`,
-	// The throttles' counts, where every instance of the app counts:
-	// throttles_db.go.
-	`CREATE TABLE throttles (
-		key_hash BLOB PRIMARY KEY,
-		tries    INTEGER NOT NULL,
-		ends_at  INTEGER NOT NULL
-	)`,
-	// The cache's values, and its locks, where every instance of the app
-	// finds them: cache_db.go.
-	`CREATE TABLE cache (
-		key_hash   BLOB PRIMARY KEY,
-		value      BLOB NOT NULL,
-		expires_at INTEGER NOT NULL
-	)`,
-	// The users' API tokens, their hashes, which a request to /api sends
-	// one of in place of a login: tokens.go.
-	`CREATE TABLE access_tokens (
-		id           INTEGER PRIMARY KEY,
-		user_id      INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-		name         TEXT NOT NULL,
-		token_hash   BLOB NOT NULL UNIQUE,
-		abilities    TEXT NOT NULL,
-		last_used_at INTEGER,
-		expires_at   INTEGER,
-		created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE INDEX access_tokens_user ON access_tokens (user_id)`,
-	// The events the hub carries between the app's instances, each kept a
-	// minute: broadcasts_db.go. AUTOINCREMENT keeps an ID from being used
-	// again once its row is pruned, as an instance reads what's after the
-	// last it read.
-	`CREATE TABLE broadcasts (
-		id         INTEGER PRIMARY KEY AUTOINCREMENT,
-		event      BLOB NOT NULL,
-		created_at INTEGER NOT NULL
-	)`,
-	// A kind whose jobs run so many at once at most keeps its limit with
-	// each of them in at_once, and a claim counts the jobs held, by
-	// jobs_held; a kind that a rate holds back waits in held_kinds until
-	// its time: jobs.go.
-	`ALTER TABLE jobs ADD COLUMN at_once INTEGER;
-	CREATE INDEX jobs_held ON jobs (held_until);
-	CREATE TABLE held_kinds (
-		kind       TEXT PRIMARY KEY,
-		held_until INTEGER NOT NULL
-	)`,
-	// An admin may do what the app's abilities name, as see the jobs that
-	// failed, which the admins command makes someone: abilities.go.
-	`ALTER TABLE users ADD COLUMN admin BOOLEAN NOT NULL DEFAULT FALSE`,
-	// What happened to a user's account, which the app tells them of, the
-	// newest first; a read one goes after 90 days: notifications.go.
-	`CREATE TABLE notifications (
-		id         INTEGER PRIMARY KEY,
-		user_id    INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-		kind       TEXT NOT NULL,
-		data       TEXT NOT NULL,
-		created_at INTEGER NOT NULL,
-		read_at    INTEGER
-	);
-	CREATE INDEX notifications_user ON notifications (user_id, id)`,
-}
-
-// openDB opens the SQLite database at path, making it when it's not there,
-// and brings its tables up to date. Its journal is a write-ahead log, so
-// pages read while a form writes; a write waits its turn for up to five
-// seconds rather than fail; and a transaction takes the lock for writing
-// when it begins, rather than fail halfway when another writer has it.
+// openDB opens the SQLite database at path, making it when it's not
+// there. Its journal is a write-ahead log, so pages read while a form
+// writes; a write waits its turn for up to five seconds rather than fail;
+// and a transaction takes the lock for writing when it begins, rather than
+// fail halfway when another writer has it.
 func openDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}
-	if err := migrate(context.Background(), db); err != nil {
+	// A new database's journal becomes the log as it's first opened, which
+	// two instances starting at once can't both wait for, as each would
+	// wait for the other: SQLite turns one away at once. That one tries
+	// again, for as long as a write waits its turn, and finds the log made.
+	for until := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if err = db.Ping(); err == nil || !busy(err) || time.Now().After(until) {
+			break
+		}
+	}
+	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, err
 	}
 	return db, nil
 }
 
-// migrate runs the steps the database hasn't had, each in a transaction
-// with the count that records it, so a step that fails leaves no trace. A
-// database from a newer build of the app, as after a deploy is rolled
-// back, is left as it is.
-func migrate(ctx context.Context, db *sql.DB) error {
-	for {
-		tx, err := db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		var version int
-		if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if version >= len(migrations) {
-			return tx.Rollback()
-		}
-		if _, err := tx.ExecContext(ctx, migrations[version]); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %d: %w", version+1, err)
-		}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version+1)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
+// busy reports whether err is SQLite's turning a connection away, as
+// another has the lock it asked for.
+func busy(err error) bool {
+	var e *sqlite.Error
+	return errors.As(err, &e) && e.Code()&0xff == sqlite3.SQLITE_BUSY
 }

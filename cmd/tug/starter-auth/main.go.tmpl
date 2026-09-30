@@ -29,6 +29,7 @@ import (
 	"github.com/cuonggt/tug/lang"
 	"github.com/cuonggt/tug/mail"
 	"github.com/cuonggt/tug/middleware"
+	"github.com/cuonggt/tug/migrate"
 	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/session"
 [[- if .SSR ]]
@@ -85,14 +86,21 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// The database, with its tables brought up to date: db.go. tug gen,
-	// which runs main to learn the pages and routes, needs none.
+	// The database, db.go, with its tables brought up to date by the
+	// migrations that haven't run, but by the migrate command, which runs
+	// them itself: migrations.go. tug gen, which runs main to learn the
+	// pages and routes, needs none.
 	var db *sql.DB
 	if !tug.Generating() {
 		if db, err = dbFromEnv(); err != nil {
 			log.Fatal(err)
 		}
 		defer db.Close()
+		if !migrating() {
+			if err := upToDate(context.Background(), db); err != nil {
+				log.Fatal(err)
+			}
+		}
 	}
 	// The files people upload, their photos, are kept in files/, or
 	// FILES_PATH, and served at /files by links signed with the app's key,
@@ -404,13 +412,20 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	}
 
 	// The binary's commands, which Run runs in place of serving, on the
-	// app's database: ./blog jobs, in jobs.go, and ./blog admins, in
-	// admin.go.
+	// app's database: ./blog jobs, in jobs.go, ./blog admins, in admin.go,
+	// and ./blog migrate, in migrations.go.
 	app.Command("jobs", "list the jobs that failed for good; jobs retry <id>, or retry all, runs them again", func(ctx context.Context, args []string) error {
 		return jobsCommand(ctx, a.jobs, os.Args[0], args, os.Stdout)
 	})
 	app.Command("admins", "list the admins; admins add <email>, or remove <email>, makes someone an admin or a user again", func(ctx context.Context, args []string) error {
 		return adminsCommand(ctx, a.users, os.Args[0], args, os.Stdout)
+	})
+	app.Command("migrate", "run the migrations that haven't run; migrate status lists them, and migrate down undoes the last", func(ctx context.Context, args []string) error {
+		ms, err := migrations()
+		if err != nil {
+			return err
+		}
+		return migrate.Command(ctx, &migrationsTable{db: e.DB}, ms, os.Args[0], args, os.Stdout)
 	})
 
 	app.Get("/", home).Name("home")

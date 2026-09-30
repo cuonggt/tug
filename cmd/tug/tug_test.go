@@ -63,7 +63,7 @@ func TestTheWatcherSeesGoAndTemplatesButNotTheFrontend(t *testing.T) {
 		os.MkdirAll(filepath.Dir(path), 0o755)
 		os.WriteFile(path, []byte(name+time.Now().String()), 0o644)
 	}
-	for _, f := range []string{"main.go", "go.mod", "app.html", "internal/x/x.go", "node_modules/p/p.go", ".tug/app.go", "public/build/a.html", "resources/js/app.tsx", "lang/vi.json", "package.json", "resources/js/lang/vi.json"} {
+	for _, f := range []string{"main.go", "go.mod", "app.html", "internal/x/x.go", "node_modules/p/p.go", ".tug/app.go", "public/build/a.html", "resources/js/app.tsx", "lang/vi.json", "package.json", "resources/js/lang/vi.json", "migrations/20261001093000_create_posts.sql", "db/schema.sql"} {
 		write(f)
 	}
 	before := snapshot(root)
@@ -73,7 +73,7 @@ func TestTheWatcherSeesGoAndTemplatesButNotTheFrontend(t *testing.T) {
 		names = append(names, filepath.ToSlash(rel))
 	}
 	slices.Sort(names)
-	if want := []string{"app.html", "go.mod", "internal/x/x.go", "lang/vi.json", "main.go"}; !slices.Equal(names, want) {
+	if want := []string{"app.html", "go.mod", "internal/x/x.go", "lang/vi.json", "main.go", "migrations/20261001093000_create_posts.sql"}; !slices.Equal(names, want) {
 		t.Fatalf("watched %v, want %v", names, want)
 	}
 
@@ -312,7 +312,7 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 			if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
 				t.Errorf("main.go isn't the auth starter's:\n%s", main)
 			}
-			for _, f := range []string{"auth.go", "users.go", "jobs.go", "db.go", "users_db.go", "throttles_db.go", "cache_db.go", "tokens_db.go", "broadcasts.go", "broadcasts_db.go", "abilities.go", "admin.go", "notifications.go", "notifications_db.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
+			for _, f := range []string{"auth.go", "users.go", "jobs.go", "db.go", "users_db.go", "throttles_db.go", "cache_db.go", "tokens_db.go", "broadcasts.go", "broadcasts_db.go", "abilities.go", "admin.go", "notifications.go", "notifications_db.go", "migrations.go", "migrations_db.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
 				if strings.Contains(read(f), "[[ ") {
 					t.Errorf("%s has a placeholder left", f)
 				}
@@ -378,7 +378,7 @@ func TestNewWithPostgresOrMySQLLaysItsSQLOverTheAuthStarter(t *testing.T) {
 			if !strings.Contains(read("db_test.go"), `"`+c.devURL+`"`) {
 				t.Error("the tests don't make their databases on compose.yaml's, without DB_URL")
 			}
-			for _, f := range []string{"main.go", "db.go", "users_db.go", "passkeys_db.go", "jobs_db.go", "throttles_db.go", "cache_db.go", "tokens_db.go", "broadcasts_db.go", "notifications_db.go", "db_test.go", "compose.yaml", "Dockerfile", "README.md", ".env.example", ".gitignore"} {
+			for _, f := range []string{"main.go", "db.go", "users_db.go", "passkeys_db.go", "jobs_db.go", "throttles_db.go", "cache_db.go", "tokens_db.go", "broadcasts_db.go", "notifications_db.go", "migrations_db.go", "db_test.go", "compose.yaml", "Dockerfile", "README.md", ".env.example", ".gitignore"} {
 				if got := read(f); strings.Contains(got, "[[") || strings.Contains(got, "app.db") || strings.Contains(got, "DB_PATH") {
 					t.Errorf("%s has a placeholder left, or SQLite's file:\n%s", f, got)
 				}
@@ -534,6 +534,9 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 			if kind.name == "plain" {
 				writesItsTexts(t, dir)
 			}
+			if kind.name == "auth" {
+				migratesByItsCommand(t, dir)
+			}
 		})
 	}
 }
@@ -600,6 +603,48 @@ func TestANewAppOnPostgresOrMySQLPassesItsOwnTests(t *testing.T) {
 				t.Errorf("go test: %v\n%s", err, out)
 			}
 		})
+	}
+}
+
+// migratesByItsCommand builds the auth app in dir, and runs its migrate
+// command on a new database: the command runs the migrations itself, where
+// every other run of the app has run them as it started.
+func migratesByItsCommand(t *testing.T, dir string) {
+	t.Helper()
+	build := exec.Command("go", "build", "-o", "app", ".")
+	build.Dir = dir
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	vars, err := readDotEnv(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// app runs the app's binary with args, on the SQLite database at db.
+	app := func(db string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command(filepath.Join(dir, "app"), args...)
+		cmd.Dir = dir
+		cmd.Env = append(append(os.Environ(), vars...), "APP_URL=http://localhost:8080", "DB_PATH="+db)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("./app %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return string(out)
+	}
+	db := filepath.Join(t.TempDir(), "app.db")
+	if out := app(db, "migrate", "status"); !strings.Contains(out, "not run yet") || strings.Contains(out, "each of them run") {
+		t.Errorf("migrate status of a new database:\n%s", out)
+	}
+	if out := app(db, "migrate"); !strings.Contains(out, "Ran ") {
+		t.Errorf("migrate:\n%s", out)
+	}
+	if out := app(db, "migrate", "status"); !strings.Contains(out, "each of them run") {
+		t.Errorf("migrate status once they've run:\n%s", out)
+	}
+	// Another command, as jobs, runs them as the app starts.
+	if out := app(filepath.Join(t.TempDir(), "app.db"), "jobs"); !strings.Contains(out, "ran a migration") || !strings.Contains(out, "No job has failed for good.") {
+		t.Errorf("jobs on a new database:\n%s", out)
 	}
 }
 
