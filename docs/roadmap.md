@@ -2664,8 +2664,8 @@ Referer, or run a script it didn't bring. An escaping template stops most
 injected scripts, and a Content-Security-Policy stops the rest, but only
 once every script the app runs carries the response's nonce, which is
 hard to add to an app that has grown. Rails sets the headers and helps an
-app write a policy with a nonce; Laravel leaves both to packages. To be
-released as v0.27.0.
+app write a policy with a nonce; Laravel leaves both to packages.
+Released as v0.27.0.
 
 - **`middleware.Headers`:** the headers every response carries:
   `X-Content-Type-Options: nosniff`, a `Referrer-Policy`, a
