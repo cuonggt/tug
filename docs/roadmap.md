@@ -35,6 +35,9 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M27 | API tokens                 | done   |
 | M28 | Broadcasting               | done   |
 | M29 | The queue, further         | done   |
+| M30 | Authorization              | later  |
+| M31 | Notifications              | later  |
+| M32 | Security headers           | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2485,6 +2488,156 @@ Choices made on the way:
   checked. In the starter, a rate through its throttles table, with the
   job's attempts and the kind's hold, and the held kinds pruned; a kind
   with neither, as before, in the rest.
+
+## M30 · Authorization — later
+
+tug says who's logged in, and nothing of what they may do: each app
+writes its checks its own way, and its own 403s, and a page that hides a
+button its user may not press asks its handler for a flag of its own.
+Laravel's gates say what a user may do with a thing, `authorize` turns a
+no into a 403, and an Inertia page gets what its user may do as props.
+And the auth starter's users are all alike, so the jobs that failed for
+good are listed by its binary's command alone: a page for them waits, in
+Background jobs, for someone who may see every user's jobs. To be
+released as v0.25.0.
+
+- **Abilities, in package `auth`:** `auth.Ability`, what a user may do
+  with a thing, as edit a post: a function of the user and the thing that
+  says yes, or no, and why not. `Can` asks, and `Check` returns the no as
+  an error, "you may not edit this post", for the handler to return.
+- **A no is a 403:** tug answers an error that says its status with it,
+  and its message, as it does a `*tug.HTTPError`: the error page in a
+  browser, and JSON for an API.
+- **Before the abilities:** a check that answers every ability first, as
+  an admin may do anything, or a suspended account nothing.
+- **On the page:** what its user may do with what it shows, in props of
+  its own, `can`, so the page shows the buttons its user may press, and
+  the handler checks again when one is.
+- **The auth starter:** admins, whose `admin` column a command sets,
+  `./blog users admin ann@example.com`, and a page for them of the jobs
+  that failed for good, with their errors, which runs them again, as the
+  `jobs` command does.
+- **The guide:** a page, Authorization; Accounts, the admins; and
+  Background jobs, the page.
+
+Choices, to settle before any code:
+
+- **In `auth`,** beside the logins, with no idea what a user is: an
+  ability is generic over the app's user and the thing, both the app's
+  own types.
+- **Abilities are values,** `var editPost = auth.Ability(...)`, used where
+  they're checked, where Laravel's gates are names in strings: a mistyped
+  one doesn't compile.
+- **Policies are the app's:** the abilities over one type are a struct of
+  them, or a file of them; Go has no discovery by name to hang a
+  convention on.
+- **The no says why,** to the person who gets it: the ability's reason
+  when it gives one, or else "you may not" and what the ability is for.
+- **By its status, not its type:** tug answers an error with a
+  `StatusCode() int`, as auth's no has, so `auth` imports no tug, as the
+  core imports no `auth`.
+- **One admin column,** not tables of roles and permissions: an app with
+  roles checks them in its abilities.
+- **Tests:** an ability's yes, no and why, the check before it, and a
+  guest; the 403 as the error page, in Inertia's client, and as JSON; a
+  page's `can`; and in the starter, the admin command, the page refused
+  to a user and a guest, its list, and a job run again, and in the
+  browser, an admin's page.
+
+## M31 · Notifications — later
+
+An app tells its users what happened to their account or their work: a
+passkey added, a report ready, a reply. The auth starter mails the few it
+has, so a user who doesn't read the mail sees nothing in the app, and the
+owner of an account whose email was changed hears nothing at the old
+one. Laravel's notifications go by mail, into the database, where the app
+lists them, and to the pages open, each by the channels it names. tug has
+each part, mail, the queue, the database's stores and broadcasting, and
+the auth starter puts them together. To be released as v0.26.0.
+
+- **Kept for the user:** a `notifications` table in each database's
+  layer, of a notification's kind, its data as JSON, and when it was read,
+  kept in the transaction that makes the change it tells of.
+- **Told at once:** published on the user's channel as the transaction
+  commits, so the header's bell counts it without a reload.
+- **And mailed,** for a kind that matters as it happens, by a job pushed
+  in the same transaction.
+- **A bell and a list:** the header's bell, with the unread count, a
+  shared prop; a page of the user's notifications, the newest first, a
+  page at a time, each with its line and its link; and marking them read.
+- **The account's changes:** a new password, a new email, told at the old
+  one too, two-factor logins turned off, a passkey or an API token added:
+  each a notification and a mail, so the owner hears of a change they
+  didn't make.
+- **The guide:** Accounts, a section on notifications.
+
+Choices, to settle before any code:
+
+- **The app's code, not a package:** its kinds, their text and their
+  channels are the app's, on tug's mail, queue and broadcast, as its mail
+  is. A package would be an interface for each of them, around what the
+  starter writes as a function.
+- **Kept, then told:** in the transaction with the change, so a
+  notification of a change that rolled back is never shown, mailed or
+  heard.
+- **The line at read time,** from the kind and its data, in the reader's
+  language: a notification outlasts the language it was made in.
+- **The old email hears of a new one,** as the address the owner may
+  still read; the new one gets its link to verify, as before.
+- **Read as the list shows it,** or by a button: Laravel's `markAsRead`
+  is the app's call either way.
+- **Kept a while:** a notification read over 90 days ago goes, by a
+  scheduled job.
+- **Not each user's choice of channels yet:** a kind has its own.
+- **Tests:** each change's notification, kept only as its transaction
+  commits, heard on the user's channel and mailed; another user's never
+  listed; the count, and the list a page at a time; marking read; the
+  prune; and in the browser, a notification arriving in another tab.
+
+## M32 · Security headers — later
+
+A page tug serves says nothing of what a browser may do with it: be put
+in another site's frame, send its whole URL to the next site as the
+Referer, or run a script it didn't bring. An escaping template stops most
+injected scripts, and a Content-Security-Policy stops the rest, but only
+once every script the app runs carries the response's nonce, which is
+hard to add to an app that has grown. Rails sets the headers and helps an
+app write a policy with a nonce; Laravel leaves both to packages. To be
+released as v0.27.0.
+
+- **`middleware.Headers`:** the headers every response carries:
+  `X-Content-Type-Options: nosniff`, a `Referrer-Policy`, a
+  `Cross-Origin-Opener-Policy`, no framing by other sites, and
+  `Strict-Transport-Security` over HTTPS.
+- **A Content-Security-Policy with a nonce:** a new one for each
+  response, which the root template's scripts carry, `{{ .Nonce }}`, as
+  Vite's tags and the page's head from SSR do, so the app's own scripts
+  run, and no others.
+- **Report-only first:** the policy as
+  `Content-Security-Policy-Report-Only`, with a route that logs what it
+  would have blocked, for an app to see before it enforces.
+- **The starters** send both, the appearance script in their `app.html`
+  with the nonce, and `tug dev` lets Vite's dev server in.
+- **The guide:** Deployment, and Pages, the root template.
+
+Choices, to settle before any code:
+
+- **Middleware, as the rest is,** with no import of tug; the nonce in the
+  request's context, which inertia hands the template.
+- **Scripts by nonce, with `'strict-dynamic'`,** as the modules Vite's
+  entry loads carry none; not hashes, as a template's scripts change.
+- **Styles as they are:** shadcn's components and Inertia's progress bar
+  set styles inline, and an injected style does little a script can't;
+  `style-src` allows them.
+- **Images from the app's disk:** S3's origin, when the files are there,
+  as the starters' photos are links to it.
+- **HSTS without preload,** for a year, only over HTTPS: preload is a
+  promise to the browsers that's slow to take back.
+- **Tests:** the headers on pages, JSON, errors and files; the nonce in
+  the template, Vite's tags and the head from SSR, a new one each
+  response; the report route; and in the browser, each starter's pages,
+  in each frontend, with the policy enforced and nothing blocked, which
+  the browser suite's check of the console sees.
 
 ## Decisions
 
