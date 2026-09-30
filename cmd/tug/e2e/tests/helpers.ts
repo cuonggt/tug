@@ -1,8 +1,10 @@
+import { execFile } from 'node:child_process'
 import { createHmac, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { test as base, expect, type Page, type TestInfo } from '@playwright/test'
-import { appDir } from '../apps'
+import { appDir, dotEnv, frontends } from '../apps'
 
 export { expect }
 
@@ -87,6 +89,18 @@ export async function mailedLink(info: TestInfo, email: string, path_: string): 
     }
   }
   throw new Error(`no mail to ${email} with a link to ${path_} in ${log}`)
+}
+
+// command runs one of the app's commands, as its binary does in place of
+// serving, as ./app admins add ann@example.com, in the app's directory
+// with its .env and the APP_URL it serves at, as the app needs to start,
+// and returns what it printed.
+export async function command(info: TestInfo, ...args: string[]): Promise<string> {
+  const dir = appDir(info.project.name)
+  const port = frontends.find((f) => f.name === info.project.name)?.port
+  const env = { ...process.env, ...dotEnv(await readFile(path.join(dir, '.env'), 'utf8')), APP_URL: `http://localhost:${port}` }
+  const { stdout } = await promisify(execFile)(path.join(dir, 'app'), args, { cwd: dir, env })
+  return stdout
 }
 
 // totp is the code an authenticator app shows for the key at a time: HOTP

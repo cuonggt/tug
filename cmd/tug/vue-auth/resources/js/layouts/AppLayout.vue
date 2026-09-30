@@ -8,13 +8,15 @@ import { cn } from '@/lib/utils'
 import { route } from '@/tug/routes'
 
 // nav is the app's own pages, for users who've logged in: add each page to
-// it as the app grows.
+// it as the app grows. An admin has theirs too, as the shared can says.
 const nav = [{ title: 'Dashboard', href: route('dashboard') }]
+const adminNav = [{ title: 'Failed jobs', href: route('failed-jobs.index') }]
 
 // AppLayout is around the app's pages: its name, where to go, and who's
 // logged in, or the way in for a guest, as on an error page.
 const page = usePage()
 const user = computed(() => page.props.auth.user)
+const items = computed(() => [...nav, ...(page.props.can.seeFailedJobs ? adminNav : [])])
 </script>
 
 <template>
@@ -26,7 +28,7 @@ const user = computed(() => page.props.auth.user)
         </Link>
         <nav v-if="user" aria-label="Main" class="flex items-center gap-1 text-sm">
           <Link
-            v-for="item in nav"
+            v-for="item in items"
             :key="item.href"
             :href="item.href"
             :class="

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M29 are done, which is
+the decisions behind it and where it stands: M1 to M30 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -60,7 +60,12 @@ all, and in the auth starter, the page that asks to verify the email
 moving on once it's verified elsewhere, and the queue further (v0.24.0):
 a kind's jobs so many at once, `queue.AtOnce`, or so many a time,
 `queue.Rate`, through a `Limiter`, as `auth.Throttle`, on every instance
-together, and `queue.OnFail`, when a job has failed for good.
+together, and `queue.OnFail`, when a job has failed for good, and
+authorization (v0.25.0): `auth.NewAbility`, what a user may do with a
+thing, whose no, an `auth.Denial`, tug answers with a 403 by its
+`StatusCode`, and an `auth.Gate` asked first, and in the auth starter,
+admins, whom the `admins` command makes, and their page of the jobs that
+failed.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -173,7 +178,9 @@ dev server that isn't there: delete it.
   - `texts.go`: `texts`, what tug says to a person, in English, with
     validate's, which `App.gen` writes beside the types, for tug lang.
   - `errors.go`: `HTTPError`, `BindError`, `PanicError`,
-    `DefaultErrorHandler`, and `errorPage`, which renders
+    `DefaultErrorHandler`, which answers a `statusError`, an error with a
+    `StatusCode`, as auth's `Denial`, with its status, and its words under
+    500, and `errorPage`, which renders
     `Config.ErrorPage` with `RenderStatus` for browsers and Inertia's
     client, unless Debug is showing a 500's details. `adapt` in app.go
     recovers handler panics into `*PanicError`, and re-panics
@@ -390,7 +397,9 @@ dev server that isn't there: delete it.
   are `defineProps<Pages['Name'] & SharedProps>()`, as Vue's compiler
   can't resolve `PageProps<'Name'>`. `e2e/` is one Playwright suite for
   the auth starter in every frontend (`setup.ts` makes the apps with tug
-  new and runs them, their mail in `app.log`; `apps.ts` has the ports):
+  new and runs them, their mail in `app.log`; `apps.ts` has the ports and
+  `dotEnv`; `tests/helpers.ts`'s `command` runs an app's command, as
+  `admins add`):
   the three are one app, word for word, so a change to one frontend is
   made to all three. The auth starter's handlers are in `auth.go.tmpl`
   (who's logged in, and the wrappers `usersOnly`, `verified`,
@@ -474,6 +483,16 @@ dev server that isn't there: delete it.
   `starterData.TokenPrefix`, the app's name in letters and digits, and
   `abilities` lists what the page offers, `user:read`, which `/api/user`
   asks for. `tokens_test.go` and `e2e/tests/tokens.spec.ts` test it.
+  `abilities.go.tmpl` has the app's `gate`, which lets a user whose
+  `admin` column is set do anything, `seeFailedJobs`, `Can`, which
+  `shareAuth` shares as `can` beside `auth` (`can`), and `only`, the
+  wrapper of a route by an ability of no thing; `admin.go.tmpl` has
+  `Admin/FailedJobs` (`failedJobsPage`, `retryFailedJob`,
+  `retryFailedJobs`, through the `jobs` FailedStore, waking the queue) at
+  `/admin/failed-jobs`, in each frontend's nav for an admin, and
+  `adminsCommand`, the `admins` command (`users.setAdmin`, `admins`, in
+  each layer's `users_db.go`); `admin_test.go` and
+  `e2e/tests/admin.spec.ts` test them.
   Every layer's `broadcasts_db.go` is `broadcasts`, a `broadcast.Store`,
   which `main` gives the `broadcast.Hub` it runs with `app.Go`, and
   `newApp` the app as `a.hub`, with `a.broadcasts` for `in(tx)`: in
@@ -550,7 +569,13 @@ dev server that isn't there: delete it.
   tests run on the memory store (`export_test.go`). `access.go`:
   `AccessTokens`, a token (`New`: the `Prefix`, letters and digits, `_`,
   and 32 random bytes in `b32`, lower case) and its SHA-256 (`Hash`, nil
-  for what can't be one), `BearerToken` and `Abilities`. `passkeys.go`:
+  for what can't be one), `BearerToken` and `Abilities`. `ability.go`:
+  `Ability[U, T]` (`NewAbility`, `Can`, `Check`), what a user may do with
+  a thing, whose check's false, or `Deny`'s `*Denial`, is a no in its words
+  or "you may not" and what (`no`), with `StatusCode` 403, and whose other
+  errors are failures; a `Gate`'s `Before` is asked first, and the zero
+  user, a guest, is a no with neither asked (`reflect`'s `IsZero`); `None`
+  is the thing of an ability of none. `passkeys.go`:
   WebAuthn, the options as JSON, the challenge in the session
   (`tug.auth.passkey`, answered once within five minutes, which `Login`
   drops), and the checks of an answer (`checkClientData`,

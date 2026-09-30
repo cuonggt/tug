@@ -748,8 +748,12 @@ purpose, isn't recovered.
 
 `DefaultErrorHandler` answers them like this:
 
-- An `*HTTPError` chooses the status and the message. Anything else is a 500
-  that says "Internal Server Error".
+- An `*HTTPError` chooses the status and the message. So does an error
+  that says its status, with a `StatusCode() int` method, as package
+  `auth`'s no does ([Authorization](authorization.md#a-no-is-a-403)), with
+  its own words as the message, under 500, and the status's text from 500
+  up, as its words may not be the client's. Anything else is a 500 that
+  says "Internal Server Error".
 - Errors of 500 and up are logged through `slog.Default()` as "request
   failed", with the method, path and error, and a panic's stack. With
   `Debug` on, the response shows the error and the stack too.

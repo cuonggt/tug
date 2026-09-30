@@ -1,0 +1,53 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+)
+
+// Who may do what: package auth's abilities, each something a user may do
+// with a thing, or not, which a handler checks, and which a page's links
+// and buttons show, through the shared can. Add the app's own here, as it
+// grows: editing a post of theirs, say.
+
+// gate is asked before every ability: an admin may do anything, and a
+// user whatever each ability says.
+var gate = &auth.Gate[*User]{Before: func(_ context.Context, u *User) (bool, error) {
+	return u.Admin, nil
+}}
+
+// seeFailedJobs is seeing the jobs that failed for good, and running them
+// again, on the page in admin.go: admins alone may, as the gate lets them.
+var seeFailedJobs = auth.NewAbility(gate, "see the jobs that failed", func(context.Context, *User, auth.None) (bool, error) {
+	return false, nil
+})
+
+// Can is what the user of a page may do, which every page has, shared, to
+// show the links and buttons its user may use. The handlers check again.
+type Can struct {
+	SeeFailedJobs bool `json:"seeFailedJobs"`
+}
+
+// can is what u may do, for the page: a check that fails is a no, which
+// the log says why of, as the page shows either way.
+func can(ctx context.Context, u *User) Can {
+	see, err := seeFailedJobs.Can(ctx, u, auth.None{})
+	if err != nil {
+		slog.ErrorContext(ctx, "an ability couldn't say whether a page's user may, so they may not", "err", err)
+	}
+	return Can{SeeFailedJobs: see}
+}
+
+// only makes a handler for the users an ability of no thing lets in: any
+// other gets its no, which tug answers with a 403, the error page.
+func only(ability *auth.Ability[*User, auth.None], h userHandler) userHandler {
+	return func(c *tug.Ctx, user *User) error {
+		if err := ability.Check(c.Context(), user, auth.None{}); err != nil {
+			return err
+		}
+		return h(c, user)
+	}
+}

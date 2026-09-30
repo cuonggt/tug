@@ -17,3 +17,14 @@ export function appDir(frontend: string): string {
   }
   return path.join(dir, frontend)
 }
+
+// dotEnv reads the variables tug new wrote to .env, which are plain
+// NAME=value lines.
+export function dotEnv(text: string): Record<string, string> {
+  const vars: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/)
+    if (m) vars[m[1]] = m[2]
+  }
+  return vars
+}

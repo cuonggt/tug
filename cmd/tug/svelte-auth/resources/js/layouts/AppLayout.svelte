@@ -8,8 +8,9 @@
   import { route } from '@/tug/routes'
 
   // nav is the app's own pages, for users who've logged in: add each page to
-  // it as the app grows.
+  // it as the app grows. An admin has theirs too, as the shared can says.
   const nav = [{ title: 'Dashboard', href: route('dashboard') }]
+  const adminNav = [{ title: 'Failed jobs', href: route('failed-jobs.index') }]
 
   // AppLayout is around the app's pages: its name, where to go, and who's
   // logged in, or the way in for a guest, as on an error page. A link that
@@ -17,6 +18,7 @@
   // shadcn-svelte's Button makes a plain <a>, which loads the whole page.
   let { children }: { children: Snippet } = $props()
   let user = $derived(page.props.auth.user)
+  let items = $derived([...nav, ...(page.props.can.seeFailedJobs ? adminNav : [])])
 </script>
 
 <div class="flex min-h-svh flex-col">
@@ -27,7 +29,7 @@
       </Link>
       {#if user}
         <nav aria-label="Main" class="flex items-center gap-1 text-sm">
-          {#each nav as item (item.href)}
+          {#each items as item (item.href)}
             <Link
               href={item.href}
               class={cn(

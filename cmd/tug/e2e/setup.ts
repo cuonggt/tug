@@ -4,7 +4,7 @@ import { mkdtemp, open, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { appDir, frontends } from './apps'
+import { appDir, dotEnv, frontends } from './apps'
 
 const exec = promisify(execFile)
 const repo = path.resolve(import.meta.dirname, '../../..')
@@ -72,17 +72,6 @@ async function stop(app: ChildProcess) {
     app.kill('SIGTERM')
     await exited
   }
-}
-
-// dotEnv reads the variables tug new wrote to .env, which are plain
-// NAME=value lines.
-function dotEnv(text: string): Record<string, string> {
-  const vars: Record<string, string> = {}
-  for (const line of text.split('\n')) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/)
-    if (m) vars[m[1]] = m[2]
-  }
-  return vars
 }
 
 async function sh(cwd: string, cmd: string, ...args: string[]) {

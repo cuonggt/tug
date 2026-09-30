@@ -1,0 +1,117 @@
+package main
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// makeAdmin makes the user with email an admin, as the admins command
+// does.
+func (a *testApp) makeAdmin(email string) {
+	a.t.Helper()
+	var out strings.Builder
+	if err := adminsCommand(context.Background(), &users{db: a.db}, "./blog", []string{"add", email}, &out); err != nil {
+		a.t.Fatal(err)
+	}
+}
+
+func TestTheAdminsCommandMakesSomeoneAnAdminAndAUserAgain(t *testing.T) {
+	app := newTestApp(t)
+	app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	us := &users{db: app.db}
+	run := func(args ...string) string {
+		t.Helper()
+		var out strings.Builder
+		if err := adminsCommand(context.Background(), us, "./blog", args, &out); err != nil {
+			t.Fatalf("admins %v: %v", args, err)
+		}
+		return out.String()
+	}
+	if out := run(); !strings.Contains(out, "No one is an admin: ./blog admins add <email>") {
+		t.Errorf("with none:\n%s", out)
+	}
+	if out := run("add", "ANN@example.com"); out != "ann@example.com is an admin.\n" {
+		t.Errorf("adding Ann: %q", out)
+	}
+	if out := run(); !strings.Contains(out, "1 admin:\n\n  ann@example.com  Ann\n") {
+		t.Errorf("with Ann:\n%s", out)
+	}
+	if out := run("remove", "ann@example.com"); !strings.Contains(out, "a user again") {
+		t.Errorf("removing Ann: %q", out)
+	}
+	if out := run(); !strings.Contains(out, "No one is an admin") {
+		t.Errorf("once Ann was removed:\n%s", out)
+	}
+	for _, args := range [][]string{{"add", "bob@example.com"}, {"add"}, {"promote", "ann@example.com"}} {
+		if err := adminsCommand(context.Background(), us, "./blog", args, &strings.Builder{}); err == nil {
+			t.Errorf("admins %v wasn't an error", args)
+		}
+	}
+}
+
+func TestTheFailedJobsPageIsForAdminsAlone(t *testing.T) {
+	app := newTestApp(t)
+	if r := app.client().Get("/admin/failed-jobs"); r.Location() != "/login" {
+		t.Errorf("a guest: %v", r)
+	}
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	for _, r := range []*tugtest.Response{c.Get("/admin/failed-jobs"), c.Post("/admin/failed-jobs/retry", nil)} {
+		if r.Code != 403 || r.Page.Component != "Error" || tugtest.Prop[string](r, "message") != "you may not see the jobs that failed" {
+			t.Errorf("a user: %v, %v", r, r.Page.Props)
+		}
+	}
+	if tugtest.Prop[bool](c.Get("/dashboard"), "can.seeFailedJobs") {
+		t.Error("a user's pages say they may see the jobs that failed")
+	}
+
+	app.makeAdmin("ann@example.com")
+	r := c.Get("/admin/failed-jobs")
+	if r.Code != 200 || r.Page.Component != "Admin/FailedJobs" {
+		t.Fatalf("an admin: %v", r)
+	}
+	if !tugtest.Prop[bool](c.Get("/dashboard"), "can.seeFailedJobs") {
+		t.Error("an admin's pages don't say they may see the jobs that failed")
+	}
+}
+
+func TestAnAdminRunsTheJobsThatFailedAgain(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	app.makeAdmin("ann@example.com")
+	s := &jobs{db: app.db}
+	failJob(t, s, `{"user":7}`, "550 no such mailbox: bob@example.com")
+
+	jobs := tugtest.Props(c.Get("/admin/failed-jobs"), FailedJobs).Jobs
+	if len(jobs) != 1 || jobs[0].Kind != "verify-mail" || jobs[0].Payload != `{"user":7}` || jobs[0].Error != "550 no such mailbox: bob@example.com" || jobs[0].Attempts != 1 {
+		t.Fatalf("listed %+v", jobs)
+	}
+	id := jobs[0].ID
+	r := c.Post("/admin/failed-jobs/"+id+"/retry", nil)
+	if r.Location() != "/admin/failed-jobs" {
+		t.Fatalf("running job %s again: %v", id, r)
+	}
+	r = r.Follow()
+	if flash := tugtest.Flash[string](r, "success"); flash != "Job "+id+" is back to run." {
+		t.Errorf("flash %q", flash)
+	}
+	if left := tugtest.Props(r, FailedJobs).Jobs; len(left) != 0 {
+		t.Errorf("still listed %+v once it was run again", left)
+	}
+	// Run again twice, as from two admins' pages.
+	if flash := tugtest.Flash[string](c.Post("/admin/failed-jobs/"+id+"/retry", nil).Follow(), "error"); !strings.Contains(flash, "hasn't failed for good") {
+		t.Errorf("running it again again: flash %q", flash)
+	}
+
+	failJob(t, s, `{"user":8}`, "550 no such mailbox")
+	failJob(t, s, `{"user":9}`, "550 no such mailbox")
+	r = c.Post("/admin/failed-jobs/retry", nil).Follow()
+	if flash := tugtest.Flash[string](r, "success"); flash != "2 jobs back to run." {
+		t.Errorf("running them all again: flash %q", flash)
+	}
+	if left, err := s.Failed(context.Background()); err != nil || len(left) != 0 {
+		t.Errorf("left %v, %v", left, err)
+	}
+}

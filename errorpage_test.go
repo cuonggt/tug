@@ -42,6 +42,19 @@ func TestAnErrorIsShownAsTheErrorPage(t *testing.T) {
 	}
 }
 
+func TestAnErrorThatSaysItsStatusIsShownAsTheErrorPageWithIt(t *testing.T) {
+	app := errorPageApp(t, false)
+	app.Get("/posts/{id}/edit", func(c *Ctx) error { return saysItsStatus{http.StatusForbidden} })
+	rec := serve(app, "GET", "/posts/9/edit", "", "X-Inertia", "true", "X-Inertia-Version", "v1")
+	var p inertia.Page
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatalf("%d %s: %v", rec.Code, rec.Body, err)
+	}
+	if rec.Code != 403 || p.Component != "Error" || p.Props["status"] != 403.0 || p.Props["message"] != "the post is locked" {
+		t.Errorf("got %d with %+v", rec.Code, p)
+	}
+}
+
 func TestAnErrorPageHidesA500sDetailsUnlessDebugShowsThem(t *testing.T) {
 	captureLog(t)
 	rec := serve(errorPageApp(t, false), "GET", "/broken", "", "X-Inertia", "true", "X-Inertia-Version", "v1")

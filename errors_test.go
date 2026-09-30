@@ -3,6 +3,7 @@ package tug
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -32,6 +33,33 @@ func TestAnHTTPErrorChoosesTheStatusAndTheMessage(t *testing.T) {
 	}
 	if rec := serve(app, "GET", "/gone", ""); rec.Code != 404 || rec.Body.String() != "Not Found" {
 		t.Errorf("GET /gone = %d %q, want the status's own text", rec.Code, rec.Body)
+	}
+}
+
+// saysItsStatus is an error with a StatusCode, as package auth's no is,
+// which imports no tug.
+type saysItsStatus struct{ status int }
+
+func (e saysItsStatus) Error() string   { return "the post is locked" }
+func (e saysItsStatus) StatusCode() int { return e.status }
+
+func TestAnErrorThatSaysItsStatusIsAnsweredWithIt(t *testing.T) {
+	captureLog(t)
+	app := New(Config{})
+	app.Get("/locked", func(c *Ctx) error {
+		return fmt.Errorf("editing post 9: %w", saysItsStatus{http.StatusForbidden})
+	})
+	app.Get("/down", func(c *Ctx) error { return saysItsStatus{http.StatusServiceUnavailable} })
+
+	if rec := serve(app, "GET", "/locked", ""); rec.Code != 403 || rec.Body.String() != "the post is locked" {
+		t.Errorf("GET /locked = %d %q, want the error's own words, not what wraps it", rec.Code, rec.Body)
+	}
+	if rec := serve(app, "GET", "/locked", "", "Accept", "application/json"); rec.Code != 403 || rec.Body.String() != `{"message":"the post is locked"}` {
+		t.Errorf("GET /locked as JSON = %d %s", rec.Code, rec.Body)
+	}
+	// A server error's words may be the server's, not the client's.
+	if rec := serve(app, "GET", "/down", ""); rec.Code != 503 || rec.Body.String() != "Service Unavailable" {
+		t.Errorf("GET /down = %d %q, want the status's own text", rec.Code, rec.Body)
 	}
 }
 

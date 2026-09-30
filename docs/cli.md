@@ -122,8 +122,8 @@ there, and writes the types.
 
 With `-auth`, the Go files for accounts are added, `auth.go`,
 `verify.go`, `twofactor.go`, `passkeys.go`, `settings.go`, `photos.go`,
-`tokens.go`, `broadcasts.go`, `mail.go`, `users.go` and `jobs.go`, with
-their tests, and the database's: `db.go`, `users_db.go`,
+`tokens.go`, `broadcasts.go`, `abilities.go`, `admin.go`, `mail.go`,
+`users.go` and `jobs.go`, with their tests, and the database's: `db.go`, `users_db.go`,
 `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,
 `tokens_db.go`, `broadcasts_db.go` and `db_test.go`, the SQL, and on
 Postgres or MySQL, `compose.yaml`. So is a frontend of Tailwind and shadcn's components:

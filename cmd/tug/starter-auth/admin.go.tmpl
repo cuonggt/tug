@@ -1,0 +1,131 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/cuonggt/tug"
+)
+
+// What admins have: a page of the jobs that failed for good, which runs
+// them again, as the jobs command does, for someone who may see every
+// user's jobs; and the admins command, which makes someone an admin. Who
+// may is in abilities.go.
+
+var FailedJobs = tug.Page[FailedJobsProps]("Admin/FailedJobs")
+
+// FailedJobsProps are the jobs that failed for good, the latest first.
+type FailedJobsProps struct {
+	Jobs []FailedJob `json:"jobs"`
+}
+
+// FailedJob is a job that failed for good, as its page shows it.
+type FailedJob struct {
+	ID       string    `json:"id"`
+	Kind     string    `json:"kind"`
+	Payload  string    `json:"payload"` // the value it was pushed with, as JSON
+	Attempts int       `json:"attempts"`
+	Error    string    `json:"error"`
+	FailedAt time.Time `json:"failedAt"`
+}
+
+// failedJobsPage lists the jobs that failed for good, which are kept for
+// a month, the latest first.
+func (a *app) failedJobsPage(c *tug.Ctx, _ *User) error {
+	failed, err := a.jobs.Failed(c.Context())
+	if err != nil {
+		return err
+	}
+	jobs := make([]FailedJob, len(failed))
+	for i, j := range failed {
+		jobs[i] = FailedJob{ID: j.ID, Kind: j.Kind, Payload: string(j.Payload), Attempts: j.Attempts, Error: j.Error, FailedAt: j.FailedAt}
+	}
+	return FailedJobs.Render(c, FailedJobsProps{Jobs: jobs})
+}
+
+// retryFailedJob puts a job that failed for good back to run, from its
+// first attempt, and wakes the queue. One that another admin has run
+// again already says so.
+func (a *app) retryFailedJob(c *tug.Ctx, _ *User) error {
+	id := c.Param("id")
+	again, err := a.jobs.RunAgain(c.Context(), id, time.Now())
+	if err != nil {
+		return err
+	}
+	if !again {
+		c.Flash("error", "Job "+id+" hasn't failed for good, or has gone: it's been run again already, maybe.")
+		return c.RedirectRoute("failed-jobs.index")
+	}
+	a.queue.Wake()
+	c.Flash("success", "Job "+id+" is back to run.")
+	return c.RedirectRoute("failed-jobs.index")
+}
+
+// retryFailedJobs puts every job that failed for good back to run.
+func (a *app) retryFailedJobs(c *tug.Ctx, _ *User) error {
+	failed, err := a.jobs.Failed(c.Context())
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, j := range failed {
+		again, err := a.jobs.RunAgain(c.Context(), j.ID, time.Now())
+		if err != nil {
+			return err
+		}
+		if again {
+			n++
+		}
+	}
+	a.queue.Wake()
+	c.Flash("success", fmt.Sprintf("%s back to run.", howMany(n, "job")))
+	return c.RedirectRoute("failed-jobs.index")
+}
+
+// adminsCommand is the admins command, name admins, which lists the
+// admins, and name admins add ann@example.com, or remove, which makes
+// someone an admin, or a user again: the app's own binary, run where it
+// runs, with the database it's given, as there's no admin to ask before
+// the first.
+func adminsCommand(ctx context.Context, us *users, name string, args []string, w io.Writer) error {
+	switch {
+	case len(args) == 0:
+		admins, err := us.admins(ctx)
+		if err != nil {
+			return err
+		}
+		if len(admins) == 0 {
+			fmt.Fprintf(w, "No one is an admin: %s admins add <email> makes someone one.\n", name)
+			return nil
+		}
+		fmt.Fprintf(w, "%s:\n\n", howMany(len(admins), "admin"))
+		for _, u := range admins {
+			fmt.Fprintf(w, "  %s  %s\n", u.Email, u.Name)
+		}
+		fmt.Fprintf(w, "\n%s admins add <email> makes someone an admin, and %s admins remove <email> a user again.\n", name, name)
+		return nil
+
+	case len(args) == 2 && (args[0] == "add" || args[0] == "remove"):
+		u, err := us.byEmail(ctx, args[1])
+		if errors.Is(err, errNoUser) {
+			return fmt.Errorf("no account has the email %s", args[1])
+		}
+		if err != nil {
+			return err
+		}
+		admin := args[0] == "add"
+		if err := us.setAdmin(ctx, u.ID, admin); err != nil {
+			return err
+		}
+		if admin {
+			fmt.Fprintf(w, "%s is an admin.\n", u.Email)
+		} else {
+			fmt.Fprintf(w, "%s is a user again, and not an admin.\n", u.Email)
+		}
+		return nil
+	}
+	return fmt.Errorf("%s admins lists the admins, and %s admins add <email>, or remove <email>, makes someone an admin or a user again", name, name)
+}

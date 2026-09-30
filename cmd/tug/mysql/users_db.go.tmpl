@@ -188,3 +188,27 @@ func (us *users) swapTwoFactor(ctx context.Context, was sealedTwoFactor, secret,
 		secret, codes, was.User, was.Secret)
 	return err
 }
+
+// setAdmin makes the user with this ID an admin, or a user again.
+func (us *users) setAdmin(ctx context.Context, id int64, admin bool) error {
+	_, err := us.db.ExecContext(ctx, "UPDATE users SET admin = ? WHERE id = ?", admin, id)
+	return err
+}
+
+// admins returns the admins' names and emails, by email.
+func (us *users) admins(ctx context.Context) ([]*User, error) {
+	rows, err := us.db.QueryContext(ctx, "SELECT name, email FROM users WHERE admin ORDER BY email")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var admins []*User
+	for rows.Next() {
+		u := &User{Admin: true}
+		if err := rows.Scan(&u.Name, &u.Email); err != nil {
+			return nil, err
+		}
+		admins = append(admins, u)
+	}
+	return admins, rows.Err()
+}

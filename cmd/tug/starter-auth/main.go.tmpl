@@ -330,8 +330,10 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	pages.Share("appName", appName)
 	// Every page has auth.user: null for a guest, as shared here, which is
 	// also where tug gen learns its type, and the user for someone who has
-	// logged in, shared as each page is rendered.
+	// logged in, shared as each page is rendered; and can, what the user
+	// may do, in abilities.go.
 	pages.Share("auth", Auth{})
+	pages.Share("can", Can{})
 	pages.ShareFunc(a.shareAuth)
 
 	// The app's languages: a file each in lang/, as tug lang vi writes
@@ -377,9 +379,13 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	}
 
 	// The binary's commands, which Run runs in place of serving, on the
-	// app's database: ./blog jobs, in jobs.go.
+	// app's database: ./blog jobs, in jobs.go, and ./blog admins, in
+	// admin.go.
 	app.Command("jobs", "list the jobs that failed for good; jobs retry <id>, or retry all, runs them again", func(ctx context.Context, args []string) error {
 		return jobsCommand(ctx, a.jobs, os.Args[0], args, os.Stdout)
+	})
+	app.Command("admins", "list the admins; admins add <email>, or remove <email>, makes someone an admin or a user again", func(ctx context.Context, args []string) error {
+		return adminsCommand(ctx, a.users, os.Args[0], args, os.Stdout)
 	})
 
 	app.Get("/", home).Name("home")
@@ -409,6 +415,12 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 
 	// The user's own events, which their pages listen for: broadcasts.go.
 	app.Get("/broadcasts", a.usersOnly(a.userEvents)).Name("broadcasts")
+
+	// For admins alone, whom the admins command makes, as abilities.go
+	// has it: the jobs that failed for good, run again: admin.go.
+	app.Get("/admin/failed-jobs", a.usersOnly(verified(only(seeFailedJobs, a.failedJobsPage)))).Name("failed-jobs.index")
+	app.Post("/admin/failed-jobs/retry", a.usersOnly(verified(only(seeFailedJobs, a.retryFailedJobs)))).Name("failed-jobs.retry-all")
+	app.Post("/admin/failed-jobs/{id}/retry", a.usersOnly(verified(only(seeFailedJobs, a.retryFailedJob)))).Name("failed-jobs.retry")
 
 	// Settings: settings.go, two-factor logins in twofactor.go, and passkeys
 	// in passkeys.go. What could hand the account to someone else asks for

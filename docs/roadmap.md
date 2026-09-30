@@ -35,7 +35,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M27 | API tokens                 | done   |
 | M28 | Broadcasting               | done   |
 | M29 | The queue, further         | done   |
-| M30 | Authorization              | later  |
+| M30 | Authorization              | done   |
 | M31 | Notifications              | later  |
 | M32 | Security headers           | later  |
 
@@ -2489,60 +2489,85 @@ Choices made on the way:
   job's attempts and the kind's hold, and the held kinds pruned; a kind
   with neither, as before, in the rest.
 
-## M30 · Authorization — later
+## M30 · Authorization — done
 
-tug says who's logged in, and nothing of what they may do: each app
-writes its checks its own way, and its own 403s, and a page that hides a
-button its user may not press asks its handler for a flag of its own.
-Laravel's gates say what a user may do with a thing, `authorize` turns a
-no into a 403, and an Inertia page gets what its user may do as props.
-And the auth starter's users are all alike, so the jobs that failed for
-good are listed by its binary's command alone: a page for them waits, in
+tug said who's logged in, and nothing of what they may do: each app wrote
+its checks its own way, and its own 403s, and a page that hid a button its
+user might not press asked its handler for a flag of its own. Laravel's
+gates say what a user may do with a thing, `authorize` turns a no into a
+403, and an Inertia page gets what its user may do as props. And the auth
+starter's users were all alike, so the jobs that failed for good were
+listed by its binary's command alone: a page for them waited, in
 Background jobs, for someone who may see every user's jobs. To be
 released as v0.25.0.
 
-- **Abilities, in package `auth`:** `auth.Ability`, what a user may do
-  with a thing, as edit a post: a function of the user and the thing that
-  says yes, or no, and why not. `Can` asks, and `Check` returns the no as
-  an error, "you may not edit this post", for the handler to return.
+- **Abilities, in package `auth`:** `auth.NewAbility`, what a user may do
+  with a thing, as edit a post: a check of the user and the thing that
+  says yes, or no, and why not with `auth.Deny`. `Can` asks, and `Check`
+  returns the no as an error, an `*auth.Denial`, "you may not edit this
+  post", for the handler to return.
 - **A no is a 403:** tug answers an error that says its status with it,
   and its message, as it does a `*tug.HTTPError`: the error page in a
   browser, and JSON for an API.
-- **Before the abilities:** a check that answers every ability first, as
-  an admin may do anything, or a suspended account nothing.
-- **On the page:** what its user may do with what it shows, in props of
-  its own, `can`, so the page shows the buttons its user may press, and
-  the handler checks again when one is.
-- **The auth starter:** admins, whose `admin` column a command sets,
-  `./blog users admin ann@example.com`, and a page for them of the jobs
-  that failed for good, with their errors, which runs them again, as the
-  `jobs` command does.
-- **The guide:** a page, Authorization; Accounts, the admins; and
-  Background jobs, the page.
+- **Before the abilities:** an `auth.Gate`, whose `Before` answers every
+  ability made with it first, as an admin may do anything, or a suspended
+  account nothing.
+- **On the page:** what its user may do, in props of its own, `can`, so
+  the page shows the buttons its user may press, and the handler checks
+  again when one is.
+- **The auth starter:** admins, whose `admin` column the `admins`
+  command sets, `./blog admins add ann@example.com`, and a page for them,
+  `/admin/failed-jobs`, of the jobs that failed for good, with their
+  errors, which runs them again, as the `jobs` command does.
+- **The guide:** a page, Authorization; Accounts, the admins; Routing,
+  the errors that say their status; and Background jobs, the page.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **In `auth`,** beside the logins, with no idea what a user is: an
   ability is generic over the app's user and the thing, both the app's
-  own types.
-- **Abilities are values,** `var editPost = auth.Ability(...)`, used where
-  they're checked, where Laravel's gates are names in strings: a mistyped
-  one doesn't compile.
+  own types, `*auth.Ability[*User, *Post]`, which the check's types say.
+- **Abilities are values,** `var editPost = auth.NewAbility(...)`, used
+  where they're checked, where Laravel's gates are names in strings: a
+  mistyped one doesn't compile. `NewAbility`, as `Ability` is the type's
+  name.
+- **A check is `(bool, error)`:** most say yes or no, `p.Author ==
+  u.ID`, and one that says why returns `false, auth.Deny("the post is
+  locked")`; any other error is a failure, a 500, as a query that fails
+  isn't a no. `Can` returns the failure as its error, and never counts
+  it a yes.
 - **Policies are the app's:** the abilities over one type are a struct of
   them, or a file of them; Go has no discovery by name to hang a
   convention on.
-- **The no says why,** to the person who gets it: the ability's reason
-  when it gives one, or else "you may not" and what the ability is for.
+- **The no says why,** to the person who gets it: the check's reason when
+  it gives one, or else "you may not" and what the ability is.
+- **A guest may do nothing an ability names:** the zero user, a nil
+  `*User`, is a no, with neither the gate nor the check asked, so a check
+  reads its user without looking for nil.
 - **By its status, not its type:** tug answers an error with a
   `StatusCode() int`, as auth's no has, so `auth` imports no tug, as the
-  core imports no `auth`.
+  core imports no `auth`; from 500 up, with the status's text, as the
+  error's own words may not be the client's.
+- **The gate's `Before` is `(bool, error)` too:** true lets the user do
+  anything, a `Deny` nothing, and false leaves it to the ability.
+- **`can` is shared,** what's the app's as a whole, for the header's nav,
+  worked out with `auth` as each page is rendered; what's one thing's
+  goes in its page's props.
 - **One admin column,** not tables of roles and permissions: an app with
-  roles checks them in its abilities.
-- **Tests:** an ability's yes, no and why, the check before it, and a
-  guest; the 403 as the error page, in Inertia's client, and as JSON; a
-  page's `can`; and in the starter, the admin command, the page refused
-  to a user and a guest, its list, and a job run again, and in the
-  browser, an admin's page.
+  roles checks them in its abilities. The command is `admins`, with
+  `add` and `remove`, and a list, as `jobs` is, rather than a `users`
+  command of one verb.
+- **The admins' page asks a verified email** too, as the dashboard does,
+  and a job run again from it wakes the queue, where the command's waits
+  for the next poll of the app that serves.
+- **Tests:** an ability's yes, no and why, a reason left empty, the gate
+  before it, a failure that isn't a no, and a guest, whom neither is
+  asked; errors that say their status as text, JSON and the error page,
+  wrapped too, and a server error's words kept back; and in the starter,
+  the admins command, the page refused to a guest and a user, and not in
+  their `can`, and an admin's, its list, a job run again, and again, and
+  all of them; and in the browser, in each frontend, a user's 403 and an
+  admin, made by the command, finding the page in the header.
 
 ## M31 · Notifications — later
 

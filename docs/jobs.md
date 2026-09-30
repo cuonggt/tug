@@ -211,6 +211,11 @@ image, the binary is `/server`: `docker exec <container> /server jobs`. The
 command is the app's own, added in its `newApp`, and written in `jobs.go`,
 rather than tug's: a deployed app runs as its binary, where tug isn't.
 
+The starter's admins have a page of them too, `/admin/failed-jobs`, which
+lists them, with their values and errors, and runs one, or all, again, as
+the command does, and wakes the queue, so they run at once
+([Accounts](auth.md#admins)).
+
 ## Jobs on a schedule
 
 ```go
@@ -820,9 +825,6 @@ anywhere that reaches the database.
 
 ## What's not here yet
 
-- **A page for the jobs that failed**: the auth starter has a command,
-  `./blog jobs`, as a page needs someone who may see every user's jobs, and
-  the starter's users are users.
 - **Chains and batches**, as Laravel's `Bus` has: a job that pushes the
   next as it's done is a chain, and a batch needs a table of its own,
   with nothing yet asking for one.

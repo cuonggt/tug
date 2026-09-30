@@ -79,6 +79,9 @@ func (e *PanicError) Unwrap() error {
 // DefaultErrorHandler answers an error from a handler. validate.Errors go
 // back to the form they came from, as Inertia expects, or to an API client
 // as a 422 (see BindValid). An *HTTPError chooses the status and message.
+// So does an error that says its status with a StatusCode method, as
+// package auth's no does, with its own Error as the message under 500,
+// and the status's text from 500 up, as its Error may not be the client's.
 // Anything else is a 500 that keeps its details in the log, unless
 // Config.Debug is on. Server errors are logged through slog.Default(),
 // with the stack for a panic.
@@ -93,9 +96,13 @@ func DefaultErrorHandler(c *Ctx, err error) {
 	}
 
 	code, message := http.StatusInternalServerError, ""
-	var he *HTTPError
-	if errors.As(err, &he) {
+	if he, ok := errors.AsType[*HTTPError](err); ok {
 		code, message = he.Code, he.Message
+	} else if status, ok := errors.AsType[statusError](err); ok {
+		code = status.StatusCode()
+		if code < 500 {
+			message = status.Error()
+		}
 	}
 	if code < 100 || code > 999 {
 		code = http.StatusInternalServerError // WriteHeader would panic
@@ -135,6 +142,13 @@ func DefaultErrorHandler(c *Ctx, err error) {
 		return
 	}
 	c.String(code, message)
+}
+
+// statusError is an error that says its status, as package auth's no,
+// which imports no tug.
+type statusError interface {
+	error
+	StatusCode() int
 }
 
 // ErrorPageProps are the props of Config.ErrorPage.

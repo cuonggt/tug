@@ -52,13 +52,14 @@ func (a *app) user(r *http.Request) (*User, error) {
 	return u, nil
 }
 
-// shareAuth is the auth prop, for each page as it's rendered.
+// shareAuth is the auth prop, and can, what its user may do, for each
+// page as it's rendered.
 func (a *app) shareAuth(r *http.Request) inertia.Props {
 	u, err := a.user(r)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "the user of a page couldn't be found, so it shows them as a guest", "err", err)
 	}
-	return inertia.Props{"auth": Auth{User: u}}
+	return inertia.Props{"auth": Auth{User: u}, "can": can(r.Context(), u)}
 }
 
 // userHandler is a handler for users who've logged in, which is handed the

@@ -169,8 +169,9 @@ func showPost(c *tug.Ctx) error {
   once they turn that on, or with a passkey and no password at all, reset
   a forgotten password by email, change their profile and photo, password
   and appearance in settings, and make API tokens, for a script or another
-  service to call the app's API with, with the users in SQLite, or with
-  `-postgres` or `-mysql`, in Postgres or MySQL, and a frontend of
+  service to call the app's API with, and where admins, whom a command
+  makes, have a page of the jobs that failed, with the users in SQLite,
+  or with `-postgres` or `-mysql`, in Postgres or MySQL, and a frontend of
   Tailwind and shadcn's components, as Laravel's starter kits have, in
   React, Vue or Svelte. Its handlers are the app's own code, on package
   `auth`, which has the parts where a slip is a security hole: argon2id
@@ -178,8 +179,9 @@ func showPost(c *tug.Ctx) error {
   tokens for reset and verification links, two-factor codes and recovery
   codes kept encrypted, passkeys, WebAuthn's checks on the standard
   library, asking for the password again, API tokens kept as their hashes,
-  and throttles on guessing, whose counts every instance of the app
-  shares.
+  throttles on guessing, whose counts every instance of the app shares,
+  and abilities, what a user may do with a thing, whose no is a 403 that
+  says why.
 - **Mail** (package `mail`): through an SMTP server, or in development
   written out where `tug dev` shows it, links and all, with copies, a
   `Bcc` no one sees, replies to another address, files, and a link to
