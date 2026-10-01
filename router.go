@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+
+	"github.com/cuonggt/tug/internal/route"
 )
 
 // Router adds routes. The App is the root Router, and Group makes one for
@@ -104,11 +106,15 @@ func (r *Router) Handle(method, path string, h HandlerFunc, mw ...Middleware) *R
 	}
 
 	rt := &Route{app: a, group: r, method: method, path: full, h: h, mw: slices.Clone(mw)}
+	rt.shown = rt.String()
 	pattern := full
 	if method != "" {
 		pattern = method + " " + full
 	}
 	a.mux.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Answered as it's matched, before its middleware, which may
+		// answer for it.
+		route.Answered(req.Context(), &rt.shown)
 		rt.handler.ServeHTTP(w, req)
 	}))
 	a.routes = append(a.routes, rt)
@@ -137,6 +143,10 @@ type Route struct {
 	// starts serving, so middleware added to a group after its routes
 	// still wraps them.
 	handler http.Handler
+
+	// shown is the route as String says it, which RouteOf returns for a
+	// request it answered.
+	shown string
 }
 
 // Name names the route, for App.URL and Ctx.RedirectRoute. A name belongs
@@ -153,12 +163,44 @@ func (rt *Route) Name(name string) *Route {
 	return rt
 }
 
-// String describes the route by its method and path, "GET /posts/{id}".
+// String describes the route by its method and path as it was added, "GET
+// /posts/{id}", or "ANY /files/{path...}" for a route of any method.
 func (rt *Route) String() string {
+	path := strings.TrimSuffix(rt.path, "{$}") // tug's own, which keeps a path ending in a slash exact
 	if rt.method == "" {
-		return "ANY " + rt.path
+		return "ANY " + path
 	}
-	return rt.method + " " + rt.path
+	return rt.method + " " + path
+}
+
+// RouteOf returns the route that answered r, as its String says it, "GET
+// /posts/{id}": for the App's own middleware, around the router, to read
+// once the handler has run, as the label of the request's metrics, which
+// has as many values as the app has routes, where its path has as many as
+// the app has posts. The route answers as it's matched, so its own
+// middleware, and its group's, answer as it. A request no route answered,
+// a 404, a 405, or a redirect to its path without its trailing slash, has
+// "", as does one no router has seen.
+func RouteOf(r *http.Request) string {
+	if shown, placed := route.Of(r.Context()); placed {
+		return shown
+	}
+	// An App with no middleware of its own places no route, as nothing
+	// outside the router needs it, and inside it ServeMux has its pattern.
+	return shownPattern(r.Pattern)
+}
+
+// shownPattern is a route's ServeMux pattern as the route's String says
+// it: "" for none, and for "/", which is tug's own, the misses'.
+func shownPattern(pattern string) string {
+	if pattern == "" || pattern == "/" {
+		return ""
+	}
+	pattern = strings.TrimSuffix(pattern, "{$}")
+	if strings.HasPrefix(pattern, "/") {
+		return "ANY " + pattern // a route of any method has none in its pattern
+	}
+	return pattern
 }
 
 // chain wraps the route's handler in its own middleware, then in each

@@ -321,6 +321,36 @@ It answers for itself: its 404s are its own, not the `ErrorHandler`'s.
 app.Get("/static/{path...}", tug.WrapHandler(http.StripPrefix("/static", http.FileServerFS(static))))
 ```
 
+### The route that answered
+
+```go
+app.Use(func(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+		route := tug.RouteOf(r) // "GET /posts/{id}", once the handler has run
+		// ...
+	})
+})
+```
+
+`tug.RouteOf(r)` is the route that answered `r`, as its `String` says it:
+its method and path as they were added, `GET /posts/{id}`, or
+`ANY /files/{path...}` for a route of any method. The App's middleware,
+outside the router, reads it once the handler has run, as the label of a
+request's metrics, which has as many values as the app has routes, where
+its path has as many as the app has posts ([Metrics](deployment.md#metrics));
+`Logger` logs it. A route answers as it's matched, so a redirect its group's
+middleware sends, to log in, say, is the route's. A request no route
+answered, a 404, a 405, or a redirect to its path without its trailing
+slash, has `""`.
+
+An App with middleware of its own puts a place for the route in each
+request's context as the request comes in, which the router fills in,
+whatever copies of the request the middleware in between makes. Inside the
+router, a handler's `RouteOf(c.Request())` reads it, or, in an App with no
+middleware, which makes no place, the pattern `ServeMux` keeps on the
+request.
+
 ### Package `middleware`
 
 Package `middleware` has eight, each a plain
@@ -351,7 +381,8 @@ app.Use(
   in the response's `X-Request-ID`, and into the request's context, where
   `middleware.RequestIDFrom(ctx)` finds it.
 - `Logger()` logs a line for each request through `slog.Default()`: its
-  method, path, status, size and duration, and its `request_id` when
+  method, path, status, size and duration, its `route`, when a route
+  answered it (`tug.RouteOf`, above), and its `request_id` when
   `RequestID` ran before. A 5xx logs at Error, a 4xx at Warn, and the rest
   at Info. The path is logged without its query string, which can carry
   tokens.

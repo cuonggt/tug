@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/internal/route"
 	"github.com/cuonggt/tug/internal/typegen"
 	"github.com/cuonggt/tug/lang"
 	"github.com/cuonggt/tug/session"
@@ -125,6 +126,11 @@ type App struct {
 	handler http.Handler
 	serving atomic.Bool
 
+	// placeRoutes is set when the App has middleware of its own, around
+	// the router, which needs a place in a request's context for the route
+	// that answers it to read it in: inside the router, ServeMux has it.
+	placeRoutes bool
+
 	// background is what Go runs beside the server.
 	background []func(ctx context.Context) error
 
@@ -182,6 +188,11 @@ func New(config ...Config) *App {
 // middleware: adding either after it panics.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.start.Do(a.freeze)
+	if a.placeRoutes {
+		// A place for the route that answers r, which the router fills
+		// in, for RouteOf in the App's own middleware, around the router.
+		r = r.WithContext(route.Into(r.Context()))
+	}
 	a.handler.ServeHTTP(w, r)
 }
 
@@ -207,6 +218,7 @@ func (a *App) freeze() {
 		h = a.config.Session.Middleware(h)
 	}
 	a.handler = wrap(h, a.Router.mw)
+	a.placeRoutes = len(a.Router.mw) > 0
 }
 
 func (a *App) mustNotServe() {

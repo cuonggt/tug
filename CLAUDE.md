@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M33 are done, which is
+the decisions behind it and where it stands: M1 to M34 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -78,8 +78,12 @@ the database's tables made and changed by files of SQL in `migrations/`,
 named for when they were made, run once each, in order, as the app
 starts, and by the auth starter's `migrate` command, kept by name and a
 hash of the SQL, through a Store in each database's layer, and `tug
-migrate new`. `README.md` is the front door, and `docs/` the guide, a page per part of
-tug. Change them with the behaviour.
+migrate new`, and hooks for metrics (v0.29.0): `tug.RouteOf`, the route
+that answered a request, for the app's middleware to label its metrics
+by, which `middleware.Logger` logs, and `queue.Config`'s `Observe`, told
+how each run of a job went, with the counting left to a client the app
+picks. `README.md` is the front door, and `docs/` the guide, a page per
+part of tug. Change them with the behaviour.
 
 ## Commands
 
@@ -159,6 +163,9 @@ dev server that isn't there: delete it.
     the event streams, which `Shutdown` would otherwise wait for.
     `Generating` says tug gen started the app (`TUG_GEN`), for `main` to
     leave out what only serving needs, as the auth starter's database.
+    `ServeHTTP` puts a place for the route that answers a request in its
+    context, through `internal/route`, when the App has middleware of its
+    own (`placeRoutes`), which alone, outside the router, needs it.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -166,6 +173,10 @@ dev server that isn't there: delete it.
     panics. Paths match exactly: `Handle` adds `{$}` to a path ending in
     `/`, and a group's `/` is the prefix itself. App middleware wraps the
     whole mux, so it sees 404s; group and route middleware wrap the route.
+    Each route's handler in the mux records the route as it's matched,
+    `shown`, its `String`, with no `{$}`, before its middleware, which
+    `RouteOf` reads, or, with no place, `shownPattern` of `r.Pattern`,
+    where `/` is the misses' catch-all, and none.
   - `ctx.go`: `Ctx`, the responses, `Param`, `Query` and `IP` (the
     RemoteAddr's address, which `middleware.TrustProxies` has made the
     client's), `Locale` (`App.Locale`'s, in app.go: `Config.Locale`, the
@@ -358,6 +369,10 @@ dev server that isn't there: delete it.
 - `internal/nonce`: the response's Content-Security-Policy nonce in the
   request's context, which `middleware.CSP` sets and inertia reads,
   neither importing the other.
+- `internal/route`: the route that answered a request, in its context:
+  `Into`, a `place`, a context of its own with the route, an atomic
+  pointer, in one allocation; `Answered`, which the router calls; and
+  `Of`, which `tug.RouteOf` and `middleware.Logger` read.
 - `internal/rw`: the ResponseWriter wrapper that records status and size,
   and keeps Flush, Hijack, ReadFrom and `Unwrap`.
 - `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
@@ -612,7 +627,8 @@ dev server that isn't there: delete it.
   server's sources, `devSources`, from `DevServer` at each request, and
   `logReport`, which answers a POST to `ReportPath`, report-uri's, before
   any route; `ReportOnly` sends it as `-Report-Only`), `RequestID`,
-  `Logger`, `Recover`, `CSRF` (an entry that's a path is
+  `Logger` (with the `route`, `internal/route`'s), `Recover`, `CSRF` (an
+  entry that's a path is
   `CrossOriginProtection`'s bypass, `bypass`, and the rest trusted
   origins), `CORS` (`cors.go`: `isOrigin`; a preflight from an origin
   named answered with a 204 before any route; credentials never), and
@@ -711,8 +727,12 @@ dev server that isn't there: delete it.
   `Permanent` error, then the kind's `OnFail` (`handler.failed`); before
   the handler, `held` tries a `Rate` kind's `Limiter` and holds back what
   it refuses, or for `heldOnError` when it fails, and an `AtOnce` or
-  `OneAtATime` kind's job pokes Run as it ends. `hold` is how long a claim holds a job, the longest
-  Timeout and a minute. `Drain` runs what's due in the caller, until its
+  `OneAtATime` kind's job pokes Run as it ends. Once the Store has kept
+  how it went, `tell` (observe.go) tells `Config.Observe`, a `Ran`: its
+  kind, attempt, `Outcome` (`Done`, `Retried`, `Failed`, `HeldBack`), its
+  error, `Took`, the handler's time, and `Waited`, past its `RunAt`, as
+  claimed; a panic of Observe's goes to the log. `hold` is how long a
+  claim holds a job, the longest Timeout and a minute. `Drain` runs what's due in the caller, until its
   context is done. `Wake` pokes
   Run, for jobs pushed in a transaction of the app's, once it has
   committed. `pushScheduled`, at the top of `Run`'s loop, pushes each

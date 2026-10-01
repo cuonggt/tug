@@ -52,6 +52,15 @@ type Config struct {
 	// finish. Those still running after it have their contexts canceled,
 	// and are put back to run at the next start. Default 10 seconds.
 	Grace time.Duration
+
+	// Observe, when it's set, is told how each run of a job went, as Run
+	// and Drain run it, once the Store has kept it: its kind and attempt,
+	// what the queue made of it, how long its handler ran, and how long it
+	// waited past its time. It's for the app's metrics, as a count of the
+	// runs by kind and outcome, which a client of its monitor's keeps. It's
+	// called in the worker that ran the job, which waits for it, so it's
+	// quick, as a counter is.
+	Observe func(Ran)
 }
 
 // Queue pushes jobs to its Store, and runs them.
@@ -60,6 +69,7 @@ type Queue struct {
 	workers int
 	poll    time.Duration
 	grace   time.Duration
+	observe func(Ran)
 	now     func() time.Time
 
 	mu        sync.Mutex
@@ -111,6 +121,7 @@ func New(cfg Config) *Queue {
 		workers:  cfg.Workers,
 		poll:     cfg.Poll,
 		grace:    cfg.Grace,
+		observe:  cfg.Observe,
 		now:      time.Now,
 		handlers: make(map[string]*handler),
 		wake:     make(chan struct{}, 1),
@@ -255,9 +266,9 @@ func (q *Queue) claim(ctx context.Context, hold time.Duration) (*Job, error) {
 	return q.store.Claim(ctx, now, now.Add(hold))
 }
 
-// run runs j, and tells the Store how it went. ctx is done when Run gives
-// up waiting for j as it stops: then j goes back, to run again at the next
-// start.
+// run runs j, and tells the Store how it went, and then Observe. ctx is
+// done when Run gives up waiting for j as it stops: then j goes back, to
+// run again at the next start.
 func (q *Queue) run(ctx context.Context, j *Job) error {
 	q.mu.Lock()
 	h, ok := q.handlers[j.Kind]
@@ -267,12 +278,18 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		// where the kind is new: one that knows it may claim it next time.
 		h = &handler{attempts: defaultAttempts, timeout: defaultTimeout, backoff: backoff}
 	}
+	waited := max(q.now().Sub(j.RunAt), 0)
 	if h.rate != nil {
 		if held, err := q.held(ctx, h, j); held || err != nil {
+			if err == nil {
+				q.tell(j, HeldBack, nil, 0, waited)
+			}
 			return err
 		}
 	}
+	began := q.now()
 	err := h.call(ctx, j)
+	took := q.now().Sub(began)
 	if h.atOnce > 0 || h.oneAtATime {
 		// A job of its kind that waited for this one to end, which the
 		// claims passed over, may run now, rather than at the next poll.
@@ -283,17 +300,26 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 	defer cancel()
 	switch {
 	case err == nil:
-		return q.store.Done(sctx, j)
+		if err := q.store.Done(sctx, j); err != nil {
+			return err
+		}
+		q.tell(j, Done, nil, took, waited)
+		return nil
 	case ctx.Err() != nil:
 		j.RunAt, j.Error = q.now(), err.Error()
 		slog.Info("a job was stopped with the job queue, and will run again", "kind", j.Kind, "job", j.ID)
-		return q.store.Retry(sctx, j)
+		if err := q.store.Retry(sctx, j); err != nil {
+			return err
+		}
+		q.tell(j, Retried, err, took, waited)
+		return nil
 	case errors.As(err, new(permanentError)) || j.Attempts >= h.attempts:
 		j.Error, j.FailedAt = err.Error(), q.now()
 		slog.Error("a job failed, and won't run again", "kind", j.Kind, "job", j.ID, "attempts", j.Attempts, "err", err)
 		if failErr := q.store.Fail(sctx, j); failErr != nil {
 			return failErr
 		}
+		q.tell(j, Failed, err, took, waited)
 		h.failed(ctx, j, err)
 		return nil
 	default:
@@ -302,6 +328,7 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		if err := q.store.Retry(sctx, j); err != nil {
 			return err
 		}
+		q.tell(j, Retried, err, took, waited)
 		if !j.RunAt.After(q.now()) {
 			q.poke()
 		}

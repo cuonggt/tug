@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cuonggt/tug/internal/route"
 	"github.com/cuonggt/tug/internal/rw"
 )
 
 // Logger logs a line for each request through slog.Default(): its method,
-// path, status, size and duration, and its ID when RequestID ran before.
+// path, status, size and duration, its route, when a tug App's route
+// answered it, as "GET /posts/{id}", and its ID when RequestID ran before.
 // A 5xx logs at Error, a 4xx at Warn, and the rest at Info.
 //
 // The path is logged without its query string, which can carry tokens.
@@ -37,6 +39,9 @@ func Logger() func(http.Handler) http.Handler {
 				slog.Int("status", status),
 				slog.Int64("size", rec.Size()),
 				slog.Duration("duration", time.Since(start)),
+			}
+			if rt, _ := route.Of(r.Context()); rt != "" {
+				attrs = append(attrs, slog.String("route", rt))
 			}
 			if id := RequestIDFrom(r.Context()); id != "" {
 				attrs = append(attrs, slog.String("request_id", id))

@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/cuonggt/tug/internal/route"
 )
 
 // captureLog sends slog.Default() to a buffer, as JSON, for the rest of the
@@ -54,6 +56,33 @@ func TestLoggerLogsTheRequestWithItsID(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "secret") {
 		t.Error("the query string reached the log")
+	}
+}
+
+func TestLoggerLogsTheRouteThatAnsweredWhenOneDid(t *testing.T) {
+	answered := "GET /posts/{id}"
+	post := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		route.Answered(r.Context(), &answered) // as a tug App's router does
+	})
+	placed := func(r *http.Request) *http.Request { return r.WithContext(route.Into(r.Context())) } // as the App does
+	for _, c := range []struct {
+		h     http.Handler
+		r     *http.Request
+		route any
+	}{
+		{post, placed(httptest.NewRequest("GET", "/posts/7", nil)), "GET /posts/{id}"},
+		{respond(404, ""), placed(httptest.NewRequest("GET", "/nowhere", nil)), nil}, // no route answered
+		{respond(200, ""), httptest.NewRequest("GET", "/", nil), nil},                // nor came through an App
+	} {
+		logs := captureLog(t)
+		Logger()(c.h).ServeHTTP(httptest.NewRecorder(), c.r)
+		var line map[string]any
+		if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
+			t.Fatalf("log line %q: %v", logs, err)
+		}
+		if line["route"] != c.route {
+			t.Errorf("%s: route %v, want %v", c.r.URL.Path, line["route"], c.route)
+		}
 	}
 }
 

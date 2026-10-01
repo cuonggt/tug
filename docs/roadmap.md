@@ -39,7 +39,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M31 | Notifications              | done   |
 | M32 | Security headers           | done   |
 | M33 | Migrations                 | done   |
-| M34 | Hooks for metrics          | later  |
+| M34 | Hooks for metrics          | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2859,7 +2859,7 @@ Choices made on the way:
   under way; the command; and the binary's `migrate`, on a new database,
   which runs them itself, and its `jobs`, which runs them as it starts.
 
-## M34 · Hooks for metrics — later
+## M34 · Hooks for metrics — done
 
 A deployed app's metrics, how many requests it answers, how slowly, and
 which fail, by route, and how its jobs go, by kind, are counted by a
@@ -2876,46 +2876,76 @@ the app both, and leaves the counting to the client it picks: Phoenix
 emits events for its reporters to count, and Laravel's Pulse is a
 package of its own. To be released as v0.29.0.
 
-- **The route that answered:** `tug.Route(r)`, the pattern of the route
-  that answered `r`, as `GET /posts/{id}`, for the app's own middleware,
-  around the router, to read once the handler has run: a request's label,
-  with as many values as the app has routes.
+- **The route that answered:** `tug.RouteOf(r)`, the route that answered
+  `r`, as `GET /posts/{id}`, for the app's own middleware, around the
+  router, to read once the handler has run: a request's label, with as
+  many values as the app has routes.
 - **In the log:** `middleware.Logger` logs the route beside the path.
 - **How each job went:** `queue.Config`'s `Observe`, a function the
-  queue tells as each run of a job ends: its kind and attempt, whether
-  it's done, runs again, failed for good, or was held back by its kind's
-  rate, how long it ran, and how long it waited past its time.
+  queue tells as each run of a job ends, a `queue.Ran`: its kind and
+  attempt, whether it's done, runs again, failed for good, or was held
+  back by its kind's rate, how long it ran, and how long it waited past
+  its time.
 - **The guide:** Deployment, a section on metrics, with the two hooks
   counted by Prometheus's own Go client in the app, the requests by route
-  and the jobs by kind; Routing, `tug.Route`; and Background jobs,
+  and the jobs by kind; Routing, `tug.RouteOf`; and Background jobs,
   `Observe`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Hooks, not a package of metrics:** counting, and the format a monitor
   reads, are a client's of the app's choosing, which tug has nothing to
   add to, and an app that takes Prometheus's, with its modules, does so
   in its own `go.mod`, not tug's. Each hook is of use without metrics
   too: the log has the route, and a trace both.
-- **The route by context:** as a request reaches the App, before any
-  middleware, tug puts a place for the route in its context, which the
-  router fills in as a route answers, so a middleware anywhere reads it
-  after the handler, whatever copies of the request were made in between.
-- **A miss has no route:** a 404, a 405, or a redirect to the path with
-  its slash, which the catch-all answers, has "", for a metric to count
-  as it likes.
-- **What the queue made of it:** done; run again after its backoff;
-  failed for good, at its last attempt or by a `Permanent` error; or held
-  back by its kind's rate, which isn't an attempt. Told once the Store has
-  kept it, in the worker that ran the job, so `Observe` is quick, as a
-  client's counter is, and `queue` imports nothing of a monitor's.
+- **`RouteOf`, not `Route`,** which is already the type of a route. It
+  says the route as its `String` does, as it was added, `ANY` for a route
+  of any method, and without the `{$}` tug adds to a path that ends in a
+  slash, which `String` now leaves out too.
+- **The route by context, where it's needed:** as a request reaches an
+  App with middleware of its own, before it, tug puts a place for the
+  route in its context, which the router fills in, so that middleware
+  reads it after the handler, whatever copies of the request were made in
+  between. That's a copy of the request, and the place, one allocation, a
+  context of its own: 2 allocations and about 90 ns a request, which an
+  App with no middleware, as the benchmark's, doesn't pay, as only
+  middleware outside the router needs it. Inside the router, `RouteOf`
+  reads the place, or with none, the pattern `ServeMux` keeps.
+- **A route answers as it's matched,** before its own middleware and its
+  group's, so a redirect to log in that a group's middleware sends is the
+  route's.
+- **A miss has no route:** a 404, a 405, or a redirect to the path
+  without its trailing slash, which the catch-all answers, has "", for a
+  metric to count as it likes. An app's own route of everything is a
+  route.
+- **What the queue made of it:** `Done`; `Retried`, after its backoff, as
+  a job stopped with the queue is too; `Failed`, at its last attempt or
+  by a `Permanent` error; or `HeldBack` by its kind's rate, which isn't an
+  attempt, and is the attempt it would have been. `Took` is the
+  handler's time alone, not the rate's check before it, and `Waited` is
+  from the job's time to its claim, which a job held back waits through
+  too. An `Outcome`'s `String` is a metric's label: `done`, `retried`,
+  `failed`, `held back`.
+- **Told once the Store has kept it,** in the worker that ran the job, so
+  `Observe` is quick, as a client's counter is, and `queue` imports
+  nothing of a monitor's. A run the Store couldn't keep isn't told: the
+  job runs again, and that run is. A panic of `Observe`'s goes to the
+  log, as `OnFail`'s does, and the worker goes on.
 - **The starters change nothing** but what their log lines have: a route
   of `/metrics`, and its token, would be in every app made, for a monitor
   the app may not have.
-- **Tests:** the route read by middleware around the router, through one
-  that copies the request, in a group, and none for a 404 and a 405; the
-  log line's route; and each way a job goes, told once, with its kind,
-  attempt, and the times it ran and waited.
+- **Tests:** the route read by the App's middleware once the handler has
+  run, and not before, through a middleware that copies the request, for
+  the home page, a path ending in a slash, a route of any method, HEAD of
+  a GET route, a group's own page and its routes, and a route whose own
+  middleware answers; none for a 404, a 405 and a redirect to the path
+  without its slash, nor for a request that came through no App; a
+  handler's own route, with and without the App's middleware, and in the
+  ErrorHandler of a miss, none; an app's route of everything; the log
+  line's route, and none when no route answered or the request came
+  through no App; and each way a job's run goes, told once with its kind,
+  attempt, error, and the times it ran and waited, a run held back, a run
+  the Store couldn't keep, not told, and an `Observe` that panics.
 
 ## Decisions
 

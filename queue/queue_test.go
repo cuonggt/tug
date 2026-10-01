@@ -1082,3 +1082,143 @@ func TestTheOptionsNeedTheirStoresAndOnFailTheKindsValue(t *testing.T) {
 		queue.Handle(queue.New(queue.Config{Store: &queuetest.Memory{}}), "send", noop, queue.OnFail(func(context.Context, string, error) error { return nil }))
 	})
 }
+
+// observed keeps what a queue's Observe is told, from its workers.
+type observed struct {
+	mu  sync.Mutex
+	ran []queue.Ran
+}
+
+func (o *observed) observe(r queue.Ran) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.ran = append(o.ran, r)
+}
+
+func (o *observed) runs() []queue.Ran {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.Clone(o.ran)
+}
+
+// sameRuns reports whether got is want, comparing each Err by what it says.
+func sameRuns(got, want []queue.Ran) bool {
+	said := func(err error) string {
+		if err == nil {
+			return ""
+		}
+		return err.Error()
+	}
+	return slices.EqualFunc(got, want, func(a, b queue.Ran) bool {
+		return a.Kind == b.Kind && a.Attempt == b.Attempt && a.Outcome == b.Outcome && said(a.Err) == said(b.Err) && a.Took == b.Took && a.Waited == b.Waited
+	})
+}
+
+func TestObserveIsToldHowEachRunOfAJobWent(t *testing.T) {
+	captureLog(t)
+	o := &observed{}
+	q, s, c := newQueue(queue.Config{Observe: o.observe})
+	tries := 0
+	send := queue.Handle(q, "send", func(context.Context, greeting) error {
+		tries++
+		c.add(2 * time.Second) // each try takes two seconds
+		if tries == 1 {
+			return errors.New("the mail server said no")
+		}
+		return nil
+	}, queue.Backoff(func(int) time.Duration { return time.Minute }))
+	welcome := queue.Handle(q, "welcome", func(context.Context, greeting) error {
+		return queue.Permanent(errors.New("no such address"))
+	})
+	send.Push(ctx, greeting{Name: "Ann"})
+	c.add(30 * time.Second) // it waits half a minute for a worker
+	q.Drain(ctx)            // it fails, to run again a minute after
+	c.add(time.Minute)
+	q.Drain(ctx) // it's done
+	welcome.Push(ctx, greeting{Name: "Bob"})
+	q.Drain(ctx) // it fails for good
+
+	want := []queue.Ran{
+		{Kind: "send", Attempt: 1, Outcome: queue.Retried, Err: errors.New("the mail server said no"), Took: 2 * time.Second, Waited: 30 * time.Second},
+		{Kind: "send", Attempt: 2, Outcome: queue.Done, Took: 2 * time.Second},
+		{Kind: "welcome", Attempt: 1, Outcome: queue.Failed, Err: errors.New("no such address")},
+	}
+	if got := o.runs(); !sameRuns(got, want) {
+		t.Errorf("told %+v\nwant %+v", got, want)
+	}
+	if len(s.failures()) != 1 {
+		t.Errorf("kept %d failed, want the welcome", len(s.failures()))
+	}
+}
+
+func TestObserveIsToldOfARunItsRateHeldBack(t *testing.T) {
+	// A Drain that finds the job it held back due again, and again, stops.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	o := &observed{}
+	q, _, c := newQueue(queue.Config{Observe: o.observe})
+	l := &limiter{left: 1, wait: time.Minute}
+	send := queue.Handle(q, "send", func(context.Context, greeting) error { return nil }, queue.Rate(l))
+	send.Push(ctx, greeting{Name: "Ann"})
+	send.Push(ctx, greeting{Name: "Bob"})
+	q.Drain(ctx) // Ann's runs, and Bob's waits a minute
+	c.add(time.Minute)
+	l.let(1, nil)
+	q.Drain(ctx)
+
+	want := []queue.Ran{
+		{Kind: "send", Attempt: 1, Outcome: queue.Done},
+		{Kind: "send", Attempt: 1, Outcome: queue.HeldBack}, // and not an attempt
+		{Kind: "send", Attempt: 1, Outcome: queue.Done, Waited: time.Minute},
+	}
+	if got := o.runs(); !sameRuns(got, want) {
+		t.Errorf("told %+v\nwant %+v", got, want)
+	}
+}
+
+// keepsNothing is a store that can't keep how a job went.
+type keepsNothing struct{ *store }
+
+func (k keepsNothing) Done(context.Context, *queue.Job) error {
+	return errors.New("the database is down")
+}
+
+func TestObserveIsntToldOfARunTheStoreCouldntKeep(t *testing.T) {
+	o := &observed{}
+	s := &store{}
+	q := queue.New(queue.Config{Store: keepsNothing{s}, Observe: o.observe})
+	send := queue.Handle(q, "send", func(context.Context, greeting) error { return nil })
+	send.Push(ctx, greeting{Name: "Ann"})
+	if err := q.Drain(ctx); err == nil || !strings.Contains(err.Error(), "the database is down") {
+		t.Fatalf("Drain returned %v", err)
+	}
+	if got := o.runs(); len(got) != 0 {
+		t.Errorf("told %+v of a run the Store didn't keep, which runs again", got)
+	}
+}
+
+func TestAnObserveThatPanicsGoesToTheLogAndTheQueueGoesOn(t *testing.T) {
+	logs := captureLog(t)
+	q, _, _ := newQueue(queue.Config{Observe: func(queue.Ran) { panic("a label is missing") }})
+	ran := 0
+	send := queue.Handle(q, "send", func(context.Context, greeting) error {
+		ran++
+		return nil
+	})
+	send.Push(ctx, greeting{Name: "Ann"})
+	send.Push(ctx, greeting{Name: "Bob"})
+	if err := q.Drain(ctx); err != nil || ran != 2 {
+		t.Errorf("Drain returned %v, having run %d jobs, want both", err, ran)
+	}
+	if !strings.Contains(logs.String(), "a label is missing") {
+		t.Errorf("logged:\n%s", logs)
+	}
+}
+
+func TestAnOutcomeIsAWordForAMetricsLabel(t *testing.T) {
+	for o, want := range map[queue.Outcome]string{queue.Done: "done", queue.Retried: "retried", queue.Failed: "failed", queue.HeldBack: "held back"} {
+		if o.String() != want {
+			t.Errorf("%d is %q, want %q", o, o, want)
+		}
+	}
+}

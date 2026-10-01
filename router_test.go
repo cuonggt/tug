@@ -1,6 +1,7 @@
 package tug
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -244,5 +245,99 @@ func TestURLFillsWildcardsInOrderAndEscapesThem(t *testing.T) {
 		if got, err := app.URL(tc.name, tc.params...); err == nil {
 			t.Errorf("URL(%q, %v) = %q, want an error", tc.name, tc.params, got)
 		}
+	}
+}
+
+// copiedKey is a value a middleware adds to a request's context, copying
+// the request, as most middleware does.
+type copiedKey struct{}
+
+func TestTheAppsMiddlewareReadsTheRouteThatAnsweredOnceTheHandlerHasRun(t *testing.T) {
+	var before, after string
+	app := New(Config{})
+	app.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			before = RouteOf(r)
+			next.ServeHTTP(w, r)
+			after = RouteOf(r)
+		})
+	})
+	app.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), copiedKey{}, true)))
+		})
+	})
+	app.Get("/", text("home"))
+	app.Get("/posts/{id}", text("post"))
+	app.Get("/drafts/", text("drafts"))
+	app.Any("/files/{path...}", text("file"))
+	admin := app.Group("/admin")
+	admin.Get("/", text("admin"))
+	admin.Get("/users/{id}", text("user"))
+	// Its own middleware answers for it, as a login's does.
+	app.Get("/secret", text("secret"), func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
+	})
+	for _, c := range []struct{ method, path, route string }{
+		{"GET", "/", "GET /"},
+		{"GET", "/posts/7", "GET /posts/{id}"},
+		{"HEAD", "/posts/7", "GET /posts/{id}"},
+		{"GET", "/drafts/", "GET /drafts/"},
+		{"PUT", "/files/a/b.txt", "ANY /files/{path...}"},
+		{"GET", "/admin", "GET /admin"},
+		{"GET", "/admin/users/3", "GET /admin/users/{id}"},
+		{"GET", "/secret", "GET /secret"},
+		{"GET", "/nowhere", ""},  // a 404
+		{"POST", "/posts/7", ""}, // a 405
+		{"GET", "/posts/7/", ""}, // a redirect to /posts/7
+	} {
+		before, after = "unread", "unread"
+		serve(app, c.method, c.path, "")
+		if before != "" || after != c.route {
+			t.Errorf("%s %s: the route %q before the handler ran, and %q after, want %q after", c.method, c.path, before, after, c.route)
+		}
+	}
+	if got := RouteOf(httptest.NewRequest("GET", "/posts/7", nil)); got != "" {
+		t.Errorf("a request that came through no App has the route %q", got)
+	}
+}
+
+func TestARoutesOwnHandlerReadsItsRouteWithOrWithoutTheAppsMiddleware(t *testing.T) {
+	for _, withMiddleware := range []bool{false, true} {
+		var got []string
+		record := func(c *Ctx) error {
+			got = append(got, RouteOf(c.Request()))
+			return nil
+		}
+		app := New(Config{ErrorHandler: func(c *Ctx, err error) { record(c) }})
+		if withMiddleware {
+			app.Use(func(next http.Handler) http.Handler { return next })
+		}
+		app.Get("/", record)
+		app.Get("/posts/{id}", record)
+		app.Any("/files/{path...}", record)
+		app.Group("/admin").Get("/", record)
+		for _, path := range []string{"/", "/posts/7", "/files/a.txt", "/admin", "/nowhere"} {
+			serve(app, "GET", path, "")
+		}
+		if want := []string{"GET /", "GET /posts/{id}", "ANY /files/{path...}", "GET /admin", ""}; !slices.Equal(got, want) {
+			t.Errorf("with the App's middleware %v: %q, want %q", withMiddleware, got, want)
+		}
+	}
+}
+
+func TestACatchAllRouteIsTheRouteOfWhatNoOtherRouteTakes(t *testing.T) {
+	var after string
+	app := New(Config{})
+	app.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+			after = RouteOf(r)
+		})
+	})
+	app.Any("/{path...}", text("fallback"))
+	serve(app, "DELETE", "/anything/else", "")
+	if after != "ANY /{path...}" {
+		t.Errorf("the route %q, want the catch-all's", after)
 	}
 }

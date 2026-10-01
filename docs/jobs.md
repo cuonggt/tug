@@ -435,6 +435,7 @@ q := queue.New(queue.Config{
 | `Workers` | How many jobs run at once. | 4 |
 | `Poll`    | How often `Run`, with nothing to do, asks the Store for jobs. | a second |
 | `Grace`   | How long the jobs running when `Run` is told to stop have to finish. | 10 seconds |
+| `Observe` | What's told how each run of a job went, for the app's metrics (below). | none |
 
 A job runs at least once, and now and then twice. A worker claims a job
 for as long as the longest `Timeout` of any kind and a minute more, and if
@@ -446,6 +447,36 @@ payment provider a key that makes a second try a no-op.
 `q.Drain(ctx)` runs the jobs that are due, one at a time in the calling
 goroutine, until none is: for a test, with `queuetest.Memory` as the Store,
 or for a program that runs what's due and exits.
+
+### How each run went
+
+```go
+q := queue.New(queue.Config{Store: &jobs{db: db}, Observe: func(r queue.Ran) {
+	runs.WithLabelValues(r.Kind, r.Outcome.String()).Observe(r.Took.Seconds()) // Prometheus's client, say
+}})
+```
+
+`Observe` is told how each run of a job went, as `Run` and `Drain` run it,
+once the Store has kept it, for the app's metrics, which a client of its
+monitor's keeps ([Metrics](deployment.md#metrics)). A `queue.Ran` has:
+
+- `Kind`, and `Attempt`, 1 for the first;
+- `Outcome`, what the queue made of the run: `queue.Done`;
+  `queue.Retried`, put back to run again after its backoff, as a job
+  stopped with the queue is too; `queue.Failed`, failed for good, at its
+  last attempt or by a `Permanent` error; or `queue.HeldBack`, held back
+  by its kind's `Rate` before it started, which isn't an attempt. Its
+  `String` is the word for a metric's label: `done`, `retried`, `failed`
+  or `held back`;
+- `Err`, what a run `Retried` or `Failed` failed with;
+- `Took`, how long the handler ran, and `Waited`, how long the job waited
+  past its time before it was claimed: how far behind its work the queue
+  is.
+
+It's called in the worker that ran the job, which waits for it, so it's
+quick, as a counter is; a panic of its own goes to the log, and the worker
+goes on. A run the Store couldn't keep, as the database was down, isn't
+told: the job runs again, and that run is.
 
 ## Stores
 

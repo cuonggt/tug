@@ -521,14 +521,14 @@ it, that's a line of text on the standard error:
 
 ```
 2026/09/25 16:44:09 INFO listening addr=[::]:8080
-2026/09/25 16:44:10 INFO request method=GET path=/ status=200 size=806 duration=1.057625ms request_id=S53TAMBAGDIAG5OAIFBGPRG6KN
-2026/09/25 16:44:11 WARN request method=GET path=/build/.vite/manifest.json status=404 size=19 duration=14.833µs request_id=5N5DHQOALQZIZMXK3HVCPXNPD3
+2026/09/25 16:44:10 INFO request method=GET path=/ status=200 size=806 duration=1.057625ms route="GET /" request_id=S53TAMBAGDIAG5OAIFBGPRG6KN
+2026/09/25 16:44:11 WARN request method=GET path=/build/.vite/manifest.json status=404 size=19 duration=14.833µs route="GET /build/{path...}" request_id=5N5DHQOALQZIZMXK3HVCPXNPD3
 2026/09/25 16:44:12 INFO shutting down timeout=10s
 ```
 
 `middleware.Logger` logs the "request" lines: the method, the path
 without its query string, which can carry tokens, the status, the size,
-the time taken, and the request's ID. A 5xx is logged at Error, a 4xx at
+the time taken, the route that answered, and the request's ID. A 5xx is logged at Error, a 4xx at
 Warn, and the rest at Info. A server error's details go to the log, in a
 "request failed" line with the error and a panic's stack, and not to the
 response while `APP_DEBUG` is off.
@@ -548,3 +548,89 @@ handler that's the default when it starts. From then on the `log`
 package's output goes through the handler too, `log.Fatal`'s included.
 `slog.HandlerOptions` sets the level: `Level: slog.LevelWarn` leaves out
 the Info lines. [routing.md](routing.md#logging) lists what tug logs.
+
+## Metrics
+
+tug counts nothing itself: a client of the app's monitor's does,
+Prometheus's own Go client, OpenTelemetry's, or a platform's agent, in the
+app, from what it sees. tug gives it what it can't see from outside: the
+route that answered each request, `tug.RouteOf`
+([Routing](routing.md#the-route-that-answered)), and how each run of a
+job went, `queue.Config`'s `Observe`
+([Background jobs](jobs.md#how-each-run-went)). With Prometheus's client,
+`go get github.com/prometheus/client_golang`, in the app:
+
+```go
+var (
+	requests = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "http_request_duration_seconds",
+		Help: "How long the app took to answer, by method, route and status.",
+	}, []string{"method", "route", "status"})
+	runs = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "job_run_duration_seconds",
+		Help: "How long each run of a job took, by kind and how it went.",
+	}, []string{"kind", "outcome"})
+)
+
+// metrics times each request, by the route that answered it, which the
+// router has said once the handler has run.
+func metrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sent := &status{ResponseWriter: w, code: http.StatusOK}
+		next.ServeHTTP(sent, r)
+		route := cmp.Or(tug.RouteOf(r), "none")
+		requests.WithLabelValues(r.Method, route, strconv.Itoa(sent.code)).Observe(time.Since(start).Seconds())
+	})
+}
+
+// status keeps the status a response was sent with.
+type status struct {
+	http.ResponseWriter
+	code int
+}
+
+func (s *status) WriteHeader(code int) {
+	s.code = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap lets the events and streams flush through it.
+func (s *status) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+```
+
+```go
+app.Use(metrics, middleware.RequestID(), middleware.Logger(), middleware.Recover())
+
+q := queue.New(queue.Config{Store: &jobs{db: db}, Observe: func(r queue.Ran) {
+	runs.WithLabelValues(r.Kind, r.Outcome.String()).Observe(r.Took.Seconds())
+}})
+
+// The metrics, on a port of their own, which the scraper reaches and the
+// proxy doesn't.
+app.Go(func(ctx context.Context) error {
+	server := &http.Server{Addr: ":9090", Handler: promhttp.Handler()}
+	go func() {
+		<-ctx.Done()
+		server.Shutdown(context.Background())
+	}()
+	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+})
+```
+
+- A request's label is its route, not its path, which has as many values
+  as the app has posts, each a series Prometheus keeps. A request no route
+  answered, a 404, is `none`.
+- What the metrics say, the app's routes and how busy each is, is for the
+  scraper alone: a port of their own the proxy doesn't reach, as above,
+  or a route behind a token.
+- Each instance has its own, which Prometheus scrapes each of, and adds
+  up.
+- What's read as it's scraped, as the jobs waiting, by kind, from the
+  jobs table, or the database's connections, `db.Stats()`, is a gauge
+  with a function, `promauto.NewGaugeFunc`.
+- The auth starter has none of this, as not every app has a monitor: its
+  log lines have the route.

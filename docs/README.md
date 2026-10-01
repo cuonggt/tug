@@ -11,9 +11,9 @@ the detail.
 1. [Getting started](getting-started.md): install tug, make an app, run
    it, and add a page and a form.
 2. [Routing and handlers](routing.md): the App, routes, whole and signed
-   links, groups, middleware, security headers among them, the client's
-   address behind a proxy, `Ctx`, files, downloads, streams and events,
-   binding requests, and errors.
+   links, groups, middleware, security headers among them, the route that
+   answered, the client's address behind a proxy, `Ctx`, files, downloads,
+   streams and events, binding requests, and errors.
 3. [Pages](pages.md): Inertia pages and their props, the root template
    and its nonce, the props worked out later, shared props, redirects,
    downloads and events on a page, error pages, and Vite.
@@ -44,7 +44,7 @@ the detail.
     the request, and runs again when it fails, runs on a schedule, in a
     time zone too, waits once however often it's asked for, or so many at
     once or a second, on every instance, and says when it has failed for
-    good.
+    good, and how each run went.
 13. [Cache](cache.md): package `cache`, for what's slow to work out, kept
     where every instance of the app finds it, and locks for what mustn't
     run twice at once.
@@ -56,8 +56,8 @@ the detail.
     tests of an app's pages, forms, uploads and logins, `mailtest`, for
     its mail, and its events.
 17. [Deployment](deployment.md): one binary, the Dockerfile, the
-    environment, and the headers that say what a browser may do with the
-    app's pages, a Content-Security-Policy among them.
+    environment, the headers that say what a browser may do with the app's
+    pages, a Content-Security-Policy among them, the logs, and metrics.
 18. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
     `tug migrate`, `tug build` and `tug key`, in full.
 

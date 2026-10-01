@@ -212,8 +212,9 @@ func showPost(c *tug.Ctx) error {
   value, however often it's pushed, at the latest push's time if it likes,
   and runs them one at a time if it likes. A kind runs so many at once at
   most, or starts so many a second, counted on all the instances, and
-  says, with `OnFail`, when a job has failed for good. A job pushed in the
-  app's own transaction is kept with what else it writes, or not at all.
+  says, with `OnFail`, when a job has failed for good, and with `Observe`,
+  how each run went, for the app's metrics. A job pushed in the app's own
+  transaction is kept with what else it writes, or not at all.
   The auth starter sends its mail this way, with its jobs in its
   database, where on Postgres or MySQL the claims of several instances
   skip each other's jobs rather than wait for them, and its binary lists
@@ -249,7 +250,9 @@ func showPost(c *tug.Ctx) error {
   mail, are whole, from `APP_URL`, never the request's `Host`, and
   `app.SignedURL` makes ones only the app could have, until they expire,
   for a route `tug.Signed` wraps. `tug.Limit` puts a limit on a route, by
-  address or user: a 429, with `Retry-After`, past it.
+  address or user: a 429, with `Retry-After`, past it. `tug.RouteOf` says
+  which route answered a request, `GET /posts/{id}`, for the app's
+  middleware to label its metrics by, and `Logger` logs it.
 - **Handlers return errors.** `tug.NewHTTPError(404, "post not found")`
   picks the status. Any other error is a 500 whose details stay in the log,
   or show in the response with `APP_DEBUG=true`. A panic is a 500 with its
