@@ -6,7 +6,7 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.31.0 is the latest release: the framework, its CLI,
+**Status: early.** v0.31.1 is the latest release: the framework, its CLI,
 background jobs, on a schedule in any time zone too, pushed in the app's
 own transactions, and so many at once or a second across the instances,
 server-side rendering, tests of an app's pages, uploads kept on the app's

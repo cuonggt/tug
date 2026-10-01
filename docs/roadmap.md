@@ -2643,15 +2643,15 @@ Choices made on the way:
   suite caught. The tokens page and the recovery codes keep what came
   until the page is left, rather than the bell's count coming apart from
   the page's props.
-- **The bell waits for a visit in flight:** a run of CI's browser suite
-  caught it after v0.31.0, two toasts of "Two-factor logins are off.":
-  the change notifies, and the bell's reload, when the event came as the
-  form's visit was still loading the page it goes back to, ran beside it,
-  as Inertia's reloads are async, so both read the session with the flash
-  the form left, and both showed it. `listen` holds its listeners'
-  reloads while a request of Inertia's is in flight, counted from the
-  `inertia:start` and `inertia:finish` it fires on the document for
-  each, and runs each once the last finishes. The flash can't be kept
+- **The bell waits for a visit in flight,** since v0.31.1: a run of CI's
+  browser suite caught it after v0.31.0, two toasts of "Two-factor logins
+  are off.": the change notifies, and the bell's reload, when the event
+  came as the form's visit was still loading the page it goes back to, ran
+  beside it, as Inertia's reloads are async, so both read the session with
+  the flash the form left, and both showed it. `listen` holds its
+  listeners' reloads while a request of Inertia's is in flight, counted
+  from the `inertia:start` and `inertia:finish` it fires on the document
+  for each, and runs each once the last finishes. The flash can't be kept
   from it on the server: the two requests carry one cookie.
 - **Kept a while:** a notification read over 90 days ago goes, by a
   scheduled job, `prune-notifications`, every night.
