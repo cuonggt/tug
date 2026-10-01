@@ -303,7 +303,10 @@ dev server that isn't there: delete it.
     `PreserveFragment`, and `pageRequest`, which hands a render the errors
     and flash data from the session (`tug.errors`, `tug.flash`,
     `tug.clear_history`, `tug.preserve_fragment`) and unflashes what it
-    shows. `carryFlash` sends them on when `Ctx.Redirect` redirects again;
+    shows; a partial reload of the page it renders shows none of the
+    session's, and `Pass`es the session, so the flash is for the visit it
+    was left for, as a reload, as the bell's, can come beside it with one
+    cookie, from another tab too. `carryFlash` sends them on when `Ctx.Redirect` redirects again;
     `keepFlashOnReload` reflashes before the 409 for another build.
     `Config.Session` puts the session middleware outside Inertia's.
 - `inertia`: the v3 protocol for any net/http router, with no import of
@@ -343,7 +346,9 @@ dev server that isn't there: delete it.
   response starts. Flash: `next` is what this request flashes, `now` what
   the one before did; values go through JSON. `SetLifetime` gives one
   session a lifetime of its own, kept in the payload (`l`), which `Clear`
-  drops.
+  drops. `Pass` leaves the cookie as it came, unwritten, when the request
+  changes nothing (`changed`, set by `Set`, `Delete`, `Clear` and
+  `SetLifetime`) and flashes nothing, and else reflashes what it had.
 - `validate`: `Struct` over one go-playground validator that names fields
   by json tag, or else form tag; `path` turns its namespace into dotted
   paths, and `message` its tags into sentences, in the `lang.Words`

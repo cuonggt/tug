@@ -91,7 +91,7 @@ func (c *Ctx) Inertia(component string, props any) error {
 			}
 		}
 	}
-	return pages.Render(&c.rw, c.pageRequest(), component, props)
+	return pages.Render(&c.rw, c.pageRequest(component), component, props)
 }
 
 // Location sends the client to url with a full page load, which is how an

@@ -331,6 +331,13 @@ frontend gets it on the reloaded page. The client reads it as
 going back doesn't show it again. A value can be anything encoding/json
 writes, and flashing a key twice keeps the later value.
 
+A partial reload of a page, as one that refreshes a count, or a poll,
+neither shows nor takes the flash data, or a form's errors: it can come
+while the redirect that leads to the page they were left for is loading,
+in the same tab or another, with the one cookie, and the page they were
+left for shows them, once, whichever comes first. The reload leaves the
+session's cookie as it came, unless it changes the session itself.
+
 A key declared with `tug.Flash`, with the type of its value, is typed in
 the frontend too. The starters declare theirs in `flash.go`:
 

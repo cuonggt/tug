@@ -148,6 +148,10 @@ type Session struct {
 	next     map[string]any // flashed by this request, for the next
 	had      bool           // the request came with a session cookie
 	lifetime time.Duration  // this session's own, from SetLifetime; 0 for the Store's
+
+	// changed is whether the request has changed the session's values or
+	// lifetime, and passed whether it calls Pass.
+	changed, passed bool
 }
 
 type sessionKey struct{}
@@ -163,10 +167,16 @@ func From(ctx context.Context) *Session {
 func (s *Session) Get(key string) any { return s.values[key] }
 
 // Set stores value under key.
-func (s *Session) Set(key string, value any) { s.values[key] = value }
+func (s *Session) Set(key string, value any) {
+	s.values[key] = value
+	s.changed = true
+}
 
 // Delete removes the value under key.
-func (s *Session) Delete(key string) { delete(s.values, key) }
+func (s *Session) Delete(key string) {
+	delete(s.values, key)
+	s.changed = true
+}
 
 // Clear empties the session, flash data included, as signing out does. Its
 // lifetime goes back to the Store's.
@@ -175,6 +185,7 @@ func (s *Session) Clear() {
 	clear(s.now)
 	clear(s.next)
 	s.lifetime = 0
+	s.changed = true
 }
 
 // SetLifetime makes the session last d without a request, in whole seconds,
@@ -183,6 +194,7 @@ func (s *Session) Clear() {
 // It lasts until Clear, and 0 goes back to the Store's.
 func (s *Session) SetLifetime(d time.Duration) {
 	s.lifetime = max(d.Truncate(time.Second), 0)
+	s.changed = true
 }
 
 // Flash stores value under key for the next request, which reads it with
@@ -195,6 +207,16 @@ func (s *Session) Flashed(key string) any { return s.now[key] }
 // Unflash takes back what this request flashed under key, for a value
 // that's been shown already and shouldn't be shown again.
 func (s *Session) Unflash(key string) { delete(s.next, key) }
+
+// Pass leaves the session as the request came with it, flash data and
+// all, for a request beside the one its flash is for: a page's partial
+// reload, say, as a page's bell's can come while a form's redirect, in
+// this tab or another, loads the page it goes back to, both with one
+// cookie. Such a request writes no cookie, so the flash is there for the
+// request it was left for, whichever of the two comes first, and shown
+// once. One that changes the session, or flashes, still writes it, with
+// what the request before flashed kept for the next.
+func (s *Session) Pass() { s.passed = true }
 
 // Reflash keeps what the request before flashed for the next request as
 // well, for a response that shows none of it, as a redirect doesn't.
@@ -278,6 +300,12 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 		HttpOnly: true,
 		Secure:   st.secure || r.TLS != nil,
 		SameSite: http.SameSiteLaxMode,
+	}
+	if s.passed {
+		if !s.changed && len(s.next) == 0 {
+			return // as it came, its flash for the request it was left for
+		}
+		s.Reflash()
 	}
 	if len(s.values) == 0 && len(s.next) == 0 {
 		if s.had {

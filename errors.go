@@ -165,7 +165,7 @@ func (c *Ctx) errorPage(code int, message string) bool {
 	if pages == nil || component == "" || wantsJSON(c.r) {
 		return false
 	}
-	err := pages.RenderStatus(&c.rw, c.pageRequest(), code, component, ErrorPageProps{Status: code, Message: message})
+	err := pages.RenderStatus(&c.rw, c.pageRequest(component), code, component, ErrorPageProps{Status: code, Message: message})
 	if err != nil {
 		slog.ErrorContext(c.Context(), "the error page failed", "component", component, "err", err)
 	}

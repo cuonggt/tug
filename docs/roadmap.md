@@ -2655,6 +2655,17 @@ Choices made on the way:
   from the `inertia:start` and `inertia:finish` it fires on the document
   for each, and runs each once the last finishes. The flash can't be kept
   from it on the server: the two requests carry one cookie.
+- **A partial reload leaves the flash,** since v0.33.1: the bell's wait
+  is in its own tab, and a run of CI's browser suite caught it across
+  two, after v0.33.0: a token made in one tab rang the bell of the
+  other, whose reload, as the first tab's redirect loaded its page, read
+  the session with the new token as that did, and showed it there. A
+  partial reload of the page it renders shows none of the session's
+  flash, or a form's errors, and `Session.Pass` writes no cookie for a
+  request that changes nothing, so the flash is there for the page it
+  was left for, whichever comes first, and shown once: a reload that
+  kept it, by reflashing, would bring it back as the cookie it wrote
+  came after the page's.
 - **Kept a while:** a notification read over 90 days ago goes, by a
   scheduled job, `prune-notifications`, every night.
 - **Not each user's choice of channels yet:** each kind has its own.

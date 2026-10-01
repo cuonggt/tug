@@ -286,3 +286,57 @@ func TestPreserveFragmentReachesThePageAfterARedirect(t *testing.T) {
 		t.Error("the page after that kept the fragment too")
 	}
 }
+
+// partial is the headers of a partial reload of component, as a page's
+// bell's.
+func partial(component string) []string {
+	return []string{"X-Inertia-Partial-Component", component, "X-Inertia-Partial-Data", "post"}
+}
+
+func TestAPartialReloadLeavesTheFlashForThePageItWasLeftFor(t *testing.T) {
+	app, _ := formApp(t)
+	v := &visitor{t: t, app: app}
+	if rec := v.do("POST", "/posts", `{"title":"Hello","body":"A post of mine"}`); rec.Code != http.StatusSeeOther {
+		t.Fatalf("posting got %d", rec.Code)
+	}
+	flashed := v.cookie
+
+	// The bell's reload, before the form's redirect loads its page, in
+	// this tab or another, with the one cookie: it shows nothing, and
+	// writes no cookie.
+	rec := v.do("GET", "/posts/1", "", partial("Posts/Show")...)
+	if p := v.page(rec); p.Flash != nil || len(rec.Result().Cookies()) != 0 {
+		t.Errorf("the reload showed %v, and wrote %v", p.Flash, rec.Result().Cookies())
+	}
+	if p := v.page(v.do("GET", "/posts/1", "")); !reflect.DeepEqual(p.Flash, map[string]any{"success": "Post created"}) {
+		t.Errorf("the page the flash was left for shows %v", p.Flash)
+	}
+	shown := v.cookie
+
+	// And after it, with the cookie the redirect came with: still nothing,
+	// and no cookie to bring the flash back.
+	v.cookie = flashed
+	rec = v.do("GET", "/posts/1", "", partial("Posts/Show")...)
+	if p := v.page(rec); p.Flash != nil || len(rec.Result().Cookies()) != 0 {
+		t.Errorf("a reload after showed %v, and wrote %v", p.Flash, rec.Result().Cookies())
+	}
+	v.cookie = shown
+	if p := v.page(v.do("GET", "/posts/1", "")); p.Flash != nil {
+		t.Errorf("the flash came back: %v", p.Flash)
+	}
+}
+
+func TestAPartialReloadLeavesAFormsErrorsForItsPage(t *testing.T) {
+	app, _ := formApp(t)
+	v := &visitor{t: t, app: app}
+	if rec := v.do("POST", "/posts", `{"title":""}`, "Referer", "http://example.com/posts/create"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("posting got %d", rec.Code)
+	}
+	rec := v.do("GET", "/posts/create", "", partial("Posts/Create")...)
+	if p := v.page(rec); len(p.Props["errors"].(map[string]any)) != 0 || len(rec.Result().Cookies()) != 0 {
+		t.Errorf("the reload showed the errors %v, and wrote %v", p.Props["errors"], rec.Result().Cookies())
+	}
+	if p := v.page(v.do("GET", "/posts/create", "")); p.Props["errors"].(map[string]any)["title"] != "title is required" {
+		t.Errorf("the form's page shows the errors %v", p.Props["errors"])
+	}
+}

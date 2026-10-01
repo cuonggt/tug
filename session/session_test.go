@@ -103,6 +103,47 @@ func TestReflashKeepsFlashDataForAnotherRequest(t *testing.T) {
 	})
 }
 
+func TestARequestThatPassesLeavesTheSessionAsItCame(t *testing.T) {
+	b := newBrowser(t, newStore(t, Config{}))
+	b.do(func(s *Session) {
+		s.Set("user_id", 42)
+		s.Flash("status", "Saved")
+	})
+	// Beside the request the flash was left for: no cookie, so the flash
+	// is there for that one.
+	rec := b.do(func(s *Session) { s.Pass() })
+	if c := rec.Result().Cookies(); len(c) != 0 {
+		t.Errorf("a request that passed wrote %v", c)
+	}
+	b.do(func(s *Session) {
+		if s.Flashed("status") != "Saved" || s.Get("user_id") != 42.0 {
+			t.Errorf("after a pass, the flash is %v and user_id %v", s.Flashed("status"), s.Get("user_id"))
+		}
+	})
+}
+
+func TestARequestThatPassesAndChangesTheSessionKeepsTheFlash(t *testing.T) {
+	for name, change := range map[string]func(s *Session){
+		"sets":    func(s *Session) { s.Set("theme", "dark") },
+		"flashes": func(s *Session) { s.Flash("note", "Hello") },
+	} {
+		b := newBrowser(t, newStore(t, Config{}))
+		b.do(func(s *Session) { s.Flash("status", "Saved") })
+		rec := b.do(func(s *Session) {
+			s.Pass()
+			change(s)
+		})
+		if len(rec.Result().Cookies()) == 0 {
+			t.Errorf("a request that passed and %s wrote no cookie", name)
+		}
+		b.do(func(s *Session) {
+			if s.Flashed("status") != "Saved" {
+				t.Errorf("a request that passed and %s lost the flash: %v", name, s.Flashed("status"))
+			}
+		})
+	}
+}
+
 func TestUnflashTakesBackAFlash(t *testing.T) {
 	b := newBrowser(t, newStore(t, Config{}))
 	b.do(func(s *Session) {

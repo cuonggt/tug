@@ -183,21 +183,32 @@ func (c *Ctx) PreserveFragment() {
 	}
 }
 
-// pageRequest is the request, carrying what its page shows besides its
-// props: what the request before left for it, and what this one flashed.
-func (c *Ctx) pageRequest() *http.Request {
+// pageRequest is the request, carrying what its page, component, shows
+// besides its props: what the request before left for it, and what this
+// one flashed. A partial reload of it shows only this one's, and passes
+// the session.
+func (c *Ctx) pageRequest(component string) *http.Request {
 	ctx := c.r.Context()
 	flash := map[string]any{}
 	clearHistory, preserveFragment := c.clearHistory, c.preserveFragment
 	if s := c.Session(); s != nil {
-		if errs := messages(s.Flashed(errorsKey)); len(errs) > 0 {
-			ctx = inertia.WithErrors(ctx, errs)
+		if inertia.IsInertia(c.r) && c.r.Header.Get("X-Inertia-Partial-Component") == component {
+			// A partial reload of the page, as its bell's, can come as a
+			// form's redirect, in this tab or another, loads the page it
+			// goes back to, both with one cookie: what the form left is
+			// that page's, so this one shows none of it, and leaves the
+			// session as it came, for that page to show it once.
+			s.Pass()
+		} else {
+			if errs := messages(s.Flashed(errorsKey)); len(errs) > 0 {
+				ctx = inertia.WithErrors(ctx, errs)
+			}
+			if before, ok := s.Flashed(flashKey).(map[string]any); ok {
+				maps.Copy(flash, before)
+			}
+			clearHistory = clearHistory || s.Flashed(clearHistoryKey) == true
+			preserveFragment = preserveFragment || s.Flashed(fragmentKey) == true
 		}
-		if before, ok := s.Flashed(flashKey).(map[string]any); ok {
-			maps.Copy(flash, before)
-		}
-		clearHistory = clearHistory || s.Flashed(clearHistoryKey) == true
-		preserveFragment = preserveFragment || s.Flashed(fragmentKey) == true
 		// This page shows what this request flashed, so the next mustn't.
 		s.Unflash(flashKey)
 		s.Unflash(clearHistoryKey)
