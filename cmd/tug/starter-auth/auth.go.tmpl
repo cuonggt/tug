@@ -186,7 +186,7 @@ func (a *app) register(c *tug.Ctx) error {
 	s := c.Session()
 	auth.Login(s, u.authID(), u.PasswordHash)
 	auth.SetPasswordConfirmed(s)
-	c.Flash("success", "Welcome, "+u.Name+"!")
+	Success.Set(c, "Welcome, "+u.Name+"!")
 	// The dashboard is for verified users, so this is the page that asks
 	// them to follow the link, until they have.
 	return c.RedirectRoute("dashboard")
@@ -288,7 +288,7 @@ func tooMany(wait time.Duration) string {
 func logout(c *tug.Ctx, _ *User) error {
 	auth.Logout(c.Session())
 	c.ClearHistory()
-	c.Flash("success", "You've logged out.")
+	Success.Set(c, "You've logged out.")
 	return c.RedirectRoute("home")
 }
 
@@ -322,7 +322,7 @@ func (a *app) forgotPassword(c *tug.Ctx) error {
 			return err
 		}
 	}
-	c.Flash("success", "If that email has an account, a link to reset its password is on its way.")
+	Success.Set(c, "If that email has an account, a link to reset its password is on its way.")
 	return c.RedirectRoute("password.request")
 }
 
@@ -406,7 +406,7 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 	// user with two-factor logins on, goes on to give a code: a link in
 	// their mail is one factor, not two.
 	s := c.Session()
-	c.Flash("success", "Your password is reset.")
+	Success.Set(c, "Your password is reset.")
 	if u.TwoFactor {
 		auth.StartTwoFactor(s, u.authID())
 		return c.RedirectRoute("two-factor.login")

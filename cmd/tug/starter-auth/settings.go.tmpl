@@ -75,10 +75,10 @@ func (a *app) updateProfile(c *tug.Ctx, user *User) error {
 		return err
 	}
 	if !changed {
-		c.Flash("success", "Profile saved.")
+		Success.Set(c, "Profile saved.")
 		return c.RedirectRoute("profile.edit")
 	}
-	c.Flash("success", "Profile saved. We've mailed a link to "+in.Email+" to verify it.")
+	Success.Set(c, "Profile saved. We've mailed a link to "+in.Email+" to verify it.")
 	return c.RedirectRoute("profile.edit")
 }
 
@@ -111,7 +111,7 @@ func (a *app) deleteAccount(c *tug.Ctx, user *User) error {
 	// user.
 	auth.Logout(c.Session())
 	c.ClearHistory()
-	c.Flash("success", "Your account is deleted.")
+	Success.Set(c, "Your account is deleted.")
 	return c.RedirectRoute("home")
 }
 
@@ -187,7 +187,7 @@ func (a *app) updatePassword(c *tug.Ctx, user *User) error {
 	s := c.Session()
 	auth.Login(s, user.authID(), hash)
 	auth.SetPasswordConfirmed(s)
-	c.Flash("success", "Password changed. You've been logged out everywhere else.")
+	Success.Set(c, "Password changed. You've been logged out everywhere else.")
 	return c.RedirectRoute("security.edit")
 }
 

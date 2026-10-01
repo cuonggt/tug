@@ -219,3 +219,20 @@ func TestAnInputFieldOfTwoNamesIsRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestFlashDataIsTheKeysDeclaredEachOptional(t *testing.T) {
+	out := must(Generate(Input{Flash: map[string]reflect.Type{
+		"success":       reflect.TypeFor[string](),
+		"recoveryCodes": reflect.TypeFor[[]string](),
+		"toast":         reflect.TypeFor[Author](),
+	}})).Pages
+	contains(t, out,
+		"export interface FlashData {\n  recoveryCodes?: string[]\n  success?: string\n  toast?: Author\n}",
+		"export interface Author {\n  name: string\n",
+		"    sharedPageProps: SharedProps\n    flashDataType: FlashData\n",
+	)
+	// An app that declares none keeps its own, which another would clash with.
+	if out := generate().Pages; strings.Contains(out, "FlashData") || strings.Contains(out, "flashDataType") {
+		t.Errorf("an app that declares no key got flash types:\n%s", out)
+	}
+}

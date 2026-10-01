@@ -43,7 +43,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M35 | Inertia DevTools           | done   |
 | M36 | Compressed assets          | done   |
 | M37 | Typed forms                | done   |
-| M38 | Typed flash                | later  |
+| M38 | Typed flash                | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3289,14 +3289,14 @@ Choices made on the way:
   typechecking with their forms typed, passing their own tests, whose
   forms bind what their routes take, and their browser suite.
 
-## M38 · Typed flash — later
+## M38 · Typed flash — done
 
-tug gen types a page's props, its routes, and what its forms send, but
+tug gen typed a page's props, its routes, and what its forms send, but
 not the flash data a handler leaves for the next page, as a toast's
-message: the starters type it by hand, in `resources/js/types.ts`, as
+message: the starters typed it by hand, in `resources/js/types.ts`, as
 `flashDataType: { success?: string; error?: string; recoveryCodes?:
 string[]; token?: string }` in the auth starter, the keys its handlers
-flash with `c.Flash`, so a key added, or a value of another type, leaves
+flash with `c.Flash`, so a key added, or a value of another type, left
 the file behind, with nothing to say so. Inertia types `usePage().flash`
 and the flash event by `InertiaConfig`'s `flashDataType`, as it types the
 shared props by `sharedPageProps`, which tug gen writes already. To be
@@ -3311,24 +3311,27 @@ released as v0.33.0.
   declared, each optional, and `flashDataType: FlashData` beside
   `sharedPageProps` in `pages.ts`'s `InertiaConfig`, so
   `usePage().flash.success` is a `string | undefined`, and a key no
-  handler declares is a type error.
+  handler declares is a type error: `Property 'sucess' does not exist on
+  type 'FlashData'. Did you mean 'success'?`
 - **`c.Flash` checked:** a declared key flashed by `c.Flash` with a value
   of another type panics, as the frontend's type would say otherwise; a
   key not declared flashes as before.
-- **The starters' keys declared:** `success`, `error`, `token` and
-  `recoveryCodes` in the auth starter, and `success` in the plain one,
-  each set through its declaration where they flash, 28 places in the
-  auth starter and one in the plain, and their hand-kept `types.ts` gone,
-  as `examples/inertia`'s is.
-- **The guide:** Forms, flash messages by a declared key; and TypeScript,
-  `FlashData`.
+- **The starters' keys declared:** in `flash.go`, `success`, `error`,
+  `token` and `recoveryCodes` in the auth starter, and `success` in the
+  plain one, each set through its declaration where they flash, 28
+  places in the auth starter and one in the plain, and their hand-kept
+  `types.ts` gone, as `examples/inertia`'s is.
+- **The guide:** Forms, flash messages by a declared key; TypeScript, a
+  section on flash data; Getting started and Accounts, `flash.go` in
+  place of `types.ts`; and the README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A declaration of the key, as of a page:** a handler's `c.Flash`
   takes a key and a value of any type, which tug can't read the types of
   without running the handler; a declaration, made once, as the app's
-  pages are, is what tug gen reads, in the run it reads the pages in.
+  pages are, is what tug gen reads, in the run it reads the pages in,
+  from a registry of the process's, as the pages' is.
 - **Written once there's a key:** an app that declares none keeps its own
   `flashDataType`, as one made before has in its `types.ts`: tug gen's
   beside it would be two declarations of one property, a type error. An
@@ -3337,21 +3340,34 @@ Choices, to settle before any code:
   it, some keys or none.
 - **A value as JSON writes it:** the flash goes through the session as
   JSON, and to the page as JSON, so its type is written as encoding/json
-  writes it, as props are.
+  writes it, as props are, and a struct's interface is one of the
+  props'.
 - **One type a key:** a key declared twice, of two types, panics as the
-  app starts, as the types tug gen writes would say one of them wrongly.
-- **`c.Flash` stays:** a key flashed once, with no declaration, still
-  flashes, untyped, and its frontend reads it as it does now; the check
-  is of a declared key's value alone.
+  app starts, as the types tug gen writes would say one of them wrongly;
+  twice of one type is the same key.
+- **The check, for a declared key alone:** `c.Flash` of a declared key
+  panics for a value whose type isn't the key's, or doesn't implement it
+  when it's an interface, as `Flash[any]` takes anything; nil is any
+  type's. A key flashed once, with no declaration, still flashes,
+  untyped.
+- **The auth starter's names:** `Success`, `Failure` for the key `error`,
+  as `Error` would read as Go's own, `RecoveryCodes`, and `NewToken` for
+  `token`, the key its pages read.
+- **Two brackets in a template:** `tug.Flash[[]string]` in the auth
+  starter's `flash.go.tmpl` began an action of tug new's templates, whose
+  delimiters are `[[ ]]`, and failed to make the app, as the browser
+  suite's setup found; it's written with the placeholder, `[[ "[[" ]]`,
+  as `OptionalProp[[]string]` is.
 - **Tests:** tug gen's `FlashData` and `flashDataType` for keys of a
   string, a list and a struct, each optional, and neither for an app that
-  declares none; a key declared twice of two types panicking; `Set`
-  flashing as `c.Flash` does, on the page it renders and after a
-  redirect; `c.Flash` of a declared key with a value of another type
-  panicking, and of a key not declared flashing as before; and the
-  starters, made by `tug new`, typechecking with no `types.ts`, and their
-  toasts, the tokens page and the recovery codes in the browser suite as
-  before.
+  declares none; a key declared twice of two types panicking, and of one
+  type not; `Set` flashing a string and a list for the page after a
+  redirect; `c.Flash` of a declared key with a value of another type a
+  500 whose log names both, and of a key of any, nil, and a key not
+  declared, flashing as before; `examples/inertia` typechecking with no
+  `types.ts`, as `flash.sucess` doesn't; and the starters, made by `tug
+  new`, typechecking with no `types.ts`, and their toasts, the tokens
+  page and the recovery codes in the browser suite as before.
 
 ## Decisions
 

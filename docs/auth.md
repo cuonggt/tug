@@ -880,11 +880,13 @@ as Vite's tags do, and what the policy blocks, the browser reports to
 `/csp-reports`, which the app logs. Its photos, on a bucket, come from the
 bucket's address, which the policy lets images come from.
 
-What a handler flashes with `c.Flash("success", ...)` or `"error"` shows
-as a toast, with sonner. `app.tsx` listens for Inertia's `flash` event from
-the start, so the flash that comes with the first page, as after following
-a link in the app's mail, shows too. `types.ts` types the flash, with the
-recovery codes as well.
+What a handler flashes with `Success.Set(c, ...)` or `Failure.Set(c, ...)`,
+the keys `success` and `error` that `flash.go` declares with `tug.Flash`,
+shows as a toast, with sonner. `app.tsx` listens for Inertia's `flash`
+event from the start, so the flash that comes with the first page, as
+after following a link in the app's mail, shows too. tug gen types the
+flash from `flash.go`, with the recovery codes, `RecoveryCodes`, and a new
+API token, `NewToken`, as well.
 
 With `-vue`, `resources/js` is the same app in Vue: shadcn-vue's
 components, on Reka UI, `@lucide/vue`'s icons and vue-sonner's toasts,
@@ -898,7 +900,7 @@ the classic registry, so more are added with
 The pages have the same names, props and words in each, but for the
 frontend's own name and files where the landing page and the dashboard
 say them, so the Go and its tests are the same whichever it is, and
-`lib/passkeys.ts`, `types.ts` and `app.css` are the same files. A Vue page
+`lib/passkeys.ts` and `app.css` are the same files. A Vue page
 names its card's title with
 `defineOptions({ layout: { title: 'Log in', ... } })`, and a Svelte page
 with `export const layout = { title: 'Log in', ... }` in its

@@ -331,19 +331,28 @@ frontend gets it on the reloaded page. The client reads it as
 going back doesn't show it again. A value can be anything encoding/json
 writes, and flashing a key twice keeps the later value.
 
-`tug gen` can't see what handlers flash, so the type is written by hand, in
-`resources/js/types.ts`, which `tug new` makes for the `success` key its
-handler uses. A key that isn't there doesn't type-check:
+A key declared with `tug.Flash`, with the type of its value, is typed in
+the frontend too. The starters declare theirs in `flash.go`:
 
-```ts
-declare module '@inertiajs/core' {
-  export interface InertiaConfig {
-    flashDataType: { success?: string }
-  }
-}
+```go
+var Success = tug.Flash[string]("success")
 
-export {}
+// in a handler, as c.Flash("success", "Post created") does
+Success.Set(c, "Post created")
 ```
+
+`tug gen` writes `FlashData`, the keys declared, each optional, in
+`pages.ts`, as the type of `usePage().flash` and of the flash event, so
+`flash.success` is a `string | undefined`, and a key no handler declares,
+as `flash.sucess`, doesn't type-check. `Set` takes a value of its key's
+type alone, and `c.Flash` of a declared key with a value of another type
+panics, as the frontend's type would say otherwise. A key flashed with
+`c.Flash`, and never declared, still flashes, untyped.
+
+An app that declares no key may type its flash itself, with Inertia's
+`flashDataType`, as one made before v0.33.0 does in
+`resources/js/types.ts`. Once it declares one, `tug gen` writes
+`flashDataType`, and the app's own goes, as the two would clash.
 
 `c.ClearHistory()` and `c.PreserveFragment()` reach the next page the same
 way, through redirects. `ClearHistory` has the page tell the client to

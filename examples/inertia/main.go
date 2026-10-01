@@ -147,8 +147,8 @@ type Stats struct {
 	Words int `json:"words"`
 }
 
-// The pages, and the props each takes. resources/js/types.ts has the same
-// types in TypeScript.
+// The pages, and the props each takes, whose TypeScript tug gen writes in
+// resources/js/tug.
 
 type PostsIndexProps struct {
 	Posts inertia.ScrollProp[Post] `json:"posts"` // a page at a time, as the list scrolls
@@ -156,6 +156,10 @@ type PostsIndexProps struct {
 }
 
 var PostsIndex = tug.Page[PostsIndexProps]("Posts/Index")
+
+// Success is the flash data a post's handler leaves for the next page, a
+// message for its banner, whose TypeScript, FlashData, tug gen writes too.
+var Success = tug.Flash[string]("success")
 
 type PostsArchiveProps struct {
 	Posts tug.Paginated[Post] `json:"posts"` // a page by its number, with the links of a pager
@@ -335,7 +339,7 @@ func (p *posts) store(c *tug.Ctx) error {
 	p.mu.Unlock()
 
 	p.changed(c, "created", post.ID)
-	c.Flash("success", "Post created")
+	Success.Set(c, "Post created")
 	return c.RedirectRoute("posts.show", post.ID)
 }
 
@@ -388,7 +392,7 @@ func (p *posts) update(c *tug.Ctx) error {
 	p.mu.Unlock()
 
 	p.changed(c, "updated", post.ID)
-	c.Flash("success", "Post updated")
+	Success.Set(c, "Post updated")
 	return c.RedirectRoute("posts.show", post.ID)
 }
 
@@ -402,7 +406,7 @@ func (p *posts) destroy(c *tug.Ctx) error {
 	p.mu.Unlock()
 
 	p.changed(c, "deleted", post.ID)
-	c.Flash("success", "Post deleted")
+	Success.Set(c, "Post deleted")
 	return c.RedirectRoute("posts.index")
 }
 

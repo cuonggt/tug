@@ -37,7 +37,7 @@ func (a *app) twoFactorChallenge(c *tug.Ctx) error {
 	s := c.Session()
 	id, ok := auth.TwoFactorPending(s)
 	if !ok {
-		c.Flash("error", "That took more than ten minutes: log in again.")
+		Failure.Set(c, "That took more than ten minutes: log in again.")
 		return c.RedirectRoute("login")
 	}
 	var in TwoFactorChallengeInput
@@ -167,8 +167,8 @@ func (a *app) confirmTwoFactor(c *tug.Ctx, user *User) error {
 		return err
 	}
 	s.Delete(setupKey)
-	c.Flash("success", "Two-factor logins are on.")
-	c.Flash("recoveryCodes", codes)
+	Success.Set(c, "Two-factor logins are on.")
+	RecoveryCodes.Set(c, codes)
 	return c.RedirectRoute("security.edit")
 }
 
@@ -186,7 +186,7 @@ func (a *app) stopTwoFactor(c *tug.Ctx, user *User) error {
 		if err != nil {
 			return err
 		}
-		c.Flash("success", "Two-factor logins are off.")
+		Success.Set(c, "Two-factor logins are off.")
 	}
 	return c.RedirectRoute("security.edit")
 }
@@ -201,7 +201,7 @@ func (a *app) newRecoveryCodes(c *tug.Ctx, user *User) error {
 	if err := a.users.setRecoveryCodes(c.Context(), user.ID, a.sealCodes(codes)); err != nil {
 		return err
 	}
-	c.Flash("success", "Here are your new recovery codes. The old ones no longer work.")
-	c.Flash("recoveryCodes", codes)
+	Success.Set(c, "Here are your new recovery codes. The old ones no longer work.")
+	RecoveryCodes.Set(c, codes)
 	return c.RedirectRoute("security.edit")
 }

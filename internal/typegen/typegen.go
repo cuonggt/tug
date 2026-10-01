@@ -35,7 +35,8 @@ type Route struct {
 // Input is what the TypeScript is written from.
 type Input struct {
 	Pages  []Page
-	Shared map[string]any // the props shared with inertia.Share, by value
+	Shared map[string]any          // the props shared with inertia.Share, by value
+	Flash  map[string]reflect.Type // the flash keys tug.Flash declares, and their values' types
 	Routes []Route
 }
 
@@ -79,6 +80,11 @@ func pages(in Input) string {
 		shared = append(shared, fmt.Sprintf("  %s%s: %s", property(key), cond(optional, "?", ""), ts))
 	}
 
+	var flash []string
+	for _, key := range slices.Sorted(maps.Keys(in.Flash)) {
+		flash = append(flash, fmt.Sprintf("  %s?: %s", property(key), g.typeOf(in.Flash[key])))
+	}
+
 	var b strings.Builder
 	b.WriteString(header)
 	for _, name := range slices.Sorted(maps.Keys(g.decls)) {
@@ -94,6 +100,16 @@ func pages(in Input) string {
 	b.WriteString("export interface Pages {\n" + lines(pageTypes) + "}\n")
 	b.WriteString("\n// PageProps are everything a page component gets: its own props, and the\n// shared ones.\n")
 	b.WriteString("export type PageProps<C extends keyof Pages> = Pages[C] & SharedProps\n")
+	if len(flash) > 0 {
+		// Only for an app that declares a key: one that declares none may
+		// declare flashDataType itself, which a second declaration would
+		// clash with.
+		b.WriteString("\n// FlashData is the flash data a handler leaves for the next page, by the keys\n")
+		b.WriteString("// tug.Flash declares, for usePage().flash: a page has some of them, or none.\n")
+		b.WriteString("export interface FlashData {\n" + lines(flash) + "}\n")
+		b.WriteString("\ndeclare module '@inertiajs/core' {\n  export interface InertiaConfig {\n    sharedPageProps: SharedProps\n    flashDataType: FlashData\n  }\n}\n")
+		return b.String()
+	}
 	b.WriteString("\ndeclare module '@inertiajs/core' {\n  export interface InertiaConfig {\n    sharedPageProps: SharedProps\n  }\n}\n")
 	return b.String()
 }

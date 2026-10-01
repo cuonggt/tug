@@ -89,13 +89,13 @@ func (a *app) resendVerification(c *tug.Ctx, user *User) error {
 		return err
 	}
 	if wait > 0 {
-		c.Flash("error", fmt.Sprintf("A link went a moment ago: wait %d seconds for another.", int(math.Ceil(wait.Seconds()))))
+		Failure.Set(c, fmt.Sprintf("A link went a moment ago: wait %d seconds for another.", int(math.Ceil(wait.Seconds()))))
 		return c.RedirectBack()
 	}
 	if err := a.sendVerification(c, user); err != nil {
 		return err
 	}
-	c.Flash("success", "A new link is on its way to "+user.Email+".")
+	Success.Set(c, "A new link is on its way to "+user.Email+".")
 	return c.RedirectBack()
 }
 
@@ -112,7 +112,7 @@ func (a *app) verifyEmail(c *tug.Ctx) error {
 		return err
 	}
 	if u == nil || !a.verifications.Check(c.Param("token"), u.authID(), u.Email) {
-		c.Flash("error", "That link has expired, or is for an email you've changed since: send yourself another.")
+		Failure.Set(c, "That link has expired, or is for an email you've changed since: send yourself another.")
 		return c.RedirectRoute("verification.notice")
 	}
 	if err := a.users.setVerified(c.Context(), u.ID, u.Email); err != nil {
@@ -124,6 +124,6 @@ func (a *app) verifyEmail(c *tug.Ctx) error {
 	if err := a.hub.Publish(c.Context(), userChannel(u), "verified", nil); err != nil {
 		slog.WarnContext(c.Context(), "the page asking to verify the email wasn't told it's verified", "user", u.ID, "err", err)
 	}
-	c.Flash("success", "Thanks: your email is verified.")
+	Success.Set(c, "Thanks: your email is verified.")
 	return c.RedirectRoute("dashboard")
 }

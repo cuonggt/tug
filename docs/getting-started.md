@@ -114,6 +114,7 @@ As you work:
 ```
 blog/
 ├── main.go              the server: its pages, routes and handlers
+├── flash.go             the flash data's keys, which tug gen types
 ├── main_test.go         its tests
 ├── app.html             the HTML every page is rendered into
 ├── resources/
@@ -122,7 +123,6 @@ blog/
 │       ├── app.tsx      the frontend's entry: finds each page's component
 │       ├── Layout.tsx   what every page has around it, the flash message too
 │       ├── pages/       a component for each page: Home.tsx and Error.tsx
-│       ├── types.ts     the type of the flash data
 │       └── tug/         written by tug gen, not by hand: pages.ts, routes.ts
 ├── public/              put into the binary; Vite builds into public/build
 ├── vite.config.ts       Vite's settings, and the plugin tug dev works with

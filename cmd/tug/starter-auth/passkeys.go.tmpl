@@ -127,7 +127,7 @@ func (a *app) addPasskey(c *tug.Ctx, user *User) error {
 	} else if err != nil {
 		return err
 	}
-	c.Flash("success", "Passkey added: it logs you in with no password.")
+	Success.Set(c, "Passkey added: it logs you in with no password.")
 	return c.RedirectRoute("security.edit")
 }
 
@@ -144,7 +144,7 @@ func (a *app) removePasskey(c *tug.Ctx, user *User) error {
 	if !removed {
 		return tug.NewHTTPError(http.StatusNotFound, "passkey not found")
 	}
-	c.Flash("success", "Passkey removed.")
+	Success.Set(c, "Passkey removed.")
 	return c.RedirectRoute("security.edit")
 }
 

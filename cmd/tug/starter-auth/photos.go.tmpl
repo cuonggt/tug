@@ -44,7 +44,7 @@ func (a *app) updatePhoto(c *tug.Ctx, user *User) error {
 		}
 		return err
 	}
-	c.Flash("success", "Photo saved.")
+	Success.Set(c, "Photo saved.")
 	return c.RedirectRoute("profile.edit")
 }
 
@@ -53,7 +53,7 @@ func (a *app) removePhoto(c *tug.Ctx, user *User) error {
 	if err := a.replacePhoto(c.Context(), user.ID, ""); err != nil {
 		return err
 	}
-	c.Flash("success", "Photo removed.")
+	Success.Set(c, "Photo removed.")
 	return c.RedirectRoute("profile.edit")
 }
 

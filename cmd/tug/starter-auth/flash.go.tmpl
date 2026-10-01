@@ -1,0 +1,15 @@
+package main
+
+import "github.com/cuonggt/tug"
+
+// The flash data the handlers leave for the next page, by key, whose
+// TypeScript tug gen writes, FlashData, which types usePage().flash: a
+// message for a toast after a form, the recovery codes shown once, as
+// two-factor logins are turned on, and a new API token, shown once as
+// it's made.
+var (
+	Success       = tug.Flash[string]("success")
+	Failure       = tug.Flash[string]("error")
+	RecoveryCodes = tug.Flash[[ "[[" ]]]string]("recoveryCodes")
+	NewToken      = tug.Flash[string]("token")
+)

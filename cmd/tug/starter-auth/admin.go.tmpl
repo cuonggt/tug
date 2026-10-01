@@ -56,11 +56,11 @@ func (a *app) retryFailedJob(c *tug.Ctx, _ *User) error {
 		return err
 	}
 	if !again {
-		c.Flash("error", "Job "+id+" hasn't failed for good, or has gone: it's been run again already, maybe.")
+		Failure.Set(c, "Job "+id+" hasn't failed for good, or has gone: it's been run again already, maybe.")
 		return c.RedirectRoute("failed-jobs.index")
 	}
 	a.queue.Wake()
-	c.Flash("success", "Job "+id+" is back to run.")
+	Success.Set(c, "Job "+id+" is back to run.")
 	return c.RedirectRoute("failed-jobs.index")
 }
 
@@ -81,7 +81,7 @@ func (a *app) retryFailedJobs(c *tug.Ctx, _ *User) error {
 		}
 	}
 	a.queue.Wake()
-	c.Flash("success", fmt.Sprintf("%s back to run.", howMany(n, "job")))
+	Success.Set(c, fmt.Sprintf("%s back to run.", howMany(n, "job")))
 	return c.RedirectRoute("failed-jobs.index")
 }
 

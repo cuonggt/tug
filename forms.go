@@ -149,8 +149,11 @@ func (c *Ctx) Session() *session.Session {
 // Flash adds flash data for the next page shown, whether this request
 // renders it or redirects to it: a message such as "Post created". The
 // client reads it as usePage().flash, shows it once, and doesn't keep it
-// in history. Surviving a redirect takes Config.Session.
+// in history. Surviving a redirect takes Config.Session. A key the app
+// declares with tug.Flash, for tug gen to type, panics for a value of
+// another type than its own.
 func (c *Ctx) Flash(key string, value any) {
+	checkFlash(key, value)
 	if c.flash == nil {
 		c.flash = map[string]any{}
 	}

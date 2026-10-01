@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M37 are done, which is
+the decisions behind it and where it stands: M1 to M38 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -92,7 +92,10 @@ compressed assets (v0.31.0): the build's scripts and styles, as package
 build's own brotli, and typed forms (v0.32.0): `Route.Takes`, the struct
 a route's handler binds, which `Bind` checks, and tug gen's `Inputs`, by
 route name, and `form()`, a route's path and method as a form's action,
-which the starters' forms take, React's typed by their input.
+which the starters' forms take, React's typed by their input, and typed
+flash (v0.33.0): `tug.Flash[T]`, a flash key declared with its value's
+type, set through it, which `Ctx.Flash` checks, and tug gen's `FlashData`,
+Inertia's `flashDataType`, in place of the starters' hand-kept `types.ts`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -287,6 +290,11 @@ dev server that isn't there: delete it.
     (which, under DevTools, records where the app rendered the page) and
     `Ctx.Location`.
     `Config.Inertia` puts the Inertia middleware inside the App's own.
+  - `flash.go`: `Flash[T]`, which declares a flash key and its value's
+    type in the registry tug gen reads (`declareFlash`,
+    `declaredFlashes`), panicking for a key of two types, and returns a
+    `FlashOf[T]`, whose `Set` flashes it; `checkFlash`, which `Ctx.Flash`
+    runs, panics for a declared key's value of another type.
   - `forms.go`: `BindValid`/`Validate` (tags, then the handler's checks;
     a Precognition request is answered in `precognition` and returns
     `errAnswered`, which `adapt` keeps from the ErrorHandler),
@@ -454,7 +462,9 @@ dev server that isn't there: delete it.
   older than `keepFor`, pruned every `pruneEvery`.
 - `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
   values: `pages.ts` (an interface per named struct, `SharedProps`,
-  `Pages`, `PageProps`, and the `InertiaConfig` augmentation) and
+  `Pages`, `PageProps`, `FlashData`, the keys `tug.Flash` declares, each
+  optional, and the `InertiaConfig` augmentation, with `flashDataType`
+  only when there's a key, so an app's own doesn't clash) and
   `routes.ts` (the inputs' interfaces, the route table, `Params`,
   `Inputs`, each route's `Takes` by its name, `route()`, and `form()`, a
   route's path and method as a form's action). The inputs are a `gen` of
@@ -527,7 +537,10 @@ dev server that isn't there: delete it.
   `dotEnv`; `tests/helpers.ts`'s `command` runs an app's command, as
   `admins add`):
   the three are one app, word for word, so a change to one frontend is
-  made to all three. Each route of the starters' that binds input `Takes`
+  made to all three. The starters declare their flash keys in
+  `flash.go`, the auth starter's `Success`, `Failure` (`error`),
+  `RecoveryCodes` and `NewToken` (`token`), and set them through it, with
+  no `types.ts` of their own. Each route of the starters' that binds input `Takes`
   it, and their forms take their action from `form()`, React's typed by
   their route's input, `<Form<Inputs['login.store']>>`, as Vue's and
   Svelte's `<Form>` take no type. The auth starter's handlers are in `auth.go.tmpl`
@@ -923,7 +936,7 @@ dev server that isn't there: delete it.
   (`events`), and which the archive, reloading its page, and the list,
   reloading its stats, follow with `resources/js/useEvents.ts`.
   `resources/js/tug` is written by tug gen and committed (CI checks it's
-  current); `resources/js/types.ts` has only the flash type.
+  current); its flash key, `Success`, is declared with `tug.Flash`.
 
 tug logs through `slog.Default()` and never sets it; that's the app's call.
 

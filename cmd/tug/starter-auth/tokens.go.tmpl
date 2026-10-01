@@ -116,8 +116,8 @@ func (a *app) createToken(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
-	c.Flash("success", "Token made. Copy it now: it won't be shown again.")
-	c.Flash("token", token)
+	Success.Set(c, "Token made. Copy it now: it won't be shown again.")
+	NewToken.Set(c, token)
 	return c.RedirectRoute("tokens.index")
 }
 
@@ -135,7 +135,7 @@ func (a *app) revokeToken(c *tug.Ctx, user *User) error {
 	if !revoked {
 		return tug.NewHTTPError(http.StatusNotFound, "token not found")
 	}
-	c.Flash("success", "Token revoked.")
+	Success.Set(c, "Token revoked.")
 	return c.RedirectRoute("tokens.index")
 }
 

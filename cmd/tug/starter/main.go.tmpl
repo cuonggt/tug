@@ -176,6 +176,6 @@ func hello(c *tug.Ctx) error {
 	if err := c.BindValid(&in); err != nil {
 		return err // back to the form, with what to fix
 	}
-	c.Flash("success", "Hello, "+in.Name+"!")
+	Success.Set(c, "Hello, "+in.Name+"!")
 	return c.RedirectRoute("home")
 }

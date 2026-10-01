@@ -1,0 +1,8 @@
+package main
+
+import "github.com/cuonggt/tug"
+
+// Success is the flash data a handler leaves for the next page, a message
+// for its banner. tug gen writes its TypeScript, FlashData, which types
+// usePage().flash.
+var Success = tug.Flash[string]("success")

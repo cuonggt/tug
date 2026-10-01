@@ -82,8 +82,15 @@ export interface Pages {
 // shared ones.
 export type PageProps<C extends keyof Pages> = Pages[C] & SharedProps
 
+// FlashData is the flash data a handler leaves for the next page, by the keys
+// tug.Flash declares, for usePage().flash: a page has some of them, or none.
+export interface FlashData {
+  success?: string
+}
+
 declare module '@inertiajs/core' {
   export interface InertiaConfig {
     sharedPageProps: SharedProps
+    flashDataType: FlashData
   }
 }

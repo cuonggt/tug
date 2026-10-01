@@ -349,25 +349,39 @@ declare module './tug/pages' {
 The file ends in `export {}`, which makes it a module: outside one,
 TypeScript refuses a relative path in `declare module`.
 
-Flash data isn't a prop, and `c.Flash` takes any key, so tug gen doesn't
-write its type. It's in `resources/js/types.ts`, which the starters come
-with:
+## Flash data
 
-```ts
-// What the handlers flash with c.Flash, for usePage().flash. The props of
-// the pages, and the routes, are in ./tug, written by tug gen.
-declare module '@inertiajs/core' {
-  export interface InertiaConfig {
-    flashDataType: { success?: string }
-  }
-}
+Flash data isn't a prop, and `c.Flash` takes any key, so tug gen types the
+keys the app declares with `tug.Flash`, as the starters do in `flash.go`:
 
-export {}
+```go
+var (
+	Success       = tug.Flash[string]("success")
+	RecoveryCodes = tug.Flash[[]string]("recoveryCodes")
+)
 ```
 
-With it, `usePage().flash.success` is a `string | undefined`, and
-`flash.error` doesn't compile until the type has it. Keep it in step with
-what the handlers flash; [forms.md](forms.md) has flash data itself.
+```ts
+export interface FlashData {
+  recoveryCodes?: string[]
+  success?: string
+}
+
+declare module '@inertiajs/core' {
+  export interface InertiaConfig {
+    sharedPageProps: SharedProps
+    flashDataType: FlashData
+  }
+}
+```
+
+Each key is optional, as a page shows the flash of the request before it,
+some keys or none, and its value is typed as encoding/json writes it. So
+`usePage().flash.success` is a `string | undefined`, and `flash.sucess`
+doesn't compile. An app that declares no key gets no `flashDataType`, and
+may declare its own, as one made before v0.33.0 does in
+`resources/js/types.ts`, which goes once the app declares a key, as the
+two would clash. [forms.md](forms.md#flash-messages) has flash data itself.
 
 ## Routes
 
