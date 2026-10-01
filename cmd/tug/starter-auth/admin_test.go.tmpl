@@ -2,9 +2,16 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/auth/passkeytest"
+	"github.com/cuonggt/tug/mail"
+	"github.com/cuonggt/tug/session"
 	"github.com/cuonggt/tug/tugtest"
 )
 
@@ -116,5 +123,395 @@ func TestAnAdminRunsTheJobsThatFailedAgain(t *testing.T) {
 	}
 	if left, err := s.Failed(context.Background()); err != nil || len(left) != 0 {
 		t.Errorf("left %v, %v", left, err)
+	}
+}
+
+// adminAndBob is Ann, an admin, and Bob, a user, verified, each logged in
+// in a browser of their own, and Bob's ID.
+func adminAndBob(t *testing.T, app *testApp) (ann, bob *tugtest.Client, bobID int64) {
+	t.Helper()
+	ann = app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	app.makeAdmin("ann@example.com")
+	bob = app.verifiedUser("Bob", "bob@example.com", "battery staple")
+	return ann, bob, app.userID("bob@example.com")
+}
+
+// userID is the ID of the user with email.
+func (a *testApp) userID(email string) int64 {
+	a.t.Helper()
+	u, err := (&users{db: a.db}).byEmail(context.Background(), email)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	return u.ID
+}
+
+// userPath is the path of what an admin does to the user with id: suspend,
+// restore or act.
+func userPath(id int64, action string) string {
+	return fmt.Sprintf("/admin/users/%d/%s", id, action)
+}
+
+// listed is the user with email as the users page on r lists them.
+func listed(t *testing.T, r *tugtest.Response, email string) ListedUser {
+	t.Helper()
+	for _, u := range tugtest.Props(r, Users).List.Data {
+		if u.Email == email {
+			return u
+		}
+	}
+	t.Fatalf("%s isn't listed", email)
+	return ListedUser{}
+}
+
+func TestTheUsersPageIsForAdminsAlone(t *testing.T) {
+	app := newTestApp(t)
+	if r := app.client().Get("/admin/users"); r.Location() != "/login" {
+		t.Errorf("a guest: %v", r)
+	}
+	ann, bob, _ := adminAndBob(t, app)
+	annID := app.userID("ann@example.com")
+	for _, r := range []*tugtest.Response{bob.Get("/admin/users"), bob.Post(userPath(annID, "suspend"), nil), bob.Post(userPath(annID, "restore"), nil), bob.Post(userPath(annID, "act"), nil)} {
+		if r.Code != 403 || r.Page.Component != "Error" || tugtest.Prop[string](r, "message") != "you may not see the users" {
+			t.Errorf("a user: %v, %v", r, r.Page.Props)
+		}
+	}
+	if tugtest.Prop[bool](bob.Get("/dashboard"), "can.seeUsers") {
+		t.Error("a user's pages say they may see the users")
+	}
+	if !tugtest.Prop[bool](ann.Get("/dashboard"), "can.seeUsers") {
+		t.Error("an admin's pages don't say they may see the users")
+	}
+	r := ann.Get("/admin/users")
+	if r.Code != 200 || r.Page.Component != "Admin/Users" {
+		t.Fatalf("an admin: %v", r)
+	}
+	if u := listed(t, r, "ann@example.com"); !u.Admin || !u.Verified || u.TwoFactor || u.SuspendedAt != nil || u.Can.Suspend || u.Can.ActAs {
+		t.Errorf("Ann is listed as %+v", u)
+	}
+	if u := listed(t, r, "bob@example.com"); u.Admin || !u.Verified || !u.Can.Suspend || !u.Can.ActAs {
+		t.Errorf("Bob is listed as %+v", u)
+	}
+}
+
+func TestAnAdminFindsUsersByEmailOrNameTheNewestFirstAPageAtATime(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	app.makeAdmin("ann@example.com")
+	// Added as registering adds them, without hashing a password each.
+	us, hash := &users{db: app.db}, auth.HashPassword("correct horse")
+	for i := range 25 {
+		if _, err := us.add(context.Background(), fmt.Sprintf("Member %d", i), fmt.Sprintf("member%d@example.org", i), hash); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := us.add(context.Background(), "Zoë Quinn", "zoe_100%@example.net", hash); err != nil {
+		t.Fatal(err)
+	}
+	emails := func(r *tugtest.Response) []string {
+		var got []string
+		for _, u := range tugtest.Props(r, Users).List.Data {
+			got = append(got, u.Email)
+		}
+		return got
+	}
+
+	first := ann.Get("/admin/users")
+	next := tugtest.Props(first, Users).List.NextPageURL
+	if got := emails(first); len(got) != usersPerPage || got[0] != "zoe_100%@example.net" || got[1] != "member24@example.org" || next == nil {
+		t.Fatalf("the first page: %v, next %v", got, next)
+	}
+	if got := emails(ann.Get(*next)); len(got) != 7 || got[6] != "ann@example.com" {
+		t.Errorf("the second page: %v", got)
+	}
+
+	for search, want := range map[string][]string{
+		"MEMBER2": {"member24@example.org", "member23@example.org", "member22@example.org", "member21@example.org", "member20@example.org", "member2@example.org"},
+		"zoë":     {"zoe_100%@example.net"}, // by name
+		"e_1":     {"zoe_100%@example.net"}, // an _ is an _, not any letter, as member1's "er1" would be
+		"r%":      nil,                      // and a % a %, not anything after
+		"nobody":  nil,
+	} {
+		r := ann.Get("/admin/users?search=" + url.QueryEscape(search))
+		if got := emails(r); !slices.Equal(got, want) {
+			t.Errorf("finding %q: %v, want %v", search, got, want)
+		}
+		if got := tugtest.Props(r, Users).Search; got != search {
+			t.Errorf("finding %q, the page says it found %q", search, got)
+		}
+	}
+	// The next page finds the same.
+	r := ann.Get("/admin/users?search=member")
+	if next := tugtest.Props(r, Users).List.NextPageURL; next == nil || !strings.Contains(*next, "search=member") || len(emails(ann.Get(*next))) != 5 {
+		t.Errorf("the next page of what's found: %v", next)
+	}
+}
+
+func TestASuspendedUsersLoginEndsTheyCantLogInAndTheirTokenIsTurnedAwayUntilRestored(t *testing.T) {
+	app := newTestApp(t)
+	ann, bob, bobID := adminAndBob(t, app)
+	token := makeToken(t, bob, "Bob's script", []string{"user:read"}, "0")
+
+	ann.Get("/admin/users")
+	r := ann.Post(userPath(bobID, "suspend"), nil)
+	if r.Location() != "/admin/users" {
+		t.Fatalf("suspending Bob: %v", r)
+	}
+	r = r.Follow()
+	if flash := tugtest.Flash[string](r, "success"); flash != "Bob is suspended, and has been told by mail." {
+		t.Errorf("flash %q", flash)
+	}
+	if u := listed(t, r, "bob@example.com"); u.SuspendedAt == nil || u.Can.ActAs {
+		t.Errorf("Bob is listed as %+v", u)
+	}
+	mailedTo(t, app, "bob@example.com", "Your "+appName+" account was suspended")
+
+	// His login ends at his next request, which says why.
+	r = bob.Get("/dashboard")
+	if r.Location() != "/login" {
+		t.Fatalf("Bob's next request: %v", r)
+	}
+	if flash := tugtest.Flash[string](r.Follow(), "error"); flash != suspendedNow {
+		t.Errorf("Bob was told %q", flash)
+	}
+	if user(bob.Get("/")) != nil {
+		t.Error("Bob is still logged in")
+	}
+	// He can't log in again, and is told why once the password is right,
+	// which only he knows.
+	for password, want := range map[string]string{"battery staple": "this account is suspended", "wrong horse": "the email and password don't match an account"} {
+		if errs := logIn(bob, "bob@example.com", password).Follow().Errors(); errs["email"] != want {
+			t.Errorf("logging in with %q: %v", password, errs)
+		}
+	}
+	if r := app.api("GET", "/api/user", token); r.Code != 403 || !strings.Contains(r.Body, "this token's account is suspended") {
+		t.Errorf("his token: %d %s", r.Code, r.Body)
+	}
+	// As from another admin's page at once.
+	if flash := tugtest.Flash[string](ann.Post(userPath(bobID, "suspend"), nil).Follow(), "error"); flash != "Bob is suspended already." {
+		t.Errorf("suspending him again: %q", flash)
+	}
+
+	r = ann.Post(userPath(bobID, "restore"), nil).Follow()
+	if flash := tugtest.Flash[string](r, "success"); flash != "Bob is restored, and has been told by mail." {
+		t.Errorf("restoring Bob: flash %q", flash)
+	}
+	mailedTo(t, app, "bob@example.com", "Your "+appName+" account was restored")
+	if r := logIn(bob, "bob@example.com", "battery staple"); r.Location() != "/dashboard" {
+		t.Errorf("logging in once restored: %v", r)
+	}
+	if r := app.api("GET", "/api/user", token); r.Code != 200 {
+		t.Errorf("his token once restored: %d %s", r.Code, r.Body)
+	}
+	if got := lines(bob, ""); len(got) < 2 || got[0] != "Your account was restored." || got[1] != "Your account was suspended." {
+		t.Errorf("his notifications: %v", got)
+	}
+	if flash := tugtest.Flash[string](ann.Post(userPath(bobID, "restore"), nil).Follow(), "error"); flash != "Bob isn't suspended." {
+		t.Errorf("restoring him again: %q", flash)
+	}
+}
+
+func TestASuspendedAccountIsToldWhyAtEachWayIn(t *testing.T) {
+	app := newTestApp(t)
+	ann, bob, bobID := adminAndBob(t, app)
+	key := passkeytest.New("https://app.example")
+	if r := addPasskey(t, bob, key, "Bob's phone"); r.Location() != "/settings/security" {
+		t.Fatalf("adding a passkey: %v", r)
+	}
+	secret, _ := turnOnTwoFactor(t, app, bob)
+	// A login waiting for its code as the account is suspended.
+	waiting := app.client()
+	waiting.Get("/login")
+	if r := logIn(waiting, "bob@example.com", "battery staple"); r.Location() != "/two-factor-challenge" {
+		t.Fatalf("logging in: %v", r)
+	}
+	ann.Post(userPath(bobID, "suspend"), nil)
+
+	r := waiting.Post("/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)})
+	if r.Location() != "/login" || tugtest.Flash[string](r.Follow(), "error") != "This account is suspended, so you can't log in." {
+		t.Errorf("the code: %v", r)
+	}
+	if errs := passkeyLogin(t, app.client(), key).Follow().Errors(); errs["passkey"] != "That passkey's account is suspended, so it can't log in." {
+		t.Errorf("the passkey: %v", errs)
+	}
+	// A reset sets the password, which is still his, but doesn't log in.
+	c := app.client()
+	app.client().Post("/forgot-password", map[string]any{"email": "bob@example.com"})
+	r = c.Get(link(t, mailedTo(t, app, "bob@example.com", "Reset your "+appName+" password"), "/reset-password/"))
+	page := tugtest.Props(r, ResetPassword)
+	r = c.Post("/reset-password", map[string]any{"token": page.Token, "email": page.Email, "password": "a new staple", "password_confirmation": "a new staple"})
+	if r.Location() != "/login" || tugtest.Flash[string](r.Follow(), "error") != "Your password is reset, but your account is suspended, so you can't log in." {
+		t.Errorf("the reset: %v", r)
+	}
+	if user(c.Get("/")) != nil {
+		t.Error("the reset logged in")
+	}
+}
+
+// mailedTo waits for the mail to email with subject, and returns it,
+// passing over the mail to email before it, as of a change made earlier.
+func mailedTo(t *testing.T, app *testApp, email, subject string) mail.Message {
+	t.Helper()
+	for {
+		if m := app.outbox.NextTo(t, email); m.Subject == subject {
+			return m
+		}
+	}
+}
+
+func TestAnAdminActsAsAUserAndGoesBackToTheirOwnAccount(t *testing.T) {
+	app := newTestApp(t)
+	ann, bob, bobID := adminAndBob(t, app)
+	makeToken(t, bob, "Bob's script", []string{"user:read"}, "0") // a notification, which he hasn't read
+
+	ann.Get("/admin/users")
+	r := ann.Post(userPath(bobID, "act"), nil)
+	if r.Location() != "/dashboard" {
+		t.Fatalf("acting as Bob: %v", r)
+	}
+	r = r.Follow()
+	if u := user(r); u == nil || u.Email != "bob@example.com" || !tugtest.Prop[bool](r, "auth.acting") {
+		t.Fatalf("the dashboard: user %+v, acting %v", u, tugtest.Prop[bool](r, "auth.acting"))
+	}
+	// The pages Bob sees, as he sees them: not the admins'.
+	if tugtest.Prop[bool](r, "can.seeUsers") || ann.Get("/admin/users").Code != 403 {
+		t.Error("acting as Bob, Ann may see the users")
+	}
+	// His notifications, which stay unread for him, as he hasn't seen them.
+	if got := lines(ann, ""); len(got) != 1 || got[0] != "An API token, Bob's script, was made." {
+		t.Errorf("his notifications: %v", got)
+	}
+	if n := unread(bob); n != 1 {
+		t.Errorf("Bob has %d unread once Ann saw them", n)
+	}
+
+	r = ann.Post("/acting/stop", nil)
+	if r.Location() != "/admin/users" {
+		t.Fatalf("going back: %v", r)
+	}
+	r = r.Follow()
+	if u := user(r); u == nil || u.Email != "ann@example.com" || tugtest.Prop[bool](r, "auth.acting") || r.Page.Component != "Admin/Users" {
+		t.Errorf("back: user %+v, %v", u, r)
+	}
+	if r := ann.Post("/acting/stop", nil); r.Location() != "/dashboard" {
+		t.Errorf("going back while not acting: %v", r)
+	}
+}
+
+func TestWhatCouldHandTheAccountToSomeoneElseIsRefusedWhileActing(t *testing.T) {
+	app := newTestApp(t)
+	ann, _, bobID := adminAndBob(t, app)
+	ann.Post(userPath(bobID, "act"), nil)
+	// What asks for the password again asks for Bob's, which Ann doesn't
+	// know, as her own confirmed one stays hers.
+	if r := ann.Get("/settings/security"); r.Location() != "/confirm-password" {
+		t.Errorf("the security settings: %v", r)
+	}
+	// Had he told her it, to help him, what's his alone is still refused.
+	ann.Get("/confirm-password")
+	if r := ann.Post("/confirm-password", map[string]any{"password": "battery staple"}); r.Location() != "/settings/security" {
+		t.Fatalf("confirming Bob's password: %v", r)
+	}
+	for what, try := range map[string]func() *tugtest.Response{
+		"change the password": func() *tugtest.Response {
+			return ann.Put("/settings/password", map[string]any{"current_password": "battery staple", "password": "a new horse", "password_confirmation": "a new horse"})
+		},
+		"change the email": func() *tugtest.Response {
+			return ann.Patch("/settings/profile", map[string]any{"name": "Bob", "email": "ann.too@example.com"})
+		},
+		"change two-factor logins": func() *tugtest.Response { return ann.Post("/settings/two-factor", nil) },
+		"see the recovery codes": func() *tugtest.Response {
+			ann.Get("/settings/security")
+			return ann.Reload(tugtest.Only("recoveryCodes"))
+		},
+		"add a passkey": func() *tugtest.Response { return ann.Post("/settings/passkeys/options", nil) },
+		"make an API token": func() *tugtest.Response {
+			return ann.Post("/settings/tokens", map[string]any{"name": "Ann's", "abilities": []string{"user:read"}, "expires": "0"})
+		},
+		"delete the account": func() *tugtest.Response {
+			return ann.Delete("/settings/profile", map[string]any{"password": "battery staple"})
+		},
+	} {
+		if r := try(); r.Code != 403 || tugtest.Prop[string](r, "message") != "you may not "+what+" while acting as Bob" {
+			t.Errorf("%s: %v, %v", what, r, r.Page.Props)
+		}
+	}
+	// What isn't, as his name, is his to change with his say.
+	if r := ann.Patch("/settings/profile", map[string]any{"name": "Bobby", "email": "bob@example.com"}); r.Location() != "/settings/profile" {
+		t.Errorf("changing his name: %v", r)
+	}
+	bob, err := (&users{db: app.db}).byID(context.Background(), bobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bob.Email != "bob@example.com" || bob.TwoFactor || !auth.CheckPassword(bob.PasswordHash, "battery staple") || bob.Name != "Bobby" {
+		t.Errorf("Bob is now %+v", bob)
+	}
+}
+
+func TestLoggingOutWhileActingEndsTheAdminsLoginToo(t *testing.T) {
+	app := newTestApp(t)
+	ann, _, bobID := adminAndBob(t, app)
+	ann.Post(userPath(bobID, "act"), nil)
+	if r := ann.Post("/logout", nil); r.Location() != "/" {
+		t.Fatalf("logging out: %v", r)
+	}
+	for _, r := range []*tugtest.Response{ann.Get("/admin/users"), ann.Post("/acting/stop", nil)} {
+		if r.Location() != "/login" {
+			t.Errorf("once logged out: %v", r)
+		}
+	}
+}
+
+func TestActingEndsAfterItsHourWithTheAdminsLogin(t *testing.T) {
+	app := newTestApp(t)
+	ann, _, bobID := adminAndBob(t, app)
+	bob, err := (&users{db: app.db}).byID(context.Background(), bobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := session.New(session.Config{Keys: app.keys})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Acting whose hour is up, as the session has it once it is.
+	ann.Session(sessions, func(s *session.Session) { auth.ActAs(s, bob.authID(), bob.PasswordHash, 0) })
+	for _, page := range []string{"/dashboard", "/admin/users"} {
+		if r := ann.Get(page); r.Location() != "/login" {
+			t.Errorf("%s once the hour was up: %v", page, r)
+		}
+	}
+}
+
+func TestAnAdminMayNotSuspendOrActAsThemselvesAnotherAdminOrTheSuspended(t *testing.T) {
+	app := newTestApp(t)
+	ann, _, bobID := adminAndBob(t, app)
+	annID := app.userID("ann@example.com")
+	app.makeAdmin("bob@example.com")
+	for path, want := range map[string]string{
+		userPath(annID, "suspend"): "you may not suspend yourself",
+		userPath(annID, "act"):     "you may not act as yourself",
+		userPath(bobID, "suspend"): "you may not suspend an admin: the admins command makes them a user again first",
+		userPath(bobID, "act"):     "you may not act as an admin: the admins command makes them a user again first",
+	} {
+		if r := ann.Post(path, nil); r.Code != 403 || tugtest.Prop[string](r, "message") != want {
+			t.Errorf("%s: %v, %v", path, r, r.Page.Props)
+		}
+	}
+	for _, u := range tugtest.Props(ann.Get("/admin/users"), Users).List.Data {
+		if u.Can.Suspend || u.Can.ActAs {
+			t.Errorf("the page offers to suspend or act as %+v", u)
+		}
+	}
+
+	if err := adminsCommand(context.Background(), &users{db: app.db}, "./blog", []string{"remove", "bob@example.com"}, &strings.Builder{}); err != nil {
+		t.Fatal(err)
+	}
+	ann.Post(userPath(bobID, "suspend"), nil)
+	if r := ann.Post(userPath(bobID, "act"), nil); r.Code != 403 || tugtest.Prop[string](r, "message") != "you may not act as a suspended account: restore it first" {
+		t.Errorf("acting as the suspended: %v", r)
+	}
+	if r := ann.Post(userPath(bobID+100, "suspend"), nil); r.Code != 404 {
+		t.Errorf("suspending no one: %v", r)
 	}
 }

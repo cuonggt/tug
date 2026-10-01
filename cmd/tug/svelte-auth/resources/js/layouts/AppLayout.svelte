@@ -2,6 +2,7 @@
   import { Link, page, router } from '@inertiajs/svelte'
   import Bell from '@lucide/svelte/icons/bell'
   import type { Snippet } from 'svelte'
+  import ActingBanner from '@/components/ActingBanner.svelte'
   import AppLogo from '@/components/AppLogo.svelte'
   import UserMenu from '@/components/UserMenu.svelte'
   import { buttonVariants } from '@/components/ui/button'
@@ -10,17 +11,22 @@
   import { route } from '@/tug/routes'
 
   // nav is the app's own pages, for users who've logged in: add each page to
-  // it as the app grows. An admin has theirs too, as the shared can says.
+  // it as the app grows. An admin has theirs too, each as the shared can
+  // says they may.
   const nav = [{ title: 'Dashboard', href: route('dashboard') }]
-  const adminNav = [{ title: 'Failed jobs', href: route('failed-jobs.index') }]
+  const adminNav = [
+    { title: 'Users', href: route('users.index'), may: 'seeUsers' },
+    { title: 'Failed jobs', href: route('failed-jobs.index'), may: 'seeFailedJobs' },
+  ] as const
 
   // AppLayout is around the app's pages: its name, where to go, and who's
-  // logged in, or the way in for a guest, as on an error page. A link that
+  // logged in, or the way in for a guest, as on an error page, under the
+  // line that says an admin is acting as the user. A link that
   // looks like a button is Inertia's Link with the button's classes, as
   // shadcn-svelte's Button makes a plain <a>, which loads the whole page.
   let { children }: { children: Snippet } = $props()
   let user = $derived(page.props.auth.user)
-  let items = $derived([...nav, ...(page.props.can.seeFailedJobs ? adminNav : [])])
+  let items = $derived([...nav, ...adminNav.filter((item) => page.props.can[item.may])])
   let unread = $derived(page.props.bell.unread)
   let userID = $derived(user?.id)
 
@@ -34,6 +40,7 @@
 </script>
 
 <div class="flex min-h-svh flex-col">
+  <ActingBanner />
   <header class="border-b">
     <div class="mx-auto flex h-14 w-full max-w-6xl items-center gap-6 px-4">
       <Link href={user ? route('dashboard') : route('home')} class="rounded-md">

@@ -39,7 +39,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M31 | Notifications              | done   |
 | M32 | Security headers           | done   |
 | M33 | Migrations                 | done   |
-| M34 | Account administration     | later  |
+| M34 | Account administration     | done   |
 | M35 | Feature flags              | later  |
 | M36 | Metrics                    | later  |
 
@@ -2861,7 +2861,7 @@ Choices made on the way:
   under way; the command; and the binary's `migrate`, on a new database,
   which runs them itself, and its `jobs`, which runs them as it starts.
 
-## M34 · Account administration — later
+## M34 · Account administration — done
 
 The auth starter's admins see the jobs that failed, and nothing of the
 users: a person who writes in, locked out or unsure of what the app shows
@@ -2889,7 +2889,7 @@ in as a user; Rails to gems. To be released as v0.29.0.
 - **The guide:** Accounts, the admins' pages; and Authorization, a
   suspended account.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Suspended, not deleted:** a `suspended_at` column, which keeps the
   account and what's its, for an admin to restore; deleting it stays its
@@ -2897,29 +2897,61 @@ Choices, to settle before any code:
 - **Its logins end as its row says:** each request reads the user, as it
   does to check the password the login was made with, so a suspended
   account's logins stop at their next request, with no list of them: a
-  login stays in the cookie, as M6 has it.
+  login stays in the cookie, as M6 has it. That request is sent to log
+  in, with a flash that says why, and a page the account has open makes
+  it at once, as the notification of it rings the bell.
+- **Told why once the password is right,** which only its owner knows:
+  at the login form, by a passkey, and for a login that waited for its
+  code as the account was suspended. A reset link sets a suspended
+  account's password, which is still its owner's, and doesn't log in. Its
+  API tokens are a 403, not a 401: they're tokens, of an account that may
+  not.
 - **Not an admin, and not oneself:** an admin is suspended, or acted as,
   once the `admins` command has made them a user again, so no admin locks
-  another out, or acts with another's say.
+  another out, or acts with another's say; and no one acts as a suspended
+  account, which can't log in. The abilities that say so are made with
+  no gate, as the starter's lets an admin do anything; seeing the users,
+  and restoring one, is the gate's, as any admin may.
 - **Acting keeps the admin's login** in the session, their ID and the
-  fingerprint of their password, which going back checks, as a login is
-  checked. It lasts an hour at most, and logging out ends both. It starts
-  afresh, with no password confirmed, so what asks for the password again
-  asks the admin for one they don't know.
-- **Refused while acting,** with a 403 that says why, rather than hidden:
-  the admin sees the pages the user sees.
+  fingerprint of their password, which going back restores, checked as a
+  login is, at the next request. It starts afresh, with no password
+  confirmed, so what asks for the password again asks the admin for one
+  they don't know, and going back forgets one confirmed meanwhile, which
+  was the user's.
+- **The hour's end logs out both,** rather than go back to the admin's
+  account, as a form sent from the user's page after it would act on the
+  admin's; logging out ends both too. `UserID` and `Current` end it, and
+  `Actor` never says no to a login still acting, so a refusal can't lapse
+  partway through a request that found its user acted as.
+- **Refused while acting, with a 403 that says why,** rather than hidden,
+  before the password is asked for again: the password, the email,
+  two-factor logins and the recovery codes, passkeys, API tokens, and
+  deleting the account. The name and the photo are the user's to change
+  with the admin's help.
+- **What the admin sees stays unread:** the notifications page leaves the
+  user's as they were, as the user hasn't read them.
 - **In the log, not told:** an admin starting and stopping acting as a
-  user is a line in the log, with both of them; the user isn't told, as
-  helping them is the point.
-- **Found by email or name,** a lower-cased `LIKE`, as each database has
-  it; not full-text search, which an app of many users adds.
-- **Tests:** the page refused to a user and a guest, found by email and
-  by name, a page at a time; suspending and restoring, the notifications,
-  a login refused, one that was in ended, and a token turned away; acting
-  as a user, the line on the page, what's refused, the hour, going back,
-  and logging out; not an admin, or oneself; and in the browser, in each
-  frontend, a user suspended in another browser, and an admin acting as
-  one.
+  user is a line in the log, with both of their IDs, as is the hour's end,
+  with the admin's; and so are suspending and restoring. The user isn't
+  told of acting, as helping them is the point.
+- **Found by email or name,** a `LIKE` with `lower()` on both sides, as
+  each database has it, and the search's `%` and `_` taken as
+  themselves; not full-text search, which an app of many users adds. A
+  page at a time, by `SimplePaginate`, as the notifications are.
+- **Tests:** in package `auth`, acting and going back, checked as a
+  login, starting afresh, the hour's end logging out both by each way of
+  asking, a request found acting staying so as it ends, logging out and
+  in, acting while acting, and an actor that doesn't read; in the
+  starter, the page refused to a user and a guest, found by email and by
+  name, its `%` and `_` as themselves, a page at a time; suspending and
+  restoring, the notifications and mail, a login refused by password,
+  passkey and code, one that was in ended, a reset that doesn't log in,
+  and a token turned away; acting as a user, the line on the page, what's
+  refused, the notifications left unread, the hour, going back, and
+  logging out; not an admin, oneself, or a suspended account; and in the
+  browser, in each frontend, a user suspended in another browser, logged
+  out of the page they had open, and an admin acting as one, and going
+  back.
 
 ## M35 · Feature flags — later
 

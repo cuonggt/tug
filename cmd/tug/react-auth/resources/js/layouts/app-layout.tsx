@@ -1,6 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react'
 import { Bell } from 'lucide-react'
 import { type ReactNode, useEffect } from 'react'
+import ActingBanner from '@/components/acting-banner'
 import AppLogo from '@/components/app-logo'
 import UserMenu from '@/components/user-menu'
 import { Button } from '@/components/ui/button'
@@ -9,12 +10,17 @@ import { cn } from '@/lib/utils'
 import { route } from '@/tug/routes'
 
 // nav is the app's own pages, for users who've logged in: add each page to
-// it as the app grows. An admin has theirs too, as the shared can says.
+// it as the app grows. An admin has theirs too, each as the shared can
+// says they may.
 const nav = [{ title: 'Dashboard', href: route('dashboard') }]
-const adminNav = [{ title: 'Failed jobs', href: route('failed-jobs.index') }]
+const adminNav = [
+  { title: 'Users', href: route('users.index'), may: 'seeUsers' },
+  { title: 'Failed jobs', href: route('failed-jobs.index'), may: 'seeFailedJobs' },
+] as const
 
 // AppLayout is around the app's pages: its name, where to go, and who's
-// logged in, or the way in for a guest, as on an error page.
+// logged in, or the way in for a guest, as on an error page, under the
+// line that says an admin is acting as the user.
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { props, url } = usePage()
   const user = props.auth.user
@@ -27,6 +33,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }, [user?.id])
   return (
     <div className="flex min-h-svh flex-col">
+      <ActingBanner />
       <header className="border-b">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-6 px-4">
           <Link href={user ? route('dashboard') : route('home')} className="rounded-md">
@@ -34,7 +41,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </Link>
           {user && (
             <nav aria-label="Main" className="flex items-center gap-1 text-sm">
-              {[...nav, ...(props.can.seeFailedJobs ? adminNav : [])].map((item) => (
+              {[...nav, ...adminNav.filter((item) => props.can[item.may])].map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}

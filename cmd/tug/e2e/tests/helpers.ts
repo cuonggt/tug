@@ -3,7 +3,7 @@ import { createHmac, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { test as base, expect, type Page, type TestInfo } from '@playwright/test'
+import { test as base, type Browser, expect, type Page, type TestInfo } from '@playwright/test'
 import { appDir, dotEnv, frontends } from '../apps'
 
 export { expect }
@@ -68,6 +68,14 @@ export async function logIn(page: Page, user: User, password = user.password) {
   await page.getByLabel('Email').fill(user.email)
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Log in', exact: true }).click()
+}
+
+// anotherBrowser is a page in a browser of its own, on the same app, with
+// none of the test's page's cookies: someone else, on their own device.
+// The test closes its context when it's done with it.
+export async function anotherBrowser(browser: Browser, info: TestInfo): Promise<Page> {
+  const context = await browser.newContext({ baseURL: info.project.use.baseURL })
+  return context.newPage()
 }
 
 export async function logOut(page: Page) {

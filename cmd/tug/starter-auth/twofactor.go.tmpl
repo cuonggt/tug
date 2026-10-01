@@ -83,6 +83,12 @@ func (a *app) twoFactorChallenge(c *tug.Ctx) error {
 	if err := a.codes.Clear(c.Context(), id); err != nil {
 		return err
 	}
+	// Suspended since the password was checked: the login waits no more.
+	if u.SuspendedAt != nil {
+		auth.Logout(s)
+		c.Flash("error", "This account is suspended, so you can't log in.")
+		return c.RedirectRoute("login")
+	}
 	auth.Login(s, u.authID(), u.PasswordHash)
 	auth.SetPasswordConfirmed(s)
 	return toIntended(c)

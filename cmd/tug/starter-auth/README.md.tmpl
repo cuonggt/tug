@@ -49,8 +49,10 @@ go test ./...
   email moves on as the link is followed, in another tab or on a phone.
   `abilities.go`: what users may do, through tug's package `auth`, which
   a handler checks, and a no is a 403; admins may do anything. `admin.go`:
-  the admins' page of the jobs that failed, `/admin/failed-jobs`, which
-  runs them again, and the `admins` command, which makes someone one:
+  the admins' pages, of the users, `/admin/users`, found by email or name,
+  suspended and restored, and acted as, to see the app as one does, and of
+  the jobs that failed, `/admin/failed-jobs`, which runs them again, and
+  the `admins` command, which makes someone an admin:
   `./[[ .Name ]] admins add ann@example.com`. `notifications.go`: what
   happened to an account, a new password or email, a passkey or a token,
   which its owner hears of by the header's bell, at once, a page of them,

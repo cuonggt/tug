@@ -41,7 +41,9 @@ type ProfileInput struct {
 
 // updateProfile saves a user's name and email. A new email isn't verified
 // until they follow the link mailed to it, and the old one is told of it,
-// as the address the account's owner may still read.
+// as the address the account's owner may still read. An admin acting as
+// the user may change their name, but not their email, which can reset
+// the password.
 func (a *app) updateProfile(c *tug.Ctx, user *User) error {
 	var in ProfileInput
 	newEmail := func() bool { return !strings.EqualFold(in.Email, user.Email) }
@@ -59,6 +61,11 @@ func (a *app) updateProfile(c *tug.Ctx, user *User) error {
 	// A new email, the mail that verifies it, and the notification of it
 	// are kept together.
 	changed := newEmail()
+	if changed {
+		if err := notActing(c, user, "change the email"); err != nil {
+			return err
+		}
+	}
 	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
 		if err := a.users.in(tx).setProfile(c.Context(), user.ID, in.Name, in.Email); err != nil || !changed {
 			return err
@@ -147,7 +154,11 @@ func (a *app) securityPage(c *tug.Ctx, user *User) error {
 	props := SecurityProps{
 		User:     *user,
 		Passkeys: passkeys,
+		// A second factor, which an admin acting as the user may not see.
 		RecoveryCodes: inertia.Optional(func() ([]string, error) {
+			if err := notActing(c, user, "see the recovery codes"); err != nil {
+				return nil, err
+			}
 			return a.openCodes(user.RecoveryCodes)
 		}),
 	}

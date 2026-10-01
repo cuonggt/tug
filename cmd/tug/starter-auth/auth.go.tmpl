@@ -21,18 +21,29 @@ import (
 )
 
 // Auth is the auth prop every page shares: the user who's logged in, or
-// null for a guest.
+// null for a guest, and whether an admin is acting as them, for the line
+// at the top of each page that says so, and goes back.
 type Auth struct {
-	User *User `json:"user"`
+	User   *User `json:"user"`
+	Acting bool  `json:"acting"`
 }
+
+// errSuspended is a login whose account is suspended, which user ends.
+var errSuspended = errors.New("the account is suspended")
 
 // user returns the user r's session is logged in as, or nil for a guest. A
 // login whose user has gone, or has set a new password since, is over:
-// the session is logged out.
+// the session is logged out. So is a suspended account's login, at its
+// next request, this one, and an admin's acting as them with it, with
+// errSuspended, for the page to say why.
 func (a *app) user(r *http.Request) (*User, error) {
 	s := session.From(r.Context())
+	admin, acting := auth.Actor(s)
 	id, ok := auth.UserID(s)
 	if !ok {
+		if acting {
+			slog.InfoContext(r.Context(), "an admin's acting as a user ended, as its hour was up", "admin", admin)
+		}
 		return nil, nil
 	}
 	n, err := strconv.ParseInt(id, 10, 64)
@@ -48,18 +59,26 @@ func (a *app) user(r *http.Request) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
+	if u.SuspendedAt != nil {
+		auth.Logout(s)
+		return nil, errSuspended
+	}
 	a.withPhoto(r.Context(), u)
 	return u, nil
 }
+
+// suspendedNow is what a suspended account is told as its login ends.
+const suspendedNow = "Your account is suspended, so you've been logged out."
 
 // shareAuth is the auth prop, can, what its user may do, and bell, what
 // the header's bell shows them, for each page as it's rendered.
 func (a *app) shareAuth(r *http.Request) inertia.Props {
 	u, err := a.user(r)
-	if err != nil {
+	if err != nil && !errors.Is(err, errSuspended) {
 		slog.ErrorContext(r.Context(), "the user of a page couldn't be found, so it shows them as a guest", "err", err)
 	}
-	return inertia.Props{"auth": Auth{User: u}, "can": can(r.Context(), u), "bell": a.bell(r.Context(), u)}
+	_, acting := auth.Actor(session.From(r.Context()))
+	return inertia.Props{"auth": Auth{User: u, Acting: u != nil && acting}, "can": can(r.Context(), u), "bell": a.bell(r.Context(), u)}
 }
 
 // userHandler is a handler for users who've logged in, which is handed the
@@ -68,10 +87,15 @@ func (a *app) shareAuth(r *http.Request) inertia.Props {
 type userHandler func(c *tug.Ctx, user *User) error
 
 // usersOnly makes a handler for users who've logged in. A guest is sent to
-// log in, and comes back after.
+// log in, and comes back after; a suspended account, whose login has just
+// ended, is told why there.
 func (a *app) usersOnly(h userHandler) tug.HandlerFunc {
 	return func(c *tug.Ctx) error {
 		u, err := a.user(c.Request())
+		if errors.Is(err, errSuspended) {
+			c.Flash("error", suspendedNow)
+			return c.RedirectRoute("login")
+		}
 		if err != nil {
 			return err
 		}
@@ -114,11 +138,54 @@ func passwordConfirmed(h userHandler) userHandler {
 	}
 }
 
+// ownersOnly keeps h from an admin acting as its user, as what h does,
+// what, could hand the account to someone else: changing the password, the
+// email, two-factor logins, passkeys or API tokens, or deleting the
+// account, which stays its owner's to do. The admin gets a 403 that says
+// so, rather than a page without the form, as they see the pages the user
+// does.
+func ownersOnly(what string, h userHandler) userHandler {
+	return func(c *tug.Ctx, user *User) error {
+		if err := notActing(c, user, what); err != nil {
+			return err
+		}
+		return h(c, user)
+	}
+}
+
+// notActing is nil unless an admin is acting as user, and then the 403
+// that says they may not do what.
+func notActing(c *tug.Ctx, user *User, what string) error {
+	if _, acting := auth.Actor(c.Session()); acting {
+		return auth.Deny("you may not " + what + " while acting as " + user.Name)
+	}
+	return nil
+}
+
+// stopActing ends an admin's acting as the user, and logs them back in as
+// themselves, a login checked as any is, at the next request: their
+// password may have changed meanwhile. They go back to the users page.
+func stopActing(c *tug.Ctx, user *User) error {
+	s := c.Session()
+	admin, ok := auth.StopActing(s)
+	if !ok {
+		return c.RedirectRoute("dashboard")
+	}
+	s.Delete(setupKey) // a two-factor setup the user's page started
+	slog.InfoContext(c.Context(), "an admin stopped acting as a user", "admin", admin, "user", user.ID)
+	return c.RedirectRoute("users.index")
+}
+
 // guestsOnly makes a handler for guests, such as the login page: someone
-// who's logged in already goes to the dashboard instead.
+// who's logged in already goes to the dashboard instead. A suspended
+// account's login ends, and the page says why.
 func (a *app) guestsOnly(h tug.HandlerFunc) tug.HandlerFunc {
 	return func(c *tug.Ctx) error {
 		u, err := a.user(c.Request())
+		if errors.Is(err, errSuspended) {
+			c.Flash("error", suspendedNow)
+			return c.RedirectRoute("login")
+		}
 		if err != nil {
 			return err
 		}
@@ -247,6 +314,10 @@ func (a *app) login(c *tug.Ctx) error {
 	}
 	if err := a.logins.Clear(c.Context(), key); err != nil {
 		return err
+	}
+	// Told only once the password is right, which only the owner knows.
+	if u.SuspendedAt != nil {
+		return validate.Errors{"email": "this account is suspended"}
 	}
 	if auth.NeedsRehash(u.PasswordHash) {
 		u.PasswordHash = auth.HashPassword(in.Password)
@@ -404,8 +475,13 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 	// The new password ends every login made with the old one, and the
 	// token with them. This browser logs in with the new one, or, for a
 	// user with two-factor logins on, goes on to give a code: a link in
-	// their mail is one factor, not two.
+	// their mail is one factor, not two. A suspended account's password is
+	// still its owner's to set, but it stays shut.
 	s := c.Session()
+	if u.SuspendedAt != nil {
+		c.Flash("error", "Your password is reset, but your account is suspended, so you can't log in.")
+		return c.RedirectRoute("login")
+	}
 	c.Flash("success", "Your password is reset.")
 	if u.TwoFactor {
 		auth.StartTwoFactor(s, u.authID())

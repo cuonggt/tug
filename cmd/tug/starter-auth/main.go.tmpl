@@ -460,36 +460,45 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Get("/notifications", a.usersOnly(a.notificationsPage)).Name("notifications.index")
 
 	// For admins alone, whom the admins command makes, as abilities.go
-	// has it: the jobs that failed for good, run again: admin.go.
+	// has it: the users, suspended, restored and acted as, and the jobs
+	// that failed for good, run again: admin.go. An admin acting as a user
+	// goes back to their own account from any page: stopActing, in
+	// auth.go.
+	app.Get("/admin/users", a.usersOnly(verified(only(seeUsers, a.usersPage)))).Name("users.index")
+	app.Post("/admin/users/{id}/suspend", a.usersOnly(verified(only(seeUsers, a.suspend)))).Name("users.suspend")
+	app.Post("/admin/users/{id}/restore", a.usersOnly(verified(only(seeUsers, a.restore)))).Name("users.restore")
+	app.Post("/admin/users/{id}/act", a.usersOnly(verified(only(seeUsers, a.actAs)))).Name("users.act")
+	app.Post("/acting/stop", a.usersOnly(stopActing)).Name("acting.stop")
 	app.Get("/admin/failed-jobs", a.usersOnly(verified(only(seeFailedJobs, a.failedJobsPage)))).Name("failed-jobs.index")
 	app.Post("/admin/failed-jobs/retry", a.usersOnly(verified(only(seeFailedJobs, a.retryFailedJobs)))).Name("failed-jobs.retry-all")
 	app.Post("/admin/failed-jobs/{id}/retry", a.usersOnly(verified(only(seeFailedJobs, a.retryFailedJob)))).Name("failed-jobs.retry")
 
 	// Settings: settings.go, two-factor logins in twofactor.go, and passkeys
 	// in passkeys.go. What could hand the account to someone else asks for
-	// the password again.
+	// the password again, and is its owner's alone: an admin acting as them
+	// gets a 403, ownersOnly's.
 	app.Get("/settings", toProfile).Name("settings")
 	app.Get("/settings/profile", a.usersOnly(passwordConfirmed(profilePage))).Name("profile.edit")
 	app.Patch("/settings/profile", a.usersOnly(passwordConfirmed(a.updateProfile))).Name("profile.update")
-	app.Delete("/settings/profile", a.usersOnly(passwordConfirmed(a.deleteAccount))).Name("profile.destroy")
+	app.Delete("/settings/profile", a.usersOnly(ownersOnly("delete the account", passwordConfirmed(a.deleteAccount)))).Name("profile.destroy")
 	app.Post("/settings/profile/photo", a.usersOnly(passwordConfirmed(a.updatePhoto))).Name("profile.photo.update")
 	app.Delete("/settings/profile/photo", a.usersOnly(passwordConfirmed(a.removePhoto))).Name("profile.photo.destroy")
 	app.Get("/settings/security", a.usersOnly(verified(passwordConfirmed(a.securityPage)))).Name("security.edit")
-	app.Put("/settings/password", a.usersOnly(verified(passwordConfirmed(a.updatePassword)))).Name("user-password.update")
-	app.Post("/settings/two-factor", a.usersOnly(verified(passwordConfirmed(a.startTwoFactor)))).Name("two-factor.enable")
-	app.Post("/settings/two-factor/confirm", a.usersOnly(verified(passwordConfirmed(a.confirmTwoFactor)))).Name("two-factor.confirm")
-	app.Delete("/settings/two-factor", a.usersOnly(verified(passwordConfirmed(a.stopTwoFactor)))).Name("two-factor.disable")
-	app.Post("/settings/two-factor/recovery-codes", a.usersOnly(verified(passwordConfirmed(a.newRecoveryCodes)))).Name("two-factor.recovery-codes")
-	app.Post("/settings/passkeys/options", a.usersOnly(verified(passwordConfirmed(a.newPasskeyOptions)))).Name("passkeys.options")
-	app.Post("/settings/passkeys", a.usersOnly(verified(passwordConfirmed(a.addPasskey)))).Name("passkeys.store")
-	app.Delete("/settings/passkeys/{id}", a.usersOnly(verified(passwordConfirmed(a.removePasskey)))).Name("passkeys.destroy")
+	app.Put("/settings/password", a.usersOnly(verified(ownersOnly("change the password", passwordConfirmed(a.updatePassword))))).Name("user-password.update")
+	app.Post("/settings/two-factor", a.usersOnly(verified(ownersOnly("change two-factor logins", passwordConfirmed(a.startTwoFactor))))).Name("two-factor.enable")
+	app.Post("/settings/two-factor/confirm", a.usersOnly(verified(ownersOnly("change two-factor logins", passwordConfirmed(a.confirmTwoFactor))))).Name("two-factor.confirm")
+	app.Delete("/settings/two-factor", a.usersOnly(verified(ownersOnly("change two-factor logins", passwordConfirmed(a.stopTwoFactor))))).Name("two-factor.disable")
+	app.Post("/settings/two-factor/recovery-codes", a.usersOnly(verified(ownersOnly("change two-factor logins", passwordConfirmed(a.newRecoveryCodes))))).Name("two-factor.recovery-codes")
+	app.Post("/settings/passkeys/options", a.usersOnly(verified(ownersOnly("add a passkey", passwordConfirmed(a.newPasskeyOptions))))).Name("passkeys.options")
+	app.Post("/settings/passkeys", a.usersOnly(verified(ownersOnly("add a passkey", passwordConfirmed(a.addPasskey))))).Name("passkeys.store")
+	app.Delete("/settings/passkeys/{id}", a.usersOnly(verified(ownersOnly("remove a passkey", passwordConfirmed(a.removePasskey))))).Name("passkeys.destroy")
 	app.Get("/settings/appearance", a.usersOnly(appearancePage)).Name("appearance.edit")
 
 	// API tokens, which a user makes and revokes in their settings, and the
 	// API that takes them, with no session: tokens.go.
 	app.Get("/settings/tokens", a.usersOnly(verified(passwordConfirmed(a.tokensPage)))).Name("tokens.index")
-	app.Post("/settings/tokens", a.usersOnly(verified(passwordConfirmed(a.createToken)))).Name("tokens.store")
-	app.Delete("/settings/tokens/{id}", a.usersOnly(verified(passwordConfirmed(a.revokeToken)))).Name("tokens.destroy")
+	app.Post("/settings/tokens", a.usersOnly(verified(ownersOnly("make an API token", passwordConfirmed(a.createToken))))).Name("tokens.store")
+	app.Delete("/settings/tokens/{id}", a.usersOnly(verified(ownersOnly("revoke an API token", passwordConfirmed(a.revokeToken))))).Name("tokens.destroy")
 	api := app.Group("/api")
 	api.Get("/user", a.tokenUsers("user:read", apiUser)).Name("api.user")
 	return app, nil

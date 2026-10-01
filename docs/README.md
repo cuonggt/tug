@@ -28,8 +28,9 @@ the detail.
    kept on the app's disk or in S3 with package `storage`, and links to
    them, public or signed.
 8. [Accounts](auth.md): the auth starter, in SQLite, Postgres or MySQL,
-   its API tokens, admins and notifications, and packages `auth` and
-   `mail`, with copies, files and a link to unsubscribe in one click.
+   its API tokens, its admins, who suspend accounts and act as users, and
+   notifications, and packages `auth` and `mail`, with copies, files and a
+   link to unsubscribe in one click.
 9. [Migrations](migrations.md): the database's tables, made and changed
    by files of SQL, each run once, in order, as the app starts, and by its
    `migrate` command, with `tug migrate new` for the next, and package

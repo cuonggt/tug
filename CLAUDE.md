@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M33 are done, which is
+the decisions behind it and where it stands: M1 to M34 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -78,8 +78,12 @@ the database's tables made and changed by files of SQL in `migrations/`,
 named for when they were made, run once each, in order, as the app
 starts, and by the auth starter's `migrate` command, kept by name and a
 hash of the SQL, through a Store in each database's layer, and `tug
-migrate new`. `README.md` is the front door, and `docs/` the guide, a page per part of
-tug. Change them with the behaviour.
+migrate new`, and account administration (v0.29.0): in the auth starter,
+the admins' page of the users, found by email or name, suspended, whose
+logins end and tokens are turned away, and acted as, to help them, with
+`auth.ActAs`, the admin's login kept beside the user's for an hour at
+most. `README.md` is the front door, and `docs/` the guide, a page per
+part of tug. Change them with the behaviour.
 
 ## Commands
 
@@ -427,8 +431,13 @@ dev server that isn't there: delete it.
   `admins add`):
   the three are one app, word for word, so a change to one frontend is
   made to all three. The auth starter's handlers are in `auth.go.tmpl`
-  (who's logged in, and the wrappers `usersOnly`, `verified`,
-  `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
+  (who's logged in, `user`, which ends a suspended account's login with
+  `errSuspended`, which `usersOnly` and `guestsOnly` send to log in with
+  the flash that says why, and logs acting's hour ending; the wrappers
+  `usersOnly`, `verified`, `passwordConfirmed`, `ownersOnly`, a 403 for
+  an admin acting as the user, through `notActing`, which the profile's
+  new email and the recovery codes call too, and `guestsOnly`; and
+  `stopActing`), `verify.go.tmpl`,
   `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the
   handlers of adding them, logging in and confirming with them, on
   `auth.Passkeys`, whose site is `APP_URL`'s (`passkeySite`), as mail's
@@ -525,16 +534,27 @@ dev server that isn't there: delete it.
   `starterData.TokenPrefix`, the app's name in letters and digits, and
   `abilities` lists what the page offers, `user:read`, which `/api/user`
   asks for. `tokens_test.go` and `e2e/tests/tokens.spec.ts` test it.
-  `abilities.go.tmpl` has the app's `gate`, which lets a user whose
-  `admin` column is set do anything, `seeFailedJobs`, `Can`, which
-  `shareAuth` shares as `can` beside `auth` (`can`), and `only`, the
-  wrapper of a route by an ability of no thing; `admin.go.tmpl` has
-  `Admin/FailedJobs` (`failedJobsPage`, `retryFailedJob`,
+  `abilities.go.tmpl` has the app's `gate`, which lets a suspended account
+  do nothing and a user whose `admin` column is set anything,
+  `seeFailedJobs` and `seeUsers`, `suspendUser` and `actAsUser`, made with
+  no gate, as an admin may not suspend or act as themselves or another
+  admin, `Can`, which `shareAuth` shares as `can` beside `auth` (`can`,
+  `may`), and `only`, the wrapper of a route by an ability of no thing;
+  `admin.go.tmpl` has `Admin/Users` (`usersPage`, `SimplePaginate`d, of
+  `users.page`, a lower-cased `LIKE` by `like`, escaped with `!`, in each
+  layer's `users_db.go`, and `ListedUser`, with what the admin may do to
+  each, `UserCan`), at `/admin/users`, `suspend` and `restore`
+  (`setSuspended`, the `suspended_at` column, `users.setSuspended`, and
+  the `account-suspended` or `account-restored` notification, in one
+  transaction), and `actAs` (`auth.ActAs` for `actingFor`, an hour, with
+  the line at the top of each page, each frontend's `ActingBanner`, from
+  `auth.acting`); `Admin/FailedJobs` (`failedJobsPage`, `retryFailedJob`,
   `retryFailedJobs`, through the `jobs` FailedStore, waking the queue) at
-  `/admin/failed-jobs`, in each frontend's nav for an admin, and
-  `adminsCommand`, the `admins` command (`users.setAdmin`, `admins`, in
-  each layer's `users_db.go`); `admin_test.go` and
-  `e2e/tests/admin.spec.ts` test them.
+  `/admin/failed-jobs`, both in each frontend's nav for an admin, by
+  `can`; and `adminsCommand`, the `admins` command (`users.setAdmin`,
+  `admins`, in each layer's `users_db.go`); `admin_test.go` and
+  `e2e/tests/admin.spec.ts` (`anotherBrowser`, for a user suspended in
+  another) test them.
   `notifications.go.tmpl` has the `notifications` table's Go (each
   layer's `notifications_db.go`: a user's notifications, their kind,
   `noticeData` as JSON, and times in Unix milliseconds): `notices`, each
@@ -630,6 +650,11 @@ dev server that isn't there: delete it.
   the password hash that `Current` compares), the intended page, the time
   the password was last confirmed (`tug.auth.confirmed`), and a login held
   back for its second factor (`tug.auth.pending`), which `Login` drops.
+  `acting.go`: `ActAs`, the actor's login kept beside the other user's
+  (`tug.auth.actor`: their ID, check and end), `Actor`, which never says
+  no to a login still acting, and `StopActing`; `actingEnded`, which
+  `UserID` and `Current` ask, logs out the actor too once the time is
+  up.
   `tokens.go`: tokens for links in mail, signed with an HKDF key for their
   purpose alone, over the expiry and their parts; `reset.go` (the ID and
   the password hash) and `verify.go` (the ID and the email) use it.

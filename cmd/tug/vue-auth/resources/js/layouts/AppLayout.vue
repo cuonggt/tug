@@ -2,6 +2,7 @@
 import { Link, router, usePage } from '@inertiajs/vue3'
 import { Bell } from '@lucide/vue'
 import { computed, onMounted, onUnmounted, watch } from 'vue'
+import ActingBanner from '@/components/ActingBanner.vue'
 import AppLogo from '@/components/AppLogo.vue'
 import UserMenu from '@/components/UserMenu.vue'
 import { Button } from '@/components/ui/button'
@@ -10,15 +11,20 @@ import { cn } from '@/lib/utils'
 import { route } from '@/tug/routes'
 
 // nav is the app's own pages, for users who've logged in: add each page to
-// it as the app grows. An admin has theirs too, as the shared can says.
+// it as the app grows. An admin has theirs too, each as the shared can
+// says they may.
 const nav = [{ title: 'Dashboard', href: route('dashboard') }]
-const adminNav = [{ title: 'Failed jobs', href: route('failed-jobs.index') }]
+const adminNav = [
+  { title: 'Users', href: route('users.index'), may: 'seeUsers' },
+  { title: 'Failed jobs', href: route('failed-jobs.index'), may: 'seeFailedJobs' },
+] as const
 
 // AppLayout is around the app's pages: its name, where to go, and who's
-// logged in, or the way in for a guest, as on an error page.
+// logged in, or the way in for a guest, as on an error page, under the
+// line that says an admin is acting as the user.
 const page = usePage()
 const user = computed(() => page.props.auth.user)
-const items = computed(() => [...nav, ...(page.props.can.seeFailedJobs ? adminNav : [])])
+const items = computed(() => [...nav, ...adminNav.filter((item) => page.props.can[item.may])])
 const unread = computed(() => page.props.bell.unread)
 
 // A notification made in another tab, or on another device, is counted
@@ -37,6 +43,7 @@ onUnmounted(() => stop?.())
 
 <template>
   <div class="flex min-h-svh flex-col">
+    <ActingBanner />
     <header class="border-b">
       <div class="mx-auto flex h-14 w-full max-w-6xl items-center gap-6 px-4">
         <Link :href="user ? route('dashboard') : route('home')" class="rounded-md">

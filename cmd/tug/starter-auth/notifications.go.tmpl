@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/queue"
 )
 
@@ -106,6 +107,32 @@ var notices = map[string]notice{
 				Intro:  "An API token called “" + d.Name + "” was made, which calls the app's API as you.",
 				Action: "See your API tokens", URL: link,
 				Outro: "If that wasn't you, revoke it there, and change your password: someone else has been in your account.",
+			}
+		},
+	},
+	// An admin suspended the account, or restored it: admin.go. Seen in
+	// the app once it's restored.
+	"account-suspended": {
+		line: func(c *tug.Ctx, _ noticeData) string { return c.T("Your account was suspended.") },
+		link: "dashboard", mailLink: "home",
+		mail: func(u *User, _ noticeData, link string) message {
+			return message{
+				To: u, Subject: "Your " + appName + " account was suspended",
+				Intro:  "An admin suspended your account: it can't log in, and its API tokens are turned away, until an admin restores it.",
+				Action: "Go to " + appName, URL: link,
+				Outro: "Your account, and what's in it, are kept as they are meanwhile.",
+			}
+		},
+	},
+	"account-restored": {
+		line: func(c *tug.Ctx, _ noticeData) string { return c.T("Your account was restored.") },
+		link: "dashboard", mailLink: "login",
+		mail: func(u *User, _ noticeData, link string) message {
+			return message{
+				To: u, Subject: "Your " + appName + " account was restored",
+				Intro:  "An admin restored your account, which was suspended: it can log in again, and its API tokens work as they did.",
+				Action: "Log in", URL: link,
+				Outro: "Your password, two-factor logins and passkeys are as they were.",
 			}
 		},
 	},
@@ -267,7 +294,8 @@ func (a *app) notificationsPage(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
-	if len(list.Data) > 0 {
+	// The user hasn't seen them when it's an admin acting as them who has.
+	if _, acting := auth.Actor(c.Session()); !acting && len(list.Data) > 0 {
 		newest, oldest := list.Data[0].ID, list.Data[len(list.Data)-1].ID
 		if err := a.notifications.markRead(c.Context(), user.ID, oldest, newest, time.Now()); err != nil {
 			return err

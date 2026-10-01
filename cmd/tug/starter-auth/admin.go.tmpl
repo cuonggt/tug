@@ -2,20 +2,193 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
 )
 
-// What admins have: a page of the jobs that failed for good, which runs
-// them again, as the jobs command does, for someone who may see every
-// user's jobs; and the admins command, which makes someone an admin. Who
-// may is in abilities.go.
+// What admins have: a page of the users, who are found by email or name,
+// suspended and restored, and acted as, to see the app as one does, to
+// help them; a page of the jobs that failed for good, which runs them
+// again, as the jobs command does, for someone who may see every user's
+// jobs; and the admins command, which makes someone an admin. Who may is
+// in abilities.go.
 
-var FailedJobs = tug.Page[FailedJobsProps]("Admin/FailedJobs")
+var (
+	Users      = tug.Page[UsersProps]("Admin/Users")
+	FailedJobs = tug.Page[FailedJobsProps]("Admin/FailedJobs")
+)
+
+// usersPerPage is how many users a page of them has.
+const usersPerPage = 20
+
+// UsersProps are the users, the newest first, a page at a time: those
+// whose email or name has Search in it, or all of them.
+type UsersProps struct {
+	List   tug.SimplePaginated[ListedUser] `json:"list"`
+	Search string                          `json:"search"`
+}
+
+// ListedUser is a user as the users page lists them: whether their email
+// is verified, their two-factor logins are on, they're an admin, or
+// suspended, when they joined, and what the admin may do with them.
+type ListedUser struct {
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Email       string     `json:"email"`
+	Verified    bool       `json:"verified"`
+	TwoFactor   bool       `json:"twoFactor"`
+	Admin       bool       `json:"admin"`
+	SuspendedAt *time.Time `json:"suspendedAt"` // null for an account that isn't
+	CreatedAt   time.Time  `json:"createdAt"`
+	Can         UserCan    `json:"can"`
+}
+
+// UserCan is what the admin may do with a listed user, for its buttons.
+// Any admin may restore a suspended one.
+type UserCan struct {
+	Suspend bool `json:"suspend"`
+	ActAs   bool `json:"actAs"`
+}
+
+// usersPage lists the users, the newest first, found by their email or
+// name, in any case, with ?search=: a lower-cased LIKE, as each database
+// has it, rather than search of the full text, which an app of many users
+// adds.
+func (a *app) usersPage(c *tug.Ctx, admin *User) error {
+	search := strings.TrimSpace(c.Query("search"))
+	list, err := tug.SimplePaginate(c, usersPerPage, func(limit, offset int) ([]ListedUser, error) {
+		found, err := a.users.page(c.Context(), search, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		listed := make([]ListedUser, 0, len(found))
+		for _, u := range found {
+			listed = append(listed, ListedUser{
+				ID: u.ID, Name: u.Name, Email: u.Email, Verified: u.EmailVerifiedAt != nil, TwoFactor: u.TwoFactor,
+				Admin: u.Admin, SuspendedAt: u.SuspendedAt, CreatedAt: u.CreatedAt,
+				Can: UserCan{Suspend: may(c.Context(), suspendUser, admin, u), ActAs: may(c.Context(), actAsUser, admin, u)},
+			})
+		}
+		return listed, nil
+	})
+	if err != nil {
+		return err
+	}
+	return Users.Render(c, UsersProps{List: list, Search: search})
+}
+
+// userOfPath is the user the path's {id} names, or a 404.
+func (a *app) userOfPath(c *tug.Ctx) (*User, error) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return nil, tug.NewHTTPError(http.StatusNotFound, "user not found")
+	}
+	u, err := a.users.byID(c.Context(), id)
+	if errors.Is(err, errNoUser) {
+		return nil, tug.NewHTTPError(http.StatusNotFound, "user not found")
+	}
+	return u, err
+}
+
+// suspend suspends a user, as an account that abuses the app, rather than
+// deleting it, which stays its owner's: its logins end at their next
+// request, its API tokens are turned away, and it can't log in again,
+// told why, until an admin restores it. Its owner hears of it, by mail and
+// as a notification.
+func (a *app) suspend(c *tug.Ctx, admin *User) error {
+	them, err := a.userOfPath(c)
+	if err != nil {
+		return err
+	}
+	if err := suspendUser.Check(c.Context(), admin, them); err != nil {
+		return err
+	}
+	done, err := a.setSuspended(c.Context(), them, true)
+	if err != nil {
+		return err
+	}
+	if !done {
+		c.Flash("error", them.Name+" is suspended already.")
+		return c.RedirectBack()
+	}
+	slog.InfoContext(c.Context(), "an admin suspended a user", "admin", admin.ID, "user", them.ID)
+	c.Flash("success", them.Name+" is suspended, and has been told by mail.")
+	return c.RedirectBack()
+}
+
+// restore lets a suspended user back in, and tells them, as suspending
+// did.
+func (a *app) restore(c *tug.Ctx, admin *User) error {
+	them, err := a.userOfPath(c)
+	if err != nil {
+		return err
+	}
+	done, err := a.setSuspended(c.Context(), them, false)
+	if err != nil {
+		return err
+	}
+	if !done {
+		c.Flash("error", them.Name+" isn't suspended.")
+		return c.RedirectBack()
+	}
+	slog.InfoContext(c.Context(), "an admin restored a user", "admin", admin.ID, "user", them.ID)
+	c.Flash("success", them.Name+" is restored, and has been told by mail.")
+	return c.RedirectBack()
+}
+
+// setSuspended suspends them, or restores them, and notifies them, in one
+// transaction, and reports whether it changed them: of two admins at
+// once, one does, and one notification goes.
+func (a *app) setSuspended(ctx context.Context, them *User, suspended bool) (bool, error) {
+	kind := "account-restored"
+	if suspended {
+		kind = "account-suspended"
+	}
+	var done bool
+	err := a.inTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		if done, err = a.users.in(tx).setSuspended(ctx, them.ID, suspended); err != nil || !done {
+			return err
+		}
+		return a.notify(ctx, tx, them.ID, kind, noticeData{})
+	})
+	return done, err
+}
+
+// actingFor is how long an admin acts as a user at most.
+const actingFor = time.Hour
+
+// actAs has the admin act as a user, to see the app as they do, and help
+// them: the session is logged in as the user, with the admin's own login
+// kept beside it, which the line at the top of each page goes back to,
+// stopActing, in auth.go. Meanwhile, what could hand the account to
+// someone else is refused, ownersOnly, and what asks for the password
+// again asks for the user's. The log says who acted as whom; the user
+// isn't told, as helping them is the point.
+func (a *app) actAs(c *tug.Ctx, admin *User) error {
+	them, err := a.userOfPath(c)
+	if err != nil {
+		return err
+	}
+	if err := actAsUser.Check(c.Context(), admin, them); err != nil {
+		return err
+	}
+	s := c.Session()
+	s.Delete(setupKey) // the admin's own two-factor setup, under way, isn't the user's
+	auth.ActAs(s, them.authID(), them.PasswordHash, actingFor)
+	slog.InfoContext(c.Context(), "an admin started acting as a user", "admin", admin.ID, "user", them.ID)
+	return c.RedirectRoute("dashboard")
+}
 
 // FailedJobsProps are the jobs that failed for good, the latest first.
 type FailedJobsProps struct {

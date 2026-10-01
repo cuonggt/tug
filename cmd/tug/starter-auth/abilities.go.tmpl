@@ -13,9 +13,13 @@ import (
 // and buttons show, through the shared can. Add the app's own here, as it
 // grows: editing a post of theirs, say.
 
-// gate is asked before every ability: an admin may do anything, and a
-// user whatever each ability says.
+// gate is asked before every ability made with it: a suspended account
+// may do nothing, an admin anything, and a user whatever each ability
+// says.
 var gate = &auth.Gate[*User]{Before: func(_ context.Context, u *User) (bool, error) {
+	if u.SuspendedAt != nil {
+		return false, auth.Deny("your account is suspended")
+	}
 	return u.Admin, nil
 }}
 
@@ -25,20 +29,66 @@ var seeFailedJobs = auth.NewAbility(gate, "see the jobs that failed", func(conte
 	return false, nil
 })
 
+// seeUsers is seeing the users, on the page in admin.go, and restoring the
+// suspended: admins alone may, as the gate lets them.
+var seeUsers = auth.NewAbility(gate, "see the users", func(context.Context, *User, auth.None) (bool, error) {
+	return false, nil
+})
+
+// suspendUser is suspending a user: an admin may, but not themselves, or
+// another admin, whom the admins command makes a user again first, so no
+// admin locks another out. Not made with the gate, which would let any
+// admin.
+var suspendUser = auth.NewAbility(nil, "suspend this user", func(_ context.Context, u *User, them *User) (bool, error) {
+	switch {
+	case !u.Admin || u.SuspendedAt != nil:
+		return false, nil
+	case them.ID == u.ID:
+		return false, auth.Deny("you may not suspend yourself")
+	case them.Admin:
+		return false, auth.Deny("you may not suspend an admin: the admins command makes them a user again first")
+	}
+	return true, nil
+})
+
+// actAsUser is acting as a user, to see the app as they do: an admin may,
+// but not as themselves, another admin, whose say they'd act with, or a
+// suspended account, which can't log in. Not made with the gate either.
+var actAsUser = auth.NewAbility(nil, "act as this user", func(_ context.Context, u *User, them *User) (bool, error) {
+	switch {
+	case !u.Admin || u.SuspendedAt != nil:
+		return false, nil
+	case them.ID == u.ID:
+		return false, auth.Deny("you may not act as yourself")
+	case them.Admin:
+		return false, auth.Deny("you may not act as an admin: the admins command makes them a user again first")
+	case them.SuspendedAt != nil:
+		return false, auth.Deny("you may not act as a suspended account: restore it first")
+	}
+	return true, nil
+})
+
 // Can is what the user of a page may do, which every page has, shared, to
 // show the links and buttons its user may use. The handlers check again.
 type Can struct {
 	SeeFailedJobs bool `json:"seeFailedJobs"`
+	SeeUsers      bool `json:"seeUsers"`
 }
 
 // can is what u may do, for the page: a check that fails is a no, which
 // the log says why of, as the page shows either way.
 func can(ctx context.Context, u *User) Can {
-	see, err := seeFailedJobs.Can(ctx, u, auth.None{})
+	return Can{SeeFailedJobs: may(ctx, seeFailedJobs, u, auth.None{}), SeeUsers: may(ctx, seeUsers, u, auth.None{})}
+}
+
+// may is whether u may do what ability is with thing, for a page: a check
+// that fails is a no, which the log says why of.
+func may[T any](ctx context.Context, ability *auth.Ability[*User, T], u *User, thing T) bool {
+	yes, err := ability.Can(ctx, u, thing)
 	if err != nil {
 		slog.ErrorContext(ctx, "an ability couldn't say whether a page's user may, so they may not", "err", err)
 	}
-	return Can{SeeFailedJobs: see}
+	return yes
 }
 
 // only makes a handler for the users an ability of no thing lets in: any

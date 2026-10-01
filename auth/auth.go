@@ -6,6 +6,9 @@
 //   - Login, Logout and UserID keep who a session is logged in as, in the
 //     session's cookie. A login is tied to the password it was made with,
 //     so a new password logs out every session that knew the old one.
+//   - ActAs, Actor and StopActing let a user, as an admin, act as another
+//     for a while, to see the app as they do, and go back to their own
+//     login after.
 //   - Resets makes and checks the tokens that password reset links carry.
 //   - Throttle limits tries, such as at guessing a password.
 //   - SetIntended and Intended send someone who was asked to log in back
@@ -72,7 +75,8 @@ var now = time.Now
 //
 // A login starts afresh: a password confirmed before it (see
 // PasswordConfirmed), a login waiting for its second factor (see
-// StartTwoFactor), and a passkey asked for (see Passkeys), are forgotten.
+// StartTwoFactor), a passkey asked for (see Passkeys), and acting as
+// another user (see ActAs), with the actor's login, are forgotten.
 func Login(s *session.Session, id, passwordHash string) {
 	if s == nil {
 		panic("auth: Login needs a session; set tug's Config.Session")
@@ -80,6 +84,7 @@ func Login(s *session.Session, id, passwordHash string) {
 	s.Delete(confirmedKey)
 	s.Delete(pendingKey)
 	s.Delete(passkeyKey)
+	s.Delete(actorKey)
 	s.Set(idKey, id)
 	s.Set(checkKey, fingerprint(passwordHash))
 }
@@ -93,9 +98,11 @@ func Logout(s *session.Session) {
 }
 
 // UserID returns the ID of the user logged in to s, and whether one is.
-// Check the login with Current once the user is found.
+// Check the login with Current once the user is found. A login acting as
+// another user whose time is up (see ActAs) is logged out, the actor's
+// login and all.
 func UserID(s *session.Session) (string, bool) {
-	if s == nil {
+	if s == nil || actingEnded(s) {
 		return "", false
 	}
 	id, ok := s.Get(idKey).(string)
@@ -106,7 +113,7 @@ func UserID(s *session.Session) (string, bool) {
 // user's password hash as it's stored now. When it wasn't, the password
 // has changed since the login, and s should be logged out.
 func Current(s *session.Session, passwordHash string) bool {
-	if s == nil {
+	if s == nil || actingEnded(s) {
 		return false
 	}
 	check, _ := s.Get(checkKey).(string)
@@ -190,6 +197,7 @@ func StartTwoFactor(s *session.Session, id string) {
 	s.Delete(idKey)
 	s.Delete(checkKey)
 	s.Delete(confirmedKey)
+	s.Delete(actorKey)
 	s.Set(pendingKey, map[string]any{"id": id, "at": now().Unix()})
 }
 

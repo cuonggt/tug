@@ -202,3 +202,33 @@ func (us *users) admins(ctx context.Context) ([]*User, error) {
 	}
 	return admins, rows.Err()
 }
+
+// page returns limit users from offset, the newest first, of those whose
+// email or name has search in it, in any case, or of all of them, for "".
+func (us *users) page(ctx context.Context, search string, limit, offset int) ([]*User, error) {
+	query, args := "SELECT "+userColumns+" FROM users", []any{}
+	if search != "" {
+		query += " WHERE lower(email) LIKE lower(?) ESCAPE '!' OR lower(name) LIKE lower(?) ESCAPE '!'"
+		args = append(args, like(search), like(search))
+	}
+	rows, err := us.db.QueryContext(ctx, query+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
+	if err != nil {
+		return nil, err
+	}
+	return scanUsers(rows)
+}
+
+// setSuspended suspends the user with this ID, or restores them, and
+// reports whether that changed them: of two admins at once, one does.
+func (us *users) setSuspended(ctx context.Context, id int64, suspended bool) (bool, error) {
+	query := "UPDATE users SET suspended_at = CURRENT_TIMESTAMP WHERE id = ? AND suspended_at IS NULL"
+	if !suspended {
+		query = "UPDATE users SET suspended_at = NULL WHERE id = ? AND suspended_at IS NOT NULL"
+	}
+	res, err := us.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}

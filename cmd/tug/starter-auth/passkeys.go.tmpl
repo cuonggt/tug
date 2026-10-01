@@ -203,6 +203,9 @@ func (a *app) passkeyLogin(c *tug.Ctx) error {
 	if err := a.logins.Clear(c.Context(), key); err != nil {
 		return err
 	}
+	if u.SuspendedAt != nil {
+		return validate.Errors{"passkey": "That passkey's account is suspended, so it can't log in."}
+	}
 	s := c.Session()
 	if in.Remember {
 		s.SetLifetime(rememberFor)

@@ -141,10 +141,10 @@ func (a *app) revokeToken(c *tug.Ctx, user *User) error {
 
 // tokenUsers makes a handler of the API, for a request whose token may do
 // ability. A request without a token, or with one that isn't, has expired
-// or was revoked, is a 401, and one whose token may not is a 403. The
-// session's cookie counts for nothing here, so a page of another site
-// can't borrow a login. Each token has 60 requests a minute, counted in
-// the database, as the throttles are.
+// or was revoked, is a 401, and one whose token may not, or whose account
+// is suspended, is a 403. The session's cookie counts for nothing here, so
+// a page of another site can't borrow a login. Each token has 60 requests
+// a minute, counted in the database, as the throttles are.
 func (a *app) tokenUsers(ability string, h userHandler) tug.HandlerFunc {
 	return func(c *tug.Ctx) error {
 		token, err := a.sentToken(c)
@@ -160,11 +160,15 @@ func (a *app) tokenUsers(ability string, h userHandler) tug.HandlerFunc {
 		}
 		byToken := func(*tug.Ctx) string { return strconv.FormatInt(token.ID, 10) }
 		return tug.Limit(a.apiRequests, byToken, func(c *tug.Ctx) error {
-			if err := a.apiTokens.used(c.Context(), token.ID, time.Now()); err != nil {
-				return err
-			}
 			user, err := a.users.byID(c.Context(), token.UserID)
 			if err != nil {
+				return err
+			}
+			// Turned away until an admin restores the account, as its logins are.
+			if user.SuspendedAt != nil {
+				return tug.NewHTTPError(http.StatusForbidden, "this token's account is suspended")
+			}
+			if err := a.apiTokens.used(c.Context(), token.ID, time.Now()); err != nil {
 				return err
 			}
 			return h(c, user)

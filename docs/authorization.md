@@ -72,7 +72,7 @@ has the rest of how errors are answered.
 
 ```go
 var gate = &auth.Gate[*User]{Before: func(ctx context.Context, u *User) (bool, error) {
-	if u.Suspended {
+	if u.SuspendedAt != nil {
 		return false, auth.Deny("your account is suspended")
 	}
 	return u.Admin, nil
@@ -115,8 +115,8 @@ it shows, and a request can come from anywhere.
 
 What's the app's as a whole, rather than one thing's, every page can
 have, shared: the auth starter shares `can`, as it shares `auth`, with
-`can.seeFailedJobs`, which shows an admin the page of the jobs that
-failed in the header.
+`can.seeUsers` and `can.seeFailedJobs`, which show an admin their pages
+in the header.
 
 ```go
 pages.Share("can", Can{})     // for tug gen, the type
@@ -125,14 +125,38 @@ pages.ShareFunc(a.shareAuth)  // auth, and can, as each page is rendered
 
 ## The auth starter's
 
-`abilities.go` has the starter's gate, which lets admins do anything,
-and its one ability, `seeFailedJobs`, which no one else has; `can`, which
-every page shares; and `only`, which makes a route of an ability of no
-thing:
+`abilities.go` has the starter's gate, which lets a suspended account do
+nothing, and admins anything; its abilities, `seeUsers` and
+`seeFailedJobs`, which no one else has, and `suspendUser` and `actAsUser`;
+`can`, which every page shares; and `only`, which makes a route of an
+ability of no thing:
 
 ```go
-app.Get("/admin/failed-jobs", a.usersOnly(verified(only(seeFailedJobs, a.failedJobsPage)))).Name("failed-jobs.index")
+app.Get("/admin/users", a.usersOnly(verified(only(seeUsers, a.usersPage)))).Name("users.index")
 ```
+
+`suspendUser` and `actAsUser` are made with no gate, as the gate would
+let any admin: an admin may suspend, or act as, a user, but not
+themselves, or another admin, whom the `admins` command makes a user
+again first, so none locks another out, or acts with another's say. The
+handler checks the ability with the user the path names:
+
+```go
+var suspendUser = auth.NewAbility(nil, "suspend this user", func(_ context.Context, u *User, them *User) (bool, error) {
+	switch {
+	case !u.Admin || u.SuspendedAt != nil:
+		return false, nil
+	case them.ID == u.ID:
+		return false, auth.Deny("you may not suspend yourself")
+	case them.Admin:
+		return false, auth.Deny("you may not suspend an admin: the admins command makes them a user again first")
+	}
+	return true, nil
+})
+```
+
+The users page asks both for each user it lists, with `Can`, for the
+buttons it shows, as a page asks an ability of a thing (above).
 
 A user is an admin by a column of the users table, `admin`, which the
 binary's `admins` command sets, as there's no admin to ask before the
@@ -143,10 +167,20 @@ $ ./blog admins add ann@example.com
 ann@example.com is an admin.
 ```
 
-An admin's page, `/admin/failed-jobs`, lists the jobs that failed for
-good, and runs one, or all, again ([Background jobs](jobs.md#the-jobs-that-failed)).
+The admins' pages list the users, whom an admin suspends, restores, and
+acts as, to see the app as they do ([Accounts](auth.md#admins)), and the
+jobs that failed for good, which they run again ([Background jobs](jobs.md#the-jobs-that-failed)).
 Add the app's own abilities to `abilities.go`, as it grows: editing a
 post of theirs, say.
+
+## A suspended account
+
+A suspended account, in the starter, can't log in, and a login it had
+ends at its next request, so its user is never a page's. The gate's no
+is for the rest: an ability a handler checks for a user found some other
+way, by an API token, say, as the starter's tokens are turned away
+before it, or in a job, is a no, in the gate's words, "your account is
+suspended", a 403.
 
 ## Testing
 

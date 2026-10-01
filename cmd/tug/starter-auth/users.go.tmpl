@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuonggt/tug/auth"
@@ -32,6 +33,11 @@ type User struct {
 	// see the jobs that failed: abilities.go. A page asks the shared can,
 	// not this.
 	Admin bool `json:"-"`
+
+	// SuspendedAt is when an admin suspended the account, or nil: until one
+	// restores it, it can't log in, and its API tokens are turned away.
+	// See admin.go.
+	SuspendedAt *time.Time `json:"-"`
 
 	PasswordHash string `json:"-"`
 
@@ -76,13 +82,14 @@ type dbtx interface {
 }
 
 // userColumns are a user's columns, in the order scanUser reads them.
-const userColumns = "id, name, email, email_verified_at, password_hash, two_factor_secret, recovery_codes, two_factor_step, photo_key, created_at, admin"
+const userColumns = "id, name, email, email_verified_at, password_hash, two_factor_secret, recovery_codes, two_factor_step, photo_key, created_at, admin, suspended_at"
 
-func scanUser(row *sql.Row) (*User, error) {
+// scanUser reads a user from a row of userColumns.
+func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	u := &User{}
-	var verified sql.NullTime
+	var verified, suspended sql.NullTime
 	var secret, codes, photo sql.NullString
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &verified, &u.PasswordHash, &secret, &codes, &u.TwoFactorStep, &photo, &u.CreatedAt, &u.Admin)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &verified, &u.PasswordHash, &secret, &codes, &u.TwoFactorStep, &photo, &u.CreatedAt, &u.Admin, &suspended)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errNoUser
 	}
@@ -91,6 +98,9 @@ func scanUser(row *sql.Row) (*User, error) {
 	}
 	if verified.Valid {
 		u.EmailVerifiedAt = &verified.Time
+	}
+	if suspended.Valid {
+		u.SuspendedAt = &suspended.Time
 	}
 	u.TwoFactorSecret, u.RecoveryCodes, u.PhotoKey = secret.String, codes.String, photo.String
 	u.TwoFactor = u.TwoFactorSecret != ""
@@ -139,4 +149,24 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+// like is the LIKE pattern of what has s in it anywhere, with the % and _
+// that s has taken as themselves, by the ESCAPE the queries name, !.
+func like(s string) string {
+	return "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(s) + "%"
+}
+
+// scanUsers reads the users of rows, of userColumns, and closes them.
+func scanUsers(rows *sql.Rows) ([]*User, error) {
+	defer rows.Close()
+	var all []*User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, u)
+	}
+	return all, rows.Err()
 }

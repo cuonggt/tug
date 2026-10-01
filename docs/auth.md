@@ -57,6 +57,10 @@ pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
 | `GET /verify-email/{id}/{token}`          | `verification.verify`                         | anyone with the link |
 | `GET /broadcasts`                         | `broadcasts`                                  | users, their own events |
 | `GET /notifications`                      | `notifications.index`                         | users |
+| `GET /admin/users`                        | `users.index`                                 | admins |
+| `POST /admin/users/{id}/suspend`, `/restore` | `users.suspend`, `users.restore`           | admins |
+| `POST /admin/users/{id}/act`              | `users.act`                                   | admins |
+| `POST /acting/stop`                       | `acting.stop`                                 | an admin acting as a user |
 | `GET /admin/failed-jobs`                  | `failed-jobs.index`                           | admins |
 | `POST /admin/failed-jobs/{id}/retry`, `/admin/failed-jobs/retry` | `failed-jobs.retry`, `failed-jobs.retry-all` | admins |
 | `GET /settings`                           | `settings`                                    | goes to the profile |
@@ -88,8 +92,8 @@ them.
   `passkeys.go`: passkeys. `settings.go`: the settings pages.
   `photos.go`: a user's photo, on the app's disk. `tokens.go`: API
   tokens. `broadcasts.go`: the events a user's pages follow.
-  `abilities.go`: what users may do, and `admin.go`, the admins' page and
-  the `admins` command. `notifications.go`: what happened to an account,
+  `abilities.go`: what users may do, and `admin.go`, the admins' pages,
+  of the users and of the jobs that failed, and the `admins` command. `notifications.go`: what happened to an account,
   in the app and by mail. `mail.go`: the mail the app sends.
 - `jobs.go`: the background jobs, in tables of their own, for package
   `queue`, which runs them beside the server, and the `jobs` command,
@@ -184,8 +188,14 @@ Between them, a `userHandler` can be wrapped in more:
   straight away.
 
 - `only(ability, h)` lets in the users an ability of no thing lets in,
-  and answers anyone else with the ability's no, a 403: the admins' page
-  has it, with `seeFailedJobs` ([Admins](#admins), below).
+  and answers anyone else with the ability's no, a 403: the admins' pages
+  have it, with `seeUsers` and `seeFailedJobs` ([Admins](#admins), below).
+- `ownersOnly(what, h)` keeps `h` from an admin acting as the user, with a
+  403 that says what they may not do: what could hand the account to
+  someone else, changing the password, two-factor logins, passkeys or API
+  tokens, or deleting it, which stays its owner's ([Admins](#admins)).
+  The profile's handler refuses a new email the same way, and lets the
+  name be.
 
 `guestsOnly` wraps the pages for guests, and sends someone who's logged in
 to the dashboard instead, even from a reset link.
@@ -212,6 +222,10 @@ func (a *app) user(r *http.Request) (*User, error) {
     if err != nil {
         return nil, err
     }
+    if u.SuspendedAt != nil {
+        auth.Logout(s)
+        return nil, errSuspended
+    }
     return u, nil
 }
 ```
@@ -219,9 +233,11 @@ func (a *app) user(r *http.Request) (*User, error) {
 `auth.UserID` reads the ID the session keeps, the user is loaded, and
 `auth.Current` checks that the login was made with the password the user
 has now. A user who's gone, or who has set a new password since, is logged
-out there and then, and the request goes on as a guest's. When the
-database fails, there's no user and an error: `usersOnly` answers it with a
-500, and `shareAuth` logs it and shows the page as a guest's.
+out there and then, and the request goes on as a guest's. So is a
+suspended account, at its next request: `usersOnly` and `guestsOnly` send
+it to log in, saying why ([Admins](#admins)). When the database fails,
+there's no user and an error: `usersOnly` answers it with a 500, and
+`shareAuth` logs it and shows the page as a guest's.
 
 ### `auth.user` on every page
 
@@ -230,15 +246,17 @@ pages.Share("auth", Auth{})
 pages.ShareFunc(a.shareAuth)
 ```
 
-`Auth` is a struct with one field, `User *User`, tagged `json:"user"`, and
-`shareAuth` returns `inertia.Props{"auth": Auth{User: u}}` with `u` from
+`Auth` is a struct of the user, `User *User`, tagged `json:"user"`, and
+`Acting`, whether an admin is acting as them, for the line at the top of
+each page ([Admins](#admins)), and `shareAuth` returns
+`inertia.Props{"auth": Auth{User: u, Acting: acting}}` with `u` from
 `user`. `ShareFunc` works it out for each page as it's rendered, error
 pages included: the ErrorHandler renders a 404 outside any `usersOnly`, and
 its layout shows who's logged in too. `Share("auth", Auth{})` is a guest's
 value, which `ShareFunc`'s replaces, and it's how `tug gen` learns the
 prop's type, since it can't see what a function returns. In
 `resources/js/tug/pages.ts`, `SharedProps` has `auth: Auth`, and `Auth` is
-`{ user: User | null }`, so `usePage().props.auth.user` is typed in every
+`{ user: User | null; acting: boolean }`, so `usePage().props.auth.user` is typed in every
 component, as in `layouts/app-layout.tsx`.
 
 `User` has `emailVerifiedAt`, null until the email is verified, and
@@ -350,6 +368,11 @@ if err := a.logins.Clear(c.Context(), key); err != nil {
   starts the month again. The box sends `"on"` when it's ticked, which
   `Bind` reads as `true` for `LoginInput.Remember`, a `bool`, as it reads a
   form's value ([Routing](routing.md#binding)).
+- A suspended account ([Admins](#admins)) isn't logged in, and is told
+  why once the password is right, which only its owner knows; so is one
+  with a passkey, and one suspended as its login waited for its code. A
+  reset link sets its password, which is still its owner's, and doesn't
+  log in.
 - A user with two-factor logins on goes on to give a code (below).
   Everyone else is logged in with `auth.Login`, and goes to the page
   `auth.Intended` kept, or the dashboard.
@@ -524,7 +547,7 @@ curl -H "Authorization: Bearer blog_…" -H "Accept: application/json" https://e
   `api.Get("/user", a.tokenUsers("user:read", apiUser))`. A request without
   a token, or with one that isn't the app's, has expired or was revoked,
   is a 401, with `WWW-Authenticate: Bearer`, and one whose token may not do
-  `ability` is a 403. The session's cookie counts for nothing there, so a
+  `ability`, or whose account is suspended, is a 403. The session's cookie counts for nothing there, so a
   page of another site can't borrow a login: the app's CSRF check lets
   `/api/` through, `middleware.CSRF("/api/")`, and CORS lets the pages of
   the sites `CORS_ORIGINS` names call it
@@ -550,13 +573,10 @@ $ ./blog admins
 ```
 
 An admin may do anything the app's abilities name, as the gate in
-`abilities.go` lets them ([Authorization](authorization.md)). The
-starter's one ability is seeing the jobs that failed for good, on a page
-of the admins', `/admin/failed-jobs`, in the header's nav for them, which
-lists the jobs, the latest first, with the value each was pushed with and
-its error, and runs one, or all, again from their first attempt, as the
-`jobs` command does, and wakes the queue. A user who isn't an admin gets
-a 403, the error page, "you may not see the jobs that failed".
+`abilities.go` lets them ([Authorization](authorization.md)), on the
+admins' pages, in the header's nav for them: the users, and the jobs that
+failed for good. A user who isn't an admin gets a 403, the error page,
+"you may not see the users".
 
 - A user is an admin by the users table's `admin` column, which the
   binary's `admins` command sets, with `add` and `remove`, where it runs,
@@ -564,8 +584,46 @@ a 403, the error page, "you may not see the jobs that failed".
   starter's image, `docker exec <container> /server admins add
   ann@example.com`. The command runs in the app as `main` makes it, so it
   needs what the server needs, `APP_KEY` and `APP_URL` among it.
-- The handlers are in `admin.go`, and the page is
-  `resources/js/pages/Admin/FailedJobs.tsx` (`.vue`, `.svelte`).
+- **The users**, `/admin/users`: everyone with an account, the newest
+  first, 20 a page, found by their email or name in any case,
+  `?search=ann`, by a lower-cased `LIKE`, as each database has it, rather
+  than search of the full text, which an app of many users adds. Each
+  says whether their email is verified, their two-factor logins are on,
+  they're an admin, or suspended, and when they joined.
+- **Suspending an account** that abuses the app, rather than deleting
+  it, which stays its owner's: the users table's `suspended_at`, which
+  keeps the account, and what's its, for an admin to restore. Each request
+  reads the user, so its logins end at their next request, which sends it
+  to log in and says why, as the notification of it rings the bell of a
+  page it has open; it can't log in again, told why once the password is
+  right; and its API tokens are turned away, with a 403. Its owner hears
+  of it, by mail and as a notification, and again as an admin restores
+  it, which lets it back in as it was.
+- **Acting as a user**, to see the app as they do and help them: the
+  admin's browser is logged in as the user, with a line at the top of
+  each page that says whose it is, and goes back to the admin's own
+  account. Meanwhile what could hand the account to someone else is
+  refused, with a 403 that says so, rather than hidden, as the admin sees
+  the pages the user does: the password, the email, two-factor logins and
+  the recovery codes, passkeys, API tokens, and deleting it. What asks for
+  the password again asks for the user's, which the admin doesn't know,
+  as acting starts with none confirmed, and the notifications the admin
+  sees stay unread for the user. It lasts an hour at most, and then the
+  browser is logged out, the admin's own login too, rather than have a
+  form sent from the user's page act on the admin's account; logging out
+  ends both too. Starting and stopping is a line in the log, with both of
+  their IDs; the user isn't told, as helping them is the point.
+- No admin suspends, or acts as, themselves, or another admin, whom the
+  `admins` command makes a user again first, so none locks another out,
+  or acts with another's say; nor acts as a suspended account.
+- **The jobs that failed for good**, `/admin/failed-jobs`, the latest
+  first, with the value each was pushed with and its error, run again,
+  one or all, from their first attempt, as the `jobs` command does, which
+  wakes the queue ([Background jobs](jobs.md#the-jobs-that-failed)).
+- The handlers are in `admin.go`, with `stopActing` and `ownersOnly` in
+  `auth.go`, and the pages are `resources/js/pages/Admin/Users.tsx` and
+  `FailedJobs.tsx` (`.vue`, `.svelte`), with the line at the top of each
+  page in `components/acting-banner.tsx` (`ActingBanner.vue`, `.svelte`).
 
 ### A forgotten password
 
@@ -657,8 +715,9 @@ What happens to an account, of the kind that could hand it to someone
 else, its owner hears of, in the app and by mail: a new password, set in
 the settings or by a reset link; a new email, told at the old one, the
 address its owner may still read, as the new one gets its link to
-verify; two-factor logins turned off; a passkey added; and an API token
-made.
+verify; two-factor logins turned off; a passkey added; an API token
+made; and the account suspended by an admin, and restored, which it sees
+in the app once it can log in again.
 
 ```go
 err := a.inTx(c.Context(), func(tx *sql.Tx) error {
@@ -868,7 +927,9 @@ variables, one set for light and one for dark.
 `layouts/settings-layout.tsx` inside `layouts/app-layout.tsx` for
 `Settings/...`; `app-layout` for the rest; and none for `Home`, the
 landing page. A page names its card's title with a static `layout`, as
-`Login.layout = { title: 'Log in', ... }`.
+`Login.layout = { title: 'Log in', ... }`. At the top of the layouts, and
+of the landing page, `components/acting-banner.tsx` is the line that says
+an admin is acting as the user, and goes back ([Admins](#admins)).
 
 The pages run under the Content-Security-Policy `main.go` sends
 ([Security headers](deployment.md#security-headers)): `app.html`'s script,
@@ -958,9 +1019,9 @@ if !auth.Current(s, user.PasswordHash) {
   `tug.auth.id`, and under `tug.auth.check` a fingerprint of the password
   hash as it's stored: 12 bytes of SHA-256, which tell one hash from
   another and give nothing away should a cookie ever be read. A login
-  starts afresh: a password confirmed before it, or a login waiting for
-  its second factor, is forgotten. It panics without a session: set tug's
-  `Config.Session`.
+  starts afresh: a password confirmed before it, a login waiting for its
+  second factor, or acting as another user, is forgotten. It panics
+  without a session: set tug's `Config.Session`.
 - `UserID(s)` returns the ID, a string whatever the app's IDs are, and
   whether someone is logged in.
 - `Current(s, passwordHash)` reports whether the login was made with the
@@ -970,8 +1031,41 @@ if !auth.Current(s, user.PasswordHash) {
 - `Logout(s)` empties the session, flash data and all: whoever uses the
   browser next shouldn't find anything kept for the last person.
 
-Everything but `Login` and `StartTwoFactor` takes a nil session, as in an
-app without `Config.Session`, where no one is logged in.
+Everything but `Login`, `StartTwoFactor` and `ActAs` takes a nil
+session, as in an app without `Config.Session`, where no one is logged
+in.
+
+### Acting as another user
+
+```go
+auth.ActAs(s, strconv.FormatInt(them.ID, 10), them.PasswordHash, time.Hour) // an admin, to help them
+
+admin, acting := auth.Actor(s)  // "1", true, on the requests after
+admin, ok := auth.StopActing(s) // the admin logged back in, as they were
+```
+
+- `ActAs(s, id, passwordHash, d)` logs the session in as another user,
+  for whoever is logged in now, the actor, as an admin who helps them
+  sees the app as they do, and keeps the actor's login beside it, as it
+  was, under `tug.auth.actor`: their ID, and the fingerprint of their
+  password hash. Who may act as whom is the app's to say, as an ability.
+  Acting starts afresh: a password the actor confirmed is forgotten, so
+  what asks for the password again asks for the other user's. It panics
+  without a login to keep.
+- `Actor(s)` returns the actor's ID while acting, for the app to refuse
+  what's the user's alone, and to say whose the page is. Once `UserID`
+  has found the login, it never says no to a request that found its user
+  acted as, however long the request takes, so a refusal can't lapse
+  partway.
+- `StopActing(s)` logs the actor back in, as they were, forgetting a
+  password confirmed meanwhile, which was the other user's: `Current`
+  checks their login at the next request, as any, as their password may
+  have changed since.
+- Acting lasts `d` at most: after that, `UserID` and `Current` log the
+  session out, the actor's login and all, rather than have a form sent
+  from the other user's page act on the actor's account. `Login` and
+  `Logout` end it, with the actor's login. Acting as someone else while
+  acting keeps the first actor, and the sooner end.
 
 ### Back to the page after logging in
 

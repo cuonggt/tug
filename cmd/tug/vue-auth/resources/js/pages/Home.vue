@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3'
 import { Database, KeyRound, LayoutDashboard, Mail, Package, ShieldCheck } from '@lucide/vue'
+import ActingBanner from '@/components/ActingBanner.vue'
 import AppLogo from '@/components/AppLogo.vue'
 import { Button } from '@/components/ui/button'
 import type { Pages, SharedProps } from '@/tug/pages'
@@ -17,15 +18,17 @@ const what = [
   { icon: Package, title: 'One binary', text: 'tug build puts the frontend inside the Go server.', where: 'Dockerfile' },
 ]
 
-// Home is the landing page, main.go's home, with no layout around it. Vue
-// makes a page's props from their type, which it can't work out from
-// PageProps<'Home'>, so they're spelled out.
+// Home is the landing page, main.go's home, with no layout around it but
+// the line that says an admin is acting as the user. Vue makes a page's
+// props from their type, which it can't work out from PageProps<'Home'>,
+// so they're spelled out.
 defineProps<Pages['Home'] & SharedProps>()
 </script>
 
 <template>
   <Head title="Welcome" />
   <div class="flex min-h-svh flex-col">
+    <ActingBanner />
     <header class="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-4">
       <AppLogo />
       <nav class="flex items-center gap-2">

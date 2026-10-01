@@ -7,6 +7,7 @@
   import Package from '@lucide/svelte/icons/package'
   import ShieldCheck from '@lucide/svelte/icons/shield-check'
   import Head from '@/Head.svelte'
+  import ActingBanner from '@/components/ActingBanner.svelte'
   import AppLogo from '@/components/AppLogo.svelte'
   import { buttonVariants } from '@/components/ui/button'
   import type { PageProps } from '@/tug/pages'
@@ -23,12 +24,14 @@
     { icon: Package, title: 'One binary', text: 'tug build puts the frontend inside the Go server.', where: 'Dockerfile' },
   ]
 
-  // Home is the landing page, main.go's home, with no layout around it.
+  // Home is the landing page, main.go's home, with no layout around it but
+  // the line that says an admin is acting as the user.
   let { appName, auth }: PageProps<'Home'> = $props()
 </script>
 
 <Head title="Welcome" />
 <div class="flex min-h-svh flex-col">
+  <ActingBanner />
   <header class="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-4">
     <AppLogo />
     <nav class="flex items-center gap-2">

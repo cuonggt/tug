@@ -1,5 +1,6 @@
 import { Head, Link } from '@inertiajs/react'
 import { Database, KeyRound, LayoutDashboard, Mail, Package, ShieldCheck } from 'lucide-react'
+import ActingBanner from '@/components/acting-banner'
 import AppLogo from '@/components/app-logo'
 import { Button } from '@/components/ui/button'
 import type { PageProps } from '@/tug/pages'
@@ -16,12 +17,14 @@ const what = [
   { icon: Package, title: 'One binary', text: 'tug build puts the frontend inside the Go server.', where: 'Dockerfile' },
 ]
 
-// Home is the landing page, main.go's home, with no layout around it.
+// Home is the landing page, main.go's home, with no layout around it but
+// the line that says an admin is acting as the user.
 export default function Home({ appName, auth }: PageProps<'Home'>) {
   return (
     <>
       <Head title="Welcome" />
       <div className="flex min-h-svh flex-col">
+        <ActingBanner />
         <header className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-4">
           <AppLogo />
           <nav className="flex items-center gap-2">
