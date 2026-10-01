@@ -3391,7 +3391,7 @@ came from, so a job that failed for good couldn't be traced back to the
 request that pushed it. Laravel's Context carries what a request had into
 the jobs it dispatches, and OpenTelemetry's propagators carry a trace the
 same way. A job takes what the context it's pushed from carries, and the
-context it runs in gets it back. To be released as v0.34.0.
+context it runs in gets it back. Released as v0.34.0.
 
 - **`queue.Carrier`:** a value a job takes from the context it's pushed
   from, and gives back to the context it runs in: `Carry(ctx, into
