@@ -45,6 +45,8 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M37 | Typed forms                | done   |
 | M38 | Typed flash                | done   |
 | M39 | Request IDs in jobs        | done   |
+| M40 | Debug error page           | later  |
+| M41 | Route list                 | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3480,6 +3482,146 @@ Choices made on the way:
   after its migration; and in the auth starter, a request's ID, sent as
   `X-Request-ID`, in the claim of the mail it pushed, and the failed
   jobs showing the request, in its command and on its page.
+
+## M40 · Debug error page — later
+
+With `APP_DEBUG` on, a server error's response is the error as plain text,
+with a panic's stack after it as `debug.Stack` writes it: a page of text
+in a browser, and the same text in the modal Inertia's client opens for a
+visit that failed. Laravel shows Ignition's page, and Rails and Phoenix a
+page of their own: the error, the app's code where it happened, and the
+request. tug has each of them: the error and what it wraps, a panic's
+stack, which of its frames are the app's, the route that answered, and
+where the app added it. To be released as v0.35.0.
+
+- **A page for a server error, while debugging:** under `Config.Debug`,
+  `DefaultErrorHandler` answers a 5xx with an HTML page, in place of the
+  text, to a client that takes HTML, as a browser and Inertia's client
+  do: the status, the error's message, and each error it wraps, with its
+  type. Inertia's client shows it in its modal.
+- **A panic's stack, the app's frames open:** each frame's function, file
+  and line, the app's with the lines of source around it and its own
+  marked, and the frames of tug, the standard library and the app's
+  dependencies folded between them.
+- **Where a returned error came from:** an error a handler returns has no
+  stack, so the page shows the route that answered, its name, and the
+  lines of source where the app added it, which name the handler as the
+  app wrote it, `a.guestsOnly(a.login)`, and the handler's function by
+  the name Go gives it.
+- **The request:** its method, path and query, the route's values, its
+  ID, and its headers, the secrets among them `[REDACTED]`, as DevTools
+  has them.
+- **Links to the editor:** with `APP_EDITOR` naming one, `vscode`,
+  `cursor`, `zed`, `goland` or `sublime`, or a link with `{file}` and
+  `{line}` in it, a frame's file opens there, at its line.
+- **JSON and text too:** a client that asks for JSON first gets the
+  error, what it wraps and the frames as JSON, and one that takes no HTML
+  gets the text, as now.
+- **The guide:** Routing, the page in its section on errors; and
+  Deployment, why `APP_DEBUG` stays off.
+
+Choices, to settle before any code:
+
+- **Under Debug alone:** with `Config.Debug` off, a server error is the
+  ErrorPage, or its status's words, as now: the page shows the app's
+  source and its request's headers.
+- **HTML and CSS, no script:** Inertia's client shows a response that
+  isn't a page in a frame of the page's own document, under its
+  Content-Security-Policy, whose nonce isn't the error response's, so a
+  script there wouldn't run. `<details>` folds the frames, and one
+  `<style>` styles the page, which the starters' policy lets through,
+  with the response's nonce on it for a policy that asks for one. Nothing
+  is loaded from elsewhere.
+- **The stack as the runtime gives it:** `adapt` keeps a panic's program
+  counters, `runtime.Callers`', beside the text it keeps now, for the
+  page's frames, as `runtime.CallersFrames` reads them.
+- **The app's frames by its module:** a frame of `main`, or of a package
+  of the app's module, as its build says it, is the app's, and open;
+  tug's, the standard library's and the dependencies' fold, as Laravel
+  folds its vendor's. DevTools' test of a frame, in `internal/devtools`,
+  tells tug's and the standard library's, shared.
+- **Source from the disk:** the lines around a frame are read from its
+  file as the page is made, where `tug dev` built the app; a file that
+  isn't there, as in a build with `-trimpath`, leaves its frame without
+  them.
+- **Where a route was added, under Debug too:** a route keeps its caller
+  under `Config.Debug`, as it does under DevTools.
+- **Go's types shown:** the page is for the app's developer, who reads
+  them, where an error's words are for the person who gets it.
+- **A handler's errors and panics:** what `DefaultErrorHandler` answers.
+  A panic in middleware is `middleware.Recover`'s, which knows nothing of
+  tug, and answers as it does. An app's own ErrorHandler that hands
+  `DefaultErrorHandler` what it doesn't answer itself gets the page for
+  those.
+- **Not the body:** the handler has read it, and DevTools' panel shows
+  what Inertia's client sent, under `tug dev`.
+- **Tests:** a returned error's page, with its message, what it wraps
+  and each one's type, the route, its name, and the lines where it was
+  added; a panic's, with its value, the app's frames open with their
+  lines and their own marked, and the rest folded; the request with
+  `Cookie`, `Authorization` and a `token` in the query `[REDACTED]`; no
+  `<script>` in it, and its `<style>` with the nonce under
+  `middleware.CSP`; the editors' links, by name and by a link of the
+  app's; a frame whose file isn't there, without lines; JSON for a client
+  that asks for it, and the text for one that takes no HTML; the
+  ErrorPage, as before, with Debug off; and by hand, in a browser, the
+  page in Inertia's modal for a visit that failed, under the starters'
+  policy, as no suite has a route that fails.
+
+## M41 · Route list — later
+
+An app's routes are the lines its `newApp` adds them on, and tug gen
+writes the named ones into `routes.ts`, but nothing lists them: which
+handler answers `POST /login`, what it takes, which routes a path has,
+and where each was added. Laravel's `route:list` and Rails' `routes`
+print them. tug's router has each route's method and path, its name, the
+struct it takes, and where the app added it, and the line that added it
+names the handler as the app wrote it, wrappers and all. To be released
+as v0.36.0.
+
+- **`tug routes`:** builds the app and runs it as tug gen does, and
+  prints its routes, one a line, in columns: the method, the path, the
+  name, the handler, as the line that added the route has it,
+  `a.guestsOnly(a.login)`, the struct the route takes, and the file and
+  line that added it, `main.go:392` in an app made with v0.34.0.
+- **Every route of the app's:** named or not, as `/up`, a group's, and
+  one of any method, as `ANY`; not tug's catch-all for the misses, or
+  DevTools' endpoints, which aren't the app's.
+- **A filter:** `tug routes login` lists the routes whose path or name
+  has `login` in it.
+- **`-json`:** the same as JSON, for a script.
+- **The guide:** CLI, `tug routes`; Routing, a pointer to it; and the
+  README.
+
+Choices, to settle before any code:
+
+- **From the app's own run:** routes are added as `main` runs, some by
+  its environment, as the auth starter's `/files` by its disk; the run
+  tug gen makes, with the app's `.env`, lists them as the app has them,
+  without the database, which `Generating` leaves out. Its output gets
+  the route table beside the types, so tug gen and tug routes make the
+  same run.
+- **The handler as the app wrote it:** a route's function is often a
+  wrapper's closure, `main.(*app).guestsOnly.func1`, which says nothing of
+  the handler inside it; the line that added the route says it, so tug
+  routes reads the call there with `go/parser`, and prints the expression
+  the app passed as the handler, or, where that's a variable, as in a
+  helper of the app's that adds routes, the function's name.
+- **Where it was added, under tug gen too:** a route keeps its caller in
+  tug gen's run, as under DevTools and Debug.
+- **By path, then method:** a path's routes, and a prefix's, go together;
+  the order they were added in is the last column's.
+- **Not the middleware:** the starters' guards are wrappers of the
+  handler, which its expression shows, and a middleware is a function
+  value whose name, a constructor's closure, says less than the line that
+  added it.
+- **Tests:** the handler's expression read from a call on one line, one
+  over several, one chained with `Name` and `Takes`, a group's, and a
+  helper's, which falls back to the function's name; the table, its
+  order and its filter, and the JSON; package tug's run writing every
+  route, named or not, with where it was added; and the auth starter,
+  made by `tug new`, listing `POST /login` as `login.store`,
+  `a.guestsOnly(a.login)`, taking `LoginInput`, added in `main.go`.
 
 ## Decisions
 
