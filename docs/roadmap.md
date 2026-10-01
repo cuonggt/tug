@@ -2874,7 +2874,7 @@ queue made of it, whether the job runs again, failed for good, or was
 held back by its kind's rate, nor how long it waited to run. tug gives
 the app both, and leaves the counting to the client it picks: Phoenix
 emits events for its reporters to count, and Laravel's Pulse is a
-package of its own. To be released as v0.29.0.
+package of its own. Released as v0.29.0.
 
 - **The route that answered:** `tug.RouteOf(r)`, the route that answered
   `r`, as `GET /posts/{id}`, for the app's own middleware, around the
