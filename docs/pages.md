@@ -675,8 +675,11 @@ The function that answered is the handler, when it rendered the page or
 redirected, or a wrapper of the route that answered for it, as the auth
 starter's `usersOnly` redirects a guest to log in, by the name Go gives it,
 which for a wrapper is its closure's, `usersOnly.func1`. When tug answered
-for the handler, as it does an error the handler returned, it's the
-route's handler, with the line that added the route.
+for the handler, as it does the errors the handler returned, it's the
+function that called `Bind`, `BindValid` or `Validate`; and when the
+handler read nothing, the route's handler, with the line that added the
+route. Middleware, the app's or tug's, is only on the way, and never the
+function that answered.
 
 Recording never fails a response: an entry that can't be kept is dropped,
 and the log says why, at Debug.

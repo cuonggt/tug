@@ -270,6 +270,11 @@ func (a *App) adapt(h HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c := &Ctx{app: a, r: r}
 		c.rw.ResponseWriter = w
+		if a.devtools != nil {
+			if rec := devtools.From(r.Context()); rec != nil {
+				rec.Handling(devtools.Here()) // the frames before this one's are h's
+			}
+		}
 		defer func() {
 			if v := recover(); v != nil {
 				if v == http.ErrAbortHandler {

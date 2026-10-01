@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -55,10 +56,49 @@ func TestTheAppsFramesAreThoseOfNeitherTugNorTheStandardLibrary(t *testing.T) {
 		{"github.com/cuonggt/tug.PageOf[...].Render", "/mod/github.com/cuonggt/tug/pages.go", false},
 		{"github.com/cuonggt/tug/middleware.Logger.func1", "/mod/github.com/cuonggt/tug/middleware/logger.go", false},
 		{"github.com/cuonggt/tug.TestRoutes.func1", "/src/tug/router_test.go", true},
+		// A closure made by a function inlined into the app's is named as
+		// the app's, in the file of the package that wrote it.
+		{"main.newApp.Headers.func7.1", tugDir + "middleware/headers.go", false},
+		{"main.main", tugDir + "examples/inertia/main.go", true},
 	} {
 		if got := apps(runtime.Frame{Function: c.function, File: c.file}); got != c.apps {
-			t.Errorf("%s is the app's: %v", c.function, got)
+			t.Errorf("%s in %s is the app's: %v", c.function, c.file, got)
 		}
+	}
+	if stdDir == "" || tugDir == "" {
+		t.Fatalf("the standard library is in %q, and tug in %q", stdDir, tugDir)
+	}
+	if apps(runtime.Frame{Function: "main.newApp.StripPrefix.func1", File: stdDir + "net/http/server.go"}) {
+		t.Error("the standard library's closure inlined into the app's is the app's")
+	}
+}
+
+// handling calls answer as tug's adapter calls a route's handler, with
+// where handling starts.
+//
+//go:noinline
+func handling(answer func(handler uintptr)) {
+	answer(Here())
+}
+
+// answering is a handler of the app's that writes the response.
+//
+//go:noinline
+func answering(handler uintptr) (runtime.Frame, bool) {
+	return answerer(handler)
+}
+
+func TestTheAnswerIsTheAppsFunctionInsideTheHandler(t *testing.T) {
+	var got runtime.Frame
+	var found bool
+	handling(func(handler uintptr) { got, found = answering(handler) })
+	if !found || !strings.HasSuffix(got.Function, ".answering") {
+		t.Errorf("inside the handler, the answer is %q, %v", got.Function, found)
+	}
+	// Written with the handler's frame nowhere on the stack, as by
+	// middleware once the handler has returned.
+	if got, found := answering(reflect.ValueOf(handling).Pointer()); found {
+		t.Errorf("outside the handler, the answer is %q", got.Function)
 	}
 }
 

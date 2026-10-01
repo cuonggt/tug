@@ -125,10 +125,16 @@ func entryOf(rec *Recording, r *http.Request, s *sent, got *read, began time.Tim
 	}
 	if rec.route != nil {
 		e.Route = *rec.route
-		if s.by != nil {
-			// Over the route's own handler, which is a wrapper's closure
-			// when the app wraps it, as the auth starter's usersOnly does.
-			e.Route.Action, e.Route.ActionSource = &s.by.Function, defined(*s.by)
+		// Over the route's own handler, which is a wrapper's closure when
+		// the app wraps it, as the auth starter's usersOnly does: the
+		// function that wrote the response, or else the one that read the
+		// request, whose errors tug answered.
+		by := s.by
+		if by == nil {
+			by = rec.bound
+		}
+		if by != nil {
+			e.Route.Action, e.Route.ActionSource = &by.Function, defined(*by)
 		}
 	}
 	return e

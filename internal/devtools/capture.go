@@ -29,8 +29,10 @@ type sent struct {
 	hijacked bool // the connection taken, whose request's body can't be read
 
 	// by is the function of the app's that answered, as its status was
-	// written: the handler, or a wrapper of it that answered for it.
-	by *runtime.Frame
+	// written, inside the route's handler, which rec says the start of:
+	// the handler, or a wrapper of it that answered for it.
+	rec *Recording
+	by  *runtime.Frame
 }
 
 func (s *sent) WriteHeader(code int) {
@@ -38,7 +40,7 @@ func (s *sent) WriteHeader(code int) {
 		s.status = code
 		s.header = s.ResponseWriter.Header().Clone()
 		s.text = textual(s.header.Get("Content-Type"))
-		if f, ok := Caller(); ok {
+		if f, ok := answerer(s.rec.handling()); ok {
 			s.by = &f
 		}
 	}

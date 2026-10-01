@@ -54,7 +54,7 @@ func (rc *Recorder) Serve(w http.ResponseWriter, r *http.Request, next http.Hand
 	w.Header().Set(HeaderID, rec.id)
 	w.Header().Set(HeaderParentOut, parentOut)
 
-	s := &sent{ResponseWriter: w}
+	s := &sent{ResponseWriter: w, rec: rec}
 	req := r.WithContext(With(r.Context(), rec))
 	var got *read
 	if r.Body != nil && r.Body != http.NoBody {

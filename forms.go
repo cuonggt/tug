@@ -66,6 +66,9 @@ func (c *Ctx) BindValid(dst any, checks ...func(validate.Errors)) error {
 // don't come straight from the request. It answers Precognition requests
 // the same way.
 func (c *Ctx) Validate(v any, checks ...func(validate.Errors)) error {
+	if c.app.devtools != nil {
+		c.bound()
+	}
 	return c.check(v, validate.Errors{}, checks)
 }
 

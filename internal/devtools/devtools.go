@@ -15,6 +15,7 @@ package devtools
 import (
 	"context"
 	"mime/multipart"
+	"runtime"
 	"sync"
 )
 
@@ -45,6 +46,12 @@ type Recording struct {
 	route        *Route
 	renderSource *Source
 	form         *multipart.Form
+
+	// handler is where tug's adapter of the route's handler starts, whose
+	// frame bounds the handler's on the stack, and bound the function of
+	// the app's that read the request.
+	handler uintptr
+	bound   *runtime.Frame
 }
 
 type key struct{}
@@ -95,6 +102,30 @@ func (rec *Recording) Form(form *multipart.Form) {
 	rec.form = form
 }
 
+// Handling records that the route's handler runs, called by the function
+// that starts at entry, as Here says it: the app's frames before its, as
+// the response is written, are the handler's, and its wrappers'.
+func (rec *Recording) Handling(entry uintptr) {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	rec.handler = entry
+}
+
+// Bound records the function of the app's that bound or validated the
+// request, at: its handler, which the route's action is when tug writes
+// the response for it, as it does the errors a handler returns.
+func (rec *Recording) Bound(at runtime.Frame) {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	rec.bound = &at
+}
+
+func (rec *Recording) handling() uintptr {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return rec.handler
+}
+
 // Source is a place in the app's Go.
 type Source struct {
 	File string `json:"file"`
@@ -119,9 +150,9 @@ type Prop struct {
 }
 
 // Route is the route that answered, as an entry says it. Its action is the
-// function of the app's that answered, and where that's defined, which
-// the Recorder sees as the response's status is written; a Route's own
-// are for a response tug wrote for the app, as an error's.
+// function of the app's that answered, and where that's defined: the one
+// that wrote the response's status, inside the route's handler, or else
+// the one that read the request; a Route's own are for neither.
 type Route struct {
 	Name         *string `json:"name"`
 	URI          string  `json:"uri"`

@@ -3022,19 +3022,33 @@ Choices made on the way:
   nearly every route's handler, as `a.guestsOnly(loginPage)`, so the
   route's own handler is a closure of the wrapper's, `guestsOnly.func1`,
   which says nothing of the page. The action is instead the app's
-  function on the stack as the response's status is written: the first
-  frame that's neither tug's, its tests aside, nor the standard library's,
-  a package whose path's first element has no dot, unless it's the app's
-  own module's, as `tug new`'s `blog`, from the build's info; up to the
-  Recorder's own frame, past which is the server's. That's the handler
-  that rendered the page or redirected, or a wrapper that answered for
-  it, as `guestsOnly` sends one who has logged in to the dashboard, with
-  where the function is defined, as Laravel's action is the controller's
-  method; one the compiler inlined, whose start the runtime doesn't keep,
-  is where it is. A response tug wrote for the app, as an error's page,
-  names the route's own handler, without a method value's `-fm`, and the
-  line that added the route, as Go keeps no line of a method value of its
-  own.
+  function on the stack as the response's status is written, inside the
+  route's handler: the first frame that's neither tug's, its tests and
+  examples aside, nor the standard library's, before the frame of tug's
+  adapter of the handler, whose function's start the adapter records
+  (`devtools.Here`). That's the handler that rendered the page or
+  redirected, or a wrapper that answered for it, as `guestsOnly` sends one
+  who has logged in to the dashboard, with where the function is defined,
+  as Laravel's action is the controller's method; one the compiler
+  inlined, whose start the runtime doesn't keep, is where it is. A
+  response tug wrote for the handler, as for the errors it returned, once
+  it had returned, names the function that read the request, which `Bind`
+  and `Validate` record, and with none, the route's own handler, without
+  a method value's `-fm`, and the line that added the route, as Go keeps
+  no line of a method value of its own.
+- **tug's frames by their files:** v0.30.0 walked past the handler, to
+  the Recorder's frame, and told tug's frames by their functions' names;
+  its own sample, a failed login in the auth starter, named
+  `main.newApp.Headers.func7.1`, the closure of `middleware.Headers`,
+  which the compiler had inlined into `newApp`, so it took the app's
+  name, in tug's file, and would have named any middleware of the app's
+  that was on the way. A frame is now tug's by its file too, under the
+  directory of tug's own, and the standard library's by the directory of
+  `net/http`'s, where the build names them; a package's path is the
+  rest, a first element with no dot the standard library's, unless it's
+  the app's own module's, as `tug new`'s `blog`, from the build's info.
+  The walk stops at the adapter, and the frames before it are the
+  handler's.
 - **Where else it was, from Go:** where `c.Inertia` was called, by the
   same walk of the stack; where `Share` or `ShareFunc` was called, kept as
   they're called, a prop shared by a function at the function's, as the

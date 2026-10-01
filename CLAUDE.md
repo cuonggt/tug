@@ -175,8 +175,9 @@ dev server that isn't there: delete it.
     `internal/devtools` Recorder `New` makes, keeping its entries in
     `.tug/devtools`, around `serve`, the App's middleware and routes, so
     the panel's endpoints are answered before them, and every other
-    request is recorded as it went out. Off, each hook of it is a nil
-    check.
+    request is recorded as it went out; `adapt` records where it starts
+    (`Handling`, `devtools.Here`), whose frame bounds the handler's on the
+    stack. Off, each hook of it is a nil check.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -213,7 +214,9 @@ dev server that isn't there: delete it.
     naming the field by its `label` tag (`field.label`, or `jsonLabel`
     down a JSON error's path, which leaves out indexes) or its key's last
     part in words. Under DevTools, a multipart form it read is recorded,
-    for the entry to say its files by their names, sizes and types.
+    for the entry to say its files by their names, sizes and types, and
+    `Bind`, as `Validate` in forms.go, records the app's function that
+    called it (`bound`), the route's action when tug answers for it.
   - `texts.go`: `texts`, what tug says to a person, in English, with
     validate's, which `App.gen` writes beside the types, for tug lang.
   - `errors.go`: `HTTPError`, `BindError`, `PanicError`,
@@ -410,17 +413,22 @@ dev server that isn't there: delete it.
   batch in the response's headers (a prefetch's batch is its own), the
   response seen as it went out (`sent`, in capture.go: its status,
   headers, text up to `bodyLimit`, whether it streamed, and `by`, the
-  app's function that answered, from `Caller` as the status is written),
+  app's function that answered, from `answerer` as the status is
+  written, which stops at the frame of tug's adapter of the route's
+  handler, `rec`'s `handler`),
   and the request's body as it was read (`read`, and its `rest` once the
   handler is done, unless it expected a 100-continue); `keep` drops what
   can't be kept, saying so at Debug. `entry.go`: `entryOf`, the
   protocol's JSON: `requestType`, `requestBody` (only Inertia's writes),
   `responseBody`, `componentPath` (in `resources/js/pages`), and the
-  route's action, `by`'s, where it's `defined`, over the router's own.
-  `caller.go`: `Caller`, the app's frame on the stack: neither tug's,
-  its `_test.go` files aside, nor the standard library's (`apps`: a path
-  whose first element has no dot, unless it's `mainModule`'s), and before
-  `Serve`'s. `redact.go`: `[REDACTED]` for the values of secret keys
+  route's action, `by`'s, or else `bound`'s, the function that read the
+  request, where it's `defined`, over the router's own. `caller.go`:
+  `Caller`, the app's frame on the stack, before `Serve`'s, and `apps`:
+  neither tug's, by its package or by its file under `tugDir`, as a
+  closure of tug's inlined into the app's has the app's name, though
+  tug's `_test.go` files and `examples/` are apps, nor the standard
+  library's, by its file under `stdDir`, or a package whose path's first
+  element has no dot, unless it's `mainModule`'s. `redact.go`: `[REDACTED]` for the values of secret keys
   (`plainKey`: in any case, without `_` or `-`), at any depth, and of the
   query, and secret headers. `store.go`: an entry per file, named by its
   ULID (`ulid.go`, monotonic in a millisecond), an index of their metas

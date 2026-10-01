@@ -57,7 +57,21 @@ import (
 // Ctx.Locale), and name a field by its label tag, or else by its key made
 // into words.
 func (c *Ctx) Bind(dst any) error {
+	if c.app.devtools != nil {
+		c.bound()
+	}
 	return c.said(c.bind(dst))
+}
+
+// bound records, for Inertia's DevTools, the function of the app's that
+// reads the request: its handler, the route's action when tug writes the
+// response for it, as it does the errors the handler returns.
+func (c *Ctx) bound() {
+	if rec := devtools.From(c.Context()); rec != nil {
+		if f, ok := devtools.Caller(); ok {
+			rec.Bound(f)
+		}
+	}
 }
 
 func (c *Ctx) bind(dst any) error {

@@ -733,6 +733,25 @@ func answersTheDevTools(t *testing.T, dir string) {
 	if auth := e.Props["auth"]; !auth.Shared || filepath.Base(auth.ShareSource.File) != "main.go" {
 		t.Errorf("the shared prop auth %+v", auth)
 	}
+
+	// A login that fails is answered by tug, once the handler has returned
+	// its errors, through the app's middleware: the handler is named, not a
+	// closure of the middleware's, which the compiler may inline into
+	// newApp, nor guestsOnly's around it.
+	stay := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err = stay.Post("http://"+addr+"/login", "application/x-www-form-urlencoded", strings.NewReader("email=ann%40example.com&password=wrong"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("a failed login got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp, body = get("/_inertia/devtools/entries/" + resp.Header.Get("X-Inertia-Devtools-Id"))
+	var failed struct{ Route struct{ Action string } }
+	if resp == nil || json.Unmarshal([]byte(body), &failed) != nil || failed.Route.Action != "main.(*app).login" {
+		t.Errorf("a failed login's entry: %v\n%s", resp, body)
+	}
 }
 
 // rendersOnTheServer builds the app in dir, runs it as it runs deployed,

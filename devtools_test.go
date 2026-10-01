@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/middleware"
 	"github.com/cuonggt/tug/session"
 )
 
@@ -359,31 +360,52 @@ type devtoolsHandlers struct{}
 
 func (devtoolsHandlers) gone(c *Ctx) error { return NewHTTPError(http.StatusGone) }
 
+// devtoolsSave reads a post, and returns its errors, which tug answers,
+// once the handler has returned.
+func devtoolsSave(c *Ctx) error {
+	var in struct {
+		Title string `json:"title" validate:"required"`
+	}
+	return c.BindValid(&in)
+}
+
 func TestTheRoutesActionIsTheFunctionOfTheAppsThatAnswered(t *testing.T) {
 	app, _, _, _ := devtoolsApp(t)
+	// Middleware around every route, which is only on the way: the app's,
+	// and tug's, which the compiler may inline into this test, naming its
+	// closure the test's, in the file that's tug's.
+	app.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { next.ServeHTTP(w, r) })
+	}, middleware.Headers(middleware.HeadersConfig{}))
 	app.Get("/wrapped/{id}", devtoolsUsersOnly(devtoolsPost))
+	app.Post("/posts", devtoolsUsersOnly(devtoolsSave))
 	added := here(1)
 	app.Get("/gone", devtoolsHandlers{}.gone)
 
 	wrapper := definedAt(t, "func devtoolsUsersOnly(")
 	wrapper.Line++ // its closure's
 	for _, c := range []struct {
-		target, action string
-		source         devtoolsSource
+		method, target, action string
+		source                 devtoolsSource
 	}{
-		{"/wrapped/7?user=ann", "github.com/cuonggt/tug.devtoolsPost", definedAt(t, "func devtoolsPost(")},
-		// Go names a closure after the function it was inlined into, too.
-		{"/wrapped/7", ".devtoolsUsersOnly.func1", wrapper},
-		// An error tug answers for the handler names the route's own, by
-		// the line that added it.
-		{"/gone", "github.com/cuonggt/tug.devtoolsHandlers.gone", added},
+		{"GET", "/wrapped/7?user=ann", "github.com/cuonggt/tug.devtoolsPost", definedAt(t, "func devtoolsPost(")},
+		// Go names a closure after the function it was inlined into, too,
+		// and numbers it there.
+		{"GET", "/wrapped/7", ".devtoolsUsersOnly.func", wrapper},
+		// Errors tug answers for the handler, once it has returned, name
+		// the function that read the request.
+		{"POST", "/posts?user=ann", "github.com/cuonggt/tug.devtoolsSave", definedAt(t, "func devtoolsSave(")},
+		// One that read nothing names the route's own, by the line that
+		// added it.
+		{"GET", "/gone", "github.com/cuonggt/tug.devtoolsHandlers.gone", added},
 	} {
-		e := devtoolsEntry(t, app, serve(app, "GET", c.target, ""))
-		if got, _ := valueAt(e, "route", "action").(string); !strings.HasSuffix(got, c.action) {
-			t.Errorf("GET %s: the action %q, want %s", c.target, got, c.action)
+		rec := serve(app, c.method, c.target, "{}", "X-Inertia", "true", "X-Inertia-Version", "v1", "Content-Type", "application/json")
+		e := devtoolsEntry(t, app, rec)
+		if got, _ := valueAt(e, "route", "action").(string); !strings.Contains(got, c.action) {
+			t.Errorf("%s %s, %d: the action %q, want %s", c.method, c.target, rec.Code, got, c.action)
 		}
 		if got := valueAt(e, "route", "actionSource"); !sameJSON(t, got, sourceJSON(c.source)) {
-			t.Errorf("GET %s: the action's source %v, want %v", c.target, got, c.source)
+			t.Errorf("%s %s: the action's source %v, want %v", c.method, c.target, got, c.source)
 		}
 	}
 
