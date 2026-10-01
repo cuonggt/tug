@@ -39,7 +39,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M31 | Notifications              | done   |
 | M32 | Security headers           | done   |
 | M33 | Migrations                 | done   |
-| M34 | Metrics                    | later  |
+| M34 | Hooks for metrics          | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2859,52 +2859,63 @@ Choices made on the way:
   under way; the command; and the binary's `migrate`, on a new database,
   which runs them itself, and its `jobs`, which runs them as it starts.
 
-## M34 · Metrics — later
+## M34 · Hooks for metrics — later
 
-A deployed app says what it's doing in its log alone: how many requests
-it answers and how slowly, which fail, how many jobs wait, and whether
-the database's connections run out, a log doesn't add up. Prometheus
-reads an app's metrics from a route of it, in a text format, and Grafana
-and the rest read them from Prometheus; Go's own client for it is a tree
-of dependencies, and Laravel's Pulse is a dashboard of the app's own.
-tug writes the format on the standard library. To be released as
-v0.29.0.
+A deployed app's metrics, how many requests it answers, how slowly, and
+which fail, by route, and how its jobs go, by kind, are counted by a
+client of its monitor's, Prometheus's own Go client, OpenTelemetry's, or
+a platform's agent, from what the app sees. Two things it can't see from
+outside tug. Which route answered: `ServeMux` keeps the pattern on the
+request it's handed, a copy the middleware in between made, so the app's
+own middleware, around the router, never has it, and `middleware.Logger`
+logs the path, which has as many values as the app has posts. And how
+each job went: a handler the app wraps sees its own error, not what the
+queue made of it, whether the job runs again, failed for good, or was
+held back by its kind's rate, nor how long it waited to run. tug gives
+the app both, and leaves the counting to the client it picks: Phoenix
+emits events for its reporters to count, and Laravel's Pulse is a
+package of its own. To be released as v0.29.0.
 
-- **Package `metrics`:** counters, gauges and histograms, with labels, in
-  a registry of the app's, written in Prometheus's text format by its
-  handler; a gauge can be a function, read as it's scraped.
-- **Requests:** `middleware.Metrics`, how many by method, route and
-  status, how long they took, and how many are under way.
-- **Jobs:** how many ran, by kind and how they went, and how long, from
-  package `queue`; and in the starter, how many wait, by kind.
-- **The database and Go:** the app's `sql.DB`'s connections, open, in
-  use and waited for, and Go's own goroutines, memory and garbage
-  collection.
-- **The starters:** `/metrics`, for a scraper with the token
-  `METRICS_TOKEN` names, and not there without one.
-- **The guide:** Deployment, a section on metrics.
+- **The route that answered:** `tug.Route(r)`, the pattern of the route
+  that answered `r`, as `GET /posts/{id}`, for the app's own middleware,
+  around the router, to read once the handler has run: a request's label,
+  with as many values as the app has routes.
+- **In the log:** `middleware.Logger` logs the route beside the path.
+- **How each job went:** `queue.Config`'s `Observe`, a function the
+  queue tells as each run of a job ends: its kind and attempt, whether
+  it's done, runs again, failed for good, or was held back by its kind's
+  rate, how long it ran, and how long it waited past its time.
+- **The guide:** Deployment, a section on metrics, with the two hooks
+  counted by Prometheus's own Go client in the app, the requests by route
+  and the jobs by kind; Routing, `tug.Route`; and Background jobs,
+  `Observe`.
 
 Choices, to settle before any code:
 
-- **Prometheus's text format,** which every monitor reads, written on the
-  standard library; not OpenTelemetry's SDK, a tree of dependencies; and
-  not a dashboard of the app's own, as Pulse: Grafana shows them, and
-  Prometheus keeps them.
-- **Each instance its own,** as Prometheus scrapes each, and adds them up.
-- **A route's pattern, not its path,** as a label, as a path has as many
-  values as the app has posts: tug tells the middleware which route
-  answered through the request's context, as `ServeMux` sets the pattern
-  on the request it's handed, a copy the middleware in between made.
-- **The queue says how each job went** to a function the app gives it,
-  so `queue` imports no `metrics`, as the core imports no `auth`.
-- **Buckets as Prometheus's own client has them,** 5 ms to 10 s, which
-  an app can change for a histogram.
-- **Behind a token,** as the counts say what the app does, on a route of
-  its own that the proxy needn't hide.
-- **Tests:** the format, as Prometheus's published examples write it,
-  with labels escaped; the requests by route, the jobs by kind, and a
-  gauge read as it's scraped; the token; and in the starters, a request
-  and a job counted, and the route not there without a token.
+- **Hooks, not a package of metrics:** counting, and the format a monitor
+  reads, are a client's of the app's choosing, which tug has nothing to
+  add to, and an app that takes Prometheus's, with its modules, does so
+  in its own `go.mod`, not tug's. Each hook is of use without metrics
+  too: the log has the route, and a trace both.
+- **The route by context:** as a request reaches the App, before any
+  middleware, tug puts a place for the route in its context, which the
+  router fills in as a route answers, so a middleware anywhere reads it
+  after the handler, whatever copies of the request were made in between.
+- **A miss has no route:** a 404, a 405, or a redirect to the path with
+  its slash, which the catch-all answers, has "", for a metric to count
+  as it likes.
+- **What the queue made of it:** done; run again after its backoff;
+  failed for good, at its last attempt or by a `Permanent` error; or held
+  back by its kind's rate, which isn't an attempt. Told once the Store has
+  kept it, in the worker that ran the job, so `Observe` is quick, as a
+  client's counter is, and `queue` imports nothing of a monitor's.
+- **The starters change nothing** but what their log lines have: a route
+  of `/metrics`, and its token, would be in every app made, for a monitor
+  the app may not have.
+- **Tests:** the route read by middleware around the router, through one
+  that copies the request, in a group, and none for a 404 and a 405; the
+  log line's route; and each way a job goes, told once, with its kind,
+  attempt, and the times it ran and waited.
 
 ## Decisions
 
