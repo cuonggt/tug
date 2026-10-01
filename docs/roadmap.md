@@ -3101,7 +3101,7 @@ compressed a response, where Laravel's app sits behind a web server that
 does. The auth starter's build is 37 files of JavaScript and CSS, 640 KB,
 which gzip makes 205 KB, so a first visit downloaded three times what it
 needed to, unless a proxy or a CDN in front compressed it. tug sends the
-build compressed itself. To be released as v0.31.0.
+build compressed itself. Released as v0.31.0.
 
 - **The build, gzipped:** `vite.ServeHTTP` sends a file of a type that
   compresses as gzip, `Content-Encoding: gzip`, to a browser whose
