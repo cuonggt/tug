@@ -3205,7 +3205,7 @@ own types can say it: React's `<Form>` takes the type of what it sends,
 `<Form<LoginInput>>`, and then only that type's keys for `errors`,
 `resetOnError` and `clearErrors`; `useForm` does in all three frontends;
 and a form's `action` takes a route's path and method together. tug gen
-writes both from the Go. To be released as v0.32.0.
+writes both from the Go. Released as v0.32.0.
 
 - **A route says what it takes:** `Takes` on a route, as the starter's
   login's `.Name("login.store").Takes(LoginInput{})`, declares the struct
