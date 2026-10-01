@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M36 are done, which is
+the decisions behind it and where it stands: M1 to M37 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -89,7 +89,10 @@ types, and where they were shared, the route and the app's function that
 answered, and where the page was rendered, and its secrets redacted, and
 compressed assets (v0.31.0): the build's scripts and styles, as package
 `vite` serves them, gzipped once each, to a browser that takes it, or the
-build's own brotli.
+build's own brotli, and typed forms (v0.32.0): `Route.Takes`, the struct
+a route's handler binds, which `Bind` checks, and tug gen's `Inputs`, by
+route name, and `form()`, a route's path and method as a form's action,
+which the starters' forms take, React's typed by their input.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -195,7 +198,9 @@ dev server that isn't there: delete it.
     keeps where the app added it (`added`, from `devtools.Caller`), and
     records itself in the request's Recording as it's matched
     (`Route.devtools`: its path, name, and handler, by the function's name
-    without a method value's `-fm`).
+    without a method value's `-fm`). `Takes` keeps the struct a route's
+    handler binds (`input`), for tug gen, panicking on a route not yet
+    named; `adapt` hands each request's `Ctx` its route (`route`).
   - `ctx.go`: `Ctx`, the responses, `Param`, `Query` and `IP` (the
     RemoteAddr's address, which `middleware.TrustProxies` has made the
     client's), `Locale` (`App.Locale`'s, in app.go: `Config.Locale`, the
@@ -220,6 +225,10 @@ dev server that isn't there: delete it.
     for the entry to say its files by their names, sizes and types, and
     `Bind`, as `Validate` in forms.go, records the app's function that
     called it (`bound`), the route's action when tug answers for it.
+    `bind` fails, with an error that names both, a struct other than the
+    one the route `Takes`, when it has a field read from the body
+    (`takes`, `readsBody`: one with a form name, and no path or query
+    tag), so a declaration that has drifted from its handler shows.
   - `texts.go`: `texts`, what tug says to a person, in English, with
     validate's, which `App.gen` writes beside the types, for tug lang.
   - `errors.go`: `HTTPError`, `BindError`, `PanicError`,
@@ -446,8 +455,14 @@ dev server that isn't there: delete it.
 - `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
   values: `pages.ts` (an interface per named struct, `SharedProps`,
   `Pages`, `PageProps`, and the `InertiaConfig` augmentation) and
-  `routes.ts` (the route table, `Params`, `route()`). The prop types are
-  found by package path and generic name (`propOf`). The app runs it: see
+  `routes.ts` (the inputs' interfaces, the route table, `Params`,
+  `Inputs`, each route's `Takes` by its name, `route()`, and `form()`, a
+  route's path and method as a form's action). The inputs are a `gen` of
+  their own (`newGen(true)`, `inputFields`): keyed as validate names
+  errors, json, else form, else the field's name, with a path field left
+  out, an upload `File`, and a field whose form or query tag says another
+  name an error `Generate` returns. The prop types are found by package
+  path and generic name (`propOf`). The app runs it: see
   `App.gen` in app.go, reached from Run when TUG_GEN names a file, and the
   page registry `declare`d by `tug.Page` in pages.go.
 - `cmd/tug`: the CLI, on the stdlib flag package. `gen.go` builds the app
@@ -512,7 +527,10 @@ dev server that isn't there: delete it.
   `dotEnv`; `tests/helpers.ts`'s `command` runs an app's command, as
   `admins add`):
   the three are one app, word for word, so a change to one frontend is
-  made to all three. The auth starter's handlers are in `auth.go.tmpl`
+  made to all three. Each route of the starters' that binds input `Takes`
+  it, and their forms take their action from `form()`, React's typed by
+  their route's input, `<Form<Inputs['login.store']>>`, as Vue's and
+  Svelte's `<Form>` take no type. The auth starter's handlers are in `auth.go.tmpl`
   (who's logged in, and the wrappers `usersOnly`, `verified`,
   `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
   `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the
@@ -890,7 +908,9 @@ dev server that isn't there: delete it.
   Inertia's client's objectToFormData writes one (`writeForm`).
 - `examples/api`: a JSON API on the core, its writes limited by address
   with `tug.Limit`. Its tests are the end to end check.
-- `examples/inertia`: React pages on tug. `main.go` embeds `app.html` and
+- `examples/inertia`: React pages on tug, its post routes `Takes`
+  `PostInput`, and `PostForm.tsx` a `<Form<Inputs['posts.store']>>` of
+  `form()`'s action. `main.go` embeds `app.html` and
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
   before one). `main_test.go` runs on tugtest without Node, against a fake
   manifest; `e2e/` drives the real build in a browser, in order: the later

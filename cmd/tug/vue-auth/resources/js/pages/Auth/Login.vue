@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
 import { autofillWorks, dismissed, getPasskey, type Json, optionsFrom, passkeysWork } from '@/lib/passkeys'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // Login logs in with an email and password, or with a passkey, which the
 // browser offers in the email field's autofill too. passkeyLogin in
@@ -60,8 +60,7 @@ const withPasskey = async () => {
   <Head title="Log in" />
   <Form
     v-slot="{ errors, processing }"
-    :action="route('login.store')"
-    method="post"
+    :action="form('login.store')"
     :reset-on-error="['password']"
     class="flex flex-col gap-6"
   >

@@ -224,6 +224,20 @@ handler for a form usually ends with
 builds the same paths in the frontend: `route('posts.show', { id: 42 })`.
 See [typescript.md](typescript.md).
 
+`Takes` says what a named route's handler binds, by a value of it, for
+`tug gen` to type the route's forms by, which it can't see itself behind
+a wrapper of the handler:
+
+```go
+app.Post("/posts", createPost).Name("posts.store").Takes(PostInput{})
+```
+
+A route needs its name before it takes an input, and the input is a
+struct: `Takes` panics otherwise. `Bind` fails a handler that binds a
+struct of body fields other than the one its route takes, as a 500, so
+`Takes` can't drift from its handler unseen. See
+[typescript.md](typescript.md#forms).
+
 ### Whole links, and signed ones
 
 ```go

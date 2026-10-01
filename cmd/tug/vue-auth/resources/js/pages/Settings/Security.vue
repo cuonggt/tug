@@ -8,7 +8,7 @@ import TwoFactorSettings from '@/components/TwoFactorSettings.vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form } from '@/tug/routes'
 
 // Security changes the user's password, which logs them out everywhere
 // else, turns two-factor logins on and off, and keeps their passkeys.
@@ -21,8 +21,7 @@ const props = defineProps<Pages['Settings/Security'] & SharedProps>()
     <Heading small title="Password" description="A new one logs you out everywhere else, such as a lost laptop." />
     <Form
       v-slot="{ errors, processing }"
-      :action="route('user-password.update')"
-      method="put"
+      :action="form('user-password.update')"
       :options="{ preserveScroll: true }"
       reset-on-error
       reset-on-success

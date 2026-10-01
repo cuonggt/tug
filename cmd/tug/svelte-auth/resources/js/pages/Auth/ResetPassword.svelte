@@ -13,7 +13,7 @@
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
   import type { PageProps } from '@/tug/pages'
-  import { route } from '@/tug/routes'
+  import { form, route } from '@/tug/routes'
 
   // ResetPassword is where the link in a reset mail leads: its token, and
   // the email it went to, come in the props.
@@ -22,8 +22,7 @@
 
 <Head title="Choose a new password" />
 <Form
-  action={route('password.store')}
-  method="post"
+  action={form('password.store')}
   resetOnError={['password', 'password_confirmation']}
   class="flex flex-col gap-6"
 >

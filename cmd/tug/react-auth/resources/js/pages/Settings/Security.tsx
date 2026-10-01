@@ -7,7 +7,7 @@ import TwoFactorSettings from '@/components/two-factor-settings'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import type { PageProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form, type Inputs } from '@/tug/routes'
 
 // Security changes the user's password, which logs them out everywhere
 // else, turns two-factor logins on and off, and keeps their passkeys.
@@ -17,9 +17,8 @@ export default function Security(props: PageProps<'Settings/Security'>) {
       <Head title="Security" />
       <section className="space-y-6">
         <Heading small title="Password" description="A new one logs you out everywhere else, such as a lost laptop." />
-        <Form
-          action={route('user-password.update')}
-          method="put"
+        <Form<Inputs['user-password.update']>
+          action={form('user-password.update')}
           options={{ preserveScroll: true }}
           resetOnError
           resetOnSuccess

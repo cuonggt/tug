@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // TwoFactorSettings turns two-factor logins on and off: off, a button to
 // start; starting, a QR code for the user's authenticator app and a code
@@ -54,7 +54,7 @@ const key = computed(() => props.setup?.secret.match(/.{1,4}/g)?.join(' '))
         <p class="text-sm text-muted-foreground">Recovery codes log you in when your phone is lost: one code, one login.</p>
         <Button variant="outline" @click="router.reload({ only: ['recoveryCodes'] })">Show my recovery codes</Button>
       </div>
-      <Form v-slot="{ processing }" :action="route('two-factor.disable')" method="delete" :options="{ preserveScroll: true }">
+      <Form v-slot="{ processing }" :action="form('two-factor.disable')" :options="{ preserveScroll: true }">
         <Button type="submit" variant="destructive" :disabled="processing">Turn two-factor logins off</Button>
       </Form>
     </template>
@@ -74,8 +74,7 @@ const key = computed(() => props.setup?.secret.match(/.{1,4}/g)?.join(' '))
       </div>
       <Form
         v-slot="{ errors, processing }"
-        :action="route('two-factor.confirm')"
-        method="post"
+        :action="form('two-factor.confirm')"
         reset-on-error
         :options="{ preserveScroll: true }"
         class="space-y-4"
@@ -102,7 +101,7 @@ const key = computed(() => props.setup?.secret.match(/.{1,4}/g)?.join(' '))
         </div>
       </Form>
     </div>
-    <Form v-else v-slot="{ processing }" :action="route('two-factor.enable')" method="post" :options="{ preserveScroll: true }">
+    <Form v-else v-slot="{ processing }" :action="form('two-factor.enable')" :options="{ preserveScroll: true }">
       <Button type="submit" :disabled="processing"><ShieldCheck />Turn two-factor logins on</Button>
     </Form>
   </section>

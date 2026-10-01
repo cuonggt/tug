@@ -14,7 +14,7 @@
   import { Button } from '@/components/ui/button'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
-  import { route } from '@/tug/routes'
+  import { form } from '@/tug/routes'
 
   // TwoFactorChallenge is the second step of logging in, for a user who has
   // turned two-factor logins on: a code from their authenticator app, or,
@@ -30,7 +30,7 @@
 <!-- The form is made again as they switch, with no errors from the other,
      and the field it shows focused. -->
 {#key recovery}
-  <Form action={route('two-factor.login.store')} method="post" resetOnError class="flex flex-col gap-6">
+  <Form action={form('two-factor.login.store')} resetOnError class="flex flex-col gap-6">
     {#snippet children({ errors, processing })}
       {#if recovery}
         <div class="grid gap-2">

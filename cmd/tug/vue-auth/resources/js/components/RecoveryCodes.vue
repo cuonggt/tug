@@ -3,7 +3,7 @@ import { Form } from '@inertiajs/vue3'
 import { Check, Copy } from '@lucide/vue'
 import { ref } from 'vue'
 import { Button } from '@/components/ui/button'
-import { route } from '@/tug/routes'
+import { form } from '@/tug/routes'
 
 // RecoveryCodes lists the user's recovery codes, to copy somewhere safe,
 // and makes new ones. TwoFactorSettings shows it.
@@ -28,7 +28,7 @@ const copy = async () => {
         <Check v-if="copied" />
         <Copy v-else />{{ copied ? 'Copied' : 'Copy' }}
       </Button>
-      <Form v-slot="{ processing }" :action="route('two-factor.recovery-codes')" method="post" :options="{ preserveScroll: true }">
+      <Form v-slot="{ processing }" :action="form('two-factor.recovery-codes')" :options="{ preserveScroll: true }">
         <Button type="submit" variant="outline" :disabled="processing">Make new codes</Button>
       </Form>
     </div>

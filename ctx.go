@@ -22,6 +22,10 @@ type Ctx struct {
 	rw    rw.Writer
 	query url.Values
 
+	// route is the route that answers the request, nil for a miss: what it
+	// Takes, Bind checks.
+	route *Route
+
 	// body is the JSON body, once Bind has read it.
 	body []byte
 

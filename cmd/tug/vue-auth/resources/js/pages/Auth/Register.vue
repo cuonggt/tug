@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // Register checks each field with the server as it's left, as BindValid in
 // auth.go answers: a taken email shows before the form is sent.
@@ -26,18 +26,17 @@ defineOptions({
 // each time it renders, as when it's sent, and checks for the form). So
 // it's dropped as the form is sent, and as the page goes: setting the
 // validator's timeout makes it afresh, with nothing waiting.
-const form = useTemplateRef<FormComponentRef>('form')
-const dropCheck = () => form.value?.validator().setTimeout(300)
+const registration = useTemplateRef<FormComponentRef>('registration')
+const dropCheck = () => registration.value?.validator().setTimeout(300)
 onBeforeUnmount(dropCheck)
 </script>
 
 <template>
   <Head title="Register" />
   <Form
-    ref="form"
+    ref="registration"
     v-slot="{ errors, processing, validate, invalid }"
-    :action="route('register.store')"
-    method="post"
+    :action="form('register.store')"
     :reset-on-error="['password', 'password_confirmation']"
     :validation-timeout="300"
     class="flex flex-col gap-6"

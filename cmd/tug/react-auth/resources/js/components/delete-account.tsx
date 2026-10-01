@@ -14,7 +14,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { route } from '@/tug/routes'
+import { form, type Inputs } from '@/tug/routes'
 
 // DeleteAccount deletes the user's account, after asking for the password
 // once more: it can't be undone.
@@ -34,9 +34,8 @@ export default function DeleteAccount() {
             <DialogDescription>
               Everything in it goes too, and you're logged out everywhere. Type your password to say you mean it.
             </DialogDescription>
-            <Form
-              action={route('profile.destroy')}
-              method="delete"
+            <Form<Inputs['profile.destroy']>
+              action={form('profile.destroy')}
               options={{ preserveScroll: true }}
               onError={() => password.current?.focus()}
               resetOnError

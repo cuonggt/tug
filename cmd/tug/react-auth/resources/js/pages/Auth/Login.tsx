@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { autofillWorks, dismissed, getPasskey, type Json, optionsFrom, passkeysWork } from '@/lib/passkeys'
-import { route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // Login logs in with an email and password, or with a passkey, which the
 // browser offers in the email field's autofill too. passkeyLogin in
@@ -56,9 +56,8 @@ export default function Login() {
   return (
     <>
       <Head title="Log in" />
-      <Form
-        action={route('login.store')}
-        method="post"
+      <Form<Inputs['login.store']>
+        action={form('login.store')}
         resetOnError={['password']}
         className="flex flex-col gap-6"
       >

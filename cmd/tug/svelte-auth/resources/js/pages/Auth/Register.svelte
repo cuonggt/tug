@@ -13,11 +13,11 @@
   import { Button } from '@/components/ui/button'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
-  import { route } from '@/tug/routes'
+  import { form, route } from '@/tug/routes'
 
   // Register checks each field with the server as it's left, as BindValid in
   // auth.go answers: a taken email shows before the form is sent.
-  let form: Form
+  let registration: Form
 
   // A field's check can be waiting out its 300ms as the form is sent, and
   // Inertia's Svelte Form throws when it runs: after registering has logged
@@ -28,19 +28,18 @@
   // the form). So it's dropped as the form is sent, and as the page goes:
   // setting the validator's timeout makes it afresh, with nothing waiting.
   onMount(() => {
-    const validator = form.validator()
+    const validator = registration.validator()
     return () => validator.setTimeout(300)
   })
 </script>
 
 <Head title="Register" />
 <Form
-  bind:this={form}
-  action={route('register.store')}
-  method="post"
+  bind:this={registration}
+  action={form('register.store')}
   resetOnError={['password', 'password_confirmation']}
   validationTimeout={300}
-  onStart={() => form.validator().setTimeout(300)}
+  onStart={() => registration.validator().setTimeout(300)}
   class="flex flex-col gap-6"
 >
   {#snippet children({ errors, processing, validate, invalid })}

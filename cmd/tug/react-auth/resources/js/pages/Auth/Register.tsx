@@ -6,7 +6,7 @@ import TextLink from '@/components/text-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // Register checks each field with the server as it's left, as BindValid in
 // auth.go answers: a taken email shows before the form is sent.
@@ -14,9 +14,8 @@ export default function Register() {
   return (
     <>
       <Head title="Register" />
-      <Form
-        action={route('register.store')}
-        method="post"
+      <Form<Inputs['register.store']>
+        action={form('register.store')}
         resetOnError={['password', 'password_confirmation']}
         validationTimeout={300}
         className="flex flex-col gap-6"

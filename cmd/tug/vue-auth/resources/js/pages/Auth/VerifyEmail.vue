@@ -5,7 +5,7 @@ import { onMounted, onUnmounted } from 'vue'
 import TextLink from '@/components/TextLink.vue'
 import { Button } from '@/components/ui/button'
 import { listen } from '@/lib/broadcasts'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // VerifyEmail is where the pages for verified users send someone who
 // hasn't followed the link mailed to them yet. In development, without
@@ -29,7 +29,7 @@ onUnmounted(() => stop?.())
   <div class="flex flex-col gap-4 text-center">
     <p class="text-sm text-muted-foreground">We mailed a link to <span class="font-medium text-foreground">{{ page.props.auth.user?.email }}</span>. Follow it to
       verify the email is yours; it works for a day.</p>
-    <Form v-slot="{ processing }" :action="route('verification.send')" method="post">
+    <Form v-slot="{ processing }" :action="form('verification.send')">
       <Button type="submit" variant="secondary" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Send another link</Button>
     </Form>
     <p class="text-sm text-muted-foreground">The wrong email? <TextLink :href="route('profile.edit')">Change it</TextLink>, or

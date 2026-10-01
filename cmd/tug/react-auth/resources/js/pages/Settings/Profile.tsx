@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { initials } from '@/lib/utils'
 import type { PageProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // Profile changes the user's name and email, and their photo. A new email
 // is mailed a link, and isn't verified until it's followed: updateProfile
@@ -20,7 +20,7 @@ export default function Profile({ user }: PageProps<'Settings/Profile'>) {
       <Head title="Profile" />
       <section className="space-y-6">
         <Heading small title="Profile" description="Your name, and the email we reach you at." />
-        <Form action={route('profile.update')} method="patch" options={{ preserveScroll: true }} className="space-y-6">
+        <Form<Inputs['profile.update']> action={form('profile.update')} options={{ preserveScroll: true }} className="space-y-6">
           {({ errors, processing }) => (
             <>
               <div className="grid gap-2">
@@ -69,9 +69,8 @@ export default function Profile({ user }: PageProps<'Settings/Profile'>) {
             {user.photo && <AvatarImage src={user.photo} alt="Your photo" />}
             <AvatarFallback className="text-lg font-medium">{initials(user.name)}</AvatarFallback>
           </Avatar>
-          <Form
-            action={route('profile.photo.update')}
-            method="post"
+          <Form<Inputs['profile.photo.update']>
+            action={form('profile.photo.update')}
             options={{ preserveScroll: true }}
             resetOnSuccess
             className="grid flex-1 gap-2"

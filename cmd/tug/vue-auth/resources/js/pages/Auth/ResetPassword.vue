@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // ResetPassword is where the link in a reset mail leads: its token, and
 // the email it went to, come in the props.
@@ -23,8 +23,7 @@ defineProps<Pages['Auth/ResetPassword'] & SharedProps>()
   <Head title="Choose a new password" />
   <Form
     v-slot="{ errors, processing }"
-    :action="route('password.store')"
-    method="post"
+    :action="form('password.store')"
     :reset-on-error="['password', 'password_confirmation']"
     class="flex flex-col gap-6"
   >

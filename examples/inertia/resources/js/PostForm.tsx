@@ -1,19 +1,22 @@
 import { Form } from '@inertiajs/react'
 import type { Post } from './tug/pages'
+import type { Inputs } from './tug/routes'
 
 interface PostFormProps {
-  action: string
-  method: 'post' | 'put'
+  // Where the post goes, as form() makes it of a route that takes one:
+  // posts.store's, or posts.update's.
+  action: { url: string; method: 'post' | 'put' }
   post?: Post
   submit: string
 }
 
-// PostForm writes a post. Each field is checked by the server as it's
-// left, with a Precognition request that the handler's BindValid answers,
-// and again, all together, when the form is sent.
-export default function PostForm({ action, method, post, submit }: PostFormProps) {
+// PostForm writes a post, a PostInput in Go, whose fields are its errors'
+// keys. Each field is checked by the server as it's left, with a
+// Precognition request that the handler's BindValid answers, and again,
+// all together, when the form is sent.
+export default function PostForm({ action, post, submit }: PostFormProps) {
   return (
-    <Form action={action} method={method} validationTimeout={300} className="post-form">
+    <Form<Inputs['posts.store']> action={action} validationTimeout={300} className="post-form">
       {({ errors, processing, validate, invalid }) => (
         <>
           <label>

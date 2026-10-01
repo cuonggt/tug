@@ -12,7 +12,7 @@
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
   import type { PageProps } from '@/tug/pages'
-  import { route } from '@/tug/routes'
+  import { form, route } from '@/tug/routes'
 
   // TwoFactorSettings turns two-factor logins on and off: off, a button to
   // start; starting, a QR code for the user's authenticator app and a code
@@ -60,7 +60,7 @@
         </Button>
       </div>
     {/if}
-    <Form action={route('two-factor.disable')} method="delete" options={{ preserveScroll: true }}>
+    <Form action={form('two-factor.disable')} options={{ preserveScroll: true }}>
       {#snippet children({ processing })}
         <Button type="submit" variant="destructive" disabled={processing}>Turn two-factor logins off</Button>
       {/snippet}
@@ -95,8 +95,7 @@
         </div>
       </div>
       <Form
-        action={route('two-factor.confirm')}
-        method="post"
+        action={form('two-factor.confirm')}
         resetOnError
         options={{ preserveScroll: true }}
         class="space-y-4"
@@ -137,7 +136,7 @@
       </Form>
     </div>
   {:else}
-    <Form action={route('two-factor.enable')} method="post" options={{ preserveScroll: true }}>
+    <Form action={form('two-factor.enable')} options={{ preserveScroll: true }}>
       {#snippet children({ processing })}
         <Button type="submit" disabled={processing}>
           <ShieldCheck />
@@ -175,7 +174,7 @@
           {copied ? 'Copied' : 'Copy'}
         </Button>
       {/if}
-      <Form action={route('two-factor.recovery-codes')} method="post" options={{ preserveScroll: true }}>
+      <Form action={form('two-factor.recovery-codes')} options={{ preserveScroll: true }}>
         {#snippet children({ processing })}
           <Button type="submit" variant="outline" disabled={processing}>Make new codes</Button>
         {/snippet}

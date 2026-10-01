@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { dismissed, getPasskey, optionsFrom, passkeysWork } from '@/lib/passkeys'
 import type { PageProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // ConfirmPassword asks for the password again before the settings that
 // could hand the account to someone else: passwordConfirmed in auth.go
@@ -32,7 +32,7 @@ export default function ConfirmPassword({ passkeys }: PageProps<'Auth/ConfirmPas
   return (
     <>
       <Head title="Confirm your password" />
-      <Form action={route('password.confirm.store')} method="post" resetOnError className="flex flex-col gap-6">
+      <Form<Inputs['password.confirm.store']> action={form('password.confirm.store')} resetOnError className="flex flex-col gap-6">
         {({ errors, processing }) => (
           <>
             <div className="grid gap-2">

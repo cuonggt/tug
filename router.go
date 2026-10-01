@@ -165,6 +165,9 @@ type Route struct {
 	// added is where the app added the route, for Inertia's DevTools, under
 	// Config.DevTools.
 	added *devtools.Source
+
+	// input is the struct the handler binds, as Takes declares it.
+	input reflect.Type
 }
 
 // devtools is the route as Inertia's DevTools show it: its path as it was
@@ -181,6 +184,35 @@ func (rt *Route) devtools() devtools.Route {
 		r.Action = &name
 	}
 	return r
+}
+
+// Takes declares the struct the route's handler binds, by a value of it,
+// LoginInput{}, which a wrapper around the handler, as one that checks
+// someone has logged in, keeps tug from seeing. tug gen writes it as what
+// the route is sent, Inputs['login.store'] in routes.ts, which a form typed
+// by it is checked against, as React's <Form<Inputs['login.store']>> is:
+// its fields' keys, and its errors'.
+//
+// The route needs its name first, as Inputs is by name: Takes panics on a
+// route with none, and on a value that isn't a struct or a pointer to one.
+// Bind fails, as a 500 whose error names both, a request of the route
+// whose handler binds a struct of body fields other than input: Takes has
+// drifted from the handler, and would type its forms against a struct the
+// handler no longer reads.
+func (rt *Route) Takes(input any) *Route {
+	rt.app.mustNotServe()
+	if rt.name == "" {
+		panic(fmt.Sprintf("tug: %s takes an input, and needs a name first, as tug gen types inputs by name: Name(...).Takes(...)", rt))
+	}
+	t := reflect.TypeOf(input)
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t == nil || t.Kind() != reflect.Struct {
+		panic(fmt.Sprintf("tug: %s takes %T, which isn't a struct", rt, input))
+	}
+	rt.input = t
+	return rt
 }
 
 // Name names the route, for App.URL and Ctx.RedirectRoute. A name belongs
@@ -241,7 +273,7 @@ func shownPattern(pattern string) string {
 // enclosing group's, so the outermost group's runs first. The App's own
 // middleware isn't here: it wraps the whole ServeMux.
 func (rt *Route) chain() http.Handler {
-	h := wrap(rt.app.adapt(rt.h), rt.mw)
+	h := wrap(rt.app.adapt(rt, rt.h), rt.mw)
 	for g := rt.group; g.parent != nil; g = g.parent {
 		h = wrap(h, g.mw)
 	}

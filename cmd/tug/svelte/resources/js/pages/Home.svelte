@@ -3,7 +3,7 @@
   import Head from '../Head.svelte'
   import Layout from '../Layout.svelte'
   import type { PageProps } from '../tug/pages'
-  import { route } from '../tug/routes'
+  import { form, route } from '../tug/routes'
 
   // Home is the page main.go's home handler renders. Its props, and the
   // routes route() knows, are the Go ones: tug gen writes their TypeScript
@@ -18,7 +18,7 @@
 
   <!-- The name is checked by the server as the field is left, and again
        when the form is sent: BindValid in main.go does both. -->
-  <Form action={route('hello')} method="post" class="form">
+  <Form action={form('hello')} class="form">
     {#snippet children({ errors, processing, validate, invalid })}
       <label>
         What's your name?

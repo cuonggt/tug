@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import TextLink from '@/components/text-link'
 import { Button } from '@/components/ui/button'
 import { listen } from '@/lib/broadcasts'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // VerifyEmail is where the pages for verified users send someone who
 // hasn't followed the link mailed to them yet. In development, without
@@ -24,7 +24,7 @@ export default function VerifyEmail() {
           We mailed a link to <span className="font-medium text-foreground">{auth.user?.email}</span>. Follow it to
           verify the email is yours; it works for a day.
         </p>
-        <Form action={route('verification.send')} method="post">
+        <Form action={form('verification.send')}>
           {({ processing }) => (
             <Button type="submit" variant="secondary" className="w-full" disabled={processing}>
               {processing && <LoaderCircle className="animate-spin" />}

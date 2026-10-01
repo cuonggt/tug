@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
-import { route } from '@/tug/routes'
+import { form } from '@/tug/routes'
 
 // TwoFactorChallenge is the second step of logging in, for a user who has
 // turned two-factor logins on: a code from their authenticator app, or,
@@ -26,8 +26,7 @@ const recovery = ref(false)
   <Form
     :key="recovery ? 'recovery' : 'code'"
     v-slot="{ errors, processing }"
-    :action="route('two-factor.login.store')"
-    method="post"
+    :action="form('two-factor.login.store')"
     reset-on-error
     class="flex flex-col gap-6"
   >

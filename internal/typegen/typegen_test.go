@@ -3,6 +3,7 @@ package typegen
 import (
 	"encoding/json"
 	"encoding/xml"
+	"mime/multipart"
 	"net/netip"
 	"reflect"
 	"strings"
@@ -59,8 +60,38 @@ type IndexProps struct {
 	Maybe    []*int                         `json:"maybe"`
 }
 
+// must is out, failing the test on err, as a test's types have no field
+// of two names.
+func must(out Output, err error) Output {
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
+
+type LoginInput struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password"`
+	Remember bool   `json:"remember"`
+	Hidden   string `json:"-"`
+}
+
+type Audit struct {
+	Note string `json:"note"`
+}
+
+type PhotoInput struct {
+	Audit
+	Token   string                  `path:"token" json:"token"` // the route's, in its params
+	Photo   *multipart.FileHeader   `form:"photo"`
+	Gallery []*multipart.FileHeader `form:"gallery"`
+	Caption string                  `json:"caption,omitempty"`
+	Page    int                     `json:"page" query:"page"`
+	Plain   string
+}
+
 func generate() Output {
-	return Generate(Input{
+	return must(Generate(Input{
 		Pages: []Page{
 			{Component: "Posts/Index", Props: reflect.TypeFor[IndexProps]()},
 			{Component: "Posts/Create", Props: reflect.TypeFor[struct{}]()},
@@ -72,8 +103,18 @@ func generate() Output {
 			{Name: "home", Method: "GET", Path: "/{$}"},
 			{Name: "files", Path: "/files/{path...}"},
 			{Name: "posts.destroy", Method: "DELETE", Path: "/posts/{id}"},
+			{Name: "login.store", Method: "POST", Path: "/login", Input: reflect.TypeFor[LoginInput]()},
+			{Name: "photos.store", Method: "POST", Path: "/photos/{token}", Input: reflect.TypeFor[PhotoInput]()},
 		},
-	})
+	}))
+}
+
+// block is the declaration in ts that starts with start, to its closing
+// brace.
+func block(ts, start string) string {
+	_, after, _ := strings.Cut(ts, start)
+	decl, _, _ := strings.Cut(after, "\n}")
+	return decl
 }
 
 func contains(t *testing.T, ts string, want ...string) {
@@ -122,10 +163,10 @@ func TestPagesAndSharedPropsAreListedByName(t *testing.T) {
 }
 
 func TestTwoTypesOfOneNameFromTwoPackagesKeepApart(t *testing.T) {
-	out := Generate(Input{Pages: []Page{{Component: "Codecs", Props: reflect.TypeFor[struct {
+	out := must(Generate(Input{Pages: []Page{{Component: "Codecs", Props: reflect.TypeFor[struct {
 		J *json.Decoder `json:"j"`
 		X *xml.Decoder  `json:"x"`
-	}]()}}}).Pages
+	}]()}}})).Pages
 	contains(t, out, "export interface Decoder {}", "export interface xml_Decoder {\n  Strict: boolean", "{ j: Decoder | null; x: xml_Decoder | null }")
 }
 
@@ -138,4 +179,43 @@ func TestRoutesListTheirMethodAndTheParamsTheirPathNeeds(t *testing.T) {
 		"  'files': { path: string | number }\n",
 		"export function route<N extends RouteName>(",
 	)
+}
+
+func TestARouteThatTakesAnInputIsSentItByName(t *testing.T) {
+	out := generate().Routes
+	contains(t, out,
+		"export interface LoginInput {\n  email: string\n  password: string\n  remember: boolean\n}",
+		// An embedded struct's fields promoted, the path's left to the
+		// params, and an upload a File.
+		"export interface PhotoInput {\n  note: string\n  photo: File | null\n  gallery: File[]\n  caption?: string\n  page: number\n  Plain: string\n}",
+		"export interface Inputs {\n  'login.store': LoginInput\n  'photos.store': PhotoInput\n}",
+		"export function form<N extends RouteName>(",
+		"return { url: route(name, ...params), method: routes[name].method }",
+	)
+	for _, left := range []string{"Hidden", "token", "'posts.show'"} {
+		if strings.Contains(block(out, "export interface LoginInput"), left) ||
+			strings.Contains(block(out, "export interface PhotoInput"), left) ||
+			strings.Contains(block(out, "export interface Inputs"), left) {
+			t.Errorf("%s, a field left out, the path's, or a route that takes nothing, is in the inputs:\n%s", left, out)
+		}
+	}
+	if strings.Contains(generate().Pages, "LoginInput") {
+		t.Error("an input reached pages.ts")
+	}
+}
+
+func TestAnInputFieldOfTwoNamesIsRefused(t *testing.T) {
+	for _, input := range []reflect.Type{
+		reflect.TypeFor[struct {
+			Email string `json:"email" form:"e-mail"`
+		}](),
+		reflect.TypeFor[struct {
+			Query string `query:"q"` // its errors' name is its own, Query
+		}](),
+	} {
+		_, err := Generate(Input{Routes: []Route{{Name: "search", Method: "GET", Path: "/search", Input: input}}})
+		if err == nil || !strings.Contains(err.Error(), "give it one name") {
+			t.Errorf("%v: %v", input, err)
+		}
+	}
 }

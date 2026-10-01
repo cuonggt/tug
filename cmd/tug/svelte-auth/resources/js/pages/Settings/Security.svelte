@@ -9,7 +9,7 @@
   import { Button } from '@/components/ui/button'
   import { Label } from '@/components/ui/label'
   import type { PageProps } from '@/tug/pages'
-  import { route } from '@/tug/routes'
+  import { form } from '@/tug/routes'
 
   // Security changes the user's password, which logs them out everywhere
   // else, turns two-factor logins on and off, and keeps their passkeys.
@@ -20,8 +20,7 @@
 <section class="space-y-6">
   <Heading small title="Password" description="A new one logs you out everywhere else, such as a lost laptop." />
   <Form
-    action={route('user-password.update')}
-    method="put"
+    action={form('user-password.update')}
     options={{ preserveScroll: true }}
     resetOnError
     resetOnSuccess

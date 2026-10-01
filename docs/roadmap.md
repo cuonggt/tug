@@ -42,7 +42,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M34 | Hooks for metrics          | done   |
 | M35 | Inertia DevTools           | done   |
 | M36 | Compressed assets          | done   |
-| M37 | Typed forms                | later  |
+| M37 | Typed forms                | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3194,80 +3194,99 @@ Choices made on the way:
   browser suite, each frontend's login page working, its scripts and
   styles over a kilobyte gzipped.
 
-## M37 · Typed forms — later
+## M37 · Typed forms — done
 
-tug gen types what a page gets, its props, and where it can go, its
+tug gen typed what a page gets, its props, and where it can go, its
 routes, but not what a form sends: the starters' forms name their fields
 as text, `name="email"`, and read `errors.email` from errors of any
-string's, so a field renamed in Go leaves its form sending what the
-handler no longer reads, and its error unshown, with nothing to say so.
-Inertia's own types can say it: React's `<Form>` takes the type of what
-it sends, `<Form<LoginInput>>`, and then only that type's keys for
-`errors`, `resetOnError` and `clearErrors`; `useForm` does in all three
-frontends; and a form's `action` takes a route's path and method
-together. tug gen writes both from the Go. To be released as v0.32.0.
+string's, so a field renamed in Go left its form sending what the handler
+no longer read, and its error unshown, with nothing to say so. Inertia's
+own types can say it: React's `<Form>` takes the type of what it sends,
+`<Form<LoginInput>>`, and then only that type's keys for `errors`,
+`resetOnError` and `clearErrors`; `useForm` does in all three frontends;
+and a form's `action` takes a route's path and method together. tug gen
+writes both from the Go. To be released as v0.32.0.
 
 - **A route says what it takes:** `Takes` on a route, as the starter's
   login's `.Name("login.store").Takes(LoginInput{})`, declares the struct
   its handler binds, which the wrapper around the handler,
   `a.guestsOnly(a.login)`, keeps tug from seeing.
-- **`Inputs`, by route name:** tug gen writes the inputs' interfaces as
-  it writes the props', and `Inputs` in `routes.ts`, each named route's
-  input by its name, for `<Form<Inputs['login.store']>>` and
-  `useForm<Inputs['login.store']>`.
+- **`Inputs`, by route name:** tug gen writes the inputs' interfaces, and
+  `Inputs` in `routes.ts`, each named route's input by its name, for
+  `<Form<Inputs['login.store']>>` and `useForm<Inputs['login.store']>`.
 - **`form()`:** a named route as a form's action, its path, filled in as
   `route()` fills it, and its method, `{ url, method }`, which `<Form
   action>` and `useForm` take, so a form's method can't come apart from
   its route's.
-- **The starters' forms typed:** their 15 inputs taken by their routes,
-  each form's action `form()`'s, and React's forms taking their route's
+- **The starters' forms typed:** their 16 routes that bind input take it,
+  each form's action is `form()`'s, and React's forms take their route's
   input. Vue's and Svelte's `<Form>` take no type in Inertia 3.7.1, so
   theirs take the action, and their errors stay of any string.
-- **The guide:** TypeScript, a section on forms; Forms, `Takes`; and
-  Routing, `Route.Takes`.
+  `examples/inertia`'s post form is typed too.
+- **The guide:** TypeScript, a section on forms; Forms, its example with
+  `Takes` and `form()`; Routing, `Takes`; and the README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Declared on the route, not by the handler's type:** a handler is a
   `func(*tug.Ctx) error` behind its wrappers, as the starter's
   `a.guestsOnly(a.login)`, whose input tug can't see, and a handler that
   tug bound and validated for, `func(c *tug.Ctx, in LoginInput) error`,
-  wouldn't fit the starter's `usersOnly`, whose handlers take the user. A
-  route that takes an input needs a name, as `Inputs` is by name: one
-  without panics as the app starts.
+  wouldn't fit the starter's `usersOnly`, whose handlers take the user.
+- **Named first, as it's called:** a route needs its name before it takes
+  an input, `Name(...).Takes(...)`, as `Inputs` is by name, and `Takes`
+  panics there, as the app adds its routes, not when it starts serving:
+  `freeze` runs in a `sync.Once` at the first request, which a panic would
+  leave half done.
 - **Checked as it's bound:** a declaration that has drifted from its
   handler would type the form against a struct the handler no longer
-  reads, which is what typing it is for. `Bind`, and so `BindValid`,
-  fails, as a 500 whose log names both, a handler that binds a struct of
-  body fields other than the one its route takes, so the drift shows at
-  its first request, in the app's tests. A struct of query or path fields
-  alone, as a list's filters bound beside a form, is let through, and a
-  route that takes nothing is checked for nothing.
-- **Keys as the errors have them:** an input's keys are the names
+  reads, which is what typing it is for. `bind`, under `Bind` and
+  `BindValid`, fails, as a 500 whose error names both, a struct other
+  than the route's that has a field read from the body, one with a form
+  name and no path or query tag, so the drift shows at its first request,
+  in the app's tests. A struct of query or path fields alone, as a list's
+  filters, or the example's `postID` beside its `PostInput`, is let
+  through, and a route that takes nothing is checked for nothing. A
+  handler gets its route on its `Ctx`, from `adapt`.
+- **Inputs of their own, in `routes.ts`:** an input's keys are the names
   `validate` gives its errors, a field's json name, else its form name,
-  which `Bind` reads a form by too, so `errors.email` is the key `email`
-  was sent by. tug gen refuses an input with a field whose form tag names
-  it otherwise, as its data and its errors would have two names. A path
-  field is the route's, in `form()`'s params, not the form's.
+  else its own, where `pages.ts` keys a struct as encoding/json writes it,
+  so a struct that's a page's props and a route's input could be two
+  interfaces; the inputs are a generator of their own, writing to the
+  file of the routes. A field whose form or query tag names it otherwise
+  is an error tug gen stops on, as its data and its errors would have two
+  names. A path field is the route's, in `form()`'s params.
 - **A file as a `File`:** a `*multipart.FileHeader` field is `File |
   null`, and a list of them `File[]`, as Inertia sends a `File` as
   multipart, which `Bind` reads.
+- **The method as a literal:** `routes` is `as const`, so `form()`'s
+  method is the route's own, `'put'` for `posts.update`, which Inertia's
+  `Method` takes, and a route of `OPTIONS` can't be a form's action.
 - **React's alone typed whole:** Vue's `<Form>` is a component of fixed
   props, and Svelte's hands its slot props of no type, in Inertia 3.7.1,
   so neither takes a type; `useForm` does in both, and their forms get
   `form()`. When theirs take one, the starters follow.
+- **The starters' every route that binds:** the three of passkeys too,
+  whose browser side is `fetch`, not a form, as their inputs are what
+  the app's own code would send. The Vue and Svelte register pages' form,
+  which they hold to drop a waiting Precognition check, is `registration`
+  now, `form` being the helper's name, and in Vue its template ref's key
+  too, which a binding of the setup of that name would take.
 - **Names, not attributes:** an uncontrolled input's `name="email"` is
   text TypeScript doesn't read, so a typo there is the form's own tests'
   to catch, not the types'.
 - **Tests:** tug gen's `Inputs` and `form()` for routes that take inputs,
-  with a file, a list of files, a nested struct, and a path field left to
-  the params, and none for a route that takes nothing; a field whose form
-  and json names differ refused; `Takes` on a route with no name
-  panicking as the app starts; `Bind` failing a handler that binds
-  another struct of body fields, the log naming both, and letting a
-  struct of query fields through; `form()`'s path and method, with
-  params; and the starters, made by `tug new`, typechecking with their
-  forms typed, and their browser suite passing as before.
+  with a file, a list of files, an embedded struct, a field with no tags,
+  a field left out, and a path field left to the params, and none for a
+  route that takes nothing; a field whose form or query tag names it
+  otherwise refused; `Takes` on a route with no name, and of a string,
+  panicking; a pointer to a struct taken as it; `Bind` failing a handler
+  that binds another struct, the error in the log naming both, and
+  letting a struct of query fields through, and a route that takes
+  nothing; `examples/inertia` typechecking with its form typed, as
+  `errors.titel` doesn't; and the starters, made by `tug new`,
+  typechecking with their forms typed, passing their own tests, whose
+  forms bind what their routes take, and their browser suite.
 
 ## Decisions
 

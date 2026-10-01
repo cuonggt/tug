@@ -10,7 +10,7 @@
   import { Label } from '@/components/ui/label'
   import { initials } from '@/lib/utils'
   import type { PageProps } from '@/tug/pages'
-  import { route } from '@/tug/routes'
+  import { form, route } from '@/tug/routes'
 
   // Profile changes the user's name and email, and their photo. A new email
   // is mailed a link, and isn't verified until it's followed: updateProfile
@@ -22,7 +22,7 @@
 <Head title="Profile" />
 <section class="space-y-6">
   <Heading small title="Profile" description="Your name, and the email we reach you at." />
-  <Form action={route('profile.update')} method="patch" options={{ preserveScroll: true }} class="space-y-6">
+  <Form action={form('profile.update')} options={{ preserveScroll: true }} class="space-y-6">
     {#snippet children({ errors, processing })}
       <div class="grid gap-2">
         <Label for="name">Name</Label>
@@ -72,8 +72,7 @@
       </Avatar>
     {/key}
     <Form
-      action={route('profile.photo.update')}
-      method="post"
+      action={form('profile.photo.update')}
       options={{ preserveScroll: true }}
       resetOnSuccess
       class="grid flex-1 gap-2"

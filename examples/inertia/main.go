@@ -127,10 +127,10 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTim
 	app.Get("/posts.csv", p.export).Name("posts.export")
 	app.Get("/posts/events", p.events).Name("posts.events")
 	app.Get("/posts/create", p.create).Name("posts.create")
-	app.Post("/posts", p.store).Name("posts.store")
+	app.Post("/posts", p.store).Name("posts.store").Takes(PostInput{})
 	app.Get("/posts/{id}", p.show).Name("posts.show")
 	app.Get("/posts/{id}/edit", p.edit).Name("posts.edit")
-	app.Put("/posts/{id}", p.update).Name("posts.update")
+	app.Put("/posts/{id}", p.update).Name("posts.update").Takes(PostInput{})
 	app.Delete("/posts/{id}", p.destroy).Name("posts.destroy")
 	return app, nil
 }

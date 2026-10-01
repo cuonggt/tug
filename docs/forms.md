@@ -31,16 +31,18 @@ something's wrong it returns `validate.Errors`, a message for each field,
 which the handler returns as it is: the app's ErrorHandler sends the form
 back with them. Otherwise the handler does its work, leaves a message for
 the next page, and redirects (see [Pages](pages.md#redirects-and-visits)).
-With the route `app.Post("/posts", createPost).Name("posts.store")`, the
-form, in `resources/js/pages/Posts/Create.tsx`, is:
+With the route
+`app.Post("/posts", createPost).Name("posts.store").Takes(PostInput{})`,
+whose `Takes` says the struct its handler binds, the form, in
+`resources/js/pages/Posts/Create.tsx`, is:
 
 ```tsx
 import { Form } from '@inertiajs/react'
-import { route } from '../../tug/routes'
+import { form, type Inputs } from '../../tug/routes'
 
 export default function Create() {
   return (
-    <Form action={route('posts.store')} method="post">
+    <Form<Inputs['posts.store']> action={form('posts.store')}>
       {({ errors, processing }) => (
         <>
           <label>
@@ -73,8 +75,10 @@ checkbox's `"on"` fills a `bool`, a number input's `"42"` an `int`, and an
 input left empty leaves its field alone ([Routing](routing.md#binding) has
 the rest). When the form comes back, `errors` has a message for each field
 that's wrong, such as "body must be at least 10 characters", and the inputs
-keep what was typed. `route()` is written by `tug gen` from the named routes
-([TypeScript](typescript.md)). Sending the form back, and the flash message
+keep what was typed. `form()`, the route's path and method, and `Inputs`,
+what each route takes, are written by `tug gen` from the named routes
+([TypeScript](typescript.md#forms)): `errors.titel`, a key `PostInput`
+hasn't, is a type error. Sending the form back, and the flash message
 outliving the redirect, take `Config.Session`, which `tug new` sets up: see
 [Sessions](#sessions).
 

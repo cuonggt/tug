@@ -2,7 +2,7 @@
 import { Form, Head } from '@inertiajs/vue3'
 import Layout from '../Layout.vue'
 import type { Pages, SharedProps } from '../tug/pages'
-import { route } from '../tug/routes'
+import { form, route } from '../tug/routes'
 
 // Home is the page main.go's home handler renders. Its props, and the
 // routes route() knows, are the Go ones: tug gen writes their TypeScript
@@ -19,7 +19,7 @@ defineProps<Pages['Home'] & SharedProps>()
 
     <!-- The name is checked by the server as the field is left, and again
          when the form is sent: BindValid in main.go does both. -->
-    <Form v-slot="{ errors, processing, validate, invalid }" :action="route('hello')" method="post" class="form">
+    <Form v-slot="{ errors, processing, validate, invalid }" :action="form('hello')" class="form">
       <label>
         What's your name?
         <input name="name" :aria-invalid="invalid('name')" @blur="validate('name')" />

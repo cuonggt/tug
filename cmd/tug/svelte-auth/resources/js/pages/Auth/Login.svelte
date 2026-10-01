@@ -16,7 +16,7 @@
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
   import { autofillWorks, dismissed, getPasskey, type Json, optionsFrom, passkeysWork } from '@/lib/passkeys'
-  import { route } from '@/tug/routes'
+  import { form, route } from '@/tug/routes'
 
   // Login logs in with an email and password, or with a passkey, which the
   // browser offers in the email field's autofill too. passkeyLogin in
@@ -57,7 +57,7 @@
 </script>
 
 <Head title="Log in" />
-<Form action={route('login.store')} method="post" resetOnError={['password']} class="flex flex-col gap-6">
+<Form action={form('login.store')} resetOnError={['password']} class="flex flex-col gap-6">
   {#snippet children({ errors, processing })}
     <div class="grid gap-2">
       <Label for="email">Email</Label>

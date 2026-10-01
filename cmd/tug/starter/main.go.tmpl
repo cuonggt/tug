@@ -150,7 +150,7 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 
 	app.Get("/", home).Name("home")
-	app.Post("/hello", hello).Name("hello")
+	app.Post("/hello", hello).Name("hello").Takes(HelloInput{})
 	return app, nil
 }
 

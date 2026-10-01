@@ -5,7 +5,7 @@ import InputError from '@/components/input-error'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { route } from '@/tug/routes'
+import { form, type Inputs } from '@/tug/routes'
 
 // TwoFactorChallenge is the second step of logging in, for a user who has
 // turned two-factor logins on: a code from their authenticator app, or,
@@ -15,10 +15,9 @@ export default function TwoFactorChallenge() {
   return (
     <>
       <Head title="Two-factor login" />
-      <Form
+      <Form<Inputs['two-factor.login.store']>
         key={recovery ? 'recovery' : 'code'}
-        action={route('two-factor.login.store')}
-        method="post"
+        action={form('two-factor.login.store')}
         resetOnError
         className="flex flex-col gap-6"
       >

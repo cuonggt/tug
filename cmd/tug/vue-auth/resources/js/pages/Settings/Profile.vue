@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { initials } from '@/lib/utils'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // Profile changes the user's name and email, and their photo. A new email
 // is mailed a link, and isn't verified until it's followed: updateProfile
@@ -24,8 +24,7 @@ defineProps<Pages['Settings/Profile'] & SharedProps>()
     <Heading small title="Profile" description="Your name, and the email we reach you at." />
     <Form
       v-slot="{ errors, processing }"
-      :action="route('profile.update')"
-      method="patch"
+      :action="form('profile.update')"
       :options="{ preserveScroll: true }"
       class="space-y-6"
     >
@@ -74,8 +73,7 @@ defineProps<Pages['Settings/Profile'] & SharedProps>()
       </Avatar>
       <Form
         v-slot="{ errors, processing, progress }"
-        :action="route('profile.photo.update')"
-        method="post"
+        :action="form('profile.photo.update')"
         :options="{ preserveScroll: true }"
         reset-on-success
         class="grid flex-1 gap-2"

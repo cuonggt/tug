@@ -14,14 +14,14 @@
   import { Button } from '@/components/ui/button'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
-  import { route } from '@/tug/routes'
+  import { form, route } from '@/tug/routes'
 
   // ForgotPassword mails a link that sets a new password. In development,
   // without MAIL_HOST in .env, the mail is written to tug dev's terminal.
 </script>
 
 <Head title="Forgotten password" />
-<Form action={route('password.email')} method="post" resetOnSuccess class="flex flex-col gap-6">
+<Form action={form('password.email')} resetOnSuccess class="flex flex-col gap-6">
   {#snippet children({ errors, processing })}
     <div class="grid gap-2">
       <Label for="email">Email</Label>

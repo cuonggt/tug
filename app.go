@@ -242,7 +242,7 @@ func (a *App) freeze() {
 		// ServeMux answers a miss with its own plain-text 404 or 405. A
 		// pattern that matches everything only wins when nothing else
 		// does, and sends the misses to the ErrorHandler instead.
-		a.mux.Handle("/", a.adapt(a.miss))
+		a.mux.Handle("/", a.adapt(nil, a.miss))
 	}
 	var h http.Handler = a.mux
 	if a.config.Inertia != nil {
@@ -266,9 +266,9 @@ func (a *App) mustNotServe() {
 
 // adapt turns a HandlerFunc into an http.Handler. It gives the handler a
 // Ctx, and hands what it returns, or a panic, to the ErrorHandler.
-func (a *App) adapt(h HandlerFunc) http.Handler {
+func (a *App) adapt(rt *Route, h HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c := &Ctx{app: a, r: r}
+		c := &Ctx{app: a, r: r, route: rt}
 		c.rw.ResponseWriter = w
 		if a.devtools != nil {
 			if rec := devtools.From(r.Context()); rec != nil {
@@ -428,14 +428,18 @@ func (a *App) gen(path string) error {
 		in.Shared = a.config.Inertia.Shared()
 	}
 	for name, rt := range a.names {
-		in.Routes = append(in.Routes, typegen.Route{Name: name, Method: rt.method, Path: rt.path})
+		in.Routes = append(in.Routes, typegen.Route{Name: name, Method: rt.method, Path: rt.path, Input: rt.input})
+	}
+	out, err := typegen.Generate(in)
+	if err != nil {
+		return err
 	}
 	// The texts tug says, and the app's rules, for tug lang, which reads
 	// them from the same run.
 	data, err := json.Marshal(struct {
 		typegen.Output
 		Texts []string
-	}{typegen.Generate(in), texts()})
+	}{out, texts()})
 	if err != nil {
 		return err
 	}

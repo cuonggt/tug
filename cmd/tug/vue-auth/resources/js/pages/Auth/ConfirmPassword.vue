@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
 import { dismissed, getPasskey, optionsFrom, passkeysWork } from '@/lib/passkeys'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // ConfirmPassword asks for the password again before the settings that
 // could hand the account to someone else: passwordConfirmed in auth.go
@@ -42,8 +42,7 @@ const withPasskey = async () => {
   <Head title="Confirm your password" />
   <Form
     v-slot="{ errors, processing }"
-    :action="route('password.confirm.store')"
-    method="post"
+    :action="form('password.confirm.store')"
     reset-on-error
     class="flex flex-col gap-6"
   >

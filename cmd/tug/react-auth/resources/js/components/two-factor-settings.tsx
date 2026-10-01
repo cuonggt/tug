@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { PageProps } from '@/tug/pages'
-import { route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // TwoFactorSettings turns two-factor logins on and off: off, a button to
 // start; starting, a QR code for the user's authenticator app and a code
@@ -52,7 +52,7 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
               </Button>
             </div>
           )}
-          <Form action={route('two-factor.disable')} method="delete" options={{ preserveScroll: true }}>
+          <Form action={form('two-factor.disable')} options={{ preserveScroll: true }}>
             {({ processing }) => (
               <Button type="submit" variant="destructive" disabled={processing}>
                 Turn two-factor logins off
@@ -77,7 +77,7 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
               </p>
             </div>
           </div>
-          <Form action={route('two-factor.confirm')} method="post" resetOnError options={{ preserveScroll: true }} className="space-y-4">
+          <Form<Inputs['two-factor.confirm']> action={form('two-factor.confirm')} resetOnError options={{ preserveScroll: true }} className="space-y-4">
             {({ errors, processing }) => (
               <>
                 <div className="grid max-w-48 gap-2">
@@ -114,7 +114,7 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
           </Form>
         </div>
       ) : (
-        <Form action={route('two-factor.enable')} method="post" options={{ preserveScroll: true }}>
+        <Form action={form('two-factor.enable')} options={{ preserveScroll: true }}>
           {({ processing }) => (
             <Button type="submit" disabled={processing}>
               <ShieldCheck />
@@ -157,7 +157,7 @@ function RecoveryCodes({ codes }: { codes: string[] }) {
             {copied ? 'Copied' : 'Copy'}
           </Button>
         )}
-        <Form action={route('two-factor.recovery-codes')} method="post" options={{ preserveScroll: true }}>
+        <Form action={form('two-factor.recovery-codes')} options={{ preserveScroll: true }}>
           {({ processing }) => (
             <Button type="submit" variant="outline" disabled={processing}>
               Make new codes

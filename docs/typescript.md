@@ -419,6 +419,78 @@ is for the component to say, as a link that deletes does:
 </Link>
 ```
 
+## Forms
+
+A form sends what its route's handler binds, and the handler binds a Go
+struct, which `Takes` on the route names, as a value of it. The route
+needs its name first, as the types are by name:
+
+```go
+type LoginInput struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required"`
+	Remember bool   `json:"remember"`
+}
+
+app.Post("/login", a.guestsOnly(a.login)).Name("login.store").Takes(LoginInput{})
+```
+
+tug can't see what a handler binds, as one behind a wrapper, as the auth
+starter's `a.guestsOnly(a.login)` is, is a function like any other, so
+the route says it. `routes.ts` gets the struct, and `Inputs`, each route
+that takes one by its name, and `form()`:
+
+```ts
+export interface LoginInput {
+  email: string
+  password: string
+  remember: boolean
+}
+
+export interface Inputs {
+  'login.store': LoginInput
+}
+```
+
+`form(name, params)` is a route as a form's action, its path, built as
+`route()` builds it, and its method, `{ url, method }`, which Inertia's
+`<Form action>` and `useForm` take, so a form's method comes from the
+route, and can't come apart from it. React's `<Form>` takes the type of
+what it sends, and then takes only its keys for `errors`, `resetOnError`
+and `clearErrors`, so a key that isn't the struct's, or a field renamed
+in Go, is a type error:
+
+```tsx
+import { Form } from '@inertiajs/react'
+import { form, type Inputs } from '../../tug/routes'
+
+<Form<Inputs['login.store']> action={form('login.store')} resetOnError={['password']}>
+  {({ errors }) => <InputError message={errors.email} />}
+</Form>
+```
+
+`useForm<Inputs['login.store']>(…)` types a form's data the same way, in
+React, Vue and Svelte. Vue's and Svelte's `<Form>` take no type, in
+Inertia 3.7.1, so there `form()` is the action, and the errors are any
+string's. An input's `name="email"` is text TypeScript doesn't read, so a
+typo there is for the form's own tests to catch.
+
+An input's keys are the names `validate` gives its errors, its json tag's
+name, else its form tag's, else the field's own, which is how `Bind` reads
+a form too. A field whose form tag, or query tag, names it otherwise is
+an error tug gen stops on, as the form would send it by one name, and its
+errors would come back by another. A field with a path tag is the
+route's, in `form()`'s params. A `*multipart.FileHeader` is `File | null`,
+and a `[]*multipart.FileHeader` is `File[]`, which Inertia sends as
+multipart, as `Bind` reads it.
+
+`Takes` is checked as the handler binds: `Bind`, and `BindValid`, fail
+a handler that binds a struct of body fields other than the one its route
+takes, as a 500 whose error, in the log, names both, so a struct the
+handler moved on from shows at the first request, in the app's tests. A
+struct of query or path fields alone, as a list's filters bound beside a
+form, is let through.
+
 ## Keeping them current
 
 `tug new` writes the types. `tug dev` writes them again after each rebuild,

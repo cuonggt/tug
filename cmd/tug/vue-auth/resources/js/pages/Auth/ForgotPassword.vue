@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
-import { route } from '@/tug/routes'
+import { form, route } from '@/tug/routes'
 
 // ForgotPassword mails a link that sets a new password. In development,
 // without MAIL_HOST in .env, the mail is written to tug dev's terminal.
@@ -23,8 +23,7 @@ defineOptions({
   <Head title="Forgotten password" />
   <Form
     v-slot="{ errors, processing }"
-    :action="route('password.email')"
-    method="post"
+    :action="form('password.email')"
     reset-on-success
     class="flex flex-col gap-6"
   >

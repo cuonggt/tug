@@ -5,7 +5,7 @@ import TextLink from '@/components/text-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // ForgotPassword mails a link that sets a new password. In development,
 // without MAIL_HOST in .env, the mail is written to tug dev's terminal.
@@ -13,7 +13,7 @@ export default function ForgotPassword() {
   return (
     <>
       <Head title="Forgotten password" />
-      <Form action={route('password.email')} method="post" resetOnSuccess className="flex flex-col gap-6">
+      <Form<Inputs['password.email']> action={form('password.email')} resetOnSuccess className="flex flex-col gap-6">
         {({ errors, processing }) => (
           <>
             <div className="grid gap-2">

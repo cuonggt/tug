@@ -74,10 +74,36 @@ func (c *Ctx) bound() {
 	}
 }
 
+// takes checks that a struct of type t, which a handler binds, is what its
+// route Takes, when t has a field Bind fills from the body: a declaration
+// that has drifted from its handler would type the route's forms against
+// a struct the handler no longer reads. A struct of query or path fields
+// alone, as a list's filters bound beside a form, is let through.
+func (c *Ctx) takes(t reflect.Type) error {
+	if c.route == nil || c.route.input == nil || t == c.route.input || !readsBody(t) {
+		return nil
+	}
+	return fmt.Errorf("tug: route %q takes %v, by Takes, but its handler binds %v", c.route.name, c.route.input, t)
+}
+
+// readsBody reports whether a struct of type t has a field Bind fills from
+// the body: one with a form name, and neither a path nor a query tag.
+func readsBody(t reflect.Type) bool {
+	for _, f := range fieldsOf(t) {
+		if f.form != "" && f.path == "" && f.query == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Ctx) bind(dst any) error {
 	v := reflect.ValueOf(dst)
 	if v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("tug: Bind needs a pointer to a struct, not %T", dst)
+	}
+	if err := c.takes(v.Elem().Type()); err != nil {
+		return err
 	}
 	v = v.Elem()
 	fields := fieldsOf(v.Type())

@@ -109,7 +109,9 @@ func showPost(c *tug.Ctx) error {
   `-svelte`, of Vue or Svelte. `tug dev` runs it with Vite: Go is rebuilt and
   restarted as it changes, and the browser reloaded. `tug gen` writes the
   TypeScript of each page's props and of the named routes, with a typed
-  `route()`, so the frontend is checked against the Go. `tug build` makes
+  `route()`, and of what each route's form sends, the struct its handler
+  binds, with a `form()` of its path and method, so the frontend, its forms
+  among it, is checked against the Go. `tug build` makes
   one static binary with the frontend in it, which sends its scripts and
   styles gzipped, and the app comes with a Dockerfile for a distroless
   image.
