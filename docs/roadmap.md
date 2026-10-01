@@ -3299,8 +3299,8 @@ string[]; token?: string }` in the auth starter, the keys its handlers
 flash with `c.Flash`, so a key added, or a value of another type, left
 the file behind, with nothing to say so. Inertia types `usePage().flash`
 and the flash event by `InertiaConfig`'s `flashDataType`, as it types the
-shared props by `sharedPageProps`, which tug gen writes already. To be
-released as v0.33.0.
+shared props by `sharedPageProps`, which tug gen writes already.
+Released as v0.33.0.
 
 - **A flash key declared in Go:** `tug.Flash[T](key)`, as
   `var Success = tug.Flash[string]("success")`, declares a key and the
