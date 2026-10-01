@@ -225,11 +225,15 @@ func showPost(c *tug.Ctx) error {
   most, or starts so many a second, counted on all the instances, and
   says, with `OnFail`, when a job has failed for good, and with `Observe`,
   how each run went, for the app's metrics. A job pushed in the app's own
-  transaction is kept with what else it writes, or not at all.
+  transaction is kept with what else it writes, or not at all. A job
+  carries what the app lists from the context it was pushed from, and
+  runs with it: the ID of the request that pushed it, which the queue's
+  lines of it say, or a trace.
   The auth starter sends its mail this way, with its jobs in its
   database, where on Postgres or MySQL the claims of several instances
   skip each other's jobs rather than wait for them, and its binary lists
-  the jobs that failed for good, and runs them again: `./blog jobs`.
+  the jobs that failed for good, with the request each came from, and
+  runs them again: `./blog jobs`.
 - **Cache** (package `cache`): what's slow to work out, kept for a while
   where every instance of the app finds it, such as a table in its
   database, as the auth starter has, with `cache.Remember`, which works a

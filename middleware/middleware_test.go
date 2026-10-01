@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/cuonggt/tug/internal/route"
+	"github.com/cuonggt/tug/queue"
 )
 
 // captureLog sends slog.Default() to a buffer, as JSON, for the rest of the
@@ -652,5 +654,26 @@ func TestCSPPanicsOnWhatItCantPutInTheHeader(t *testing.T) {
 			}()
 			CSP(cfg)
 		}()
+	}
+}
+
+func TestARequestsIDIsCarriedIntoAJobsContext(t *testing.T) {
+	var c queue.Carrier = CarryRequestID // as a queue's Config.Carry takes it
+	carried := map[string]string{}
+	c.Carry(WithRequestID(context.Background(), "QW3RTY"), carried)
+	if carried["request_id"] != "QW3RTY" {
+		t.Fatalf("carried %v", carried)
+	}
+	if id := RequestIDFrom(c.Restore(context.Background(), carried)); id != "QW3RTY" {
+		t.Errorf("the job's context has the ID %q", id)
+	}
+	// Nothing to carry, and an ID that isn't plain, come to nothing.
+	nothing := map[string]string{}
+	c.Carry(context.Background(), nothing)
+	if len(nothing) != 0 {
+		t.Errorf("a context with no request carried %v", nothing)
+	}
+	if id := RequestIDFrom(c.Restore(context.Background(), map[string]string{"request_id": "a\nb"})); id != "" {
+		t.Errorf("an ID with a line break came back as %q", id)
 	}
 }

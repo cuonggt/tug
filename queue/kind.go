@@ -126,6 +126,9 @@ func (k *Kind[T]) PushAt(ctx context.Context, at time.Time, v T) error {
 		return fmt.Errorf("queue: a %s job: %w", k.name, err)
 	}
 	j := &Job{Kind: k.name, Payload: payload, RunAt: at, OneAtATime: k.h.oneAtATime, AtOnce: k.h.atOnce}
+	if j.Carried, err = k.q.carried(ctx, k.store); err != nil {
+		return fmt.Errorf("queue: pushing a %s job: %w", k.name, err)
+	}
 	switch {
 	case k.h.latest:
 		j.Key = keyOf(payload)
@@ -229,7 +232,7 @@ func (h *handler) call(ctx context.Context, j *Job) (err error) {
 	defer cancel()
 	defer func() {
 		if v := recover(); v != nil {
-			slog.Error("a job panicked", "kind", j.Kind, "job", j.ID, "panic", v, "stack", string(debug.Stack()))
+			slog.Error("a job panicked", about(j, "panic", v, "stack", string(debug.Stack()))...)
 			err = fmt.Errorf("panic: %v", v)
 		}
 	}()
@@ -248,11 +251,11 @@ func (h *handler) failed(ctx context.Context, j *Job, err error) {
 	defer cancel()
 	defer func() {
 		if v := recover(); v != nil {
-			slog.Error("OnFail panicked for a job that failed", "kind", j.Kind, "job", j.ID, "panic", v, "stack", string(debug.Stack()))
+			slog.Error("OnFail panicked for a job that failed", about(j, "panic", v, "stack", string(debug.Stack()))...)
 		}
 	}()
 	if err := h.onFail(ctx, j.Payload, err); err != nil {
-		slog.Error("OnFail failed for a job that failed", "kind", j.Kind, "job", j.ID, "err", err)
+		slog.Error("OnFail failed for a job that failed", about(j, "err", err)...)
 	}
 }
 

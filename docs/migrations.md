@@ -20,7 +20,7 @@ tug migrate new create_posts
 ```
 
 ```
-tug migrate: wrote migrations/20261001093000_create_posts.sql
+tug migrate: wrote migrations/20261001140000_create_posts.sql
 ```
 
 `tug migrate new` writes a new file in `migrations/`, named for when it's
@@ -59,23 +59,23 @@ DROP TABLE posts;
 ## Running them
 
 The app runs the migrations that haven't run as it starts, before it
-serves, and logs each: `ran a migration name=20261001093000_create_posts`.
+serves, and logs each: `ran a migration name=20261001140000_create_posts`.
 Its binary's `migrate` command runs them too, and lists them, and undoes
 the last:
 
 ```
 $ ./blog migrate
-Ran 20261001093000_create_posts.
+Ran 20261001140000_create_posts.
 $ ./blog migrate status
-15 migrations, each of them run:
+16 migrations, each of them run:
 
-  2026-10-01 08:12:40 UTC  20260925171438_create_users
+  2026-10-01 13:12:40 UTC  20260925171438_create_users
   ...
-  2026-10-01 09:31:12 UTC  20261001093000_create_posts
+  2026-10-01 14:01:12 UTC  20261001140000_create_posts
 
 ./blog migrate runs the ones that haven't run, and ./blog migrate down undoes the last.
 $ ./blog migrate down
-Undid 20261001093000_create_posts: ./blog migrate runs it again.
+Undid 20261001140000_create_posts: ./blog migrate runs it again.
 ```
 
 The `migrate` command runs them itself, where every other run of the

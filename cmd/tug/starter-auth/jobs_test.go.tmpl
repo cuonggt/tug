@@ -12,6 +12,7 @@ import (
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/queue/queuetest"
+	"github.com/cuonggt/tug/tugtest"
 )
 
 func TestTheJobsTableKeepsTheQueuesPromises(t *testing.T) {
@@ -85,11 +86,16 @@ func TestAKindsRateCountsWithTheAppsThrottlesAndAJobHeldBackIsntAnAttempt(t *tes
 }
 
 // failJob pushes a job and fails it for good, with err, as a mail to an
-// address that isn't there fails.
-func failJob(t *testing.T, s *jobs, payload, err string) {
+// address that isn't there fails, from the request with the ID given, or
+// none.
+func failJob(t *testing.T, s *jobs, payload, err string, request ...string) {
 	t.Helper()
 	ctx, now := context.Background(), time.Now()
-	s.Push(ctx, &queue.Job{Kind: "verify-mail", Payload: []byte(payload), RunAt: now})
+	var carried map[string]string
+	if len(request) > 0 {
+		carried = map[string]string{"request_id": request[0]}
+	}
+	s.Push(ctx, &queue.Job{Kind: "verify-mail", Payload: []byte(payload), RunAt: now, Carried: carried})
 	j, claimErr := s.Claim(ctx, now, now.Add(time.Minute))
 	if claimErr != nil || j == nil {
 		t.Fatalf("claimed %v, %v", j, claimErr)
@@ -104,12 +110,12 @@ func TestTheJobsCommandListsTheJobsThatFailedAndRunsThemAgain(t *testing.T) {
 	s := &jobs{db: testDB(t)}
 	ctx := context.Background()
 	failJob(t, s, `{"user":1}`, "550 no such mailbox: ann@example.com")
-	failJob(t, s, `{"user":2}`, "550 no such mailbox: bob@example.com")
+	failJob(t, s, `{"user":2}`, "550 no such mailbox: bob@example.com", "TQ4REGISTER2")
 	var out strings.Builder
 	if err := jobsCommand(ctx, s, "./blog", nil, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"2 jobs failed for good", "verify-mail", `{"user":1}`, "550 no such mailbox: bob@example.com", "after 1 attempt\n", "./blog jobs retry <id>"} {
+	for _, want := range []string{"2 jobs failed for good", "verify-mail", `{"user":1}`, "550 no such mailbox: bob@example.com", "after 1 attempt\n", "after 1 attempt, pushed by request TQ4REGISTER2\n", "./blog jobs retry <id>"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("the list has no %q:\n%s", want, out.String())
 		}
@@ -248,5 +254,32 @@ func TestTheAppPrunesFailedJobsEveryNight(t *testing.T) {
 	midnight := started.Truncate(24 * time.Hour).Add(24 * time.Hour)
 	if got := time.UnixMilli(runAt).UTC(); !got.Equal(midnight) && !got.Equal(midnight.Add(24*time.Hour)) {
 		t.Errorf("the prune job runs at %v, want the next midnight UTC, %v", got, midnight)
+	}
+}
+
+func TestAJobCarriesTheIDOfTheRequestThatPushedIt(t *testing.T) {
+	app := newTestApp(t)
+	// The job this test reads stays where the request left it.
+	app.stopQueue()
+	c := app.client()
+	r := c.Post("/register", map[string]any{
+		"name": "Ann", "email": "ann@example.com", "password": "correct horse", "password_confirmation": "correct horse",
+	}, tugtest.Header("X-Request-ID", "TQ4REGISTER1"))
+	if r.Location() == "" {
+		t.Fatalf("registering: %v", r)
+	}
+	// Past the jobs the app schedules, should a minute have come round.
+	s, now := &jobs{db: app.db}, time.Now()
+	for {
+		j, err := s.Claim(context.Background(), now, now.Add(time.Minute))
+		if err != nil || j == nil {
+			t.Fatalf("claimed %+v, %v: want the verify mail", j, err)
+		}
+		if j.Kind == "verify-mail" {
+			if got := j.Carried["request_id"]; got != "TQ4REGISTER1" {
+				t.Errorf("the verify mail carried request %q, want TQ4REGISTER1", got)
+			}
+			return
+		}
 	}
 }

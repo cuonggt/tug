@@ -395,7 +395,9 @@ app.Use(
   as a proxy in front may set one, when that's short and plain (up to 64
   letters, digits and `-_.:+/=`), or else a new random one. The ID goes back
   in the response's `X-Request-ID`, and into the request's context, where
-  `middleware.RequestIDFrom(ctx)` finds it.
+  `middleware.RequestIDFrom(ctx)` finds it, and a job the request pushes
+  takes it, through a queue that carries `middleware.CarryRequestID`
+  ([Background jobs](jobs.md#what-a-job-carries)).
 - `Logger()` logs a line for each request through `slog.Default()`: its
   method, path, status, size and duration, its `route`, when a route
   answered it (`tug.RouteOf`, above), and its `request_id` when
@@ -875,4 +877,7 @@ and send the `http.Server`'s own errors there at Warn. `DefaultErrorHandler`
 logs "request failed" for server errors. In package `middleware`, `Logger`
 logs a "request" line for each request, and `Recover` logs "panic". A line
 about a request is logged with the request's context, so a `slog.Handler`
-of the app's own can add `middleware.RequestIDFrom(ctx)` to it.
+of the app's own can add `middleware.RequestIDFrom(ctx)` to it. Package
+`queue` logs a job that failed, with its kind and ID, and what it carried
+from the request that pushed it, its ID among it
+([Background jobs](jobs.md#what-a-job-carries)).

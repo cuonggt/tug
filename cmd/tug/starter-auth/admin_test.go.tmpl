@@ -85,10 +85,10 @@ func TestAnAdminRunsTheJobsThatFailedAgain(t *testing.T) {
 	// would take them first, now and then, and the ones run again stay put.
 	app.stopQueue()
 	s := &jobs{db: app.db}
-	failJob(t, s, `{"user":7}`, "550 no such mailbox: bob@example.com")
+	failJob(t, s, `{"user":7}`, "550 no such mailbox: bob@example.com", "TQ4REGISTER7")
 
 	jobs := tugtest.Props(c.Get("/admin/failed-jobs"), FailedJobs).Jobs
-	if len(jobs) != 1 || jobs[0].Kind != "verify-mail" || jobs[0].Payload != `{"user":7}` || jobs[0].Error != "550 no such mailbox: bob@example.com" || jobs[0].Attempts != 1 {
+	if len(jobs) != 1 || jobs[0].Kind != "verify-mail" || jobs[0].Payload != `{"user":7}` || jobs[0].Error != "550 no such mailbox: bob@example.com" || jobs[0].Attempts != 1 || jobs[0].Request != "TQ4REGISTER7" {
 		t.Fatalf("listed %+v", jobs)
 	}
 	id := jobs[0].ID

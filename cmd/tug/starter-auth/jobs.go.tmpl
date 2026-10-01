@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -58,6 +59,29 @@ func (s *jobs) KeepsOneAtATime() {}
 // passes over one whose kind has as many held.
 func (s *jobs) KeepsAtOnce() {}
 
+// KeepsCarried says that the table keeps what a job carried from the
+// context it was pushed from, as the ID of the request that pushed it, as
+// JSON in carried, which a claim and the failed jobs' list give back.
+func (s *jobs) KeepsCarried() {}
+
+// carriedOf is what j carried, as JSON for the carried column, or "" for
+// nothing, which NULLIF keeps as NULL; carriedFrom reads it back.
+func carriedOf(j *queue.Job) string {
+	if len(j.Carried) == 0 {
+		return ""
+	}
+	data, _ := json.Marshal(j.Carried)
+	return string(data)
+}
+
+func carriedFrom(column sql.NullString) map[string]string {
+	var carried map[string]string
+	if column.Valid {
+		json.Unmarshal([]byte(column.String), &carried)
+	}
+	return carried
+}
+
 // aloneKey is the key a OneAtATime kind's job keeps as long as it's kept,
 // or NULL for any other job's.
 func aloneKey(j *queue.Job) any {
@@ -85,7 +109,7 @@ func jobsCommand(ctx context.Context, s queue.FailedStore, name string, args []s
 		}
 		fmt.Fprintf(w, "%s failed for good, and %s kept for a month:\n\n", howMany(len(failed), "job"), plural(len(failed), "is", "are"))
 		for _, j := range failed {
-			fmt.Fprintf(w, "  %s  %s, which failed at %s after %s\n", j.ID, j.Kind, j.FailedAt.UTC().Format("2006-01-02 15:04:05 UTC"), howMany(j.Attempts, "attempt"))
+			fmt.Fprintf(w, "  %s  %s, which failed at %s after %s%s\n", j.ID, j.Kind, j.FailedAt.UTC().Format("2006-01-02 15:04:05 UTC"), howMany(j.Attempts, "attempt"), fromRequest(j))
 			fmt.Fprintf(w, "      %s\n      %s\n\n", j.Payload, j.Error)
 		}
 		fmt.Fprintf(w, "%s jobs retry <id> runs one again, and %s jobs retry all runs them all.\n", name, name)
@@ -116,6 +140,16 @@ func jobsCommand(ctx context.Context, s queue.FailedStore, name string, args []s
 		return nil
 	}
 	return fmt.Errorf("%s jobs lists the jobs that failed for good, and %s jobs retry <id>, or retry all, runs them again", name, name)
+}
+
+// fromRequest says which request pushed j, by the ID it carried, for a
+// log line of the request's to be found by: "" for a job no request
+// pushed, as a schedule's.
+func fromRequest(j *queue.Job) string {
+	if id := j.Carried["request_id"]; id != "" {
+		return ", pushed by request " + id
+	}
+	return ""
 }
 
 // howMany is n things, as a sentence says it: 1 job, 2 jobs.

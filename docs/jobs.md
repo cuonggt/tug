@@ -196,7 +196,7 @@ on its database, and exits:
 $ ./blog jobs
 1 job failed for good, and is kept for a month:
 
-  42  verify-mail, which failed at 2026-09-28 10:02:03 UTC after 10 attempts
+  42  verify-mail, which failed at 2026-09-28 10:02:03 UTC after 10 attempts, pushed by request SCK2WDZAHS33MHC2HQCFU7KWMK
       {"user":7,"email":"ann@example.com"}
       dial tcp 10.0.0.5:587: connect: connection refused
 
@@ -211,10 +211,12 @@ image, the binary is `/server`: `docker exec <container> /server jobs`. The
 command is the app's own, added in its `newApp`, and written in `jobs.go`,
 rather than tug's: a deployed app runs as its binary, where tug isn't.
 
-The starter's admins have a page of them too, `/admin/failed-jobs`, which
-lists them, with their values and errors, and runs one, or all, again, as
-the command does, and wakes the queue, so they run at once
-([Accounts](auth.md#admins)).
+A job a request pushed says which, by the request's ID, which the job's
+log lines have too ([What a job carries](#what-a-job-carries)). The
+starter's admins have a page of them too, `/admin/failed-jobs`, which
+lists them, with their values and errors, and the request each came
+from, and runs one, or all, again, as the command does, and wakes the
+queue, so they run at once ([Accounts](auth.md#admins)).
 
 ## Jobs on a schedule
 
@@ -436,6 +438,7 @@ q := queue.New(queue.Config{
 | `Poll`    | How often `Run`, with nothing to do, asks the Store for jobs. | a second |
 | `Grace`   | How long the jobs running when `Run` is told to stop have to finish. | 10 seconds |
 | `Observe` | What's told how each run of a job went, for the app's metrics (below). | none |
+| `Carry`   | What a job takes from the context it's pushed from, and gives back to its run's, as the request's ID ([What a job carries](#what-a-job-carries)). | none |
 
 A job runs at least once, and now and then twice. A worker claims a job
 for as long as the longest `Timeout` of any kind and a minute more, and if
@@ -477,6 +480,84 @@ It's called in the worker that ran the job, which waits for it, so it's
 quick, as a counter is; a panic of its own goes to the log, and the worker
 goes on. A run the Store couldn't keep, as the database was down, isn't
 told: the job runs again, and that run is.
+
+## What a job carries
+
+A job runs after the request that pushed it, on whichever instance claims
+it, in a context of the queue's, where what the request's had, as its ID,
+isn't. `Carry` lists what a job takes from the context it's pushed from,
+and gives back to the one it runs in:
+
+```go
+q := queue.New(queue.Config{
+	Store: &jobs{db: db},
+	Carry: []queue.Carrier{middleware.CarryRequestID},
+})
+```
+
+`middleware.CarryRequestID` carries the ID `middleware.RequestID` gave the
+request, as `request_id`: the handler's `middleware.RequestIDFrom(ctx)` is
+the ID of the request that pushed its job, and the queue's own lines of
+the job say it, beside its kind and ID, so a job that failed is found with
+the request it came from. In an app made with `tug new -auth`, registering
+while the mail server is down:
+
+```
+2026/10/01 19:29:46 INFO request method=POST path=/register status=303 size=0 duration=27.871042ms route="POST /register" request_id=SCK2WDZAHS33MHC2HQCFU7KWMK
+2026/10/01 19:29:46 WARN a job failed, and will run again kind=verify-mail job=6 attempt=1 at=2026-10-01T19:29:47.319+07:00 err="mail: dial tcp 127.0.0.1:1: connect: connection refused" request_id=SCK2WDZAHS33MHC2HQCFU7KWMK
+```
+
+- Every push carries, from the context it's given: `Push`, `PushAt`, a
+  unique kind's and a latest one's, and `In`'s, in a handler's
+  transaction. A schedule's runs carry nothing: the queue pushes them, not
+  a request.
+- A unique push that finds its job waiting pushes nothing, and a latest
+  one moves the job that waits: either way, the job keeps what its own
+  push carried.
+- A job carries it through its retries, and when it's run again from the
+  failed; a `Rate`'s limiter, and `OnFail`, have it in their context too.
+- It's kept beside the job, as the job's value is, so the same goes for
+  it: no token or password. It's a few strings, by name, at most 4 KB as
+  JSON, as a header's values are: a push that would carry more fails.
+- A Store keeps it when it's a `queue.CarryStore` ([Stores](#stores)). A
+  job pushed to one that isn't carries nothing, and runs as before.
+
+A `queue.Carrier` is two methods:
+
+```go
+type Carrier interface {
+	Carry(ctx context.Context, into map[string]string)
+	Restore(ctx context.Context, from map[string]string) context.Context
+}
+```
+
+`Carry` puts what it takes from `ctx` in `into`, by a name of its own, and
+`Restore` returns `ctx` with what `from` has of it. What `Restore` is given
+has been in the database, so it checks it as it would a header:
+`CarryRequestID` gives back only an ID as plain as `RequestID` keeps one.
+It's the shape of OpenTelemetry's propagators, whose carrier,
+`propagation.MapCarrier`, is the same map, so an app's traces go to its
+jobs in a few lines:
+
+```go
+// traces carries the trace a job is pushed in to its run, whose spans
+// are the push's children.
+type traces struct{ propagation.TextMapPropagator }
+
+func (t traces) Carry(ctx context.Context, into map[string]string) {
+	t.Inject(ctx, propagation.MapCarrier(into))
+}
+
+func (t traces) Restore(ctx context.Context, from map[string]string) context.Context {
+	return t.Extract(ctx, propagation.MapCarrier(from))
+}
+
+// with Carry: []queue.Carrier{middleware.CarryRequestID, traces{otel.GetTextMapPropagator()}}
+```
+
+The auth starter's queue carries the request's ID, in a `carried` column
+of its jobs table, and its `jobs` command, and its admins' page of the
+jobs that failed, say which request pushed each.
 
 ## Stores
 
@@ -555,8 +636,8 @@ lets its job's key go, so that a job pushed while it runs is pushed, and
 job with its key waits. `TestStore` checks these promises of a
 `UniqueStore`, and `Memory` is one.
 
-Five more extras are for `Latest`, `OneAtATime`, `AtOnce`, `Rate`, and
-the command that lists the jobs that failed:
+Six more extras are for `Latest`, `OneAtATime`, `AtOnce`, `Rate`, the
+command that lists the jobs that failed, and what a job carries:
 
 ```go
 type LatestStore interface {
@@ -584,6 +665,11 @@ type FailedStore interface {
 	Failed(ctx context.Context) ([]*Job, error)
 	RunAgain(ctx context.Context, id string, at time.Time) (bool, error)
 }
+
+type CarryStore interface {
+	Store
+	KeepsCarried()
+}
 ```
 
 - `PushLatest` pushes `j`, or gives the job of its kind and key that waits
@@ -607,6 +693,11 @@ type FailedStore interface {
 - `Failed` lists the jobs that failed for good, with their `Error` and
   `FailedAt`, the latest first, and `RunAgain` puts one back to run, due at
   `at`, with no attempts, and says whether there was one.
+- A `CarryStore` keeps a job's `Carried`, what it carried, with it, from
+  each of its pushes, and gives it back with each claim, and in `Failed`'s
+  list. A push that pushes nothing, or moves the job that waits, leaves
+  the job what it carried. `KeepsCarried` does nothing, as `KeepsAtOnce`
+  does.
 
 `TestStore` checks each extra's promises of a Store that has it, and
 `Memory` has them all.
@@ -648,7 +739,7 @@ WHERE id = (
 	))
 	ORDER BY due.run_at, due.id LIMIT 1
 )
-RETURNING id, kind, payload, run_at, attempts, error
+RETURNING id, kind, payload, run_at, attempts, error, carried
 ```
 
 A job that failed for good stays in the table, with `failed_at` and its
@@ -658,7 +749,7 @@ scheduled job of the starter's, `prune-jobs`, deletes the ones that failed
 over a month ago.
 
 ```sql
-SELECT id, kind, payload, attempts, error, failed_at FROM jobs
+SELECT id, kind, payload, attempts, error, failed_at, carried FROM jobs
 WHERE failed_at IS NOT NULL ORDER BY failed_at DESC, id DESC;
 
 UPDATE jobs SET failed_at = NULL, attempts = 0, run_at = ?, held_until = 0
@@ -745,6 +836,14 @@ WHERE id = ?3 AND attempts = ?4
 
 `prune-jobs` deletes the kinds whose time has passed.
 
+What a job carried is JSON in a column of its own, as its value is, NULL
+for nothing, which each insert writes, an upsert's leaving the waiting
+job's as it was, and the claim and the list of the failed give back:
+
+```sql
+ALTER TABLE jobs ADD COLUMN carried TEXT;
+```
+
 A handler's transaction pushes through `jobs.in(tx)`, the same table
 through `tx`: its inserts are the transaction's, and its claims the app's,
 which see the job once `tx` has committed.
@@ -768,7 +867,7 @@ ORDER BY due.run_at, due.id LIMIT 1
 FOR UPDATE SKIP LOCKED;
 
 UPDATE jobs SET held_until = $2, attempts = attempts + 1, unique_key = NULL WHERE id = $1
-RETURNING kind, payload, run_at, attempts, error
+RETURNING kind, payload, run_at, attempts, error, carried
 ```
 
 There's no read before it, as SQLite's has: a claim that finds nothing

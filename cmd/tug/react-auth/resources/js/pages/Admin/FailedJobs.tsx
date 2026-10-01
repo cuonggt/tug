@@ -6,9 +6,10 @@ import type { PageProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
 // FailedJobs is the admins' page of the jobs that failed for good, which
-// are kept for a month: what each was pushed with and failed with, and a
-// button that runs it again from its first attempt, as the jobs command
-// does. Its handlers are in admin.go, and who may see it in abilities.go.
+// are kept for a month: what each was pushed with and failed with, the
+// request that pushed it, whose ID its log lines have, and a button that
+// runs it again from its first attempt, as the jobs command does. Its
+// handlers are in admin.go, and who may see it in abilities.go.
 export default function FailedJobs({ jobs }: PageProps<'Admin/FailedJobs'>) {
   return (
     <>
@@ -40,6 +41,11 @@ export default function FailedJobs({ jobs }: PageProps<'Admin/FailedJobs'>) {
                     </p>
                     <p className="text-muted-foreground">
                       Failed {when(job.failedAt)}, after {job.attempts === 1 ? '1 attempt' : `${job.attempts} attempts`}
+                      {job.request && (
+                        <>
+                          , pushed by request <span className="font-mono">{job.request}</span>
+                        </>
+                      )}
                     </p>
                   </div>
                   <Button

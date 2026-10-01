@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M38 are done, which is
+the decisions behind it and where it stands: M1 to M39 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -95,7 +95,12 @@ route name, and `form()`, a route's path and method as a form's action,
 which the starters' forms take, React's typed by their input, and typed
 flash (v0.33.0): `tug.Flash[T]`, a flash key declared with its value's
 type, set through it, which `Ctx.Flash` checks, and tug gen's `FlashData`,
-Inertia's `flashDataType`, in place of the starters' hand-kept `types.ts`.
+Inertia's `flashDataType`, in place of the starters' hand-kept `types.ts`,
+and request IDs in jobs (v0.34.0): `queue.Carrier`, what a job takes from
+the context it's pushed from and gives back to its run's, kept by a
+`CarryStore`, and `middleware.CarryRequestID`, so the queue's lines of a
+job have the ID of the request that pushed it, as the auth starter's
+failed jobs, in its command and on its page, do.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -606,6 +611,13 @@ dev server that isn't there: delete it.
   key back, unless another job has it (SQLite's one statement, or the
   others' `taken` fallback). MySQL's `claimable` counts the held kinds, as
   a `NOT EXISTS` there becomes a join whose sort locks every job it reads.
+  And a `CarryStore` (`KeepsCarried`): a `carried` column, by the
+  `add_carried_to_jobs` migration, of what a job carried as JSON
+  (`carriedOf`, `carriedFrom`, in `jobs.go.tmpl`), which the inserts
+  write, an upsert's leaving the waiting job's, and the claims and
+  `Failed` read; `main`'s queue, and the tests', carry
+  `middleware.CarryRequestID`, which the `jobs` command (`fromRequest`)
+  and `FailedJob.Request` show.
   `prune` deletes the held kinds whose time has passed. `jobs.in(tx)` is the Store that pushes in
   a handler's transaction, and `jobsCommand` the `jobs` command, which
   `newApp` adds with `app.Command`, for `Run` to run in place of the
@@ -738,7 +750,10 @@ dev server that isn't there: delete it.
   context through `internal/nonce`, which `NonceFrom` reads, the dev
   server's sources, `devSources`, from `DevServer` at each request, and
   `logReport`, which answers a POST to `ReportPath`, report-uri's, before
-  any route; `ReportOnly` sends it as `-Report-Only`), `RequestID`,
+  any route; `ReportOnly` sends it as `-Report-Only`), `RequestID`
+  (`requestid.go`: `WithRequestID`, and `CarryRequestID`, a
+  `queue.Carrier` by its shape alone, of the ID as `request_id`, given
+  back only when it's a `plainID`),
   `Logger` (with the `route`, `internal/route`'s), `Recover`, `CSRF` (an
   entry that's a path is
   `CrossOriginProtection`'s bypass, `bypass`, and the rest trusted
@@ -829,8 +844,15 @@ dev server that isn't there: delete it.
   while a held job of its kind has the key; `KeepsOneAtATime` is a marker),
   `AtOnceStore` (a job's `AtOnce`, and a claim passes over it while as
   many of its kind are held; `KeepsAtOnce`), `HoldBackStore` (`HoldBack`,
-  for `Rate`: the claim undone, and its kind held until a time) and
-  `FailedStore` (`Failed` and `RunAgain`, for an app's command).
+  for `Rate`: the claim undone, and its kind held until a time),
+  `FailedStore` (`Failed` and `RunAgain`, for an app's command) and
+  `CarryStore` (a job's `Carried`, through its claims, retries and
+  listing; `KeepsCarried`). `carry.go`: `Carrier`, which `Config.Carry`
+  lists; `carried`, what they take from a push's context, only for a
+  `CarryStore`, refused past `maxCarried`, 4 KB as JSON; `restore`, which
+  `run` calls before the rate's `Limiter`, the handler and `OnFail`; and
+  `about`, the attrs of the queue's log lines of a job, its kind and ID,
+  and what it carried, by name. A schedule's runs carry nothing.
   `queue.go`: `Run`, one goroutine that claims while a worker slot is free,
   woken by a push through the Queue (`poke`, `wake`) or else by `Poll`;
   stopping gives the jobs running `Grace`, then cancels their context, and

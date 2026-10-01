@@ -16,9 +16,10 @@
   import { route } from '@/tug/routes'
 
   // FailedJobs is the admins' page of the jobs that failed for good, which
-  // are kept for a month: what each was pushed with and failed with, and a
-  // button that runs it again from its first attempt, as the jobs command
-  // does. Its handlers are in admin.go, and who may see it in abilities.go.
+  // are kept for a month: what each was pushed with and failed with, the
+  // request that pushed it, whose ID its log lines have, and a button that
+  // runs it again from its first attempt, as the jobs command does. Its
+  // handlers are in admin.go, and who may see it in abilities.go.
   let { jobs }: PageProps<'Admin/FailedJobs'> = $props()
 </script>
 
@@ -49,7 +50,7 @@
                 <Badge variant="secondary">{job.id}</Badge>
               </p>
               <p class="text-muted-foreground">
-                Failed {when(job.failedAt)}, after {job.attempts === 1 ? '1 attempt' : `${job.attempts} attempts`}
+                Failed {when(job.failedAt)}, after {job.attempts === 1 ? '1 attempt' : `${job.attempts} attempts`}{#if job.request}, pushed by request <span class="font-mono">{job.request}</span>{/if}
               </p>
             </div>
             <Button

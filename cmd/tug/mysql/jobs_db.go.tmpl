@@ -98,8 +98,8 @@ func (s *jobs) PushScheduled(ctx context.Context, schedule string, j *queue.Job)
 // inserted while one of its kind and key waits.
 func insertJob(ctx context.Context, db dbtx, j *queue.Job) (bool, error) {
 	res, err := db.ExecContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0))`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce)
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once, carried) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0), NULLIF(?, ''))`,
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce, carriedOf(j))
 	if taken(err) {
 		return false, nil
 	}
@@ -161,13 +161,13 @@ func (s *jobs) claim(ctx context.Context, now, until time.Time) (_ *queue.Job, a
 	j := &queue.Job{}
 	var id, runAt int64
 	var payload string
-	var lastErr, alone sql.NullString
+	var lastErr, alone, carried sql.NullString
 	var atOnce sql.NullInt64
 	at := now.UnixMilli()
 	err = tx.QueryRowContext(ctx, `
-		SELECT due.id, due.kind, due.payload, due.run_at, due.attempts, due.error, due.alone_key, due.at_once FROM jobs AS due WHERE `+claimable+`
+		SELECT due.id, due.kind, due.payload, due.run_at, due.attempts, due.error, due.alone_key, due.at_once, due.carried FROM jobs AS due WHERE `+claimable+`
 		ORDER BY due.run_at, due.id LIMIT 1
-		FOR UPDATE SKIP LOCKED`, at, at, at, at, at).Scan(&id, &j.Kind, &payload, &runAt, &j.Attempts, &lastErr, &alone, &atOnce)
+		FOR UPDATE SKIP LOCKED`, at, at, at, at, at).Scan(&id, &j.Kind, &payload, &runAt, &j.Attempts, &lastErr, &alone, &atOnce, &carried)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -217,6 +217,7 @@ func (s *jobs) claim(ctx context.Context, now, until time.Time) (_ *queue.Job, a
 		return nil, false, err
 	}
 	j.ID, j.Payload, j.RunAt, j.Error = strconv.FormatInt(id, 10), []byte(payload), time.UnixMilli(runAt), lastErr.String
+	j.Carried = carriedFrom(carried)
 	j.Attempts++
 	return j, false, nil
 }
@@ -265,7 +266,7 @@ func (s *jobs) HoldBack(ctx context.Context, j *queue.Job, until time.Time) erro
 // Failed lists the jobs that failed for good, the latest first.
 func (s *jobs) Failed(ctx context.Context) ([]*queue.Job, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, kind, payload, attempts, error, failed_at FROM jobs
+		SELECT id, kind, payload, attempts, error, failed_at, carried FROM jobs
 		WHERE failed_at IS NOT NULL ORDER BY failed_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
@@ -276,11 +277,11 @@ func (s *jobs) Failed(ctx context.Context) ([]*queue.Job, error) {
 		j := &queue.Job{}
 		var id int64
 		var payload string
-		var lastErr sql.NullString
-		if err := rows.Scan(&id, &j.Kind, &payload, &j.Attempts, &lastErr, &j.FailedAt); err != nil {
+		var lastErr, carried sql.NullString
+		if err := rows.Scan(&id, &j.Kind, &payload, &j.Attempts, &lastErr, &j.FailedAt, &carried); err != nil {
 			return nil, err
 		}
-		j.ID, j.Payload, j.Error = strconv.FormatInt(id, 10), []byte(payload), lastErr.String
+		j.ID, j.Payload, j.Error, j.Carried = strconv.FormatInt(id, 10), []byte(payload), lastErr.String, carriedFrom(carried)
 		failed = append(failed, j)
 	}
 	return failed, rows.Err()

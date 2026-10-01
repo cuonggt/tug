@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -25,8 +26,9 @@ import (
 // running at once, as a queue.LatestStore and a queue.OneAtATimeStore, a
 // kind's jobs from running more than so many at once, as a
 // queue.AtOnceStore, and from being claimed while held back, as a
-// queue.HoldBackStore, and lists the jobs that failed, as a
-// queue.FailedStore. The zero value is an empty Store.
+// queue.HoldBackStore, lists the jobs that failed, as a
+// queue.FailedStore, and keeps what a job carried, as a queue.CarryStore.
+// The zero value is an empty Store.
 type Memory struct {
 	mu        sync.Mutex
 	last      int
@@ -100,6 +102,8 @@ func (m *Memory) KeepsOneAtATime() {}
 
 func (m *Memory) KeepsAtOnce() {}
 
+func (m *Memory) KeepsCarried() {}
+
 func (m *Memory) HoldBack(_ context.Context, j *queue.Job, until time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -126,7 +130,7 @@ func (m *Memory) push(j *queue.Job) {
 	m.last++
 	j.ID = strconv.Itoa(m.last)
 	kept := *j
-	kept.Payload = bytes.Clone(j.Payload)
+	kept.Payload, kept.Carried = bytes.Clone(j.Payload), maps.Clone(j.Carried)
 	mj := &memoryJob{Job: kept}
 	if j.OneAtATime {
 		mj.alone = j.Key
@@ -176,7 +180,7 @@ func (m *Memory) Claim(_ context.Context, now, until time.Time) (*queue.Job, err
 	next.Attempts++
 	next.Key = ""
 	j := next.Job
-	j.Payload = bytes.Clone(next.Payload)
+	j.Payload, j.Carried = bytes.Clone(next.Payload), maps.Clone(next.Carried)
 	return &j, nil
 }
 
@@ -220,7 +224,7 @@ func (m *Memory) Failed(_ context.Context) ([]*queue.Job, error) {
 	for _, mj := range slices.Backward(m.jobs) {
 		if mj.failed {
 			j := mj.Job
-			j.Payload = bytes.Clone(mj.Payload)
+			j.Payload, j.Carried = bytes.Clone(mj.Payload), maps.Clone(mj.Carried)
 			failed = append(failed, &j)
 		}
 	}
@@ -250,7 +254,7 @@ func (mj *memoryJob) claimedBy(j *queue.Job) bool {
 // queue depends on, with a new, empty one for each test, and those of each
 // extra a Store may have when they have it: a ScheduleStore's, a
 // UniqueStore's, a LatestStore's, a OneAtATimeStore's, an AtOnceStore's, a
-// HoldBackStore's and a FailedStore's.
+// HoldBackStore's, a FailedStore's and a CarryStore's.
 // A Store's own tests call it, as the auth starter's do for its tables,
 // in SQLite, Postgres or MySQL:
 //
@@ -1176,6 +1180,102 @@ func TestStore(t *testing.T, open func(t *testing.T) queue.Store) {
 		}
 		if again := claimed(t, s, t0.Add(time.Hour), t0.Add(2*time.Hour)); again.ID != j.ID || again.Attempts != 1 {
 			t.Errorf("claimed %+v: want the job, from its first attempt", again)
+		}
+	})
+
+	// The rest are a CarryStore's.
+	carrieds := func(t *testing.T) queue.Store {
+		t.Helper()
+		s := open(t)
+		if _, ok := s.(queue.CarryStore); !ok {
+			t.Skip("not a CarryStore")
+		}
+		return s
+	}
+	carried := map[string]string{"request_id": "TQUEUE4TEST2", "tenant": "acme"}
+
+	t.Run("a job keeps what it carried, through its claims and a retry", func(t *testing.T) {
+		s := carrieds(t)
+		j := &queue.Job{Kind: "count", Payload: []byte(`{"n":1}`), RunAt: t0, Carried: maps.Clone(carried)}
+		if err := s.Push(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		first := claimed(t, s, t0, t0.Add(time.Minute))
+		if !reflect.DeepEqual(first.Carried, carried) {
+			t.Errorf("claimed it carrying %v, want %v", first.Carried, carried)
+		}
+		first.RunAt, first.Error = t0.Add(time.Minute), "try again"
+		if err := s.Retry(ctx, first); err != nil {
+			t.Fatal(err)
+		}
+		again := claimed(t, s, t0.Add(time.Minute), t0.Add(2*time.Minute))
+		if !reflect.DeepEqual(again.Carried, carried) {
+			t.Errorf("claimed again carrying %v, want %v", again.Carried, carried)
+		}
+		if err := s.Done(ctx, again); err != nil {
+			t.Fatal(err)
+		}
+		// One that carried nothing, as a schedule's run, claims as it did.
+		push(t, s, 2, t0.Add(time.Hour))
+		if plain := claimed(t, s, t0.Add(time.Hour), t0.Add(2*time.Hour)); len(plain.Carried) != 0 {
+			t.Errorf("a job that carried nothing was claimed carrying %v", plain.Carried)
+		}
+	})
+
+	t.Run("a unique job and a latest one keep what their first push carried", func(t *testing.T) {
+		s := carrieds(t)
+		if us, ok := s.(queue.UniqueStore); ok {
+			j := &queue.Job{Kind: "unique", Key: "k1", Payload: []byte(`{"n":1}`), RunAt: t0, Carried: maps.Clone(carried)}
+			if pushed, err := us.PushUnique(ctx, j); err != nil || !pushed {
+				t.Fatalf("PushUnique: %v, %v", pushed, err)
+			}
+		}
+		if ls, ok := s.(queue.LatestStore); ok {
+			j := &queue.Job{Kind: "latest", Key: "k2", Payload: []byte(`{"n":2}`), RunAt: t0.Add(-time.Minute), Carried: maps.Clone(carried)}
+			if err := ls.PushLatest(ctx, j); err != nil {
+				t.Fatalf("PushLatest: %v", err)
+			}
+			// A later push moves the job, which is the first push's still.
+			later := &queue.Job{Kind: "latest", Key: "k2", Payload: []byte(`{"n":2}`), RunAt: t0, Carried: map[string]string{"request_id": "TLATER"}}
+			if err := ls.PushLatest(ctx, later); err != nil {
+				t.Fatalf("PushLatest again: %v", err)
+			}
+		}
+		for {
+			j := claim(t, s, t0, t0.Add(time.Minute))
+			if j == nil {
+				break
+			}
+			if !reflect.DeepEqual(j.Carried, carried) {
+				t.Errorf("claimed the %s job carrying %v, want %v", j.Kind, j.Carried, carried)
+			}
+		}
+	})
+
+	t.Run("a failed job is listed, and runs again, with what it carried", func(t *testing.T) {
+		s := carrieds(t)
+		fs, ok := s.(queue.FailedStore)
+		if !ok {
+			t.Skip("not a FailedStore")
+		}
+		j := &queue.Job{Kind: "count", Payload: []byte(`{"n":1}`), RunAt: t0, Carried: maps.Clone(carried)}
+		if err := fs.Push(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		c := claimed(t, fs, t0, t0.Add(time.Minute))
+		c.Error, c.FailedAt = "550 no such mailbox", t0
+		if err := fs.Fail(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+		failed, err := fs.Failed(ctx)
+		if err != nil || len(failed) != 1 || !reflect.DeepEqual(failed[0].Carried, carried) {
+			t.Fatalf("listed %v, %v: want the job, carrying %v", failed, err, carried)
+		}
+		if again, err := fs.RunAgain(ctx, c.ID, t0.Add(time.Hour)); err != nil || !again {
+			t.Fatalf("RunAgain: %v, %v", again, err)
+		}
+		if again := claimed(t, fs, t0.Add(time.Hour), t0.Add(2*time.Hour)); !reflect.DeepEqual(again.Carried, carried) {
+			t.Errorf("run again carrying %v, want %v", again.Carried, carried)
 		}
 	})
 

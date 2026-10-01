@@ -44,7 +44,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M36 | Compressed assets          | done   |
 | M37 | Typed forms                | done   |
 | M38 | Typed flash                | done   |
-| M39 | Request IDs in jobs        | later  |
+| M39 | Request IDs in jobs        | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3381,15 +3381,15 @@ Choices made on the way:
   new`, typechecking with no `types.ts`, and their toasts, the tokens
   page and the recovery codes in the browser suite as before.
 
-## M39 · Request IDs in jobs — later
+## M39 · Request IDs in jobs — done
 
 A request's ID, which `middleware.RequestID` gives it and
-`middleware.Logger` logs, goes no further than the request: a job its
-handler pushes, as the auth starter's mail, runs later, on any instance,
-and its log lines, and tug's of how it went, say nothing of where it came
-from, so a job that failed for good can't be traced back to the request
-that pushed it. Laravel's Context carries what a request had into the
-jobs it dispatches, and OpenTelemetry's propagators carry a trace the
+`middleware.Logger` logs, went no further than the request: a job its
+handler pushed, as the auth starter's mail, ran later, on any instance,
+and its log lines, and tug's of how it went, said nothing of where it
+came from, so a job that failed for good couldn't be traced back to the
+request that pushed it. Laravel's Context carries what a request had into
+the jobs it dispatches, and OpenTelemetry's propagators carry a trace the
 same way. A job takes what the context it's pushed from carries, and the
 context it runs in gets it back. To be released as v0.34.0.
 
@@ -3397,7 +3397,8 @@ context it runs in gets it back. To be released as v0.34.0.
   from, and gives back to the context it runs in: `Carry(ctx, into
   map[string]string)` and `Restore(ctx, from map[string]string)
   context.Context`, the shape of OpenTelemetry's propagators, which an
-  app's trace adapts to in a few lines. `queue.Config.Carry` lists them.
+  app's trace adapts to in a few lines, as the guide shows.
+  `queue.Config.Carry` lists them.
 - **`Job.Carried`:** what a job took, by name, which a Store keeps beside
   the job, and gives back with its claim, its retries, and a failed job's
   listing.
@@ -3405,48 +3406,80 @@ context it runs in gets it back. To be released as v0.34.0.
   of the ID `RequestID` put in the context, by `request_id`, and
   `middleware.WithRequestID`, which puts one in a context, so that
   `RequestIDFrom` reads it in the job's run, and tug's log lines of the
-  job, a failure's among them, say it.
+  job, a failure's among them, say it: `a job failed, and will run again
+  kind=verify-mail job=6 attempt=1 ... request_id=SCK2WDZAHS33MHC2HQCFU7KWMK`,
+  beside the request's own line, of the same ID.
 - **The auth starter's queue carries it:** its jobs table keeps what a job
-  carried, in each database, by a migration, and its `jobs` command and
-  its admin page of failed jobs show the request each came from.
-- **The guide:** Background jobs, a section on what a job carries; and
-  Deployment, a job's log lines matched to its request's.
+  carried, in a `carried` column, in each database, by a migration, and
+  its `jobs` command and its admin page of failed jobs show the request
+  each came from: `42  verify-mail, which failed at ... after 10 attempts,
+  pushed by request SCK2WDZAHS33MHC2HQCFU7KWMK`.
+- **The guide:** Background jobs, a section on what a job carries, with a
+  Carrier of OpenTelemetry's propagator, and the starter's `carried`
+  column; Deployment, a job's log lines matched to its request's; Routing
+  and Accounts, where the ID goes; and the README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Carriers, not the request's ID alone:** the queue imports nothing of
   tug's middleware, and a trace's parent, or a tenant's ID, travels the
   same way, so the queue carries what the app lists, and the request's
   ID is middleware's Carrier, as the queue's `Limiter` is auth's
-  `Throttle`.
+  `Throttle`. Middleware doesn't import the queue either: its
+  `CarryRequestID` is a Carrier by its methods alone.
 - **An extra a Store may have:** `CarryStore`, as `UniqueStore` and the
-  rest are. A Store that doesn't keep what a job carries runs the job as
-  before, without it, so an app's own Store, as a starter's made before,
-  keeps working as it is, and `queuetest.TestStore` checks the carried
-  values only of a Store that says it keeps them.
+  rest are, with a marker method, `KeepsCarried`, as `KeepsAtOnce` is, as
+  the promise is in its pushes, claims and listing. A Store that doesn't
+  keep what a job carries runs the job as before, without it, so an
+  app's own Store, as a starter's made before, keeps working as it is,
+  and `queuetest.TestStore` checks the carried values only of a Store
+  that says it keeps them. A push to such a Store takes nothing from its
+  context, rather than take what it would lose.
 - **Text, by name, kept as JSON:** what's carried is a few strings, as a
   header's values are, kept as JSON in a column of the jobs table, as the
-  payload is, and a push whose carried values come to more than a few KB
-  fails, as a header that size would.
+  payload is, NULL for nothing, and a push whose carried values come to
+  more than 4 KB as JSON fails, as a header that size would.
 - **Carried however it's pushed:** `Push`, `PushAt`, `PushUnique` and
   `PushLatest`, and in a handler's transaction through `In`, each from
   the context it's given. A schedule's runs, which the queue pushes,
   carry nothing, and a job run again from the failed keeps what it
   carried.
+- **A job's own push's:** a unique push that finds its job waiting
+  pushes nothing, and a latest one moves the job that waits, and either
+  way the job keeps what its own push carried, as it keeps its payload:
+  the job is that push's, moved. The tables' upserts leave the column as
+  it was, and `TestStore` checks a second latest push leaves it.
+- **Given back before anything of the job's runs:** a `Rate`'s limiter
+  and the handler have what the job carried in their context, and so
+  does `OnFail`, whose context is its own, without the job's deadline,
+  but with its values.
+- **What comes back is checked:** what's carried has been in the
+  database, so `CarryRequestID` gives back only an ID as plain as
+  `RequestID` keeps one, as it ends up in logs and in the headers of what
+  the job sends on.
 - **In tug's log lines of a job:** each line the queue writes of a job,
-  as one that failed for good, has what it carried, by name, beside its
-  kind and ID, so the line says which request pushed the job. The app's
-  own lines in the handler have the context, and `RequestIDFrom`.
+  as one that failed for good, has what it carried, by name, after its
+  kind, ID and the rest, so the line says which request pushed the job.
+  The app's own lines in the handler have the context, and
+  `RequestIDFrom`. `Observe`'s `Ran` leaves it out, as a request's ID is
+  no label for a metric.
+- **The migration has no down part:** as the starter's own have none
+  (M33), `add_carried_to_jobs` only adds the column, and `migrate down`
+  leaves it, as the starter's test of the command found.
+- **On the failed jobs page, a line of its own words:** ", pushed by
+  request" and the ID, in each frontend, after the attempts; Vue's is on
+  the line it follows, as a line break in its template would be a space.
 - **Tests:** a job pushed from a request's context run with the ID back
   in its own, by `RequestIDFrom`, and in the queue's log line of its
-  failure; each way of pushing carrying, and a schedule's runs not; a
-  retry and a run again keeping what was carried; a Store that keeps
-  nothing carried running the job as before; carried values past the
-  limit failing the push; `TestStore` on the memory store, and on each of
-  the auth starter's databases, after its migration; an app made before,
-  its jobs table without the column, migrated; and the auth starter's
-  failed jobs showing the request, in its command and on its page, in
-  each frontend.
+  failure, and in `OnFail`'s context; each way of pushing carrying, and a
+  schedule's runs not; a retry and a run again keeping what was carried;
+  a second latest push leaving the first's; a Store that keeps nothing
+  carried running the job as before; carried values past the limit
+  failing the push; an ID that isn't plain not given back; `TestStore`
+  on the memory store, and on each of the auth starter's databases,
+  after its migration; and in the auth starter, a request's ID, sent as
+  `X-Request-ID`, in the claim of the mail it pushed, and the failed
+  jobs showing the request, in its command and on its page.
 
 ## Decisions
 

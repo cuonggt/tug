@@ -18,6 +18,7 @@ import (
 	"github.com/cuonggt/tug/broadcast"
 	"github.com/cuonggt/tug/mail"
 	"github.com/cuonggt/tug/mail/mailtest"
+	"github.com/cuonggt/tug/middleware"
 	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/session"
 	"github.com/cuonggt/tug/storage"
@@ -54,7 +55,7 @@ func newTestApp(t *testing.T) *testApp {
 func startApp(t *testing.T, db *sql.DB, keys [][]byte) *testApp {
 	t.Helper()
 	out := &mailtest.Outbox{}
-	q := queue.New(queue.Config{Store: &jobs{db: db}, Poll: 10 * time.Millisecond})
+	q := queue.New(queue.Config{Store: &jobs{db: db}, Poll: 10 * time.Millisecond, Carry: []queue.Carrier{middleware.CarryRequestID}})
 	hub := &broadcast.Hub{Store: &broadcasts{db: db}}
 	files := filepath.Join(t.TempDir(), "files")
 	disk := &storage.Local{Dir: files, BaseURL: "/files", Keys: keys}

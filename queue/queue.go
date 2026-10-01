@@ -61,6 +61,13 @@ type Config struct {
 	// called in the worker that ran the job, which waits for it, so it's
 	// quick, as a counter is.
 	Observe func(Ran)
+
+	// Carry is what a job takes from the context it's pushed from, and
+	// gives back to the context it runs in: middleware.CarryRequestID, the
+	// ID of the request that pushed it, which the queue's log lines of the
+	// job say too, or a trace's parent. A job carries it in a Store that
+	// keeps it, a CarryStore, and nothing in one that doesn't.
+	Carry []Carrier
 }
 
 // Queue pushes jobs to its Store, and runs them.
@@ -70,6 +77,7 @@ type Queue struct {
 	poll    time.Duration
 	grace   time.Duration
 	observe func(Ran)
+	carry   []Carrier
 	now     func() time.Time
 
 	mu        sync.Mutex
@@ -122,6 +130,7 @@ func New(cfg Config) *Queue {
 		poll:     cfg.Poll,
 		grace:    cfg.Grace,
 		observe:  cfg.Observe,
+		carry:    cfg.Carry,
 		now:      time.Now,
 		handlers: make(map[string]*handler),
 		wake:     make(chan struct{}, 1),
@@ -171,7 +180,7 @@ func (q *Queue) Run(ctx context.Context) error {
 		running.Go(func() {
 			defer func() { <-slots }()
 			if err := q.run(jobs, j); err != nil {
-				slog.Error("the job queue can't record how a job went", "kind", j.Kind, "job", j.ID, "err", err)
+				slog.Error("the job queue can't record how a job went", about(j, "err", err)...)
 			}
 		})
 	}
@@ -278,6 +287,7 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		// where the kind is new: one that knows it may claim it next time.
 		h = &handler{attempts: defaultAttempts, timeout: defaultTimeout, backoff: backoff}
 	}
+	ctx = q.restore(ctx, j)
 	waited := max(q.now().Sub(j.RunAt), 0)
 	if h.rate != nil {
 		if held, err := q.held(ctx, h, j); held || err != nil {
@@ -307,7 +317,7 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		return nil
 	case ctx.Err() != nil:
 		j.RunAt, j.Error = q.now(), err.Error()
-		slog.Info("a job was stopped with the job queue, and will run again", "kind", j.Kind, "job", j.ID)
+		slog.Info("a job was stopped with the job queue, and will run again", about(j)...)
 		if err := q.store.Retry(sctx, j); err != nil {
 			return err
 		}
@@ -315,7 +325,7 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		return nil
 	case errors.As(err, new(permanentError)) || j.Attempts >= h.attempts:
 		j.Error, j.FailedAt = err.Error(), q.now()
-		slog.Error("a job failed, and won't run again", "kind", j.Kind, "job", j.ID, "attempts", j.Attempts, "err", err)
+		slog.Error("a job failed, and won't run again", about(j, "attempts", j.Attempts, "err", err)...)
 		if failErr := q.store.Fail(sctx, j); failErr != nil {
 			return failErr
 		}
@@ -324,7 +334,7 @@ func (q *Queue) run(ctx context.Context, j *Job) error {
 		return nil
 	default:
 		j.RunAt, j.Error = q.now().Add(h.backoff(j.Attempts)), err.Error()
-		slog.Warn("a job failed, and will run again", "kind", j.Kind, "job", j.ID, "attempt", j.Attempts, "at", j.RunAt, "err", err)
+		slog.Warn("a job failed, and will run again", about(j, "attempt", j.Attempts, "at", j.RunAt, "err", err)...)
 		if err := q.store.Retry(sctx, j); err != nil {
 			return err
 		}
@@ -347,12 +357,12 @@ func (q *Queue) held(ctx context.Context, h *handler, j *Job) (bool, error) {
 	case ctx.Err() != nil:
 		wait = 0
 	case err != nil:
-		slog.Error("the job queue can't tell whether a job's rate lets it start, and holds it back", "kind", j.Kind, "job", j.ID, "for", heldOnError, "err", err)
+		slog.Error("the job queue can't tell whether a job's rate lets it start, and holds it back", about(j, "for", heldOnError, "err", err)...)
 		wait = heldOnError
 	case wait <= 0:
 		return false, nil
 	default:
-		slog.Debug("a job's rate holds it back", "kind", j.Kind, "job", j.ID, "for", wait)
+		slog.Debug("a job's rate holds it back", about(j, "for", wait)...)
 	}
 	if h.unique {
 		j.Key = keyOf(j.Payload) // it waits with its key again, as it did

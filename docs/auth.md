@@ -553,10 +553,13 @@ An admin may do anything the app's abilities name, as the gate in
 `abilities.go` lets them ([Authorization](authorization.md)). The
 starter's one ability is seeing the jobs that failed for good, on a page
 of the admins', `/admin/failed-jobs`, in the header's nav for them, which
-lists the jobs, the latest first, with the value each was pushed with and
-its error, and runs one, or all, again from their first attempt, as the
-`jobs` command does, and wakes the queue. A user who isn't an admin gets
-a 403, the error page, "you may not see the jobs that failed".
+lists the jobs, the latest first, with the value each was pushed with,
+its error, and the ID of the request that pushed it, which the queue's
+log lines of the job have too
+([Background jobs](jobs.md#what-a-job-carries)), and runs one, or all,
+again from their first attempt, as the `jobs` command does, and wakes the
+queue. A user who isn't an admin gets a 403, the error page, "you may not
+see the jobs that failed".
 
 - A user is an admin by the users table's `admin` column, which the
   binary's `admins` command sets, with `add` and `remove`, where it runs,
@@ -711,7 +714,7 @@ starts ([Migrations](migrations.md)):
 migrations/20260925171438_create_users.sql
 migrations/20260926042744_create_jobs.sql
 ...
-migrations/20260930042916_create_notifications.sql
+migrations/20261001121927_add_carried_to_jobs.sql
 ```
 
 To change the tables, add a migration, `tug migrate new add_bio_to_users`,

@@ -552,6 +552,17 @@ Warn, and the rest at Info. A server error's details go to the log, in a
 "request failed" line with the error and a panic's stack, and not to the
 response while `APP_DEBUG` is off.
 
+The queue's lines of a job have the ID of the request that pushed it,
+when the queue carries it, as the auth starter's does
+([Background jobs](jobs.md#what-a-job-carries)): a job that failed hours
+later, on another instance, is found by its request's ID, and the other
+way round.
+
+```
+2026/10/01 19:29:46 INFO request method=POST path=/register status=303 size=0 duration=27.871042ms route="POST /register" request_id=SCK2WDZAHS33MHC2HQCFU7KWMK
+2026/10/01 19:29:46 WARN a job failed, and will run again kind=verify-mail job=6 attempt=1 at=2026-10-01T19:29:47.319+07:00 err="mail: dial tcp 127.0.0.1:1: connect: connection refused" request_id=SCK2WDZAHS33MHC2HQCFU7KWMK
+```
+
 For JSON lines, as most log collectors want, set the default at the start
 of `main`:
 

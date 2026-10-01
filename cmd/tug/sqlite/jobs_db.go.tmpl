@@ -32,10 +32,10 @@ func (s *jobs) PushUnique(ctx context.Context, j *queue.Job) (bool, error) {
 func (s *jobs) PushLatest(ctx context.Context, j *queue.Job) error {
 	var id int64
 	err := s.pushes().QueryRowContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0))
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once, carried) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0), NULLIF(?, ''))
 		ON CONFLICT (kind, unique_key) WHERE unique_key IS NOT NULL DO UPDATE SET run_at = excluded.run_at
 		RETURNING id`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce).Scan(&id)
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce, carriedOf(j)).Scan(&id)
 	if err != nil {
 		return err
 	}
@@ -78,9 +78,9 @@ func (s *jobs) PushScheduled(ctx context.Context, schedule string, j *queue.Job)
 func insertJob(ctx context.Context, db dbtx, j *queue.Job) (bool, error) {
 	var id int64
 	err := db.QueryRowContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0))
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once, carried) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0), NULLIF(?, ''))
 		ON CONFLICT DO NOTHING RETURNING id`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce).Scan(&id)
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce, carriedOf(j)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -120,15 +120,15 @@ func (s *jobs) Claim(ctx context.Context, now, until time.Time) (*queue.Job, err
 	j := &queue.Job{}
 	var id, runAt int64
 	var payload string
-	var lastErr sql.NullString
+	var lastErr, carried sql.NullString
 	err = s.db.QueryRowContext(ctx, `
 		UPDATE jobs SET held_until = ?2, attempts = attempts + 1, unique_key = NULL
 		WHERE id = (
 			SELECT due.id FROM jobs AS due WHERE `+claimable+`
 			ORDER BY due.run_at, due.id LIMIT 1
 		)
-		RETURNING id, kind, payload, run_at, attempts, error`, now.UnixMilli(), until.UnixMilli()).
-		Scan(&id, &j.Kind, &payload, &runAt, &j.Attempts, &lastErr)
+		RETURNING id, kind, payload, run_at, attempts, error, carried`, now.UnixMilli(), until.UnixMilli()).
+		Scan(&id, &j.Kind, &payload, &runAt, &j.Attempts, &lastErr, &carried)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil // another instance's claim got there first
 	}
@@ -136,6 +136,7 @@ func (s *jobs) Claim(ctx context.Context, now, until time.Time) (*queue.Job, err
 		return nil, err
 	}
 	j.ID, j.Payload, j.RunAt, j.Error = strconv.FormatInt(id, 10), []byte(payload), time.UnixMilli(runAt), lastErr.String
+	j.Carried = carriedFrom(carried)
 	return j, nil
 }
 
@@ -184,7 +185,7 @@ func (s *jobs) HoldBack(ctx context.Context, j *queue.Job, until time.Time) erro
 // Failed lists the jobs that failed for good, the latest first.
 func (s *jobs) Failed(ctx context.Context) ([]*queue.Job, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, kind, payload, attempts, error, failed_at FROM jobs
+		SELECT id, kind, payload, attempts, error, failed_at, carried FROM jobs
 		WHERE failed_at IS NOT NULL ORDER BY failed_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
@@ -195,11 +196,11 @@ func (s *jobs) Failed(ctx context.Context) ([]*queue.Job, error) {
 		j := &queue.Job{}
 		var id int64
 		var payload string
-		var lastErr sql.NullString
-		if err := rows.Scan(&id, &j.Kind, &payload, &j.Attempts, &lastErr, &j.FailedAt); err != nil {
+		var lastErr, carried sql.NullString
+		if err := rows.Scan(&id, &j.Kind, &payload, &j.Attempts, &lastErr, &j.FailedAt, &carried); err != nil {
 			return nil, err
 		}
-		j.ID, j.Payload, j.Error = strconv.FormatInt(id, 10), []byte(payload), lastErr.String
+		j.ID, j.Payload, j.Error, j.Carried = strconv.FormatInt(id, 10), []byte(payload), lastErr.String, carriedFrom(carried)
 		failed = append(failed, j)
 	}
 	return failed, rows.Err()

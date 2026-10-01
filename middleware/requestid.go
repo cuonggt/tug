@@ -35,6 +35,37 @@ func RequestIDFrom(ctx context.Context) string {
 	return id
 }
 
+// WithRequestID returns ctx with id as the ID of the request it's from, as
+// RequestID puts one, for RequestIDFrom to read: in a job a request
+// pushed, say.
+func WithRequestID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, requestIDKey{}, id)
+}
+
+// CarryRequestID is a queue.Carrier of the ID RequestID gives a request,
+// by the name request_id: a job the request pushes, through a queue whose
+// Config.Carry has it, takes the ID, and RequestIDFrom reads it in the
+// job's run, as the queue's log lines of the job say it, so a job's lines
+// and its request's are matched up.
+var CarryRequestID carryRequestID
+
+type carryRequestID struct{}
+
+func (carryRequestID) Carry(ctx context.Context, into map[string]string) {
+	if id := RequestIDFrom(ctx); id != "" {
+		into["request_id"] = id
+	}
+}
+
+// Restore takes the ID back only when it's as plain as RequestID keeps one,
+// as it ends up in logs, and in the headers of what the job sends on.
+func (carryRequestID) Restore(ctx context.Context, from map[string]string) context.Context {
+	if id := from["request_id"]; plainID(id) {
+		return WithRequestID(ctx, id)
+	}
+	return ctx
+}
+
 // plainID reports whether an ID from outside is short and plain enough to
 // keep. It ends up in logs and response headers, so anything else is
 // replaced rather than trusted.

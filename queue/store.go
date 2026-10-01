@@ -48,6 +48,13 @@ type Job struct {
 	// FailedAt is when the job failed for good, which Fail keeps and a
 	// FailedStore lists; zero for a job that hasn't.
 	FailedAt time.Time
+
+	// Carried is what the context the job was pushed from carried, by
+	// name, as Config.Carry's Carriers took it: the ID of the request that
+	// pushed it, say. A CarryStore keeps it beside the job, and gives it
+	// back with the job's claims, and with its listing as failed. nil for
+	// nothing carried.
+	Carried map[string]string
 }
 
 // Store keeps a Queue's jobs, from Push until they're done, or kept as
@@ -151,6 +158,23 @@ type AtOnceStore interface {
 	// KeepsAtOnce does nothing. It says that the Store keeps the promise,
 	// which is in its pushes and its claims, for Handle to know.
 	KeepsAtOnce()
+}
+
+// CarryStore is a Store that also keeps what a job carried from the
+// context it was pushed from, Job.Carried, for Config.Carry: its pushes
+// keep it, a unique job's and a latest one's among them, and Claim, and a
+// FailedStore's Failed, give it back, through the job's retries and a run
+// again. A push that pushes nothing, as a unique one whose job waits, or
+// one that moves the job that waits, as a latest one, leaves the job what
+// its own push carried. A job pushed to a Store that isn't one carries
+// nothing.
+type CarryStore interface {
+	Store
+
+	// KeepsCarried does nothing. It says that the Store keeps the promise,
+	// which is in its pushes, its claims and its listing, for a push to
+	// know.
+	KeepsCarried()
 }
 
 // HoldBackStore is a Store that also puts a claimed job back as its claim

@@ -77,7 +77,7 @@ func (q *Queue) tell(j *Job, o Outcome, err error, took, waited time.Duration) {
 	}
 	defer func() {
 		if v := recover(); v != nil {
-			slog.Error("the job queue's Observe panicked", "kind", j.Kind, "job", j.ID, "panic", v, "stack", string(debug.Stack()))
+			slog.Error("the job queue's Observe panicked", about(j, "panic", v, "stack", string(debug.Stack()))...)
 		}
 	}()
 	q.observe(Ran{Kind: j.Kind, Attempt: j.Attempts, Outcome: o, Err: err, Took: took, Waited: waited})

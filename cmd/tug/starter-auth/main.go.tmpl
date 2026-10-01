@@ -113,7 +113,9 @@ func main() {
 	if err != nil || workers < 0 {
 		log.Fatal("QUEUE_WORKERS is how many jobs the app runs at once, such as 4, or 0 for none")
 	}
-	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers})
+	// A job takes the ID of the request that pushed it, for its log lines
+	// to be matched with the request's.
+	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers, Carry: []queue.Carrier{middleware.CarryRequestID}})
 	// Events, to the pages open on any instance, which the database carries
 	// between them: broadcasts.go.
 	hub := &broadcast.Hub{Store: &broadcasts{db: db}}

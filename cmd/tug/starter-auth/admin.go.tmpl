@@ -30,6 +30,10 @@ type FailedJob struct {
 	Attempts int       `json:"attempts"`
 	Error    string    `json:"error"`
 	FailedAt time.Time `json:"failedAt"`
+
+	// Request is the ID of the request that pushed it, which its log lines
+	// have, or "" for a job no request pushed, as a schedule's.
+	Request string `json:"request"`
 }
 
 // failedJobsPage lists the jobs that failed for good, which are kept for
@@ -41,7 +45,7 @@ func (a *app) failedJobsPage(c *tug.Ctx, _ *User) error {
 	}
 	jobs := make([]FailedJob, len(failed))
 	for i, j := range failed {
-		jobs[i] = FailedJob{ID: j.ID, Kind: j.Kind, Payload: string(j.Payload), Attempts: j.Attempts, Error: j.Error, FailedAt: j.FailedAt}
+		jobs[i] = FailedJob{ID: j.ID, Kind: j.Kind, Payload: string(j.Payload), Attempts: j.Attempts, Error: j.Error, FailedAt: j.FailedAt, Request: j.Carried["request_id"]}
 	}
 	return FailedJobs.Render(c, FailedJobsProps{Jobs: jobs})
 }

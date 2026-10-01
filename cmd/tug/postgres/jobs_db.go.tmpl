@@ -33,10 +33,10 @@ func (s *jobs) PushUnique(ctx context.Context, j *queue.Job) (bool, error) {
 func (s *jobs) PushLatest(ctx context.Context, j *queue.Job) error {
 	var id int64
 	err := s.pushes().QueryRowContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, 0))
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once, carried) VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, 0), NULLIF($7, ''))
 		ON CONFLICT (kind, unique_key) WHERE unique_key IS NOT NULL DO UPDATE SET run_at = excluded.run_at
 		RETURNING id`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce).Scan(&id)
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce, carriedOf(j)).Scan(&id)
 	if err != nil {
 		return err
 	}
@@ -80,9 +80,9 @@ func (s *jobs) PushScheduled(ctx context.Context, schedule string, j *queue.Job)
 func insertJob(ctx context.Context, db dbtx, j *queue.Job) (bool, error) {
 	var id int64
 	err := db.QueryRowContext(ctx, `
-		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once) VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, 0))
+		INSERT INTO jobs (kind, payload, run_at, unique_key, alone_key, at_once, carried) VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, 0), NULLIF($7, ''))
 		ON CONFLICT DO NOTHING RETURNING id`,
-		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce).Scan(&id)
+		j.Kind, string(j.Payload), j.RunAt.UnixMilli(), j.Key, aloneKey(j), j.AtOnce, carriedOf(j)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -182,18 +182,18 @@ func (s *jobs) claim(ctx context.Context, now, until time.Time) (_ *queue.Job, a
 	j := &queue.Job{ID: strconv.FormatInt(id, 10)}
 	var runAt int64
 	var payload string
-	var lastErr sql.NullString
+	var lastErr, carried sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		UPDATE jobs SET held_until = $2, attempts = attempts + 1, unique_key = NULL WHERE id = $1
-		RETURNING kind, payload, run_at, attempts, error`, id, until.UnixMilli()).
-		Scan(&j.Kind, &payload, &runAt, &j.Attempts, &lastErr)
+		RETURNING kind, payload, run_at, attempts, error, carried`, id, until.UnixMilli()).
+		Scan(&j.Kind, &payload, &runAt, &j.Attempts, &lastErr, &carried)
 	if err != nil {
 		return nil, false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, false, err
 	}
-	j.Payload, j.RunAt, j.Error = []byte(payload), time.UnixMilli(runAt), lastErr.String
+	j.Payload, j.RunAt, j.Error, j.Carried = []byte(payload), time.UnixMilli(runAt), lastErr.String, carriedFrom(carried)
 	return j, false, nil
 }
 
@@ -241,7 +241,7 @@ func (s *jobs) HoldBack(ctx context.Context, j *queue.Job, until time.Time) erro
 // Failed lists the jobs that failed for good, the latest first.
 func (s *jobs) Failed(ctx context.Context) ([]*queue.Job, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, kind, payload, attempts, error, failed_at FROM jobs
+		SELECT id, kind, payload, attempts, error, failed_at, carried FROM jobs
 		WHERE failed_at IS NOT NULL ORDER BY failed_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
@@ -252,11 +252,11 @@ func (s *jobs) Failed(ctx context.Context) ([]*queue.Job, error) {
 		j := &queue.Job{}
 		var id int64
 		var payload string
-		var lastErr sql.NullString
-		if err := rows.Scan(&id, &j.Kind, &payload, &j.Attempts, &lastErr, &j.FailedAt); err != nil {
+		var lastErr, carried sql.NullString
+		if err := rows.Scan(&id, &j.Kind, &payload, &j.Attempts, &lastErr, &j.FailedAt, &carried); err != nil {
 			return nil, err
 		}
-		j.ID, j.Payload, j.Error = strconv.FormatInt(id, 10), []byte(payload), lastErr.String
+		j.ID, j.Payload, j.Error, j.Carried = strconv.FormatInt(id, 10), []byte(payload), lastErr.String, carriedFrom(carried)
 		failed = append(failed, j)
 	}
 	return failed, rows.Err()
