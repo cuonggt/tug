@@ -1,0 +1,157 @@
+{{define "at"}}{{if .Link}}<a href="{{.Link}}">{{.File}}:{{.Line}}</a>{{else}}{{.File}}:{{.Line}}{{end}}{{end -}}
+{{define "lines"}}<pre class="source">{{range .}}<span class="line{{if .At}} at{{end}}"><span class="n">{{.N}}</span>{{.Text}}</span>{{end}}</pre>{{end -}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.StatusText}}: {{.Message}}</title>
+<style{{with .Nonce}} nonce="{{.}}"{{end}}>
+:root {
+	color-scheme: light dark;
+	--bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --panel: #f6f8fa;
+	--accent: #cf222e; --at: #fff1cc; --link: #0969da;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --panel: #151b23;
+		--accent: #ff7b72; --at: #3a2d05; --link: #4493f8;
+	}
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { margin: 0; color: var(--fg); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 64rem; margin: 0 auto; padding: 2.5rem 1.5rem 3rem; }
+header { padding-bottom: 1.5rem; border-bottom: 1px solid var(--line); }
+.status { margin: 0 0 .5rem; color: var(--accent); font-size: .8rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+h1 { margin: 0; font-size: 1.45rem; font-weight: 600; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
+.where { margin: .75rem 0 0; color: var(--muted); }
+section { margin-top: 2.25rem; }
+h2 { margin: 0 0 .75rem; color: var(--muted); font-size: .75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: .85rem; }
+a { color: var(--link); }
+.note { margin: .75rem 0 0; color: var(--muted); }
+ol.causes { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 8px; }
+ol.causes li { padding: .6rem .9rem; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+ol.causes li:first-child { border-top: 0; }
+ol.causes li.depth-1 { padding-left: 2.15rem; }
+ol.causes li.depth-2 { padding-left: 3.4rem; }
+ol.causes li.depth-3 { padding-left: 4.65rem; }
+ol.causes li.depth-4 { padding-left: 5.9rem; }
+.type { margin-right: .6rem; color: var(--muted); }
+.frame { margin: 0 0 .75rem; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
+.frame .head { padding: .55rem .9rem; background: var(--panel); }
+.frame .head + pre { border-top: 1px solid var(--line); }
+.func { font-weight: 600; overflow-wrap: anywhere; }
+.file { color: var(--muted); overflow-wrap: anywhere; }
+pre.source { margin: 0; padding: .45rem 0; overflow-x: auto; line-height: 1.6; tab-size: 4; }
+.line { display: block; padding-right: .9rem; white-space: pre; }
+.line .n { display: inline-block; width: 4.5rem; padding-right: 1.25rem; color: var(--muted); text-align: right; user-select: none; }
+.line.at { background: var(--at); box-shadow: inset 3px 0 var(--accent); }
+details.folded { margin: 0 0 .75rem; border: 1px dashed var(--line); border-radius: 8px; }
+details.folded > summary { padding: .55rem .9rem; color: var(--muted); cursor: pointer; }
+details.folded .row { padding: .45rem .9rem; border-top: 1px solid var(--line); }
+pre.stack { margin: 0; padding: .75rem .9rem; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1.25rem; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.added { margin-top: 1rem; }
+table { width: 100%; margin-top: 1.25rem; border-collapse: collapse; }
+th, td { padding: .35rem .75rem .35rem 0; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { width: 1%; color: var(--muted); font-weight: 500; white-space: nowrap; }
+td { overflow-wrap: anywhere; }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+<header>
+<p class="status">{{.Status}} {{.StatusText}}</p>
+<h1>{{.Message}}</h1>
+{{- with .Route}}
+<p class="where"><code>{{.Route}}</code>{{with .Name}} · <code>{{.}}</code>{{end}}</p>
+{{- end}}
+</header>
+
+<section>
+<h2>The error</h2>
+<ol class="causes">
+{{- range .Errors}}
+<li class="depth-{{.Depth}}"><code class="type">{{.Type}}</code>{{.Message}}</li>
+{{- end}}
+</ol>
+{{- if and .Returned .Route}}
+<p class="note">An error a handler returns has no stack: the route below answered the request, at the lines that added it.</p>
+{{- end}}
+</section>
+{{- with .Panic}}
+
+<section>
+<h2>The stack</h2>
+{{- range .Groups}}
+{{- if .App}}
+{{- range .Frames}}
+<div class="frame">
+<div class="head"><div class="func mono">{{.Function}}</div><div class="file mono">{{template "at" .}}</div></div>
+{{- with .Lines}}
+{{template "lines" .}}
+{{- end}}
+</div>
+{{- end}}
+{{- else}}
+<details class="folded">
+<summary>{{.Summary}}</summary>
+{{- range .Frames}}
+<div class="row"><div class="func mono">{{.Function}}</div><div class="file mono">{{template "at" .}}</div></div>
+{{- end}}
+</details>
+{{- end}}
+{{- end}}
+{{- with .Stack}}
+<pre class="stack">{{.}}</pre>
+{{- end}}
+</section>
+{{- end}}
+{{- with .Route}}
+
+<section>
+<h2>The route</h2>
+<dl>
+<dt>Route</dt><dd><code>{{.Route}}</code></dd>
+{{- with .Name}}
+<dt>Name</dt><dd><code>{{.}}</code></dd>
+{{- end}}
+<dt>Handler</dt><dd><code>{{.Handler}}</code></dd>
+{{- with .Added}}
+<dt>Added</dt><dd class="mono">{{template "at" .}}</dd>
+{{- end}}
+</dl>
+{{- with .Added}}{{with .Lines}}
+<div class="frame added">{{template "lines" .}}</div>
+{{- end}}{{end}}
+</section>
+{{- end}}
+
+<section>
+<h2>The request</h2>
+<dl>
+<dt>Method</dt><dd><code>{{.Request.Method}}</code></dd>
+<dt>URL</dt><dd><code>{{.Request.URL}}</code></dd>
+{{- range .Request.Values}}
+<dt><code>{{.Name}}</code></dt><dd><code>{{.Value}}</code></dd>
+{{- end}}
+{{- with .Request.ID}}
+<dt>Request ID</dt><dd><code>{{.}}</code></dd>
+{{- end}}
+</dl>
+<table>
+{{- range .Request.Headers}}
+<tr><th class="mono">{{.Name}}</th><td class="mono">{{.Value}}</td></tr>
+{{- end}}
+</table>
+</section>
+
+<footer>Go {{.Go}}{{with .Tug}} · tug {{.}}{{end}}. This page is shown as <code>APP_DEBUG</code> is on, which a deployed app leaves off.</footer>
+</main>
+</body>
+</html>

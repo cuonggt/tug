@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M39 are done, which is
+the decisions behind it and where it stands: M1 to M40 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -100,7 +100,12 @@ and request IDs in jobs (v0.34.0): `queue.Carrier`, what a job takes from
 the context it's pushed from and gives back to its run's, kept by a
 `CarryStore`, and `middleware.CarryRequestID`, so the queue's lines of a
 job have the ID of the request that pushed it, as the auth starter's
-failed jobs, in its command and on its page, do.
+failed jobs, in its command and on its page, do, and a debug error page
+(v0.35.0): with `APP_DEBUG` on, a server error as a page of the error and
+what it wraps, a panic's stack, the app's frames open, with their source
+around them, the rest folded, the route that answered and the lines that
+added it, and the request, its secrets redacted, which Inertia's client
+shows in its modal, with links to the editor `APP_EDITOR` names.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -169,7 +174,7 @@ dev server that isn't there: delete it.
 
 - `tug`, the root package:
   - `app.go`: `Config` (`ConfigFromEnv` reads ADDR, PORT, APP_DEBUG,
-    APP_URL, and TUG_DEV, for `DevTools`; `New` panics on a `URL` that
+    APP_URL, APP_EDITOR, for `Editor`, and TUG_DEV, for `DevTools`; `New` panics on a `URL` that
     `appURL`, in links.go, doesn't take), `App`, `Run` and `Serve` with graceful shutdown, and misses. At
     the first request, `freeze` adds `/` as a catch-all, unless a route
     already takes every path under every method. The catch-all answers
@@ -202,8 +207,9 @@ dev server that isn't there: delete it.
     Each route's handler in the mux records the route as it's matched,
     `shown`, its `String`, with no `{$}`, before its middleware, which
     `RouteOf` reads, or, with no place, `shownPattern` of `r.Pattern`,
-    where `/` is the misses' catch-all, and none. Under DevTools, a route
-    keeps where the app added it (`added`, from `devtools.Caller`), and
+    where `/` is the misses' catch-all, and none. Under DevTools, or
+    Debug, a route keeps where the app added it (`added`, from
+    `devtools.Caller`), and under DevTools
     records itself in the request's Recording as it's matched
     (`Route.devtools`: its path, name, and handler, by the function's name
     without a method value's `-fm`). `Takes` keeps the struct a route's
@@ -244,9 +250,22 @@ dev server that isn't there: delete it.
     `StatusCode`, as auth's `Denial`, with its status, and its words under
     500, and `errorPage`, which renders
     `Config.ErrorPage` with `RenderStatus` for browsers and Inertia's
-    client, unless Debug is showing a 500's details. `adapt` in app.go
-    recovers handler panics into `*PanicError`, and re-panics
+    client, unless Debug is showing a 500's details, through `debugError`.
+    `adapt` in app.go recovers handler panics into `*PanicError`, with
+    their program counters (`pcs`) beside the text, and re-panics
     `http.ErrAbortHandler`.
+  - `debugpage.go`: under Debug, `debugError` answers a 5xx with the page
+    `debugpage.html` makes, to a client that `takesHTML`, JSON to one that
+    `wantsJSON`, and the text otherwise: `debugPage`, the error's `causes`
+    (each it wraps, by `Unwrap`, those joined a level in, and a panic's
+    value that isn't an error), `panicOf` (its frames from the one that
+    panicked, `fromThePanic`, in groups of the app's, by
+    `internal/frames`, with their lines from `sources`, and the others',
+    `folded`), the route (`funcName`, and the lines where it was `added`),
+    and `requestOf`, through DevTools' redaction; `editorLink` makes a
+    `template.URL` by `Config.Editor`, one of `editors` or a link of the
+    app's. The page has no script, as Inertia's modal runs it under the
+    page's own policy; its style carries the response's nonce.
   - `commands.go`: `Command` adds one of the app's commands (`command`,
     in the App's `commands`), which `Run` runs in place of serving
     (`runCommand`) when it has any and the binary has an argument, with
@@ -459,17 +478,22 @@ dev server that isn't there: delete it.
   `responseBody`, `componentPath` (in `resources/js/pages`), and the
   route's action, `by`'s, or else `bound`'s, the function that read the
   request, where it's `defined`, over the router's own. `caller.go`:
-  `Caller`, the app's frame on the stack, before `Serve`'s, and `apps`:
-  neither tug's, by its package or by its file under `tugDir`, as a
-  closure of tug's inlined into the app's has the app's name, though
-  tug's `_test.go` files and `examples/` are apps, nor the standard
-  library's, by its file under `stdDir`, or a package whose path's first
-  element has no dot, unless it's `mainModule`'s. `redact.go`: `[REDACTED]` for the values of secret keys
+  `Caller`, the app's frame on the stack, before `Serve`'s, and `apps`,
+  the app's or a dependency's, as `internal/frames` tells them.
+  `redact.go`: `[REDACTED]` for the values of secret keys
   (`plainKey`: in any case, without `_` or `-`), at any depth, and of the
-  query, and secret headers. `store.go`: an entry per file, named by its
+  query, and secret headers, which `RedactHeaders` and `RedactQuery` do
+  for the debug page too. `store.go`: an entry per file, named by its
   ULID (`ulid.go`, monotonic in a millisecond), an index of their metas
   read at the first use, the newest `keepPerTab` of each tab, and none
   older than `keepFor`, pruned every `pruneEvery`.
+- `internal/frames`: whose a frame is (`Of`, an `Owner`): tug's, by its
+  package or by its file under `TugDir`, as a closure of tug's inlined
+  into the app's has the app's name, though tug's `_test.go` files and
+  `examples/` are apps; the standard library's, by its file under
+  `StdDir`, or a package whose path's first element has no dot, unless
+  it's the app's `Module`'s; the app's, `main` or its module's; and else
+  a dependency's. DevTools and the debug page share it.
 - `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
   values: `pages.ts` (an interface per named struct, `SharedProps`,
   `Pages`, `PageProps`, `FlashData`, the keys `tug.Flash` declares, each

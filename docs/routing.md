@@ -38,7 +38,8 @@ Every field has a default, so the zero `Config` works:
 | Field             | Default               | What it is |
 |-------------------|-----------------------|------------|
 | `Addr`            | `":8080"`             | Where `Run` listens. |
-| `Debug`           | `false`               | Puts a server error's details, and a panic's stack, into the response. It's for development: in production they belong in the log only. |
+| `Debug`           | `false`               | Shows a server error with its details: a page of the error, a panic's stack with the app's source around it, the route that answered and the request. It's for development: in production they belong in the log only. See [While debugging](#while-debugging). |
+| `Editor`          | none                  | The editor `Debug`'s page opens a frame's file in: `vscode`, `cursor`, `zed`, `goland` or `sublime`, or a link with `{file}` and `{line}` in it. |
 | `ErrorHandler`    | `DefaultErrorHandler` | Answers the errors handlers return, and the 404s and 405s of requests no route takes. See [Errors](#errors). |
 | `BodyLimit`       | 32 MiB                | The largest request body `Bind` reads; a larger one is a 413. |
 | `ShutdownTimeout` | 10 seconds            | How long `Run` waits for the requests in flight after SIGINT or SIGTERM. |
@@ -54,8 +55,8 @@ Every field has a default, so the zero `Config` works:
 `ConfigFromEnv` reads `ADDR`, the address to listen on, such as
 `127.0.0.1:8080`; or else `PORT`, as platforms such as Cloud Run and Fly.io
 set it, so `PORT=3000` is `:3000`; `APP_DEBUG`, where `true` or `1` turns
-on `Debug`; `APP_URL`, the app's address; and `TUG_DEV`, which `tug dev`
-sets, and which turns on `DevTools`. The default address,
+on `Debug`; `APP_URL`, the app's address; `APP_EDITOR`, the `Editor`; and
+`TUG_DEV`, which `tug dev` sets, and which turns on `DevTools`. The default address,
 `:8080`, listens on every interface. `tug.New` panics on a `URL` that isn't
 a scheme and a host, as a mistyped `APP_URL` should stop the app as it
 starts. [deployment.md](deployment.md) has more on the environment in
@@ -832,7 +833,8 @@ purpose, isn't recovered.
   says "Internal Server Error".
 - Errors of 500 and up are logged through `slog.Default()` as "request
   failed", with the method, path and error, and a panic's stack. With
-  `Debug` on, the response shows the error and the stack too.
+  `Debug` on, the response shows them too: see
+  [While debugging](#while-debugging).
 - The body is JSON, `{"message":"post not found"}`, when the request's
   `Accept` header asks for JSON first, as API clients do, and plain text
   otherwise.
@@ -861,6 +863,45 @@ app := tug.New(cfg)
 
 One that writes a response itself checks `c.Written()` first: once a
 response has started, only the log is left.
+
+### While debugging
+
+With `Debug` on, as `APP_DEBUG=true` turns it on, and `tug new`'s `.env`
+has it, `DefaultErrorHandler` answers a server error with what it knows of
+it, in place of "Internal Server Error". A browser gets a page of it, and
+so does Inertia's client, which shows it in its modal, over the page the
+visit left:
+
+- **The error**, and each error it wraps, with its Go type:
+  `fmt.Errorf("loading post: %w", err)` is a `*fmt.wrapError`, then
+  `err`, and the errors `errors.Join` joins are each a level further in.
+- **A panic's stack**, from the frame that panicked: the app's frames
+  open, each with the lines of its source around it, its own marked, and
+  those of tug, the standard library and the app's dependencies folded
+  between them.
+- **The route that answered**, its name, its handler, and the lines of the
+  app's that added it, `app.Get("/posts/{id}", a.show)`. An error a
+  handler returns has no stack, so that's where it came from.
+- **The request**: its method, URL, the route's values, its ID, and its
+  headers, with `Cookie`, `Authorization`, and the tokens and passwords in
+  its query `[REDACTED]`, as Inertia's DevTools keep them.
+
+A client that asks for JSON first gets the same as JSON, `{"message",
+"errors": [{"type", "message"}], "stack": [{"function", "file", "line"}],
+"route"}`, and one that takes no HTML, as curl, the error and a panic's
+stack as text.
+
+`APP_EDITOR` makes each frame's file a link that opens it in the editor,
+at its line: `vscode`, `cursor`, `zed`, `goland` or `sublime`, or a link
+of the editor's with `{file}` and `{line}` in it, as
+`myeditor://open?file={file}&line={line}`.
+
+The page runs no script: Inertia's modal shows it under the
+Content-Security-Policy of the page the visit left, whose nonce isn't the
+error response's. It reads the app's source where the app was built, as
+under `tug dev`; a frame whose file isn't there, as in a build with
+`-trimpath`, is shown without its lines. A deployed app leaves `Debug`
+off, as the page shows the app's source and its requests' headers.
 
 ## Logging
 

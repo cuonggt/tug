@@ -109,7 +109,8 @@ behind: delete it.
 |---------------------|--------------|---------|---------|
 | `ADDR`              | Where the app listens, as `host:port`. | `:8080`, every interface | `tug.ConfigFromEnv` |
 | `PORT`              | The port, when `ADDR` isn't set, as Cloud Run and Fly.io set it. | none | `tug.ConfigFromEnv` |
-| `APP_DEBUG`         | `true` or `1` puts a 500's error, and a panic's stack, in the response. Leave it off in production. | off | `tug.ConfigFromEnv` |
+| `APP_DEBUG`         | `true` or `1` shows a server error with its details: the error, a panic's stack with the app's source around it, and the request ([While debugging](routing.md#while-debugging)). Leave it off in production. | off | `tug.ConfigFromEnv` |
+| `APP_EDITOR`        | For development: the editor `APP_DEBUG`'s page opens a frame's file in, as `vscode`. | none | `tug.ConfigFromEnv` |
 | `APP_URL`           | The app's address, such as `https://example.com`, which the links that leave it start with: `AbsoluteURL` and `SignedURL`'s, and the auth starter's mail, whose passkeys are for it too. With `https://`, the starters' session cookie is for HTTPS only, and their pages hold the browser to HTTPS ([Security headers](#security-headers)). `tug dev` sets it to the address it shows. | none: the auth starter stops without it | `tug.ConfigFromEnv` |
 | `TUG_DEV`           | Set by `tug dev`, for development: the app keeps an entry of each request for Inertia's DevTools ([pages.md](pages.md#devtools)), and an app with server-side rendering leaves it to Vite. Leave it unset in production. | unset | `tug.ConfigFromEnv`, and the starters' `main.go` with `-ssr` |
 | `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail and to its photos, as `SignedURL` signs. | none: the starters stop without it | `session.KeysFromEnv` |

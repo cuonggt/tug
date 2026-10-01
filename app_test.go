@@ -19,8 +19,9 @@ func TestNewWithoutAConfigReadsTheEnvironment(t *testing.T) {
 	t.Setenv("ADDR", "")
 	t.Setenv("PORT", "9999")
 	t.Setenv("APP_DEBUG", "true")
-	if app := New(); app.config.Addr != ":9999" || !app.config.Debug {
-		t.Fatalf("read %+v from PORT=9999 APP_DEBUG=true", app.config)
+	t.Setenv("APP_EDITOR", "vscode")
+	if app := New(); app.config.Addr != ":9999" || !app.config.Debug || app.config.Editor != "vscode" {
+		t.Fatalf("read %+v from PORT=9999 APP_DEBUG=true APP_EDITOR=vscode", app.config)
 	}
 
 	t.Setenv("ADDR", "127.0.0.1:7000")

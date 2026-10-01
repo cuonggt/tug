@@ -45,7 +45,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M37 | Typed forms                | done   |
 | M38 | Typed flash                | done   |
 | M39 | Request IDs in jobs        | done   |
-| M40 | Debug error page           | later  |
+| M40 | Debug error page           | done   |
 | M41 | Route list                 | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
@@ -3483,90 +3483,107 @@ Choices made on the way:
   `X-Request-ID`, in the claim of the mail it pushed, and the failed
   jobs showing the request, in its command and on its page.
 
-## M40 · Debug error page — later
+## M40 · Debug error page — done
 
-With `APP_DEBUG` on, a server error's response is the error as plain text,
-with a panic's stack after it as `debug.Stack` writes it: a page of text
-in a browser, and the same text in the modal Inertia's client opens for a
-visit that failed. Laravel shows Ignition's page, and Rails and Phoenix a
-page of their own: the error, the app's code where it happened, and the
-request. tug has each of them: the error and what it wraps, a panic's
-stack, which of its frames are the app's, the route that answered, and
-where the app added it. To be released as v0.35.0.
+With `APP_DEBUG` on, a server error's response was the error as plain
+text, with a panic's stack after it as `debug.Stack` writes it: a page of
+text in a browser, and the same text in the modal Inertia's client opens
+for a visit that failed. Laravel shows Ignition's page, and Rails and
+Phoenix a page of their own: the error, the app's code where it happened,
+and the request. tug has each of them: the error and what it wraps, a
+panic's stack, which of its frames are the app's, the route that
+answered, and where the app added it. To be released as v0.35.0.
 
 - **A page for a server error, while debugging:** under `Config.Debug`,
   `DefaultErrorHandler` answers a 5xx with an HTML page, in place of the
   text, to a client that takes HTML, as a browser and Inertia's client
   do: the status, the error's message, and each error it wraps, with its
-  type. Inertia's client shows it in its modal.
-- **A panic's stack, the app's frames open:** each frame's function, file
-  and line, the app's with the lines of source around it and its own
-  marked, and the frames of tug, the standard library and the app's
-  dependencies folded between them.
+  type, those `errors.Join` joins a level further in. Inertia's client
+  shows it in its modal.
+- **A panic's stack, the app's frames open:** from the frame that
+  panicked, each frame's function, file and line, the app's with the
+  lines of source around it and its own marked, and the frames of tug,
+  the standard library and the app's dependencies folded between them,
+  "27 frames of tug and the standard library".
 - **Where a returned error came from:** an error a handler returns has no
-  stack, so the page shows the route that answered, its name, and the
-  lines of source where the app added it, which name the handler as the
-  app wrote it, `a.guestsOnly(a.login)`, and the handler's function by
-  the name Go gives it.
+  stack, so the page shows the route that answered, its name, its
+  handler's function by the name Go gives it, and the lines of source
+  where the app added it, which name the handler as the app wrote it.
 - **The request:** its method, path and query, the route's values, its
   ID, and its headers, the secrets among them `[REDACTED]`, as DevTools
-  has them.
+  keeps them.
 - **Links to the editor:** with `APP_EDITOR` naming one, `vscode`,
   `cursor`, `zed`, `goland` or `sublime`, or a link with `{file}` and
-  `{line}` in it, a frame's file opens there, at its line.
+  `{line}` in it, each frame's file and line are a link that opens them
+  there. `Config.Editor` is it.
 - **JSON and text too:** a client that asks for JSON first gets the
-  error, what it wraps and the frames as JSON, and one that takes no HTML
-  gets the text, as now.
-- **The guide:** Routing, the page in its section on errors; and
-  Deployment, why `APP_DEBUG` stays off.
+  error, what it wraps, a panic's frames and the route as JSON, and one
+  that takes no HTML, as curl, the text, as before.
+- **The guide:** Routing, a section on the page, While debugging, and
+  `Editor`; Pages, Deployment and Getting started, what `APP_DEBUG` shows;
+  and the README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Under Debug alone:** with `Config.Debug` off, a server error is the
-  ErrorPage, or its status's words, as now: the page shows the app's
+  ErrorPage, or its status's words, as before: the page shows the app's
   source and its request's headers.
 - **HTML and CSS, no script:** Inertia's client shows a response that
-  isn't a page in a frame of the page's own document, under its
-  Content-Security-Policy, whose nonce isn't the error response's, so a
-  script there wouldn't run. `<details>` folds the frames, and one
-  `<style>` styles the page, which the starters' policy lets through,
-  with the response's nonce on it for a policy that asks for one. Nothing
-  is loaded from elsewhere.
+  isn't a page in a sandboxed frame of the page's own document, under its
+  Content-Security-Policy. In a browser, under the starters' policy, a
+  script in such a frame ran only with the nonce of the page the visit
+  left, and the page's one `<style>`, which carries the response's nonce
+  for a policy that asks for one, styled it. `<details>` folds the frames,
+  and nothing is loaded from elsewhere.
+- **Checked by hand in a browser:** a starter's app, with a route that
+  panics and one that returns an error, as no suite has one, shown as a
+  page and in Inertia's modal. The browser pane draws no sandboxed frame
+  in its screenshots, so the modal's styles were read by a script in the
+  frame, given the page's nonce.
 - **The stack as the runtime gives it:** `adapt` keeps a panic's program
-  counters, `runtime.Callers`', beside the text it keeps now, for the
-  page's frames, as `runtime.CallersFrames` reads them.
-- **The app's frames by its module:** a frame of `main`, or of a package
-  of the app's module, as its build says it, is the app's, and open;
-  tug's, the standard library's and the dependencies' fold, as Laravel
-  folds its vendor's. DevTools' test of a frame, in `internal/devtools`,
-  tells tug's and the standard library's, shared.
+  counters, `runtime.Callers`', beside the text, for the page's frames,
+  from past `runtime.gopanic`'s and the runtime's on the way to it, as a
+  nil map's `mapassign` is, to the frame that panicked. A `PanicError`
+  an app makes, with no counters, shows its `Stack` as text.
+- **Whose a frame is, shared:** DevTools' test of a frame moved to
+  `internal/frames`, an `Owner` of four, as DevTools counts a
+  dependency's frame as the app's, where the page folds it: the app's,
+  `main` or a package of its module, as its build says it, or tug's tests
+  and examples; tug's; the standard library's; and a dependency's.
 - **Source from the disk:** the lines around a frame are read from its
-  file as the page is made, where `tug dev` built the app; a file that
-  isn't there, as in a build with `-trimpath`, leaves its frame without
-  them.
+  file as the page is made, where the app was built; a file that isn't
+  there, as in a build with `-trimpath`, leaves its frame without them.
 - **Where a route was added, under Debug too:** a route keeps its caller
   under `Config.Debug`, as it does under DevTools.
+- **HTML for a client that takes it:** an `Accept` with `text/html`, as a
+  browser's and Inertia's client's have; curl's `*/*` gets the text, as
+  the log's line does, which reads better in a terminal.
+- **A link to an editor is a `template.URL`:** `html/template` lets
+  through only the web's schemes in a link; each editor's link is made by
+  its own function, as VS Code's takes the path after `file`, with a slash
+  first for a Windows path, and an app's own by its `{file}` and
+  `{line}`.
 - **Go's types shown:** the page is for the app's developer, who reads
   them, where an error's words are for the person who gets it.
 - **A handler's errors and panics:** what `DefaultErrorHandler` answers.
   A panic in middleware is `middleware.Recover`'s, which knows nothing of
-  tug, and answers as it does. An app's own ErrorHandler that hands
+  tug, and answers as it did. An app's own ErrorHandler that hands
   `DefaultErrorHandler` what it doesn't answer itself gets the page for
   those.
 - **Not the body:** the handler has read it, and DevTools' panel shows
   what Inertia's client sent, under `tug dev`.
-- **Tests:** a returned error's page, with its message, what it wraps
-  and each one's type, the route, its name, and the lines where it was
-  added; a panic's, with its value, the app's frames open with their
-  lines and their own marked, and the rest folded; the request with
-  `Cookie`, `Authorization` and a `token` in the query `[REDACTED]`; no
-  `<script>` in it, and its `<style>` with the nonce under
-  `middleware.CSP`; the editors' links, by name and by a link of the
-  app's; a frame whose file isn't there, without lines; JSON for a client
-  that asks for it, and the text for one that takes no HTML; the
-  ErrorPage, as before, with Debug off; and by hand, in a browser, the
-  page in Inertia's modal for a visit that failed, under the starters'
-  policy, as no suite has a route that fails.
+- **Tests:** a returned error's page, with its message, what it wraps and
+  each one's type, the route, its name, and the lines where it was added;
+  a panic's, with its value, the app's frames open with their lines and
+  their own marked, and tug's and the standard library's folded; the
+  request with `Cookie`, `Authorization` and a `token` in the query
+  `[REDACTED]`; no `<script>` in it, and its `<style>` with the nonce
+  under `middleware.CSP`; the editors' links, by name and by a link of
+  the app's; a frame whose file isn't there, without lines; the causes of
+  a joined error, and of a panic's value; a `PanicError` without its
+  frames; JSON for a client that asks for it, and the text for one that
+  takes no HTML; with Debug off, nothing of it; and each frame's owner,
+  in `internal/frames`.
 
 ## M41 · Route list — later
 

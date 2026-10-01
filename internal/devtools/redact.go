@@ -112,3 +112,12 @@ func redactQuery(u *url.URL) *url.URL {
 	out.RawQuery = q.Encode()
 	return &out
 }
+
+// RedactHeaders is h as an entry keeps it, by name in lower case, with
+// the values of secretHeaders as [REDACTED], for the page a server error
+// is shown with while debugging, which shows a request as DevTools do.
+func RedactHeaders(h http.Header) map[string]string { return headers(h) }
+
+// RedactQuery is u with the values of secretKeys in its query as
+// [REDACTED], as an entry keeps it.
+func RedactQuery(u *url.URL) *url.URL { return redactQuery(u) }

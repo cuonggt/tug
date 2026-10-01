@@ -66,6 +66,10 @@ func (e *BindError) Unwrap() error { return e.Err }
 type PanicError struct {
 	Value any
 	Stack []byte
+
+	// pcs is the stack as the program counters of its frames, for the
+	// page Config.Debug shows it with.
+	pcs []uintptr
 }
 
 func (e *PanicError) Error() string { return fmt.Sprintf("panic: %v", e.Value) }
@@ -82,12 +86,18 @@ func (e *PanicError) Unwrap() error {
 // So does an error that says its status with a StatusCode method, as
 // package auth's no does, with its own Error as the message under 500,
 // and the status's text from 500 up, as its Error may not be the client's.
-// Anything else is a 500 that keeps its details in the log, unless
-// Config.Debug is on. Server errors are logged through slog.Default(),
-// with the stack for a panic.
+// Anything else is a 500 that keeps its details in the log. Server errors
+// are logged through slog.Default(), with the stack for a panic.
 //
 // The body is JSON, {"message": "..."}, when the request's Accept header
-// asks for JSON first, and plain text otherwise.
+// asks for JSON first, and plain text otherwise. With Config.Debug on, a
+// server error is shown with its details instead: as a page, to a client
+// that takes HTML, as a browser and Inertia's client do, of the error and
+// each it wraps, a panic's stack, the app's frames with the lines of
+// source around them, the route that answered and where the app added it,
+// and the request, its secrets [REDACTED]; with the same as JSON, to one
+// that asks for JSON first; and as the text, the error and a panic's
+// stack, to the rest.
 func DefaultErrorHandler(c *Ctx, err error) {
 	var invalid validate.Errors
 	if errors.As(err, &invalid) && !c.Written() {
@@ -130,11 +140,10 @@ func DefaultErrorHandler(c *Ctx, err error) {
 	}
 
 	if code >= 500 && c.app.config.Debug {
-		message = err.Error()
-		if panicked {
-			message += "\n\n" + string(pe.Stack)
-		}
-	} else if c.errorPage(code, message) {
+		c.debugError(code, err)
+		return
+	}
+	if c.errorPage(code, message) {
 		return
 	}
 	if wantsJSON(r) {

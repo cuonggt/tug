@@ -271,8 +271,11 @@ func showPost(c *tug.Ctx) error {
   middleware to label its metrics by, and `Logger` logs it.
 - **Handlers return errors.** `tug.NewHTTPError(404, "post not found")`
   picks the status. Any other error is a 500 whose details stay in the log,
-  or show in the response with `APP_DEBUG=true`. A panic is a 500 with its
-  stack in the log. Errors are JSON for a client that asks for JSON.
+  or, with `APP_DEBUG=true`, show on a page of the error, a panic's stack
+  with the app's source around it, the route that answered and the
+  request, which Inertia's client shows in its modal. A panic is a 500
+  with its stack in the log. Errors are JSON for a client that asks for
+  JSON.
 - **Files, downloads and streams:** `c.File` sends one of the app's
   files, with ranges, `c.Download` a file to save, its name however it's
   written, Vietnamese, quotes and all, `c.StreamDownload` a CSV made a row

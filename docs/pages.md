@@ -557,9 +557,10 @@ Browsers and Inertia's client get the page; an API client, whose `Accept`
 header asks for JSON first, gets `{"message":"post not found"}`. An error
 that isn't a `*tug.HTTPError` is a 500 whose message is "Internal Server
 Error", with the details in the log, and with `Config.Debug` on
-(`APP_DEBUG=true`) a 500 shows its details as plain text instead. Without
-an error page, errors are plain text, which Inertia's client shows in a
-dialog.
+(`APP_DEBUG=true`) a 500 shows its details instead, on a page of its own,
+which Inertia's client shows in its modal
+([While debugging](routing.md#while-debugging)). Without an error page,
+errors are plain text, which Inertia's client shows in a dialog.
 
 The page is rendered with `pages.RenderStatus(w, r, code, component,
 props)`, which is `Render` with another status: the client shows an

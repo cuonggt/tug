@@ -36,8 +36,8 @@ empty, and puts an app in it that's ready to run:
 - the starter's files, with a Go module named after the directory, which
   `-module github.com/you/blog` changes;
 - a `.env` with a fresh `APP_KEY`, the 32 random bytes that encrypt the
-  session cookie, and `APP_DEBUG=true`, which shows an error's details in
-  its 500 response;
+  session cookie, and `APP_DEBUG=true`, which shows a server error's
+  details on a page: the error, where it came from, and the request;
 - the Go modules, with `go mod tidy`, and the frontend's packages, with
   `npm install`;
 - the TypeScript of the app's pages and routes, in `resources/js/tug`,

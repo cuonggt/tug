@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -34,9 +35,19 @@ type Config struct {
 	// Addr is where Run listens. Default ":8080".
 	Addr string
 
-	// Debug puts error details and panic stacks into 500 responses. It is
+	// Debug shows a server error with its details: a page of the error,
+	// a panic's stack, with the lines of the app's source around its
+	// frames, the route that answered, and the request, for a browser and
+	// Inertia's client, and the same as JSON or text for the rest. It is
 	// for development: in production they belong in the log only.
 	Debug bool
+
+	// Editor is the editor that Debug's page opens a frame's file in, at
+	// its line, by a link: vscode, cursor, zed, goland or sublime, or a
+	// link of the app's with {file} and {line} in it, as
+	// "myeditor://open?file={file}&line={line}". ConfigFromEnv reads it
+	// from APP_EDITOR.
+	Editor string
 
 	// ErrorHandler answers the errors handlers return, and the 404s and
 	// 405s of requests no route takes. Default DefaultErrorHandler.
@@ -108,7 +119,8 @@ type Config struct {
 
 // ConfigFromEnv reads the settings a deployment sets: ADDR, or PORT as
 // platforms such as Cloud Run and Fly.io set it, APP_DEBUG, and APP_URL;
-// and DevTools, from TUG_DEV, which tug dev sets.
+// APP_EDITOR, for Debug's page; and DevTools, from TUG_DEV, which tug dev
+// sets.
 func ConfigFromEnv() Config {
 	var c Config
 	if addr := os.Getenv("ADDR"); addr != "" {
@@ -117,6 +129,7 @@ func ConfigFromEnv() Config {
 		c.Addr = ":" + port
 	}
 	c.Debug, _ = strconv.ParseBool(os.Getenv("APP_DEBUG"))
+	c.Editor = os.Getenv("APP_EDITOR")
 	c.URL = os.Getenv("APP_URL")
 	c.DevTools = os.Getenv("TUG_DEV") != ""
 	return c
@@ -280,7 +293,9 @@ func (a *App) adapt(rt *Route, h HandlerFunc) http.Handler {
 				if v == http.ErrAbortHandler {
 					panic(v) // net/http's way of dropping a response on purpose
 				}
-				a.config.ErrorHandler(c, &PanicError{Value: v, Stack: debug.Stack()})
+				pcs := make([]uintptr, 100)
+				pcs = pcs[:runtime.Callers(1, pcs)]
+				a.config.ErrorHandler(c, &PanicError{Value: v, Stack: debug.Stack(), pcs: pcs})
 			}
 		}()
 		if err := h(c); err != nil && !errors.Is(err, errAnswered) {

@@ -110,7 +110,7 @@ func (r *Router) Handle(method, path string, h HandlerFunc, mw ...Middleware) *R
 
 	rt := &Route{app: a, group: r, method: method, path: full, h: h, mw: slices.Clone(mw)}
 	rt.shown = rt.String()
-	if a.config.DevTools {
+	if a.config.DevTools || a.config.Debug {
 		if f, ok := devtools.Caller(); ok {
 			at := devtools.At(f)
 			rt.added = &at
@@ -163,7 +163,8 @@ type Route struct {
 	shown string
 
 	// added is where the app added the route, for Inertia's DevTools, under
-	// Config.DevTools.
+	// Config.DevTools, and for the page a server error is shown with, under
+	// Config.Debug.
 	added *devtools.Source
 
 	// input is the struct the handler binds, as Takes declares it.
@@ -179,11 +180,19 @@ func (rt *Route) devtools() devtools.Route {
 	if rt.name != "" {
 		r.Name = &rt.name
 	}
-	if fn := runtime.FuncForPC(reflect.ValueOf(rt.h).Pointer()); fn != nil {
-		name := strings.TrimSuffix(fn.Name(), "-fm")
+	if name := funcName(rt.h); name != "" {
 		r.Action = &name
 	}
 	return r
+}
+
+// funcName is the name Go gives h's function, a method's without the -fm
+// of its value, or "" for none.
+func funcName(h HandlerFunc) string {
+	if fn := runtime.FuncForPC(reflect.ValueOf(h).Pointer()); fn != nil {
+		return strings.TrimSuffix(fn.Name(), "-fm")
+	}
+	return ""
 }
 
 // Takes declares the struct the route's handler binds, by a value of it,
