@@ -39,8 +39,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M31 | Notifications              | done   |
 | M32 | Security headers           | done   |
 | M33 | Migrations                 | done   |
-| M34 | Feature flags              | later  |
-| M35 | Metrics                    | later  |
+| M34 | Metrics                    | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2860,56 +2859,7 @@ Choices made on the way:
   under way; the command; and the binary's `migrate`, on a new database,
   which runs them itself, and its `jobs`, which runs them as it starts.
 
-## M34 · Feature flags — later
-
-An app gives a feature to some of its users before the rest: its own
-people first, then a tenth of everyone, then all, and back to none when
-it breaks. Each app writes that its own way, a column or a setting, and a
-page asks its handler for a flag of its own. Laravel's Pennant defines a
-feature once, decides it for each user the first time it's asked, keeps
-what it decided, so a user doesn't see it come and go, and lets the pages
-ask. To be released as v0.29.0.
-
-- **Package `feature`:** a feature is a name and what decides it for a
-  user: the app's own check, a share of the users, `feature.Percent(10)`,
-  the same ones each time, or everyone. `Active` asks.
-- **Decided once:** what a feature decided for a user is kept, in a
-  Store, the database's in the starter, so the user keeps what they got,
-  until the app or an admin changes it, or forgets it, for it to be
-  decided again; without a Store, in memory, for tests.
-- **Turned on and off,** for a user or for everyone, by the app's code,
-  and in the auth starter by its admins: on a page of the features, each
-  with how many have it, and by its binary's `features` command.
-- **On the page:** the features its user has, a shared prop, `features`,
-  as `can` is, so a page shows what its user is to see, and the handler
-  asks again.
-- **The guide:** a page, Feature flags; and Accounts, the admins' page.
-
-Choices, to settle before any code:
-
-- **A package of its own,** with no import of tug, not in `auth`: a
-  feature is what a user sees, not what they may do, and it has a Store.
-- **Features are values,** as abilities are, generic over the app's user,
-  so a mistyped one doesn't compile; each is named, as the Store keeps
-  what it decided by its name.
-- **A user's key is the app's to say,** a function of the user, as their
-  ID; a feature of no one in particular, as the whole app's, is decided
-  for everyone at once.
-- **A share by a hash** of the feature's name and the user's key, so the
-  same users have it each time and on every instance, and a share that
-  grows from a tenth to a fifth keeps the first tenth.
-- **Kept once decided,** as Pennant keeps it, so a share that shrinks
-  takes it from no one; taking it back is turning it off.
-- **`features` lists the app's shared ones,** worked out as each page is
-  rendered: not every feature, for every page.
-- **Tests:** a feature decided, kept, changed for a user and for
-  everyone, and forgotten; a share, the same users each time, and on two
-  instances; the memory store and the starter's, by a `TestStore`, as the
-  other Stores have; the page's `features`; and in the starter, the
-  admins' page and command, and in the browser, in each frontend, a
-  feature an admin turned on showing on a user's page.
-
-## M35 · Metrics — later
+## M34 · Metrics — later
 
 A deployed app says what it's doing in its log alone: how many requests
 it answers and how slowly, which fail, how many jobs wait, and whether
@@ -2918,7 +2868,7 @@ reads an app's metrics from a route of it, in a text format, and Grafana
 and the rest read them from Prometheus; Go's own client for it is a tree
 of dependencies, and Laravel's Pulse is a dashboard of the app's own.
 tug writes the format on the standard library. To be released as
-v0.30.0.
+v0.29.0.
 
 - **Package `metrics`:** counters, gauges and histograms, with labels, in
   a registry of the app's, written in Prometheus's text format by its
@@ -2975,3 +2925,8 @@ Choices, to settle before any code:
   too much for a core framework, and every app made with `-auth` would
   carry it; Laravel leaves both to packages. The work is on the branch
   `account-administration`.
+- No feature flags: which users get a feature is the app's to decide, and
+  needs nothing of tug's internals, as a page gets flags as it gets `can`,
+  a shared prop, and a share of the users is a hash of the flag's name and
+  the user's ID. Many apps that need more use a service; Laravel ships
+  Pennant apart from the framework.
