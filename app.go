@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"reflect"
 	"runtime/debug"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/internal/devtools"
 	"github.com/cuonggt/tug/internal/route"
 	"github.com/cuonggt/tug/internal/typegen"
 	"github.com/cuonggt/tug/lang"
@@ -92,10 +94,21 @@ type Config struct {
 	// renders, it runs inside the session's middleware, so it can read the
 	// session; in the App's own middleware, there's none yet.
 	Locale func(r *http.Request) string
+
+	// DevTools records each request for Inertia's DevTools, a panel of the
+	// browser's, as an extension, which shows each visit's props, route,
+	// headers and bodies, and where the page was rendered: an entry each,
+	// kept in .tug/devtools, which it reads from two endpoints of the
+	// app's, /_inertia/devtools/entries and the entries below it. It's for
+	// development: tug dev turns it on, by TUG_DEV, which ConfigFromEnv
+	// reads. Values under keys such as password and token, and headers
+	// such as Cookie, are kept as [REDACTED].
+	DevTools bool
 }
 
 // ConfigFromEnv reads the settings a deployment sets: ADDR, or PORT as
-// platforms such as Cloud Run and Fly.io set it, APP_DEBUG, and APP_URL.
+// platforms such as Cloud Run and Fly.io set it, APP_DEBUG, and APP_URL;
+// and DevTools, from TUG_DEV, which tug dev sets.
 func ConfigFromEnv() Config {
 	var c Config
 	if addr := os.Getenv("ADDR"); addr != "" {
@@ -105,6 +118,7 @@ func ConfigFromEnv() Config {
 	}
 	c.Debug, _ = strconv.ParseBool(os.Getenv("APP_DEBUG"))
 	c.URL = os.Getenv("APP_URL")
+	c.DevTools = os.Getenv("TUG_DEV") != ""
 	return c
 }
 
@@ -130,6 +144,10 @@ type App struct {
 	// the router, which needs a place in a request's context for the route
 	// that answers it to read it in: inside the router, ServeMux has it.
 	placeRoutes bool
+
+	// devtools records each request for Inertia's DevTools, under
+	// Config.DevTools, and answers the panel.
+	devtools *devtools.Recorder
 
 	// background is what Go runs beside the server.
 	background []func(ctx context.Context) error
@@ -181,6 +199,11 @@ func New(config ...Config) *App {
 	a := &App{config: cfg, mux: http.NewServeMux(), names: make(map[string]*Route)}
 	a.Router = &Router{app: a}
 	a.stopping, a.stop = context.WithCancel(context.Background())
+	if cfg.DevTools {
+		// Beside the app's build, which tug dev makes in .tug, and which
+		// git leaves out: a file is kept as the app's built again.
+		a.devtools = devtools.New(filepath.Join(".tug", "devtools"))
+	}
 	return a
 }
 
@@ -188,9 +211,23 @@ func New(config ...Config) *App {
 // middleware: adding either after it panics.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.start.Do(a.freeze)
+	if a.devtools != nil {
+		// Outside the App's own middleware, so the panel's requests are
+		// answered before any of it, and each other is recorded as sent.
+		a.devtools.Serve(w, r, http.HandlerFunc(a.serve))
+		return
+	}
 	if a.placeRoutes {
-		// A place for the route that answers r, which the router fills
-		// in, for RouteOf in the App's own middleware, around the router.
+		r = r.WithContext(route.Into(r.Context()))
+	}
+	a.handler.ServeHTTP(w, r)
+}
+
+// serve answers r through the App's middleware and routes, with a place in
+// its context for the route that answers it, which the router fills in,
+// for RouteOf in the App's own middleware, around the router.
+func (a *App) serve(w http.ResponseWriter, r *http.Request) {
+	if a.placeRoutes {
 		r = r.WithContext(route.Into(r.Context()))
 	}
 	a.handler.ServeHTTP(w, r)

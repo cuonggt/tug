@@ -132,6 +132,10 @@ func showPost(c *tug.Ctx) error {
   - **Error pages:** errors show as a page (`Config.ErrorPage`) with their
     own status.
   - **Empty lists:** nil slices go out as `[]`, never `null`.
+  - **DevTools:** under `tug dev`, each request is kept for Inertia's
+    DevTools, the browser's panel: its route and the function that
+    answered, where the page was rendered, each prop with its type and
+    value, and the headers and bodies, with secrets redacted.
 - **Server-side rendering** (package `ssr`), when an app wants it, as
   `tug new -ssr` makes one: a first visit's page comes with its HTML, for
   search engines and pages that show before their scripts run, rendered by

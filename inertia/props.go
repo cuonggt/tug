@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cuonggt/tug/internal/devtools"
 )
 
 // firstLoad is how a prop takes part in a page's first load.
@@ -526,6 +528,12 @@ type resolver struct {
 	scroll    map[string]ScrollMeta
 	once      map[string]OnceMeta
 	failed    func(path string, err error) // a rescued prop's error
+
+	// saw is told, for Inertia's DevTools, of each prop that goes out, or
+	// is rescued: a plain value's at the top, with b nil, and a prop's of
+	// one of the types above at any depth.
+	saw           func(path string, b *behavior, rescued bool)
+	deferredFetch bool // the client fetching deferred props, as the DevTools say
 }
 
 // level works out the props at one level of the tree, below prefix. A
@@ -575,6 +583,9 @@ func (rs *resolver) level(entries []entry, prefix string, parentResolved bool) (
 				return nil, err
 			}
 			out[it.e.key] = v
+			if rs.saw != nil && prefix == "" {
+				rs.saw(it.path, nil, false)
+			}
 			continue
 		}
 		n := it.call
@@ -585,6 +596,9 @@ func (rs *resolver) level(entries []entry, prefix string, parentResolved bool) (
 			rs.rescued = append(rs.rescued, it.path)
 			if rs.failed != nil {
 				rs.failed(it.path, err)
+			}
+			if rs.saw != nil {
+				rs.saw(it.path, &it.b, true)
 			}
 			continue
 		}
@@ -600,8 +614,57 @@ func (rs *resolver) level(entries []entry, prefix string, parentResolved bool) (
 			return nil, err
 		}
 		out[it.e.key] = v
+		if rs.saw != nil {
+			rs.saw(it.path, &it.b, false)
+		}
 	}
 	return out, nil
+}
+
+// devtoolsProp is what Inertia's DevTools say of the prop at path, of b,
+// or of no type, for a plain value: its type, as the protocol names it,
+// and how it merges, as inertia-laravel classifies its own.
+func (rs *resolver) devtoolsProp(path string, b *behavior, rescued bool) devtools.Prop {
+	var p devtools.Prop
+	if b == nil {
+		return p
+	}
+	var kind string
+	switch {
+	case b.always:
+		kind = "always"
+	case b.scroll:
+		kind = "scroll"
+		if b.firstLoad == deferred {
+			p.DeferGroup = b.group
+		}
+	case b.firstLoad == deferred:
+		// A deferred prop as its own fetch delivers it; on a partial reload
+		// of the page, it's as any prop.
+		if rs.deferredFetch {
+			kind, p.DeferGroup = "defer", b.group
+		}
+	case b.firstLoad == optional:
+		kind = "optional"
+	case b.merge:
+		kind = "merge"
+	case b.once:
+		kind = "once"
+	}
+	if kind != "" {
+		p.InertiaType = &kind
+	}
+	p.Reset = slices.Contains(rs.reset, path)
+	p.Once = b.once
+	if b.merge {
+		p.MergeDirection = "append"
+		if b.prepend || len(b.prependAt) > 0 && len(b.appendAt) == 0 || b.scroll && rs.prepend {
+			p.MergeDirection = "prepend"
+		}
+		p.DeepMerge = b.deep || len(b.matchOn) > 0
+	}
+	p.Rescued = rescued
+	return p
 }
 
 // value is v as it goes out: with the props nested in it worked out, and

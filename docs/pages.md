@@ -623,6 +623,64 @@ writes to `assets/` are named for a hash of their content, so they're
 cached for a year, with `Cache-Control: public, max-age=31536000, immutable`;
 the manifest, and any name starting with a dot, isn't served.
 
+## DevTools
+
+[Inertia's DevTools](https://inertiajs.com/docs/v3/advanced/devtools) are a
+browser extension, for Chrome and Firefox, whose panel in the browser's
+developer tools lists each request of the page: what the client did, and
+beside it what the app says of the response, from an entry tug keeps of
+each request. An entry has the route, by its path and name, the function
+of the app's that answered, and where that's defined; where the page was
+rendered, and the component's file, which tug looks for in
+`resources/js/pages`, where the starters keep their pages, for the panel's
+links that open the editor; each prop, by its path, with its value as the client
+got it, its type, as `defer` or `merge`, and whether it was shared, and
+where; and the request's and the response's headers and bodies, the status,
+and how long the app took. Each request is named by its kind, as the panel
+filters them: a first visit, a visit, a partial reload, a deferred prop's
+fetch, a poll, a prefetch, a Precognition check, or plain HTTP, as an
+`EventSource`'s.
+
+`Config.DevTools` turns it on, and `tug.ConfigFromEnv` reads it from
+`TUG_DEV`, which `tug dev` sets ([cli.md](cli.md)), so an app made by `tug
+new` has it under `tug dev`, and never in the binary `tug build` makes, as
+the entries keep what the requests sent. Off, none of it runs or answers.
+
+The entries are files in `.tug/devtools`, one each, so they outlast `tug
+dev`'s rebuilds of the app: the newest 100 of each of the browser's tabs,
+and none older than a day. The panel reads them at
+`/_inertia/devtools/entries`, the newest first, and each at
+`/_inertia/devtools/entries/{id}`, which the App answers before its own
+middleware, so they're not in its log, and don't use up the flash data the
+session keeps for the next page. A response names its entry in
+`X-Inertia-Devtools-Id`, and a first visit's page in a `<script
+data-inertia-devtools-id type="application/json">`, which is data, never
+run, so a Content-Security-Policy leaves it alone.
+
+Secrets are kept as `[REDACTED]`: the values under the keys `password`,
+`password_confirmation`, `current_password`, `token`, `access_token`,
+`refresh_token`, `secret`, `client_secret`, `api_key` and
+`recovery_codes`, at any depth of the props and the bodies, and in the
+URL's query, in any case, and with or without their underscores, as
+`accessToken` and `client-secret` are; and the headers `Cookie`,
+`Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-XSRF-Token` and
+`X-CSRF-Token`. A body is kept while it's text, up to 256,000 bytes: JSON
+and a form as their values, a page as its page object, and a multipart
+form as its fields, with each file as its name, size and type, never its
+bytes. The rest is left out, saying why: a stream, as `c.Events` sends, a
+body that isn't text or is larger, and that of a write that didn't come
+from Inertia's client, as an HTML form's or a `fetch`'s.
+
+The function that answered is the handler, when it rendered the page or
+redirected, or a wrapper of the route that answered for it, as the auth
+starter's `usersOnly` redirects a guest to log in, by the name Go gives it,
+which for a wrapper is its closure's, `usersOnly.func1`. When tug answered
+for the handler, as it does an error the handler returned, it's the
+route's handler, with the line that added the route.
+
+Recording never fails a response: an entry that can't be kept is dropped,
+and the log says why, at Debug.
+
 ## Package inertia without tug
 
 Package `inertia` imports nothing of tug, and neither does `vite`, so they
@@ -675,3 +733,4 @@ validation errors and flash data, through `inertia.WithErrors` and
 for, through `inertia.WithClearHistory` and `inertia.WithPreserveFragment`;
 and the ErrorHandler shows errors as a page. Without tug, an app calls
 those itself. `inertia.IsInertia(r)` tells a visit from Inertia's client.
+Inertia's DevTools are tug's alone, as its App keeps the entries.

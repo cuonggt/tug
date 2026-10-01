@@ -67,9 +67,10 @@ installs with npm, and the starter's Dockerfile builds with it.
 
 `.tug/` is where tug works in the app. `.tug/app` is the app's binary, as
 `tug gen` and `tug dev` build it; `.tug/gen.json` is the TypeScript the app
-writes for `tug gen`; and `.tug/reload` is the file `tug dev` writes to
-reload the browser. The starter's `.gitignore` and `.dockerignore` leave
-it out.
+writes for `tug gen`; `.tug/reload` is the file `tug dev` writes to
+reload the browser; and `.tug/devtools` has the app's entries for Inertia's
+DevTools under `tug dev` ([pages.md](pages.md#devtools)). The starter's
+`.gitignore` and `.dockerignore` leave it out.
 
 ## `tug new`
 
@@ -190,9 +191,10 @@ Runs the app for development. It has no flags.
 2. It starts Vite's dev server: `npm run dev`.
 3. It picks the app's address (below), and passes it to the app as
    `ADDR`, and as `APP_URL`, where it shows it, `http://localhost:8080`,
-   unless one is set already, with `TUG_DEV=1`, which tells an app with
-   server-side rendering that the dev server renders its pages, so it runs
-   no Node of its own.
+   unless one is set already, with `TUG_DEV=1`, which turns on the app's
+   entries for Inertia's DevTools ([pages.md](pages.md#devtools)), and
+   tells an app with server-side rendering that the dev server renders its
+   pages, so it runs no Node of its own.
 4. It builds the app into `.tug/app`, writes its types as `tug gen` does,
    starts it, and waits for it to take connections. Then it says where the
    app is, and reloads the browser:

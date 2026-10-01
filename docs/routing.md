@@ -49,11 +49,13 @@ Every field has a default, so the zero `Config` works:
 | `Keys`            | none                  | The app's keys, which sign the links `SignedURL` makes. |
 | `Lang`            | none: English         | The app's languages, which what tug says, and `c.T`, are said in. See [Languages](languages.md). |
 | `Locale`          | none                  | The language the app has chosen for a request, as a user's, before the browser's `Accept-Language`. See [Languages](languages.md#the-requests-language). |
+| `DevTools`        | `false`               | Keeps an entry of each request for Inertia's DevTools, a panel of the browser's. It's for development, as `tug dev` runs the app. See [pages.md](pages.md#devtools). |
 
 `ConfigFromEnv` reads `ADDR`, the address to listen on, such as
 `127.0.0.1:8080`; or else `PORT`, as platforms such as Cloud Run and Fly.io
 set it, so `PORT=3000` is `:3000`; `APP_DEBUG`, where `true` or `1` turns
-on `Debug`; and `APP_URL`, the app's address. The default address,
+on `Debug`; `APP_URL`, the app's address; and `TUG_DEV`, which `tug dev`
+sets, and which turns on `DevTools`. The default address,
 `:8080`, listens on every interface. `tug.New` panics on a `URL` that isn't
 a scheme and a host, as a mistyped `APP_URL` should stop the app as it
 starts. [deployment.md](deployment.md) has more on the environment in

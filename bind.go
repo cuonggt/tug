@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cuonggt/tug/internal/devtools"
 	"github.com/cuonggt/tug/internal/label"
 )
 
@@ -174,6 +175,11 @@ func (c *Ctx) bindBody(dst any, v reflect.Value, fields []field) error {
 	case mediaType == "multipart/form-data":
 		if err := r.ParseMultipartForm(multipartMemory); err != nil {
 			return bodyFailed(err)
+		}
+		if c.app.devtools != nil {
+			if rec := devtools.From(r.Context()); rec != nil {
+				rec.Form(r.MultipartForm) // its files as their names, sizes and types
+			}
 		}
 		return bindForm(v, fields, r.MultipartForm.Value, r.MultipartForm.File)
 	}

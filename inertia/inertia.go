@@ -23,9 +23,11 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"runtime"
 	"slices"
 	"strings"
 
+	"github.com/cuonggt/tug/internal/devtools"
 	"github.com/cuonggt/tug/internal/nonce"
 )
 
@@ -142,6 +144,11 @@ type Inertia struct {
 	ssr         Renderer
 	shared      Props
 	sharedFuncs []func(r *http.Request) Props
+
+	// Where Share and ShareFunc were called, for Inertia's DevTools: by
+	// the key Share shared, and in the order of sharedFuncs.
+	shareSources map[string]devtools.Source
+	funcSources  []devtools.Source
 }
 
 // New returns an Inertia that renders pages with cfg.
@@ -153,13 +160,14 @@ func New(cfg Config) (*Inertia, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inertia: root template: %w", err)
 	}
-	return &Inertia{tmpl: tmpl, version: cfg.Version, encrypt: cfg.EncryptHistory, ssr: cfg.SSR, shared: Props{}}, nil
+	return &Inertia{tmpl: tmpl, version: cfg.Version, encrypt: cfg.EncryptHistory, ssr: cfg.SSR, shared: Props{}, shareSources: map[string]devtools.Source{}}, nil
 }
 
 // Share adds a prop that every page gets, such as the app's name. A page's
 // own prop of the same name wins. Share is for setting up, before serving.
 func (i *Inertia) Share(key string, value any) {
 	i.shared[key] = value
+	i.shareSources[key] = caller()
 }
 
 // ShareFunc adds props worked out for each request, such as the signed-in
@@ -168,6 +176,14 @@ func (i *Inertia) Share(key string, value any) {
 // up, before serving.
 func (i *Inertia) ShareFunc(fn func(r *http.Request) Props) {
 	i.sharedFuncs = append(i.sharedFuncs, fn)
+	i.funcSources = append(i.funcSources, caller())
+}
+
+// caller is where the function that calls caller was called: for Share and
+// ShareFunc, the app's line that shared a prop, for Inertia's DevTools.
+func caller() devtools.Source {
+	_, file, line, _ := runtime.Caller(2)
+	return devtools.Source{File: file, Line: line}
 }
 
 // IsInertia reports whether r is a visit from Inertia's client.
@@ -226,6 +242,13 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 			td.Inertia, td.InertiaHead = template.HTML(rendered.Body), template.HTML(strings.Join(nonced(rendered.Head, td.Nonce), "\n"))
 		}
 	}
+	if rec := devtools.From(r.Context()); rec != nil && code == http.StatusOK {
+		// For Inertia's DevTools, which read the entry's ID from the page
+		// before any visit: data, which a Content-Security-Policy leaves
+		// alone, as it doesn't run.
+		id, _ := json.Marshal(rec.ID())
+		td.Inertia += template.HTML(`<script data-inertia-devtools-id type="application/json">` + string(id) + `</script>`)
+	}
 	var buf bytes.Buffer
 	err = i.tmpl.Execute(&buf, td)
 	if err != nil {
@@ -266,8 +289,23 @@ func (i *Inertia) page(r *http.Request, component string, props any) (*Page, err
 	// the later a source is, the more it knows about this request.
 	shared := make(Props, len(i.shared))
 	maps.Copy(shared, i.shared)
-	for _, fn := range i.sharedFuncs {
-		maps.Copy(shared, fn(r))
+	// Under Inertia's DevTools, where each shared prop was shared.
+	rec := devtools.From(r.Context())
+	var sources map[string]devtools.Source
+	if rec != nil {
+		sources = maps.Clone(i.shareSources)
+	}
+	for n, fn := range i.sharedFuncs {
+		props := fn(r)
+		maps.Copy(shared, props)
+		for k := range props {
+			if sources != nil {
+				sources[k] = i.funcSources[n]
+			}
+		}
+	}
+	for k := range propsFrom(r.Context()) {
+		delete(sources, k)
 	}
 	maps.Copy(shared, propsFrom(r.Context()))
 	ownKeys := make(map[string]bool, len(own))
@@ -310,16 +348,74 @@ func (i *Inertia) page(r *http.Request, component string, props any) (*Page, err
 				"component", component, "prop", path, "err", err)
 		},
 	}
+	var seen map[string]devtools.Prop
+	if rec != nil {
+		seen = map[string]devtools.Prop{}
+		rs.deferredFetch = r.Header.Get(devtools.HeaderDeferred) != ""
+		rs.saw = func(path string, b *behavior, rescued bool) { seen[path] = rs.devtoolsProp(path, b, rescued) }
+	}
 	p.Props, err = rs.level(all, "", false)
 	if err != nil {
 		return nil, err
 	}
 	if _, ok := p.Props["errors"]; !ok {
 		p.Props["errors"] = errorsFor(r)
+		if seen != nil {
+			seen["errors"] = devtools.Prop{} // tug's own, shared with every page
+			shared["errors"] = nil
+		}
 	}
 	p.DeferredProps, p.RescuedProps, p.ScrollProps, p.OnceProps = rs.deferred, rs.rescued, rs.scroll, rs.once
 	p.MergeProps, p.PrependProps, p.DeepMergeProps, p.MatchPropsOn = rs.merge, rs.prepends, rs.deepMerge, rs.matchOn
+	if rec != nil {
+		record(rec, p, seen, shared, ownKeys, sources)
+	}
 	return p, nil
+}
+
+// record records the page p in rec, for Inertia's DevTools: each prop's
+// metadata, by its path, as seen, the top's shared or not, and where they
+// were shared, and the value of each, as the client gets it, through JSON,
+// as the page itself.
+func record(rec *devtools.Recording, p *Page, seen map[string]devtools.Prop, shared Props, own map[string]bool, sources map[string]devtools.Source) {
+	for path, prop := range seen {
+		if _, ok := shared[path]; !ok || own[path] {
+			continue // a page's own, or below the top
+		}
+		prop.Shared = true
+		if src, ok := sources[path]; ok {
+			prop.ShareSource = &src
+		}
+		seen[path] = prop
+	}
+	var page map[string]any
+	data, err := json.Marshal(p)
+	if err != nil || json.Unmarshal(data, &page) != nil {
+		return
+	}
+	props, _ := page["props"].(map[string]any)
+	values := make(map[string]any, len(seen))
+	for path := range seen {
+		if v, ok := lookup(props, path); ok {
+			values[path] = v
+		}
+	}
+	rec.Page(p.Component, page, seen, values)
+}
+
+// lookup is the value at path in props, a part of the path at each level.
+func lookup(props map[string]any, path string) (any, bool) {
+	var v any = props
+	for part := range strings.SplitSeq(path, ".") {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if v, ok = m[part]; !ok {
+			return nil, false
+		}
+	}
+	return v, true
 }
 
 // headerList reads a header that lists props, comma separated, as nil

@@ -40,7 +40,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M32 | Security headers           | done   |
 | M33 | Migrations                 | done   |
 | M34 | Hooks for metrics          | done   |
-| M35 | Inertia DevTools           | later  |
+| M35 | Inertia DevTools           | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2948,7 +2948,7 @@ Choices made on the way:
   attempt, error, and the times it ran and waited, a run held back, a run
   the Store couldn't keep, not told, and an `Observe` that panics.
 
-## M35 · Inertia DevTools — later
+## M35 · Inertia DevTools — done
 
 An Inertia page's props come from the server, and the browser can't say
 which were shared, deferred, merged or kept once, nor which route and
@@ -2970,55 +2970,112 @@ is made. To be released as v0.30.0.
   its headers and bodies, the page object for an Inertia response; each
   prop's type, as the protocol has it, `defer` with its group, `merge` and
   `scroll` with their direction, `once`, `optional`, `always`, shared or
-  not, and rescued; the props' values; the route, its path, name and
-  handler, with the handler's file and line; and where the page was
-  rendered, and the shared props shared, by file and line.
+  not, and where, and rescued; the props' values; the route, its path and
+  name, and the app's function that answered, and where it's defined;
+  where the page was rendered, and the page's file.
 - **The panel's two endpoints:** `GET /_inertia/devtools/entries`, the
   newest first, by component and kind, a part at a time, and
   `GET /_inertia/devtools/entries/{id}`, as the protocol has them.
-- **The guide:** Pages, a section on the DevTools; and the CLI, `tug dev`.
+- **The guide:** Pages, a section on the DevTools; Routing, `DevTools` in
+  the Config; Deployment, `TUG_DEV`, to leave unset; and the CLI, `tug
+  dev` and `.tug`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **In development alone:** on when `tug dev` runs the app, by
   `TUG_DEV`, through `Config.DevTools`, which `ConfigFromEnv` sets; off in
   the binary a deploy runs, where nothing is recorded, no header is sent
-  and the endpoints aren't there. No gate for a deployed app's developers,
-  which would need the app's own logins.
-- **Kept in files:** `.tug/devtools`, which git leaves out, an entry
-  each, as `tug dev` builds the app again at each change, which an
-  instance's memory would forget; the last 100, for a day at most, as
-  Laravel's are by default, pruned as each is kept.
+  and the endpoints aren't there, and each hook is a nil check, so the
+  benchmark of a request is as it was, three allocations. No gate for a
+  deployed app's developers, which would need the app's own logins.
+- **Kept in files:** `.tug/devtools`, which git leaves out, and `tug
+  dev`'s watcher too, as it does every directory starting with a dot; an
+  entry each, written aside and renamed, named by its ID, as `tug dev`
+  builds the app again at each change, which an instance's memory would
+  forget, and an index of their `__meta`s, read from the files at the
+  first use. The newest 100 of each tab, and of the requests with none, as
+  from a browser without the extension, for a day at most, as Laravel's
+  are by default, pruned every five minutes as an entry is kept.
 - **Answered before the App's middleware,** as `middleware.CSP` answers
   its reports: the session's flash isn't taken by the panel's fetch, which
-  can come between a form's redirect and the page it leads to, and the
-  endpoints' own requests aren't recorded.
+  can come between a form's redirect and the page it leads to, the
+  endpoints' own requests aren't recorded, and the rest are recorded as
+  they went out, the session's cookie and all.
 - **Secrets never kept:** values under Laravel's keys, as `password`,
-  `token` and `secret`, and the headers of logins, as `Cookie` and
-  `Authorization`, in any case, kept as `[REDACTED]`; an upload as its
-  name, size and type; a body that isn't text, is a stream, or is over
-  256 KB, left out, saying why, by the protocol's reasons.
-- **Where it was, from Go:** the route's path as it was added and its
-  name, from tug's router; the handler as its function's name, and its
-  file and line, from `runtime`; where `Render` or `Share` was called,
-  from its caller; and the page's file, `resources/js/pages/<name>`, when
-  it's there, as the starters keep their pages.
-- **Inertia's part in package `inertia`,** which imports no tug: the page,
-  its props' types and values, the render's place, and a first visit's
-  tag, of a type a page's Content-Security-Policy leaves alone, as it
-  doesn't run; tug's part, the request, the route and the endpoints,
-  meets it in the request's context, as the route's place does.
+  `token` and `secret`, and `recovery_codes`, which the auth starter's
+  flash carries, matched in any case and without their underscores and
+  hyphens, as Go's and JavaScript's names are `accessToken` as often as
+  `access_token`, in the props, the bodies and the URL's query; and the
+  headers of logins, as `Cookie` and `Authorization`; all kept as
+  `[REDACTED]`. An upload as its name, size and type, from the form
+  `Bind` read; a body that isn't text, is a stream, or is over 256,000
+  bytes, left out, saying why, by the protocol's reasons; and the body of
+  a write that didn't come from Inertia's client, as Laravel's is.
+- **A body as it was read:** the request's, as the handler read it
+  through the request, and then what it left, up to the limit, as
+  net/http reads it before the connection's next request, so a handler
+  that only redirects has its body too: but not from a client that asked
+  for a 100-continue, which hasn't sent what wasn't read, nor from a
+  connection taken over. An empty body is empty before it's anything
+  else, as a redirect's.
+- **The function that answered, from the stack:** the auth starter wraps
+  nearly every route's handler, as `a.guestsOnly(loginPage)`, so the
+  route's own handler is a closure of the wrapper's, `guestsOnly.func1`,
+  which says nothing of the page. The action is instead the app's
+  function on the stack as the response's status is written: the first
+  frame that's neither tug's, its tests aside, nor the standard library's,
+  a package whose path's first element has no dot, unless it's the app's
+  own module's, as `tug new`'s `blog`, from the build's info; up to the
+  Recorder's own frame, past which is the server's. That's the handler
+  that rendered the page or redirected, or a wrapper that answered for
+  it, as `guestsOnly` sends one who has logged in to the dashboard, with
+  where the function is defined, as Laravel's action is the controller's
+  method; one the compiler inlined, whose start the runtime doesn't keep,
+  is where it is. A response tug wrote for the app, as an error's page,
+  names the route's own handler, without a method value's `-fm`, and the
+  line that added the route, as Go keeps no line of a method value of its
+  own.
+- **Where else it was, from Go:** where `c.Inertia` was called, by the
+  same walk of the stack; where `Share` or `ShareFunc` was called, kept as
+  they're called, a prop shared by a function at the function's, as the
+  page got that one; `errors`, tug's own, shared, with no place; and the
+  page's file, `resources/js/pages/<name>`, by each extension a starter's
+  page has, when it's there.
+- **Inertia's part in package `inertia`,** which imports no tug: the
+  resolver tells a hook of each prop as it goes out, a plain value at the
+  top, and a prop of a type at any depth; the values are read from the
+  page as JSON has it, as the client gets it. A deferred prop is `defer`,
+  with its group, on its own fetch, which the extension's
+  `X-Inertia-Devtools-Deferred` says, and on a partial reload is as any
+  prop, as Laravel's; `scroll` keeps its group when deferred; a merge
+  prepends when it's `Prepend`, prepends at a path with none appended, or
+  is a scroll's page before, and deep-merges when it's `DeepMerge` or
+  matched on a key. A first visit's tag is a 200's alone, as the protocol
+  has it, of JSON, which a page's Content-Security-Policy leaves alone,
+  as it doesn't run. tug's part, the request, the route and the
+  endpoints, meets it in the request's context, as the route's place
+  does.
 - **Recording never fails a response:** an entry that can't be made or
   kept is dropped, and the log says why, at Debug.
-- **IDs as the protocol's,** ULIDs, made on the standard library.
-- **Tests:** each response's ID and batch, a prefetch's its own; a first
-  visit's tag, and none on a visit after or a page that isn't Inertia's;
-  each kind of request; each kind of prop, shared or not, and a rescued
-  one; secrets redacted, in props, bodies and headers; an upload
-  summarized; bodies left out by their reasons; the endpoints, their
-  filters, a 404, and no flash taken; the files, their limit and their
-  day; nothing recorded, sent or served outside `tug dev`; and an app
-  under `tug dev` answering the panel.
+- **IDs as the protocol's,** ULIDs, made on the standard library,
+  monotonic within a millisecond, which order the list; an ID that isn't
+  one is a 404 before any file is read.
+- **Tests:** each response's ID and batch, a prefetch's its own; each
+  kind of request; a first visit's tag, and none on a visit after or an
+  error's page; each kind of prop, shared or not, by `Share` and by a
+  function, where, deferred on its fetch, optional on a partial reload,
+  and rescued; the route's action, the function that rendered, a wrapper
+  that answered for it, and the route's own for an error tug answered;
+  where the page was rendered, and its file; secrets redacted, in props,
+  bodies, the query and headers; an upload summarized; bodies left out by
+  their reasons, and one the handler didn't read kept; the endpoints,
+  their filters, a 404 and a 405, the panel's requests neither recorded
+  nor seen by the App's middleware, and no flash taken; the files, their
+  limit by tab, their day, and another run reading them; an entry that
+  can't be kept leaving the response alone; nothing recorded, sent or
+  served outside `tug dev`; which frames are the app's; and the auth
+  starter, made by `tug new` and run as `tug dev` runs it, answering the
+  panel with its login page's entry.
 
 ## Decisions
 

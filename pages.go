@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/internal/devtools"
 	"github.com/cuonggt/tug/internal/typegen"
 )
 
@@ -82,6 +83,13 @@ func (c *Ctx) Inertia(component string, props any) error {
 	pages := c.app.config.Inertia
 	if pages == nil {
 		return errors.New("tug: rendering an Inertia page needs Config.Inertia")
+	}
+	if c.app.devtools != nil {
+		if rec := devtools.From(c.Context()); rec != nil {
+			if f, ok := devtools.Caller(); ok {
+				rec.Rendered(devtools.At(f))
+			}
+		}
 	}
 	return pages.Render(&c.rw, c.pageRequest(), component, props)
 }

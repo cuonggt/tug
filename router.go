@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 
+	"github.com/cuonggt/tug/internal/devtools"
 	"github.com/cuonggt/tug/internal/route"
 )
 
@@ -107,6 +110,12 @@ func (r *Router) Handle(method, path string, h HandlerFunc, mw ...Middleware) *R
 
 	rt := &Route{app: a, group: r, method: method, path: full, h: h, mw: slices.Clone(mw)}
 	rt.shown = rt.String()
+	if a.config.DevTools {
+		if f, ok := devtools.Caller(); ok {
+			at := devtools.At(f)
+			rt.added = &at
+		}
+	}
 	pattern := full
 	if method != "" {
 		pattern = method + " " + full
@@ -115,6 +124,11 @@ func (r *Router) Handle(method, path string, h HandlerFunc, mw ...Middleware) *R
 		// Answered as it's matched, before its middleware, which may
 		// answer for it.
 		route.Answered(req.Context(), &rt.shown)
+		if a.devtools != nil {
+			if rec := devtools.From(req.Context()); rec != nil {
+				rec.Answered(rt.devtools())
+			}
+		}
 		rt.handler.ServeHTTP(w, req)
 	}))
 	a.routes = append(a.routes, rt)
@@ -147,6 +161,26 @@ type Route struct {
 	// shown is the route as String says it, which RouteOf returns for a
 	// request it answered.
 	shown string
+
+	// added is where the app added the route, for Inertia's DevTools, under
+	// Config.DevTools.
+	added *devtools.Source
+}
+
+// devtools is the route as Inertia's DevTools show it: its path as it was
+// added, its name, and its handler, by the name Go gives the function, a
+// method's without the -fm of its value, with where the app added it,
+// which the function of the app's that answered, when one did, replaces.
+func (rt *Route) devtools() devtools.Route {
+	r := devtools.Route{URI: strings.TrimSuffix(rt.path, "{$}"), ActionSource: rt.added}
+	if rt.name != "" {
+		r.Name = &rt.name
+	}
+	if fn := runtime.FuncForPC(reflect.ValueOf(rt.h).Pointer()); fn != nil {
+		name := strings.TrimSuffix(fn.Name(), "-fm")
+		r.Action = &name
+	}
+	return r
 }
 
 // Name names the route, for App.URL and Ctx.RedirectRoute. A name belongs

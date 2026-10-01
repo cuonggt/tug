@@ -536,6 +536,7 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 			}
 			if kind.name == "auth" {
 				migratesByItsCommand(t, dir)
+				answersTheDevTools(t, dir)
 			}
 		})
 	}
@@ -645,6 +646,92 @@ func migratesByItsCommand(t *testing.T, dir string) {
 	// Another command, as jobs, runs them as the app starts.
 	if out := app(filepath.Join(t.TempDir(), "app.db"), "jobs"); !strings.Contains(out, "ran a migration") || !strings.Contains(out, "No job has failed for good.") {
 		t.Errorf("jobs on a new database:\n%s", out)
+	}
+}
+
+// answersTheDevTools runs the auth app in dir, which migratesByItsCommand
+// built, as tug dev runs it, and reads a page's entry as Inertia's DevTools
+// do: the function that rendered it, inside the wrapper of its route, and
+// where, the page's file, and a shared prop, by where main.go shares it.
+func answersTheDevTools(t *testing.T, dir string) {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	vars, err := readDotEnv(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	app := exec.Command(filepath.Join(dir, "app"))
+	app.Dir = dir
+	app.Env = append(append(os.Environ(), vars...), "ADDR="+addr, "APP_URL=http://"+addr, "TUG_DEV=1",
+		"DB_PATH="+filepath.Join(t.TempDir(), "app.db"))
+	app.Stdout, app.Stderr = &out, &out
+	if err := app.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		app.Process.Signal(os.Interrupt)
+		app.Wait()
+	}()
+
+	get := func(path string) (*http.Response, string) {
+		resp, err := http.Get("http://" + addr + path)
+		if err != nil {
+			return nil, ""
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp, string(b)
+	}
+	var resp *http.Response
+	var page string
+	for deadline := time.Now().Add(30 * time.Second); resp == nil; time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the app didn't serve /login; it said\n%s", out.String())
+		}
+		resp, page = get("/login")
+	}
+	id := resp.Header.Get("X-Inertia-Devtools-Id")
+	if id == "" || !strings.Contains(page, `<script data-inertia-devtools-id type="application/json">"`+id+`"</script>`) {
+		t.Fatalf("under tug dev, /login names no entry: %v\n%s", resp.Header, page)
+	}
+
+	resp, body := get("/_inertia/devtools/entries/" + id)
+	var e struct {
+		Meta struct {
+			Component   string `json:"component"`
+			RequestType string `json:"requestType"`
+		} `json:"__meta"`
+		Route struct {
+			Name, URI, Action string
+			ActionSource      struct{ File string }
+		}
+		RenderSource  struct{ File string }
+		ComponentPath string
+		Props         map[string]struct {
+			Shared      bool
+			ShareSource struct{ File string }
+		}
+	}
+	if resp == nil || resp.StatusCode != 200 || json.Unmarshal([]byte(body), &e) != nil {
+		t.Fatalf("the entry %s: %v\n%s", id, resp, body)
+	}
+	if e.Meta.Component != "Auth/Login" || e.Meta.RequestType != "initial" {
+		t.Errorf("the entry's meta %+v", e.Meta)
+	}
+	if e.Route.Name != "login" || e.Route.URI != "/login" || e.Route.Action != "main.loginPage" || filepath.Base(e.Route.ActionSource.File) != "auth.go" {
+		t.Errorf("the entry's route %+v", e.Route)
+	}
+	if filepath.Base(e.RenderSource.File) != "auth.go" || !strings.HasSuffix(e.ComponentPath, filepath.Join("resources", "js", "pages", "Auth", "Login.tsx")) {
+		t.Errorf("rendered in %q, the page's file %q", e.RenderSource.File, e.ComponentPath)
+	}
+	if auth := e.Props["auth"]; !auth.Shared || filepath.Base(auth.ShareSource.File) != "main.go" {
+		t.Errorf("the shared prop auth %+v", auth)
 	}
 }
 

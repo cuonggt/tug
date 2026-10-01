@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M34 are done, which is
+the decisions behind it and where it stands: M1 to M35 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -82,8 +82,13 @@ migrate new`, and hooks for metrics (v0.29.0): `tug.RouteOf`, the route
 that answered a request, for the app's middleware to label its metrics
 by, which `middleware.Logger` logs, and `queue.Config`'s `Observe`, told
 how each run of a job went, with the counting left to a client the app
-picks. `README.md` is the front door, and `docs/` the guide, a page per
-part of tug. Change them with the behaviour.
+picks, and Inertia's DevTools (v0.30.0): under `tug dev`, by `TUG_DEV`,
+`Config.DevTools`, an entry of each request, kept in `.tug/devtools` for
+the browser's panel, by its protocol, with the page's props, by their
+types, and where they were shared, the route and the app's function that
+answered, and where the page was rendered, and its secrets redacted.
+`README.md` is the front door, and `docs/` the guide, a page per part of
+tug. Change them with the behaviour.
 
 ## Commands
 
@@ -149,9 +154,9 @@ dev server that isn't there: delete it.
 ## Architecture
 
 - `tug`, the root package:
-  - `app.go`: `Config` (`ConfigFromEnv` reads ADDR, PORT, APP_DEBUG and
-    APP_URL; `New` panics on a `URL` that `appURL`, in links.go, doesn't
-    take), `App`, `Run` and `Serve` with graceful shutdown, and misses. At
+  - `app.go`: `Config` (`ConfigFromEnv` reads ADDR, PORT, APP_DEBUG,
+    APP_URL, and TUG_DEV, for `DevTools`; `New` panics on a `URL` that
+    `appURL`, in links.go, doesn't take), `App`, `Run` and `Serve` with graceful shutdown, and misses. At
     the first request, `freeze` adds `/` as a catch-all, unless a route
     already takes every path under every method. The catch-all answers
     trailing-slash redirects itself, with a 307, and 405s (probing the mux
@@ -165,7 +170,13 @@ dev server that isn't there: delete it.
     leave out what only serving needs, as the auth starter's database.
     `ServeHTTP` puts a place for the route that answers a request in its
     context, through `internal/route`, when the App has middleware of its
-    own (`placeRoutes`), which alone, outside the router, needs it.
+    own (`placeRoutes`), which alone, outside the router, needs it. Under
+    `Config.DevTools`, it answers through `devtools`, the
+    `internal/devtools` Recorder `New` makes, keeping its entries in
+    `.tug/devtools`, around `serve`, the App's middleware and routes, so
+    the panel's endpoints are answered before them, and every other
+    request is recorded as it went out. Off, each hook of it is a nil
+    check.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -176,7 +187,11 @@ dev server that isn't there: delete it.
     Each route's handler in the mux records the route as it's matched,
     `shown`, its `String`, with no `{$}`, before its middleware, which
     `RouteOf` reads, or, with no place, `shownPattern` of `r.Pattern`,
-    where `/` is the misses' catch-all, and none.
+    where `/` is the misses' catch-all, and none. Under DevTools, a route
+    keeps where the app added it (`added`, from `devtools.Caller`), and
+    records itself in the request's Recording as it's matched
+    (`Route.devtools`: its path, name, and handler, by the function's name
+    without a method value's `-fm`).
   - `ctx.go`: `Ctx`, the responses, `Param`, `Query` and `IP` (the
     RemoteAddr's address, which `middleware.TrustProxies` has made the
     client's), `Locale` (`App.Locale`'s, in app.go: `Config.Locale`, the
@@ -197,7 +212,8 @@ dev server that isn't there: delete it.
     language (`said`, `bindMessage`: ":field " and one of `bindReasons`),
     naming the field by its `label` tag (`field.label`, or `jsonLabel`
     down a JSON error's path, which leaves out indexes) or its key's last
-    part in words.
+    part in words. Under DevTools, a multipart form it read is recorded,
+    for the entry to say its files by their names, sizes and types.
   - `texts.go`: `texts`, what tug says to a person, in English, with
     validate's, which `App.gen` writes beside the types, for tug lang.
   - `errors.go`: `HTTPError`, `BindError`, `PanicError`,
@@ -253,7 +269,8 @@ dev server that isn't there: delete it.
   - `pages.go`: `Page[P]`, which declares a component with its props
     type in the registry tug gen reads (`declare`, `declaredPages`) and
     returns a `PageOf[P]` that renders only those props, `Ctx.Inertia`
-    and `Ctx.Location`.
+    (which, under DevTools, records where the app rendered the page) and
+    `Ctx.Location`.
     `Config.Inertia` puts the Inertia middleware inside the App's own.
   - `forms.go`: `BindValid`/`Validate` (tags, then the handler's checks;
     a Precognition request is answered in `precognition` and returns
@@ -287,7 +304,16 @@ dev server that isn't there: delete it.
   props (`holdsProps`); other values are data for encoding/json. Siblings
   resolve concurrently. `empty.go` copies whatever holds a nil slice or map
   so it goes out as `[]` or `{}`, caching which types can't hold one.
-  `protocol_test.go` has a test for each rule M4 added.
+  `protocol_test.go` has a test for each rule M4 added. Under tug's
+  DevTools, the request's context has a `devtools.Recording`, which `page`
+  hands the page (`record`): each prop's metadata, by its path, as the
+  resolver's `saw` is told of each that goes out (`devtoolsProp`: the
+  protocol's type, `defer` only on the deferred prop's own fetch, the
+  merge's direction, once), the top's shared or not, and where
+  (`shareSources` and `funcSources`, which `Share` and `ShareFunc` keep
+  from their `caller`), and the values, as JSON reads the page
+  (`lookup`); `RenderStatus` adds a 200 first visit's
+  `data-inertia-devtools-id` tag, of JSON, which no policy blocks.
 - `session`: the cookie store, with no import of tug. AES-256-GCM with a
   key derived by HKDF from each of `Config.Keys`, the first encrypting;
   the cookie name is the AAD. `cookieWriter` sets the cookie when the
@@ -375,6 +401,31 @@ dev server that isn't there: delete it.
   `Of`, which `tug.RouteOf` and `middleware.Logger` read.
 - `internal/rw`: the ResponseWriter wrapper that records status and size,
   and keeps Flush, Hijack, ReadFrom and `Unwrap`.
+- `internal/devtools`: the server's side of Inertia's DevTools, by their
+  protocol, whose reference is inertia-laravel's. `recorder.go`:
+  `Recorder.Serve`, around the App's middleware: the panel's endpoints,
+  `/_inertia/devtools/entries` and an entry by its ID (`serveEntries`,
+  `filtered`), and every other request through `next`, with a `Recording`
+  (devtools.go) in its context, which tug and inertia fill in, its ID and
+  batch in the response's headers (a prefetch's batch is its own), the
+  response seen as it went out (`sent`, in capture.go: its status,
+  headers, text up to `bodyLimit`, whether it streamed, and `by`, the
+  app's function that answered, from `Caller` as the status is written),
+  and the request's body as it was read (`read`, and its `rest` once the
+  handler is done, unless it expected a 100-continue); `keep` drops what
+  can't be kept, saying so at Debug. `entry.go`: `entryOf`, the
+  protocol's JSON: `requestType`, `requestBody` (only Inertia's writes),
+  `responseBody`, `componentPath` (in `resources/js/pages`), and the
+  route's action, `by`'s, where it's `defined`, over the router's own.
+  `caller.go`: `Caller`, the app's frame on the stack: neither tug's,
+  its `_test.go` files aside, nor the standard library's (`apps`: a path
+  whose first element has no dot, unless it's `mainModule`'s), and before
+  `Serve`'s. `redact.go`: `[REDACTED]` for the values of secret keys
+  (`plainKey`: in any case, without `_` or `-`), at any depth, and of the
+  query, and secret headers. `store.go`: an entry per file, named by its
+  ULID (`ulid.go`, monotonic in a millisecond), an index of their metas
+  read at the first use, the newest `keepPerTab` of each tab, and none
+  older than `keepFor`, pruned every `pruneEvery`.
 - `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
   values: `pages.ts` (an interface per named struct, `SharedProps`,
   `Pages`, `PageProps`, and the `InertiaConfig` augmentation) and
@@ -421,14 +472,16 @@ dev server that isn't there: delete it.
   alone) and `vite.config.ts` do; one that's a frontend's own is in its
   layer.
   `tug dev` gives the app `TUG_DEV=1`, so an SSR app leaves rendering to
-  Vite. An app requires the tug that made it when that's a release or was
+  Vite, and the app records its requests for Inertia's DevTools. An app requires the tug that made it when that's a release or was
   fetched by the go command (`release`, `fetched`: the build's module
   checksum), and otherwise `replace`s it with the checkout it was built
   from (`checkoutDir`). The starters' Go files are `.tmpl` so the go tool
   doesn't build them in place; `tug_test.go` makes a real app of each
   kind, React's four and two each of Vue's and Svelte's, and runs an SSR
   one's binary for a page rendered on the server, and the auth one's
-  `migrate` command on a new database (`migratesByItsCommand`), and one on each of
+  `migrate` command on a new database (`migratesByItsCommand`), and reads
+  a page's entry for the DevTools from it under `TUG_DEV`
+  (`answersTheDevTools`), and one on each of
   Postgres and MySQL, which writes its types with no database running. Every starter makes its
   app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
   `createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
