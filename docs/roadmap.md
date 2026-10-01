@@ -2957,7 +2957,8 @@ browser's own, as an extension, records each visit, the client's side of
 it paired with what the server says of it, by a protocol each server
 adapter implements, Laravel's being the reference. tug's adapter is its
 own, so the server's side is tug's to write, for `tug dev`, where an app
-is made. Released as v0.30.0.
+is made. Released as v0.30.0, and with the route's action made right,
+as v0.30.1.
 
 - **Recorded under `tug dev`:** each response says its entry's ID and
   batch, `X-Inertia-Devtools-Id` and `X-Inertia-Devtools-Parent-Out`, and
