@@ -44,6 +44,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M36 | Compressed assets          | done   |
 | M37 | Typed forms                | done   |
 | M38 | Typed flash                | done   |
+| M39 | Request IDs in jobs        | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3379,6 +3380,73 @@ Choices made on the way:
   `types.ts`, as `flash.sucess` doesn't; and the starters, made by `tug
   new`, typechecking with no `types.ts`, and their toasts, the tokens
   page and the recovery codes in the browser suite as before.
+
+## M39 · Request IDs in jobs — later
+
+A request's ID, which `middleware.RequestID` gives it and
+`middleware.Logger` logs, goes no further than the request: a job its
+handler pushes, as the auth starter's mail, runs later, on any instance,
+and its log lines, and tug's of how it went, say nothing of where it came
+from, so a job that failed for good can't be traced back to the request
+that pushed it. Laravel's Context carries what a request had into the
+jobs it dispatches, and OpenTelemetry's propagators carry a trace the
+same way. A job takes what the context it's pushed from carries, and the
+context it runs in gets it back. To be released as v0.34.0.
+
+- **`queue.Carrier`:** a value a job takes from the context it's pushed
+  from, and gives back to the context it runs in: `Carry(ctx, into
+  map[string]string)` and `Restore(ctx, from map[string]string)
+  context.Context`, the shape of OpenTelemetry's propagators, which an
+  app's trace adapts to in a few lines. `queue.Config.Carry` lists them.
+- **`Job.Carried`:** what a job took, by name, which a Store keeps beside
+  the job, and gives back with its claim, its retries, and a failed job's
+  listing.
+- **The request's ID carried:** `middleware.CarryRequestID`, the Carrier
+  of the ID `RequestID` put in the context, by `request_id`, and
+  `middleware.WithRequestID`, which puts one in a context, so that
+  `RequestIDFrom` reads it in the job's run, and tug's log lines of the
+  job, a failure's among them, say it.
+- **The auth starter's queue carries it:** its jobs table keeps what a job
+  carried, in each database, by a migration, and its `jobs` command and
+  its admin page of failed jobs show the request each came from.
+- **The guide:** Background jobs, a section on what a job carries; and
+  Deployment, a job's log lines matched to its request's.
+
+Choices, to settle before any code:
+
+- **Carriers, not the request's ID alone:** the queue imports nothing of
+  tug's middleware, and a trace's parent, or a tenant's ID, travels the
+  same way, so the queue carries what the app lists, and the request's
+  ID is middleware's Carrier, as the queue's `Limiter` is auth's
+  `Throttle`.
+- **An extra a Store may have:** `CarryStore`, as `UniqueStore` and the
+  rest are. A Store that doesn't keep what a job carries runs the job as
+  before, without it, so an app's own Store, as a starter's made before,
+  keeps working as it is, and `queuetest.TestStore` checks the carried
+  values only of a Store that says it keeps them.
+- **Text, by name, kept as JSON:** what's carried is a few strings, as a
+  header's values are, kept as JSON in a column of the jobs table, as the
+  payload is, and a push whose carried values come to more than a few KB
+  fails, as a header that size would.
+- **Carried however it's pushed:** `Push`, `PushAt`, `PushUnique` and
+  `PushLatest`, and in a handler's transaction through `In`, each from
+  the context it's given. A schedule's runs, which the queue pushes,
+  carry nothing, and a job run again from the failed keeps what it
+  carried.
+- **In tug's log lines of a job:** each line the queue writes of a job,
+  as one that failed for good, has what it carried, by name, beside its
+  kind and ID, so the line says which request pushed the job. The app's
+  own lines in the handler have the context, and `RequestIDFrom`.
+- **Tests:** a job pushed from a request's context run with the ID back
+  in its own, by `RequestIDFrom`, and in the queue's log line of its
+  failure; each way of pushing carrying, and a schedule's runs not; a
+  retry and a run again keeping what was carried; a Store that keeps
+  nothing carried running the job as before; carried values past the
+  limit failing the push; `TestStore` on the memory store, and on each of
+  the auth starter's databases, after its migration; an app made before,
+  its jobs table without the column, migrated; and the auth starter's
+  failed jobs showing the request, in its command and on its page, in
+  each frontend.
 
 ## Decisions
 
