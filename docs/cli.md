@@ -152,7 +152,7 @@ and its `main.go`, `main_test.go`, `app.html`, `package.json`,
 The app's `go.mod` requires the tug that `tug new` is:
 
 - **A release**, installed with `go install
-  github.com/cuonggt/tug/cmd/tug@latest` or `@v0.29.0`, makes apps that
+  github.com/cuonggt/tug/cmd/tug@latest` or `@v0.30.0`, makes apps that
   require that version.
 - **A commit the go command fetched**, as `go install
   github.com/cuonggt/tug/cmd/tug@<commit>` does, makes apps that require
@@ -475,7 +475,7 @@ where its platform keeps secrets. It's how to make a key to rotate to:
 tug version
 ```
 
-Prints tug's version: `tug v0.29.0` for that release. A tug installed at a
+Prints tug's version: `tug v0.30.0` for that release. A tug installed at a
 commit prints its pseudo-version, and one built from a checkout prints
 `(devel)` or a pseudo-version, with `+dirty` when the checkout had changes.
 It's the version `tug new` goes by.
