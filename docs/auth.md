@@ -844,6 +844,9 @@ listens for `verified`, and the layout's bell and the notifications'
 page for `notification`. Each reloads what it shows, as each event
 comes, and as the connection is made again, for what it missed: the
 verify page's reload goes to the dashboard once the email is verified.
+A reload waits while a request of Inertia's is in flight, as a form's
+visit loading the page it goes back to: the two at once would each read
+the flash the form left, and show it twice.
 An event of the app's for the user goes the same way,
 `a.hub.Publish(ctx, userChannel(user), name, data)`, and in a handler's
 transaction, with what it tells of, through
