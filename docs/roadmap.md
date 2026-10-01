@@ -3492,7 +3492,7 @@ for a visit that failed. Laravel shows Ignition's page, and Rails and
 Phoenix a page of their own: the error, the app's code where it happened,
 and the request. tug has each of them: the error and what it wraps, a
 panic's stack, which of its frames are the app's, the route that
-answered, and where the app added it. To be released as v0.35.0.
+answered, and where the app added it. Released as v0.35.0.
 
 - **A page for a server error, while debugging:** under `Config.Debug`,
   `DefaultErrorHandler` answers a 5xx with an HTML page, in place of the

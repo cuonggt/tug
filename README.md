@@ -6,7 +6,7 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.34.0 is the latest release: the framework, its CLI,
+**Status: early.** v0.35.0 is the latest release: the framework, its CLI,
 background jobs, on a schedule in any time zone too, pushed in the app's
 own transactions, and so many at once or a second across the instances,
 server-side rendering, tests of an app's pages, uploads kept on the app's
@@ -24,10 +24,11 @@ answered each request and how each job ran, for the app's metrics, each
 request under `tug dev` kept for Inertia's DevTools, the frontend's build
 sent gzipped by the app itself, forms typed by the structs their routes'
 handlers bind, flash data typed by its declared keys, jobs whose log
-lines say which request pushed them, and starters in React, Vue or
-Svelte, one with accounts, from registering to two-factor logins,
-passkeys, a profile photo, API tokens, admins, and notifications in the
-app and by mail, in SQLite, Postgres or MySQL.
+lines say which request pushed them, a server error shown while
+debugging on a page of where it came from, in the app's source, and
+starters in React, Vue or Svelte, one with accounts, from registering to
+two-factor logins, passkeys, a profile photo, API tokens, admins, and
+notifications in the app and by mail, in SQLite, Postgres or MySQL.
 [The guide](docs/README.md) covers all of it, and
 [docs/roadmap.md](docs/roadmap.md) has what's next.
 
