@@ -1,11 +1,17 @@
 package vite
 
 import (
+	"bytes"
+	"compress/gzip"
 	"html/template"
+	"io"
+	"io/fs"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 )
@@ -203,5 +209,158 @@ func TestTagsTakeThePagesNonceFirst(t *testing.T) {
 	_, err := v.Tags("views/foo.js", "views/bar.js")
 	if err == nil || !strings.Contains(err.Error(), `{{ vite .Nonce "resources/js/app.tsx" }}`) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// script is JavaScript long enough that gzip makes it smaller.
+var script = strings.Repeat("console.log('a line of the app');\n", 40)
+
+// compressing is a build with a script that compresses, and an image.
+func compressing() fstest.MapFS {
+	b := build()
+	b["assets/app-Q1w2E3r4.js"] = &fstest.MapFile{Data: []byte(script)}
+	b["assets/logo-A1b2C3d4.png"] = &fstest.MapFile{Data: []byte("\x89PNG\r\n\x1a\n" + script)}
+	return b
+}
+
+// get sends a request of method for path through v, with headers, name and
+// value pairs.
+func get(v *Vite, method, path string, headers ...string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, nil)
+	for i := 0; i+1 < len(headers); i += 2 {
+		r.Header.Set(headers[i], headers[i+1])
+	}
+	w := httptest.NewRecorder()
+	v.ServeHTTP(w, r)
+	return w
+}
+
+func gunzip(t *testing.T, data []byte) string {
+	t.Helper()
+	r, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+func TestAFileThatCompressesGoesGzippedToABrowserThatTakesIt(t *testing.T) {
+	v := newVite(t, Config{Build: compressing()})
+	for _, accept := range []string{"gzip, deflate, br, zstd", "*", "GZIP", "x-gzip", "gzip;q=0.5", "*;q=0, gzip", "identity;q=0, gzip"} {
+		rec := get(v, "GET", "/build/assets/app-Q1w2E3r4.js", "Accept-Encoding", accept)
+		h := rec.Header()
+		if rec.Code != 200 || h.Get("Content-Encoding") != "gzip" || h.Get("Vary") != "Accept-Encoding" {
+			t.Fatalf("Accept-Encoding %q: %d, Content-Encoding %q, Vary %q", accept, rec.Code, h.Get("Content-Encoding"), h.Get("Vary"))
+		}
+		if got := gunzip(t, rec.Body.Bytes()); got != script || rec.Body.Len() >= len(script) {
+			t.Errorf("Accept-Encoding %q: %d bytes, of %d, unzipped to the script: %v", accept, rec.Body.Len(), len(script), got == script)
+		}
+		if h.Get("Content-Length") != strconv.Itoa(rec.Body.Len()) || h.Get("Content-Type") != "text/javascript; charset=utf-8" || h.Get("Cache-Control") != "public, max-age=31536000, immutable" {
+			t.Errorf("Accept-Encoding %q: the headers %v", accept, h)
+		}
+	}
+
+	// As it is to a browser that doesn't take gzip, which a cache between
+	// keeps apart from the gzipped.
+	for _, accept := range []string{"", "identity", "deflate", "br", "zstd", "gzip;q=0", "gzip;q=0, *", "*;q=0", "gzip;q=nope", "gzip;q=NaN, *"} {
+		rec := get(v, "GET", "/build/assets/app-Q1w2E3r4.js", "Accept-Encoding", accept)
+		h := rec.Header()
+		if rec.Code != 200 || h.Get("Content-Encoding") != "" || h.Get("Vary") != "Accept-Encoding" || rec.Body.String() != script {
+			t.Errorf("Accept-Encoding %q: %d, Content-Encoding %q, Vary %q, %d bytes", accept, rec.Code, h.Get("Content-Encoding"), h.Get("Vary"), rec.Body.Len())
+		}
+	}
+}
+
+func TestWhatDoesntCompressGoesAsItIs(t *testing.T) {
+	v := newVite(t, Config{Build: compressing()})
+	for path, body := range map[string]string{
+		"/build/assets/logo-A1b2C3d4.png": "\x89PNG\r\n\x1a\n" + script, // compressed by its format
+		"/build/assets/foo-BRBmoGS9.js":   "console.log('foo')",         // which gzip makes longer
+	} {
+		rec := get(v, "GET", path, "Accept-Encoding", "gzip, deflate, br, zstd")
+		if rec.Code != 200 || rec.Header().Get("Content-Encoding") != "" || rec.Header().Get("Vary") != "" || rec.Body.String() != body {
+			t.Errorf("%s: %d, Content-Encoding %q, Vary %q", path, rec.Code, rec.Header().Get("Content-Encoding"), rec.Header().Get("Vary"))
+		}
+	}
+}
+
+func TestARangeOrAHeadIsOfTheCompressedBytes(t *testing.T) {
+	v := newVite(t, Config{Build: compressing()})
+	whole := get(v, "GET", "/build/assets/app-Q1w2E3r4.js", "Accept-Encoding", "gzip").Body.Bytes()
+
+	rec := get(v, "GET", "/build/assets/app-Q1w2E3r4.js", "Accept-Encoding", "gzip", "Range", "bytes=0-9")
+	want := "bytes 0-9/" + strconv.Itoa(len(whole))
+	if rec.Code != 206 || rec.Header().Get("Content-Encoding") != "gzip" || rec.Header().Get("Content-Range") != want || !bytes.Equal(rec.Body.Bytes(), whole[:10]) {
+		t.Errorf("a range: %d, Content-Range %q, want %q", rec.Code, rec.Header().Get("Content-Range"), want)
+	}
+
+	// One past the end is refused, with the length of what's sent then.
+	rec = get(v, "GET", "/build/assets/app-Q1w2E3r4.js", "Accept-Encoding", "gzip", "Range", "bytes=99999-")
+	if n := rec.Header().Get("Content-Length"); rec.Code != 416 || n != "" && n != strconv.Itoa(rec.Body.Len()) {
+		t.Errorf("a range past the end: %d, Content-Length %q of %d bytes", rec.Code, n, rec.Body.Len())
+	}
+
+	rec = get(v, "HEAD", "/build/assets/app-Q1w2E3r4.js", "Accept-Encoding", "gzip")
+	if rec.Code != 200 || rec.Header().Get("Content-Encoding") != "gzip" || rec.Header().Get("Content-Length") != strconv.Itoa(len(whole)) || rec.Body.Len() != 0 {
+		t.Errorf("HEAD: %d, Content-Encoding %q, Content-Length %q, %d bytes", rec.Code, rec.Header().Get("Content-Encoding"), rec.Header().Get("Content-Length"), rec.Body.Len())
+	}
+}
+
+func TestTheBuildsOwnCompressedCopiesGoFirst(t *testing.T) {
+	b := compressing()
+	b["assets/app-Q1w2E3r4.js.br"] = &fstest.MapFile{Data: []byte("the build's brotli")}
+	b["assets/app-Q1w2E3r4.js.gz"] = &fstest.MapFile{Data: []byte("the build's gzip")}
+	v := newVite(t, Config{Build: b})
+	for accept, want := range map[string]string{
+		"gzip, deflate, br, zstd": "the build's brotli",
+		"br;q=0.1, gzip":          "the build's brotli",
+		"gzip":                    "the build's gzip",
+		"br;q=0, gzip":            "the build's gzip",
+		"zstd":                    script,
+	} {
+		rec := get(v, "GET", "/build/assets/app-Q1w2E3r4.js", "Accept-Encoding", accept)
+		if rec.Body.String() != want || rec.Header().Get("Vary") != "Accept-Encoding" || rec.Header().Get("Content-Type") != "text/javascript; charset=utf-8" {
+			t.Errorf("Accept-Encoding %q: %q, Content-Encoding %q, Vary %q", accept, rec.Body, rec.Header().Get("Content-Encoding"), rec.Header().Get("Vary"))
+		}
+	}
+}
+
+// opens counts the files opened in a build, by name.
+type opens struct {
+	build fstest.MapFS
+	mu    sync.Mutex
+	n     map[string]int
+}
+
+func (o *opens) Open(name string) (fs.File, error) {
+	o.mu.Lock()
+	o.n[name]++
+	o.mu.Unlock()
+	return o.build.Open(name)
+}
+
+func (o *opens) Stat(name string) (fs.FileInfo, error) { return o.build.Stat(name) }
+
+func TestRequestsAtOnceCompressAFileOnce(t *testing.T) {
+	o := &opens{build: compressing(), n: map[string]int{}}
+	v := newVite(t, Config{Build: o})
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range 20 {
+		wg.Go(func() {
+			<-start
+			if rec := get(v, "GET", "/build/assets/app-Q1w2E3r4.js", "Accept-Encoding", "gzip"); gunzip(t, rec.Body.Bytes()) != script {
+				t.Error("a request didn't get the script")
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	if n := o.n["assets/app-Q1w2E3r4.js"]; n != 1 {
+		t.Errorf("the script was read %d times", n)
 	}
 }

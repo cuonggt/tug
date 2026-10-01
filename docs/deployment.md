@@ -91,6 +91,8 @@ app.Get("/build/{path...}", tug.WrapHandler(assets))
   of their content in their names, so they're cached for a year:
   `Cache-Control: public, max-age=31536000, immutable`. The manifest, and
   anything else whose name starts with a dot, isn't served.
+- Its scripts and styles go gzipped to a browser that takes it: see
+  [Compression](#compression).
 - The manifest's hash is the frontend's version, which Inertia's client
   sends with each visit. After a deploy with a new frontend, a browser
   still running the old one gets a 409 on its next visit and loads the page
@@ -286,6 +288,22 @@ docker run -p 8080:8080 -v blog-data:/data \
   -e MAIL_HOST=smtp.example.com -e MAIL_USERNAME=... -e MAIL_PASSWORD=... \
   -e MAIL_FROM_ADDRESS=hello@example.com blog
 ```
+
+## Compression
+
+The app sends the frontend's build gzipped itself, as it has no web
+server in front of it to: each script and style, and the rest of the
+build that compresses, gzipped the first time it's asked for, and kept,
+to a browser that takes gzip. The auth starter's build of 640 KB goes as
+205 KB. [pages.md](pages.md#vite) has the rest, and how to send brotli.
+
+Pages and JSON go as they are. Compressing a response that holds a secret
+beside text an attacker can have it say tells the secret by the
+response's size, which is the BREACH attack. tug's CSRF puts no token in
+a page, but a page's props can hold what's private, as the auth starter's
+new API token, and only the app knows which do. A proxy or CDN in front,
+as Cloudflare or a load balancer, compresses them when the app chooses
+it; the build has nothing secret, and changes only with a deploy.
 
 ## Behind a proxy
 

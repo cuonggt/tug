@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { Response } from '@playwright/test'
 import { appDir } from '../apps'
 import { expect, test } from './helpers'
 
@@ -17,6 +18,22 @@ test('a page, and an error page, say what a browser may do with them', async ({ 
     expect(headers['strict-transport-security']).toBeUndefined()
     expect(headers['content-security-policy']).toMatch(/script-src 'nonce-[A-Z2-7]+' 'strict-dynamic'/)
     expect(headers['content-security-policy-report-only']).toBeUndefined()
+  }
+})
+
+test("the build's scripts and styles come gzipped, and the page works", async ({ page }) => {
+  const assets: Response[] = []
+  page.on('response', (r) => {
+    if (/^\/build\/assets\/[^/]+\.(js|css)$/.test(new URL(r.url()).pathname)) assets.push(r)
+  })
+  await page.goto('/login')
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible()
+  expect(assets.length).toBeGreaterThan(0)
+  for (const r of assets) {
+    // One so small that gzip would make it longer goes as it is.
+    if ((await r.body()).length > 1024) {
+      expect(r.headers()['content-encoding'], new URL(r.url()).pathname).toBe('gzip')
+    }
   }
 })
 

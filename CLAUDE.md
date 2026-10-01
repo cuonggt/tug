@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M35 are done, which is
+the decisions behind it and where it stands: M1 to M36 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -86,7 +86,10 @@ picks, and Inertia's DevTools (v0.30.0): under `tug dev`, by `TUG_DEV`,
 `Config.DevTools`, an entry of each request, kept in `.tug/devtools` for
 the browser's panel, by its protocol, with the page's props, by their
 types, and where they were shared, the route and the app's function that
-answered, and where the page was rendered, and its secrets redacted.
+answered, and where the page was rendered, and its secrets redacted, and
+compressed assets (v0.31.0): the build's scripts and styles, as package
+`vite` serves them, gzipped once each, to a browser that takes it, or the
+build's own brotli.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -390,7 +393,13 @@ dev server that isn't there: delete it.
 - `vite`: dev-server tags while the hot file exists (read on each render),
   manifest tags otherwise, `Version` from the manifest's hash, `ServeHTTP`
   for the build, and `DevServer`, the dev server's URL, for package ssr
-  and `middleware.CSP`. No import of tug or inertia; it meets them through
+  and `middleware.CSP`. `ServeHTTP` sends a file of a type that compresses
+  (`compressible`, by its extension) by its `encodings`, made once a file
+  (`encoding.make`, under its `sync.Once`, in `encoded`): the build's own
+  `name.br` and `name.gz`, or else `gzipped`'s, when smaller, picked by
+  the request's `Accept-Encoding` (`pick`, `takes`, `weight`), brotli
+  first, with `Vary`, the file's own type, and the length, which
+  `ServeContent` leaves out under a `Content-Encoding`. No import of tug or inertia; it meets them through
   template funcs, `vite` and `viteReactRefresh`, which take the page's
   nonce first (`Tags`, `ReactRefresh`; `isNonce` refuses an entry, as a
   template from before names first), for the scripts and preloads to
@@ -489,7 +498,8 @@ dev server that isn't there: delete it.
   one's binary for a page rendered on the server, and the auth one's
   `migrate` command on a new database (`migratesByItsCommand`), and reads
   a page's entry for the DevTools from it under `TUG_DEV`
-  (`answersTheDevTools`), and one on each of
+  (`answersTheDevTools`), and checks that one, and each SSR one, sends the
+  build's scripts gzipped (`sendsItsBuildGzipped`), and one on each of
   Postgres and MySQL, which writes its types with no database running. Every starter makes its
   app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
   `createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
@@ -657,7 +667,8 @@ dev server that isn't there: delete it.
   `/csp-reports`, with Vite's `DevServer`, and the auth starter's bucket's
   `Origin` in `img-src`; their `app.html`'s scripts, and Vite's tags, carry
   `.Nonce`. `e2e/tests/headers.spec.ts` checks the headers, and a script
-  the page didn't bring blocked, and reported to the app's log, and
+  the page didn't bring blocked, and reported to the app's log, and the
+  build's scripts and styles gzipped in the browser, and
   `tug_test.go`'s `rendersOnTheServer` a served page's scripts' nonce.
   Both starters embed `lang/` (a
   `.gitkeep` until there's a file) and load it in `newApp`, with

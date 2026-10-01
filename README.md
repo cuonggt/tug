@@ -109,8 +109,9 @@ func showPost(c *tug.Ctx) error {
   restarted as it changes, and the browser reloaded. `tug gen` writes the
   TypeScript of each page's props and of the named routes, with a typed
   `route()`, so the frontend is checked against the Go. `tug build` makes
-  one static binary with the frontend in it, and the app comes with a
-  Dockerfile for a distroless image.
+  one static binary with the frontend in it, which sends its scripts and
+  styles gzipped, and the app comes with a Dockerfile for a distroless
+  image.
 - **Inertia pages** (package `inertia`), to the whole v3 protocol: a first
   visit gets HTML with the page object, later visits get JSON.
   `tug.Page[Props]` ties a component to the props it takes, and props nest

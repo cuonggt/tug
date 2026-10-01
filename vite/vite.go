@@ -15,6 +15,8 @@
 package vite
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,10 +25,16 @@ import (
 	"html"
 	"html/template"
 	"io/fs"
+	"math"
+	"mime"
 	"net/http"
 	"os"
+	"path"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Config says where a frontend's build and dev server are.
@@ -53,6 +61,11 @@ type Vite struct {
 	hotFile  string
 	manifest map[string]chunk
 	version  string
+
+	// encoded is each file's compressed copies, by its name, made the
+	// first time it's asked for.
+	mu      sync.Mutex
+	encoded map[string]*encoding
 }
 
 // chunk is an entry of Vite's manifest: a file of the build, and the files
@@ -247,6 +260,13 @@ func (v *Vite) Funcs() template.FuncMap {
 // ServeHTTP serves the built files under Base. The files Vite writes to
 // assets/ are named for a hash of their content, so they're cached for a
 // year; the manifest, and anything else starting with a dot, isn't served.
+//
+// A file of a type that compresses, as JavaScript and CSS do, goes gzipped
+// to a browser whose Accept-Encoding takes it, compressed the first time
+// it's asked for, and kept: the app is one binary, with no web server in
+// front of it to compress what it sends. Its own compressed copies beside
+// it in the build, name.br and name.gz, as a compression plugin of Vite's
+// writes them, go first, brotli before gzip. A range is of the bytes sent.
 func (v *Vite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	name, ok := strings.CutPrefix(r.URL.Path, v.base)
 	if !ok || v.build == nil || !fs.ValidPath(name) || name == "." || strings.HasPrefix(name, ".") || strings.Contains(name, "/.") {
@@ -257,8 +277,151 @@ func (v *Vite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	h := w.Header()
 	if strings.HasPrefix(name, "assets/") {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		h.Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+	if e := v.encodings(name); e.varies() {
+		// A cache between keeps the copies apart, the one sent as it is
+		// among them.
+		h.Add("Vary", "Accept-Encoding")
+		if coding, body := e.pick(r.Header.Get("Accept-Encoding")); coding != "" {
+			h.Set("Content-Encoding", coding)
+			h.Set("Content-Type", e.contentType)
+			// ServeContent leaves the length out under a Content-Encoding,
+			// for a writer that compresses as it goes: these bytes are
+			// compressed already, and a range sets its own.
+			h.Set("Content-Length", strconv.Itoa(len(body)))
+			http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(body))
+			return
+		}
 	}
 	http.ServeFileFS(w, r, v.build, name)
+}
+
+// encodings returns the compressed copies of the build's file name, made
+// the first time it's asked for, once however many ask at once; nil for a
+// file of a type that doesn't compress.
+func (v *Vite) encodings(name string) *encoding {
+	if !compressible(name) {
+		return nil
+	}
+	v.mu.Lock()
+	e, ok := v.encoded[name]
+	if !ok {
+		if v.encoded == nil {
+			v.encoded = make(map[string]*encoding)
+		}
+		e = new(encoding)
+		v.encoded[name] = e
+	}
+	v.mu.Unlock()
+	e.once.Do(func() { e.make(v.build, name) })
+	return e
+}
+
+// compressible reports whether a file of name's type compresses: text, and
+// WebAssembly and fonts not compressed already. An image, a WOFF font,
+// audio and video are compressed by their formats.
+func compressible(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".js", ".mjs", ".cjs", ".css", ".svg", ".json", ".map", ".html", ".htm", ".txt", ".wasm", ".ttf", ".otf":
+		return true
+	}
+	return false
+}
+
+// encoding is a file's compressed copies: the build's own, beside it, and
+// else tug's gzip, when that's smaller than the file.
+type encoding struct {
+	once        sync.Once
+	contentType string // the file's, as it is
+	br, gzip    []byte
+}
+
+func (e *encoding) make(build fs.FS, name string) {
+	data, err := fs.ReadFile(build, name)
+	if err != nil {
+		return // sent as it is
+	}
+	// The type a response of the file as it is has, by its extension, or
+	// else its first bytes, as http.ServeFileFS finds it.
+	e.contentType = mime.TypeByExtension(path.Ext(name))
+	if e.contentType == "" {
+		e.contentType = http.DetectContentType(data)
+	}
+	if br, err := fs.ReadFile(build, name+".br"); err == nil {
+		e.br = br
+	}
+	if gz, err := fs.ReadFile(build, name+".gz"); err == nil {
+		e.gzip = gz
+	} else if gz := gzipped(data); len(gz) < len(data) {
+		e.gzip = gz
+	}
+}
+
+// varies reports whether the file goes compressed to some browsers.
+func (e *encoding) varies() bool {
+	return e != nil && (e.br != nil || e.gzip != nil)
+}
+
+// pick returns the coding to send, of those the request's Accept-Encoding
+// takes, brotli before gzip, and its bytes; "" to send the file as it is,
+// which a browser gets even when it refuses that too.
+func (e *encoding) pick(accept string) (string, []byte) {
+	switch {
+	case e.br != nil && takes(accept, "br"):
+		return "br", e.br
+	case e.gzip != nil && takes(accept, "gzip"):
+		return "gzip", e.gzip
+	}
+	return "", nil
+}
+
+// gzipped is data compressed by gzip, at its best, as it's done once.
+func gzipped(data []byte) []byte {
+	var b bytes.Buffer
+	w, _ := gzip.NewWriterLevel(&b, gzip.BestCompression)
+	w.Write(data)
+	w.Close()
+	return b.Bytes()
+}
+
+// takes reports whether an Accept-Encoding header takes coding, by its
+// name, x-gzip being gzip's, or else by *, with a weight above 0.
+func takes(accept, coding string) bool {
+	named, star := -1.0, -1.0
+	for part := range strings.SplitSeq(accept, ",") {
+		name, params, _ := strings.Cut(part, ";")
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "x-gzip" {
+			name = "gzip"
+		}
+		switch name {
+		case coding:
+			named = weight(params)
+		case "*":
+			star = weight(params)
+		}
+	}
+	if named >= 0 {
+		return named > 0
+	}
+	return star > 0
+}
+
+// weight is the q of a coding's parameters: 1 without one, and 0 for one
+// that isn't a number, NaN among them, as ParseFloat reads it.
+func weight(params string) float64 {
+	for p := range strings.SplitSeq(params, ";") {
+		key, value, _ := strings.Cut(p, "=")
+		if strings.EqualFold(strings.TrimSpace(key), "q") {
+			q, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+			if err != nil || q < 0 || math.IsNaN(q) {
+				return 0
+			}
+			return q
+		}
+	}
+	return 1
 }

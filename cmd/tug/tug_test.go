@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -700,6 +701,7 @@ func answersTheDevTools(t *testing.T, dir string) {
 	if id == "" || !strings.Contains(page, `<script data-inertia-devtools-id type="application/json">"`+id+`"</script>`) {
 		t.Fatalf("under tug dev, /login names no entry: %v\n%s", resp.Header, page)
 	}
+	sendsItsBuildGzipped(t, "http://"+addr, page)
 
 	resp, body := get("/_inertia/devtools/entries/" + id)
 	var e struct {
@@ -826,5 +828,42 @@ func rendersOnTheServer(t *testing.T, dir string) {
 	}
 	if scripts == 0 {
 		t.Errorf("the page runs no scripts:\n%s", page)
+	}
+	sendsItsBuildGzipped(t, "http://"+addr, page)
+}
+
+// sendsItsBuildGzipped fetches the first of the build's scripts page loads,
+// from the app at base, as a browser does, and checks it comes gzipped, and
+// whole once it's unzipped.
+func sendsItsBuildGzipped(t *testing.T, base, page string) {
+	t.Helper()
+	_, after, ok := strings.Cut(page, `src="/build/assets/`)
+	if !ok {
+		t.Fatalf("the page loads none of the build's scripts:\n%s", page)
+	}
+	file, _, _ := strings.Cut(after, `"`)
+	req, err := http.NewRequest("GET", base+"/build/assets/"+file, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	// Go's client unzips what it asked for itself, unless told not to ask.
+	resp, err := (&http.Client{Transport: &http.Transport{DisableCompression: true}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	vary := strings.Join(resp.Header.Values("Vary"), ", ")
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Encoding") != "gzip" || !strings.Contains(vary, "Accept-Encoding") {
+		t.Fatalf("%s came %d, as %q, varying by %q", file, resp.StatusCode, resp.Header.Get("Content-Encoding"), vary)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole, err := io.ReadAll(zr)
+	if err != nil || len(whole) <= len(body) {
+		t.Errorf("%s: %d bytes gzipped, %d unzipped: %v", file, len(body), len(whole), err)
 	}
 }

@@ -41,7 +41,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M33 | Migrations                 | done   |
 | M34 | Hooks for metrics          | done   |
 | M35 | Inertia DevTools           | done   |
-| M36 | Compressed assets          | later  |
+| M36 | Compressed assets          | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3093,55 +3093,71 @@ Choices made on the way:
   starter, made by `tug new` and run as `tug dev` runs it, answering the
   panel with its login page's entry.
 
-## M36 · Compressed assets — later
+## M36 · Compressed assets — done
 
 A deployed tug app is one binary that serves its own frontend, the build
-Vite made, which `vite.ServeHTTP` sends as it is: nothing in tug
-compresses a response, where Laravel's app sits behind a web server that
+Vite made, which `vite.ServeHTTP` sent as it is: nothing in tug
+compressed a response, where Laravel's app sits behind a web server that
 does. The auth starter's build is 37 files of JavaScript and CSS, 640 KB,
-which gzip makes 205 KB, so a first visit downloads three times what it
-needs to, unless a proxy or a CDN in front compresses it. tug sends the
+which gzip makes 205 KB, so a first visit downloaded three times what it
+needed to, unless a proxy or a CDN in front compressed it. tug sends the
 build compressed itself. To be released as v0.31.0.
 
 - **The build, gzipped:** `vite.ServeHTTP` sends a file of a type that
   compresses as gzip, `Content-Encoding: gzip`, to a browser whose
   `Accept-Encoding` takes it, and as it is to one that doesn't, both with
   `Vary: Accept-Encoding`, so a cache between keeps them apart, and the
-  year's `Cache-Control` the assets have now.
+  year's `Cache-Control` the assets had.
 - **Brotli, when the build has it:** a file's own compressed copies beside
   it in the build, `app.js.br` and `app.js.gz`, as a compression plugin
   of the app's Vite writes them, go first, to a browser that takes them.
 - **Nothing for an app to change:** the starters' route of the build,
   `app.Get("/build/{path...}", tug.WrapHandler(assets))`, stays, and an
   app made before gets it with the new tug.
-- **The guide:** Pages, what the Vite section says `ServeHTTP` sends; and
-  Deployment, what's compressed, and what's left to a proxy.
+- **The guide:** Pages, what the Vite section says `ServeHTTP` sends;
+  Deployment, a section on compression, what's compressed, and what's
+  left to a proxy; and the README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **As it's served, not as it's built:** the starters' Dockerfile builds
   with `npm run build` and `go build`, not `tug build`, as an app's own
-  pipeline may, so files compressed by `tug build` would miss most
+  pipeline may, so files compressed by `tug build` would have missed most
   deploys. Compressed as it's served, a file the first time it's asked
   for, every pipeline gets it, and the binary carries no second copy. It
   costs the compressed copies in memory, 205 KB for the starter's build,
-  and the time to compress each once a start: 24 ms for the whole build,
-  12 ms for its largest file, 371 KB. The requests for a file at once
-  compress it once.
+  kept for the life of the process, which only a file the build has adds
+  to, as each is looked for first; and the time to compress each once a
+  start: 24 ms for the whole build, 12 ms for its largest file, 371 KB.
+  The requests for a file at once compress it once, under its own
+  `sync.Once`.
 - **gzip, from the standard library:** brotli makes the starter's build
   178 KB, 13% less than gzip, but Go's standard library has no encoder for
   it, and tug stays on that: an app that wants brotli adds a plugin to its
   Vite, and tug serves what it writes. The starters add none, as gzip is
   most of the gain.
-- **By the file's type:** JavaScript, CSS, SVG, JSON, HTML, plain text,
-  source maps, WebAssembly, and fonts not compressed already, TTF and OTF.
-  An image, a WOFF or WOFF2 font, audio and video go as they are, as
-  their formats compress them, and so does a file gzip doesn't make
-  smaller.
+- **The build's copies, as they are:** `name.br` and `name.gz` aren't
+  checked against the file, and the build's `.gz` takes the place of
+  tug's own.
+- **By the file's extension:** JavaScript, CSS, SVG, JSON, HTML, plain
+  text, source maps, WebAssembly, and fonts not compressed already, TTF
+  and OTF. An image, a WOFF or WOFF2 font, audio and video go as they are,
+  as their formats compress them, and so does a file gzip doesn't make
+  smaller, as the React starter's smallest chunk, an icon of 164 bytes,
+  which gzip makes 184, without `Vary`, as it's the same for every
+  browser.
+- **The file's own type and length:** a compressed copy goes with the
+  type the file has as it is, by its extension, or else its first bytes,
+  as `http.ServeFileFS` finds it, not what its compressed bytes look
+  like. `http.ServeContent` leaves the length out under a
+  `Content-Encoding`, for a writer that compresses as it goes, so
+  `ServeHTTP` sets it, as its copies are compressed already; a range sets
+  its own, and one past the end is refused without it.
 - **`Accept-Encoding` by its weights:** `gzip;q=0` refuses gzip, `*`
-  takes it, and of the encodings taken, the build's brotli first, then
-  gzip, then none, which `identity;q=0` doesn't make a 406: a browser
-  gets the file.
+  takes it, a coding named outweighs `*`, `x-gzip` is gzip, and a weight
+  that isn't a number refuses. Of the encodings taken, the build's brotli
+  first, then gzip, then none, which `identity;q=0` doesn't make a 406: a
+  browser gets the file.
 - **A range is of what's sent:** a `Range` of a compressed file is of its
   compressed bytes, the representation sent, as RFC 9110 has it and
   nginx's `gzip_static` serves it.
@@ -3155,14 +3171,17 @@ Choices, to settle before any code:
 - **Only the build:** `c.File`, `c.Download` and storage's files are the
   app's and its users', mostly images and documents, and stay as they
   are.
-- **Tests:** a JavaScript file gzipped for a browser that takes it, its
-  length, type, `Vary` and year's caching, and the same file as it is for
-  one that doesn't, or refuses gzip; `*`; an image, and a file gzip
-  doesn't shrink, as they are, without `Vary`; a range of the compressed
-  bytes; HEAD; the build's `.br` and `.gz` first, by the browser's
-  weights; requests at once compressing a file once; the 404s as before;
-  and a starter's app, made by `tug new`, built as its Dockerfile builds
-  it, sending its scripts gzipped, and its pages working in a browser.
+- **Tests:** a script gzipped for a browser that takes it, by each way of
+  saying so, its length, type, `Vary` and year's caching, and as it is,
+  with `Vary`, for one that doesn't, or refuses gzip; an image, and a
+  script gzip doesn't shrink, as they are, without `Vary`; a range of the
+  compressed bytes, one past the end, and HEAD; the build's `.br` and
+  `.gz` first, by the browser's weights, in the file's own type; requests
+  at once reading a file once; the 404s as before; the auth starter, and
+  each starter with `-ssr`, made by `tug new` and built as its Dockerfile
+  builds it, sending the first script its page loads gzipped; and in the
+  browser suite, each frontend's login page working, its scripts and
+  styles over a kilobyte gzipped.
 
 ## Decisions
 

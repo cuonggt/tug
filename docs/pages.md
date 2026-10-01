@@ -623,6 +623,24 @@ writes to `assets/` are named for a hash of their content, so they're
 cached for a year, with `Cache-Control: public, max-age=31536000, immutable`;
 the manifest, and any name starting with a dot, isn't served.
 
+A file of a type that compresses goes gzipped, with `Content-Encoding:
+gzip`, to a browser whose `Accept-Encoding` takes it, and as it is to one
+that doesn't, both with `Vary: Accept-Encoding`, as the app is one binary,
+with no web server in front of it to compress what it sends. Each file is
+compressed the first time it's asked for, and kept: the auth starter's
+build, 640 KB of scripts and styles, goes as 205 KB, compressed in 24 ms
+once a start. JavaScript, CSS, SVG, JSON, HTML, plain text, source maps,
+WebAssembly, and TTF and OTF fonts compress; an image, a WOFF font, audio
+and video are compressed by their formats, and go as they are, as does a
+file gzip doesn't make smaller. A range is of the bytes sent.
+
+A file's own compressed copies beside it in the build, `name.br` and
+`name.gz`, as a compression plugin of the app's Vite writes them, go
+first, brotli before gzip. Brotli makes the starter's build 178 KB, but
+Go's standard library has no encoder for it, so it's the app's to add.
+Pages and JSON aren't compressed: see
+[deployment.md](deployment.md#compression).
+
 ## DevTools
 
 [Inertia's DevTools](https://inertiajs.com/docs/v3/advanced/devtools) are a
