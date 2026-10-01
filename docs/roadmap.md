@@ -41,6 +41,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M33 | Migrations                 | done   |
 | M34 | Hooks for metrics          | done   |
 | M35 | Inertia DevTools           | done   |
+| M36 | Compressed assets          | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3091,6 +3092,77 @@ Choices made on the way:
   served outside `tug dev`; which frames are the app's; and the auth
   starter, made by `tug new` and run as `tug dev` runs it, answering the
   panel with its login page's entry.
+
+## M36 · Compressed assets — later
+
+A deployed tug app is one binary that serves its own frontend, the build
+Vite made, which `vite.ServeHTTP` sends as it is: nothing in tug
+compresses a response, where Laravel's app sits behind a web server that
+does. The auth starter's build is 37 files of JavaScript and CSS, 640 KB,
+which gzip makes 205 KB, so a first visit downloads three times what it
+needs to, unless a proxy or a CDN in front compresses it. tug sends the
+build compressed itself. To be released as v0.31.0.
+
+- **The build, gzipped:** `vite.ServeHTTP` sends a file of a type that
+  compresses as gzip, `Content-Encoding: gzip`, to a browser whose
+  `Accept-Encoding` takes it, and as it is to one that doesn't, both with
+  `Vary: Accept-Encoding`, so a cache between keeps them apart, and the
+  year's `Cache-Control` the assets have now.
+- **Brotli, when the build has it:** a file's own compressed copies beside
+  it in the build, `app.js.br` and `app.js.gz`, as a compression plugin
+  of the app's Vite writes them, go first, to a browser that takes them.
+- **Nothing for an app to change:** the starters' route of the build,
+  `app.Get("/build/{path...}", tug.WrapHandler(assets))`, stays, and an
+  app made before gets it with the new tug.
+- **The guide:** Pages, what the Vite section says `ServeHTTP` sends; and
+  Deployment, what's compressed, and what's left to a proxy.
+
+Choices, to settle before any code:
+
+- **As it's served, not as it's built:** the starters' Dockerfile builds
+  with `npm run build` and `go build`, not `tug build`, as an app's own
+  pipeline may, so files compressed by `tug build` would miss most
+  deploys. Compressed as it's served, a file the first time it's asked
+  for, every pipeline gets it, and the binary carries no second copy. It
+  costs the compressed copies in memory, 205 KB for the starter's build,
+  and the time to compress each once a start: 24 ms for the whole build,
+  12 ms for its largest file, 371 KB. The requests for a file at once
+  compress it once.
+- **gzip, from the standard library:** brotli makes the starter's build
+  178 KB, 13% less than gzip, but Go's standard library has no encoder for
+  it, and tug stays on that: an app that wants brotli adds a plugin to its
+  Vite, and tug serves what it writes. The starters add none, as gzip is
+  most of the gain.
+- **By the file's type:** JavaScript, CSS, SVG, JSON, HTML, plain text,
+  source maps, WebAssembly, and fonts not compressed already, TTF and OTF.
+  An image, a WOFF or WOFF2 font, audio and video go as they are, as
+  their formats compress them, and so does a file gzip doesn't make
+  smaller.
+- **`Accept-Encoding` by its weights:** `gzip;q=0` refuses gzip, `*`
+  takes it, and of the encodings taken, the build's brotli first, then
+  gzip, then none, which `identity;q=0` doesn't make a 406: a browser
+  gets the file.
+- **A range is of what's sent:** a `Range` of a compressed file is of its
+  compressed bytes, the representation sent, as RFC 9110 has it and
+  nginx's `gzip_static` serves it.
+- **Pages and JSON as they are:** compressing a response that holds a
+  secret beside text an attacker can have it say tells the secret by the
+  response's size, BREACH. tug's CSRF puts no token in a page, but a
+  page's props can hold what's private, as a new API token, and which
+  responses do is the app's to know. The build holds nothing secret. A
+  proxy or a CDN in front compresses pages when the app chooses, as it
+  can terminate TLS; Laravel leaves both to its web server.
+- **Only the build:** `c.File`, `c.Download` and storage's files are the
+  app's and its users', mostly images and documents, and stay as they
+  are.
+- **Tests:** a JavaScript file gzipped for a browser that takes it, its
+  length, type, `Vary` and year's caching, and the same file as it is for
+  one that doesn't, or refuses gzip; `*`; an image, and a file gzip
+  doesn't shrink, as they are, without `Vary`; a range of the compressed
+  bytes; HEAD; the build's `.br` and `.gz` first, by the browser's
+  weights; requests at once compressing a file once; the 404s as before;
+  and a starter's app, made by `tug new`, built as its Dockerfile builds
+  it, sending its scripts gzipped, and its pages working in a browser.
 
 ## Decisions
 
