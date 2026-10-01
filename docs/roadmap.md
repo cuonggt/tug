@@ -40,6 +40,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M32 | Security headers           | done   |
 | M33 | Migrations                 | done   |
 | M34 | Hooks for metrics          | done   |
+| M35 | Inertia DevTools           | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -2946,6 +2947,78 @@ Choices made on the way:
   through no App; and each way a job's run goes, told once with its kind,
   attempt, error, and the times it ran and waited, a run held back, a run
   the Store couldn't keep, not told, and an `Observe` that panics.
+
+## M35 · Inertia DevTools — later
+
+An Inertia page's props come from the server, and the browser can't say
+which were shared, deferred, merged or kept once, nor which route and
+handler rendered the page, and where. Inertia's DevTools, a panel of the
+browser's own, as an extension, records each visit, the client's side of
+it paired with what the server says of it, by a protocol each server
+adapter implements, Laravel's being the reference. tug's adapter is its
+own, so the server's side is tug's to write, for `tug dev`, where an app
+is made. To be released as v0.30.0.
+
+- **Recorded under `tug dev`:** each response says its entry's ID and
+  batch, `X-Inertia-Devtools-Id` and `X-Inertia-Devtools-Parent-Out`, and
+  a first visit's page carries the ID in a tag, for the panel to find
+  before any visit; the request's tab, visit, batch, and whether it's a
+  deferred prop's or a poll's, come in the extension's own headers.
+- **An entry:** the request's kind, as the protocol names them
+  (`initial`, `navigate`, `partial`, `deferred`, `poll`, `prefetch`,
+  `precognition` or `http`), its method, URL, status, redirect and time;
+  its headers and bodies, the page object for an Inertia response; each
+  prop's type, as the protocol has it, `defer` with its group, `merge` and
+  `scroll` with their direction, `once`, `optional`, `always`, shared or
+  not, and rescued; the props' values; the route, its path, name and
+  handler, with the handler's file and line; and where the page was
+  rendered, and the shared props shared, by file and line.
+- **The panel's two endpoints:** `GET /_inertia/devtools/entries`, the
+  newest first, by component and kind, a part at a time, and
+  `GET /_inertia/devtools/entries/{id}`, as the protocol has them.
+- **The guide:** Pages, a section on the DevTools; and the CLI, `tug dev`.
+
+Choices, to settle before any code:
+
+- **In development alone:** on when `tug dev` runs the app, by
+  `TUG_DEV`, through `Config.DevTools`, which `ConfigFromEnv` sets; off in
+  the binary a deploy runs, where nothing is recorded, no header is sent
+  and the endpoints aren't there. No gate for a deployed app's developers,
+  which would need the app's own logins.
+- **Kept in files:** `.tug/devtools`, which git leaves out, an entry
+  each, as `tug dev` builds the app again at each change, which an
+  instance's memory would forget; the last 100, for a day at most, as
+  Laravel's are by default, pruned as each is kept.
+- **Answered before the App's middleware,** as `middleware.CSP` answers
+  its reports: the session's flash isn't taken by the panel's fetch, which
+  can come between a form's redirect and the page it leads to, and the
+  endpoints' own requests aren't recorded.
+- **Secrets never kept:** values under Laravel's keys, as `password`,
+  `token` and `secret`, and the headers of logins, as `Cookie` and
+  `Authorization`, in any case, kept as `[REDACTED]`; an upload as its
+  name, size and type; a body that isn't text, is a stream, or is over
+  256 KB, left out, saying why, by the protocol's reasons.
+- **Where it was, from Go:** the route's path as it was added and its
+  name, from tug's router; the handler as its function's name, and its
+  file and line, from `runtime`; where `Render` or `Share` was called,
+  from its caller; and the page's file, `resources/js/pages/<name>`, when
+  it's there, as the starters keep their pages.
+- **Inertia's part in package `inertia`,** which imports no tug: the page,
+  its props' types and values, the render's place, and a first visit's
+  tag, of a type a page's Content-Security-Policy leaves alone, as it
+  doesn't run; tug's part, the request, the route and the endpoints,
+  meets it in the request's context, as the route's place does.
+- **Recording never fails a response:** an entry that can't be made or
+  kept is dropped, and the log says why, at Debug.
+- **IDs as the protocol's,** ULIDs, made on the standard library.
+- **Tests:** each response's ID and batch, a prefetch's its own; a first
+  visit's tag, and none on a visit after or a page that isn't Inertia's;
+  each kind of request; each kind of prop, shared or not, and a rescued
+  one; secrets redacted, in props, bodies and headers; an upload
+  summarized; bodies left out by their reasons; the endpoints, their
+  filters, a 404, and no flash taken; the files, their limit and their
+  day; nothing recorded, sent or served outside `tug dev`; and an app
+  under `tug dev` answering the panel.
 
 ## Decisions
 
