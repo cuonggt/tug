@@ -3671,7 +3671,7 @@ ends at 2^53 - 1, can go to the page as a `BigInt`, since 3.8.0, where
 it was rounded on the way: a snowflake ID, `900719925474099988`, arrived
 as `900719925474100000`. tug has each page's props, the HTML of its
 first visit, which it writes without Node, and the Go type of each
-value, which tug gen says in TypeScript. To be released as v0.37.0.
+value, which tug gen says in TypeScript. Released as v0.37.0.
 
 - **A page's head, from Go:** `c.Head(...)` gives the page the request
   renders the elements of its `<head>`: `inertia.Title`; `inertia.Meta`,
