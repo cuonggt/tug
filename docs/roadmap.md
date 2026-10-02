@@ -3593,8 +3593,8 @@ handler answers `POST /login`, what it takes, which routes a path has,
 and where each was added. Laravel's `route:list` and Rails' `routes`
 print them. tug's router has each route's method and path, its name, the
 struct it takes, and where the app added it, and the line that added it
-names the handler as the app wrote it, wrappers and all. To be released
-as v0.36.0.
+names the handler as the app wrote it, wrappers and all. Released as
+v0.36.0.
 
 - **`tug routes`:** builds the app and runs it as tug gen does, and
   prints its routes, one a line, in columns: the method, the path, the
