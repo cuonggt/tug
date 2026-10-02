@@ -3,6 +3,7 @@
 //	tug new blog     a new app, in ./blog, ready to run
 //	tug dev          run the app, rebuilt and reloaded as it changes
 //	tug gen          write the TypeScript of the app's pages and routes
+//	tug routes       list the app's routes
 //	tug lang vi      write the texts to translate into lang/vi.json
 //	tug migrate new  write a new migration, for the app to run
 //	tug build        build the app into one binary, frontend and all
@@ -25,6 +26,8 @@ const usage = `tug makes and runs tug apps.
   tug new <dir>    make a new app in dir, ready to run
   tug dev          run the app, rebuilding and reloading it as it changes
   tug gen          write the TypeScript of the app's pages and routes
+  tug routes [text]
+                   list the app's routes, or those whose path or name has text in it
   tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
   tug migrate new <name>
                    write a new migration, migrations/<when>_<name>.sql, for the app to run
@@ -48,6 +51,8 @@ func main() {
 		err = runDev(args)
 	case "gen":
 		err = runGen(args)
+	case "routes":
+		err = runRoutes(args, os.Stdout)
 	case "lang":
 		err = runLang(args)
 	case "migrate":

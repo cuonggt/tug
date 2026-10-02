@@ -114,10 +114,11 @@ func showPost(c *tug.Ctx) error {
   TypeScript of each page's props and of the named routes, with a typed
   `route()`, of what each route's form sends, the struct its handler binds,
   with a `form()` of its path and method, and of the flash data's keys, so
-  the frontend, its forms and flash among it, is checked against the Go. `tug build` makes
-  one static binary with the frontend in it, which sends its scripts and
-  styles gzipped, and the app comes with a Dockerfile for a distroless
-  image.
+  the frontend, its forms and flash among it, is checked against the Go.
+  `tug routes` lists the app's routes, each with the line that added it,
+  and its handler as that line has it. `tug build` makes one static
+  binary with the frontend in it, which sends its scripts and styles
+  gzipped, and the app comes with a Dockerfile for a distroless image.
 - **Inertia pages** (package `inertia`), to the whole v3 protocol: a first
   visit gets HTML with the page object, later visits get JSON.
   `tug.Page[Props]` ties a component to the props it takes, and props nest

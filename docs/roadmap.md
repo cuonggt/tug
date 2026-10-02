@@ -46,7 +46,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M38 | Typed flash                | done   |
 | M39 | Request IDs in jobs        | done   |
 | M40 | Debug error page           | done   |
-| M41 | Route list                 | later  |
+| M41 | Route list                 | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3585,10 +3585,10 @@ Choices made on the way:
   takes no HTML; with Debug off, nothing of it; and each frame's owner,
   in `internal/frames`.
 
-## M41 · Route list — later
+## M41 · Route list — done
 
-An app's routes are the lines its `newApp` adds them on, and tug gen
-writes the named ones into `routes.ts`, but nothing lists them: which
+An app's routes were the lines its `newApp` adds them on, and tug gen
+wrote the named ones into `routes.ts`, but nothing listed them: which
 handler answers `POST /login`, what it takes, which routes a path has,
 and where each was added. Laravel's `route:list` and Rails' `routes`
 print them. tug's router has each route's method and path, its name, the
@@ -3598,47 +3598,64 @@ as v0.36.0.
 
 - **`tug routes`:** builds the app and runs it as tug gen does, and
   prints its routes, one a line, in columns: the method, the path, the
-  name, the handler, as the line that added the route has it,
-  `a.guestsOnly(a.login)`, the struct the route takes, and the file and
-  line that added it, `main.go:392` in an app made with v0.34.0.
+  name, the struct the route takes, the file and line that added it,
+  `main.go:392` in an app made by `tug new -auth`, and the handler, as
+  that line has it, `a.guestsOnly(a.login)`.
 - **Every route of the app's:** named or not, as `/up`, a group's, and
   one of any method, as `ANY`; not tug's catch-all for the misses, or
   DevTools' endpoints, which aren't the app's.
 - **A filter:** `tug routes login` lists the routes whose path or name
-  has `login` in it.
-- **`-json`:** the same as JSON, for a script.
+  has `login` in it, in any case; one that lists none is an error.
+- **`-json`:** the same as JSON, with the handler's function, as Go
+  names it, beside its expression, for a script.
 - **The guide:** CLI, `tug routes`; Routing, a pointer to it; and the
   README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **From the app's own run:** routes are added as `main` runs, some by
   its environment, as the auth starter's `/files` by its disk; the run
   tug gen makes, with the app's `.env`, lists them as the app has them,
-  without the database, which `Generating` leaves out. Its output gets
-  the route table beside the types, so tug gen and tug routes make the
-  same run.
+  without the database, which `Generating` leaves out. The app writes
+  them, `RouteList`, beside its types and texts, so tug gen, tug lang
+  and tug routes make the same run.
 - **The handler as the app wrote it:** a route's function is often a
-  wrapper's closure, `main.(*app).guestsOnly.func1`, which says nothing of
-  the handler inside it; the line that added the route says it, so tug
-  routes reads the call there with `go/parser`, and prints the expression
-  the app passed as the handler, or, where that's a variable, as in a
-  helper of the app's that adds routes, the function's name.
+  wrapper's closure, `main.newApp.(*app).guestsOnly.func15`, which says
+  nothing of the handler inside it; the line that added the route says
+  it, so tug routes reads the call there with `go/parser`, and prints the
+  expression the app gave as the handler, on one line, as
+  `types.ExprString` writes one, a function literal without its body.
+- **The innermost of the router's calls over the line:** the runtime
+  gives a call over several lines its first, in a starter's app, and the
+  call is found by the lines it takes in, of `Get` to `Any`, and
+  `Handle`, whose handler comes third, so a route added over three lines
+  is read whole.
+- **A variable is the helper's:** a handler that's a variable of the
+  function around the call, a parameter or one it declares, as a helper
+  of the app's that adds routes has, says nothing, so the route is
+  listed by its function's name, at the helper's line.
 - **Where it was added, under tug gen too:** a route keeps its caller in
   tug gen's run, as under DevTools and Debug.
-- **By path, then method:** a path's routes, and a prefix's, go together;
-  the order they were added in is the last column's.
+- **By path, then method:** a path's routes, and a prefix's, go
+  together, its reads before its writes, and a route of any method last;
+  the order they were added in is the `ADDED` column's.
+- **The handler last:** its width varies most, as a wrapper's handler is
+  long, so the columns before it stay narrow, and the line reads as a
+  file's line, then what's on it.
 - **Not the middleware:** the starters' guards are wrappers of the
   handler, which its expression shows, and a middleware is a function
   value whose name, a constructor's closure, says less than the line that
   added it.
 - **Tests:** the handler's expression read from a call on one line, one
-  over several, one chained with `Name` and `Takes`, a group's, and a
-  helper's, which falls back to the function's name; the table, its
-  order and its filter, and the JSON; package tug's run writing every
-  route, named or not, with where it was added; and the auth starter,
-  made by `tug new`, listing `POST /login` as `login.store`,
-  `a.guestsOnly(a.login)`, taking `LoginInput`, added in `main.go`.
+  over several from each of its lines, one chained with `Name` and
+  `Takes`, a group's, `Handle`'s, a function literal's, and a helper's,
+  and a line that adds none, which fall back to the function's name, as
+  a file that isn't there does; the routes' order, and those of a text,
+  by path or name, in any case; the table, a column each and the handler
+  last; package tug's run writing every route, named or not, with where
+  it was added and what it takes; and the auth starter, made by `tug
+  new`, listing `POST /login` as `login.store`, taking `LoginInput`,
+  added in `main.go`, by `a.guestsOnly(a.login)`.
 
 ## Decisions
 

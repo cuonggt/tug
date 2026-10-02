@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -538,8 +539,27 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 			if kind.name == "auth" {
 				migratesByItsCommand(t, dir)
 				answersTheDevTools(t, dir)
+				listsItsRoutes(t, dir)
 			}
 		})
+	}
+}
+
+// listsItsRoutes runs tug routes in the app in dir, for its routes of
+// logging in, and checks the one that logs a person in is listed as the
+// line of main.go that added it has it.
+func listsItsRoutes(t *testing.T, dir string) {
+	t.Helper()
+	t.Chdir(dir)
+	var out strings.Builder
+	if err := runRoutes([]string{"login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^POST +/login +login\.store +LoginInput +main\.go:\d+ +a\.guestsOnly\(a\.login\)$`).MatchString(out.String()) {
+		t.Errorf("tug routes login doesn't list POST /login as main.go adds it:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "/register") {
+		t.Errorf("tug routes login lists a route that isn't login's:\n%s", out.String())
 	}
 }
 

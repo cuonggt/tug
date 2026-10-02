@@ -449,16 +449,49 @@ func (a *App) gen(path string) error {
 	if err != nil {
 		return err
 	}
-	// The texts tug says, and the app's rules, for tug lang, which reads
-	// them from the same run.
+	// The texts tug says, and the app's rules, for tug lang, and every
+	// route, for tug routes, which read them from the same run.
 	data, err := json.Marshal(struct {
 		typegen.Output
-		Texts []string
-	}{out, texts()})
+		Texts     []string
+		RouteList []listedRoute
+	}{out, texts(), a.listed()})
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// listedRoute is a route as tug routes lists it: its method, "ANY" for a
+// route of any, its path as it was added, its name, its handler's
+// function, as Go names it, the struct it Takes, and where the app added
+// it.
+type listedRoute struct {
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	Name     string `json:"name,omitempty"`
+	Function string `json:"function"`
+	Takes    string `json:"takes,omitempty"`
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+}
+
+// listed is every route the app added, named or not, in the order it added
+// them; not the misses' catch-all, which is tug's.
+func (a *App) listed() []listedRoute {
+	out := make([]listedRoute, 0, len(a.routes))
+	for _, rt := range a.routes {
+		method, path, _ := strings.Cut(rt.String(), " ")
+		r := listedRoute{Method: method, Path: path, Name: rt.name, Function: funcName(rt.h)}
+		if rt.input != nil {
+			r.Takes = rt.input.Name()
+		}
+		if rt.added != nil {
+			r.File, r.Line = rt.added.File, rt.added.Line
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // Serve serves on ln until ctx is done, then shuts down as Run does. It

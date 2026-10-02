@@ -110,7 +110,7 @@ func (r *Router) Handle(method, path string, h HandlerFunc, mw ...Middleware) *R
 
 	rt := &Route{app: a, group: r, method: method, path: full, h: h, mw: slices.Clone(mw)}
 	rt.shown = rt.String()
-	if a.config.DevTools || a.config.Debug {
+	if a.config.DevTools || a.config.Debug || Generating() {
 		if f, ok := devtools.Caller(); ok {
 			at := devtools.At(f)
 			rt.added = &at
@@ -163,8 +163,8 @@ type Route struct {
 	shown string
 
 	// added is where the app added the route, for Inertia's DevTools, under
-	// Config.DevTools, and for the page a server error is shown with, under
-	// Config.Debug.
+	// Config.DevTools, for the page a server error is shown with, under
+	// Config.Debug, and for tug routes, in tug gen's run.
 	added *devtools.Source
 
 	// input is the struct the handler binds, as Takes declares it.

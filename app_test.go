@@ -2,6 +2,7 @@ package tug
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -9,6 +10,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -192,4 +195,50 @@ func TestGoOnceTheAppIsServingPanics(t *testing.T) {
 		}
 	}()
 	app.Go(func(context.Context) error { return nil })
+}
+
+// posts is a handler of the app's whose methods are routes', for their
+// names.
+type posts struct{}
+
+func (posts) show(c *Ctx) error    { return c.String(200, "post") }
+func (posts) store(c *Ctx) error   { return c.String(201, "made") }
+func (posts) destroy(c *Ctx) error { return c.NoContent(204) }
+
+type listedPostInput struct {
+	Title string `json:"title"`
+}
+
+func TestTugGensRunListsEveryRouteWithWhereTheAppAddedIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gen.json")
+	t.Setenv("TUG_GEN", path) // as tug gen runs the app, which keeps where it adds each route then
+	app := New(Config{})
+	p := posts{}
+	_, file, line, _ := runtime.Caller(0)
+	app.Get("/posts/{id}", p.show).Name("posts.show")
+	app.Post("/posts", p.store).Name("posts.store").Takes(listedPostInput{})
+	app.Group("/admin").Delete("/posts/{id}", p.destroy)
+	app.Any("/files/", p.show)
+	if err := app.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct{ RouteList []listedRoute }
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := []listedRoute{
+		{Method: "GET", Path: "/posts/{id}", Name: "posts.show", Function: "github.com/cuonggt/tug.posts.show", File: file, Line: line + 1},
+		{Method: "POST", Path: "/posts", Name: "posts.store", Function: "github.com/cuonggt/tug.posts.store", Takes: "listedPostInput", File: file, Line: line + 2},
+		{Method: "DELETE", Path: "/admin/posts/{id}", Function: "github.com/cuonggt/tug.posts.destroy", File: file, Line: line + 3},
+		// A path that ends in a slash is listed as it was added.
+		{Method: "ANY", Path: "/files/", Function: "github.com/cuonggt/tug.posts.show", File: file, Line: line + 4},
+	}
+	if !slices.Equal(out.RouteList, want) {
+		t.Errorf("listed\n%+v\nwant\n%+v", out.RouteList, want)
+	}
 }

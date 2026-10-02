@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M40 are done, which is
+the decisions behind it and where it stands: M1 to M41 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -105,7 +105,10 @@ failed jobs, in its command and on its page, do, and a debug error page
 what it wraps, a panic's stack, the app's frames open, with their source
 around them, the rest folded, the route that answered and the lines that
 added it, and the request, its secrets redacted, which Inertia's client
-shows in its modal, with links to the editor `APP_EDITOR` names.
+shows in its modal, with links to the editor `APP_EDITOR` names, and the
+route list (v0.36.0): `tug routes`, every route of the app's, from tug
+gen's run, by path, with the line that added it, and its handler as that
+line has it.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -187,6 +190,9 @@ dev server that isn't there: delete it.
     the event streams, which `Shutdown` would otherwise wait for.
     `Generating` says tug gen started the app (`TUG_GEN`), for `main` to
     leave out what only serving needs, as the auth starter's database.
+    `gen` writes the types, tug's texts, and `listed`, every route the app
+    added (`listedRoute`: its method, path, name, function, what it
+    `Takes`, and where it was `added`), for tug routes.
     `ServeHTTP` puts a place for the route that answers a request in its
     context, through `internal/route`, when the App has middleware of its
     own (`placeRoutes`), which alone, outside the router, needs it. Under
@@ -207,8 +213,8 @@ dev server that isn't there: delete it.
     Each route's handler in the mux records the route as it's matched,
     `shown`, its `String`, with no `{$}`, before its middleware, which
     `RouteOf` reads, or, with no place, `shownPattern` of `r.Pattern`,
-    where `/` is the misses' catch-all, and none. Under DevTools, or
-    Debug, a route keeps where the app added it (`added`, from
+    where `/` is the misses' catch-all, and none. Under DevTools, Debug,
+    or tug gen's run, a route keeps where the app added it (`added`, from
     `devtools.Caller`), and under DevTools
     records itself in the request's Recording as it's matched
     (`Route.devtools`: its path, name, and handler, by the function's name
@@ -511,7 +517,14 @@ dev server that isn't there: delete it.
   page registry `declare`d by `tug.Page` in pages.go.
 - `cmd/tug`: the CLI, on the stdlib flag package. `gen.go` builds the app
   into `.tug/app` and runs it with TUG_GEN (`runForGen`, which reads back
-  the types and tug's texts, `generated`); `lang.go` is tug lang: tug's
+  the types, tug's texts and the routes, `generated`); `routes.go` is tug
+  routes: `listRoutes` (by a text, in any case, by path, then
+  `methodOrder`), `printRoutes` (a tabwriter's columns, the handler
+  last), and `sources.handler`, the handler as the line that added the
+  route has it, `handlerAt`'s, the innermost call of the router's
+  (`routerMethods`) whose lines take in the line, written by
+  `types.ExprString`, or the function's name for a variable the
+  function around it `declares`, as a helper's; `lang.go` is tug lang: tug's
   texts from that run, and the app's own from its Go (`appTexts`: `T` and
   `Choice` literals, and `fieldTexts`, the names of fields with validate,
   form, query or path tags, eqfield's others, and file_type's names),

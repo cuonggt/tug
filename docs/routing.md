@@ -199,6 +199,10 @@ starts: adding a route, a group, middleware or a route name after that
 panics. It's when tug puts each route's middleware together, which is why a
 group's `Use` after its routes still wraps them.
 
+`tug routes` lists the app's routes, by path: each one's method, name, the
+struct it takes, the line of the app's that added it, and its handler as
+that line has it, `a.guestsOnly(a.login)` ([The CLI](cli.md#tug-routes)).
+
 ## Named routes
 
 ```go

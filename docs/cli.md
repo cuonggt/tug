@@ -6,6 +6,8 @@
 tug new <dir>    make a new app in dir, ready to run
 tug dev          run the app, rebuilding and reloading it as it changes
 tug gen          write the TypeScript of the app's pages and routes
+tug routes [text]
+                 list the app's routes, or those whose path or name has text in it
 tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
 tug migrate new <name>
                  write a new migration, migrations/<when>_<name>.sql, for the app to run
@@ -17,9 +19,9 @@ tug version      print tug's version
 `tug <command> -h` prints a command's flags. A command that fails says why
 after `tug:`, and exits with status 1.
 
-`tug dev`, `tug gen`, `tug lang` and `tug build` run in the app's directory, the one
-with its `main` package and its `package.json`, and stop, saying which is
-missing, anywhere else. The directory needn't have a `go.mod` of its own,
+`tug dev`, `tug gen`, `tug routes`, `tug lang` and `tug build` run in the
+app's directory, the one with its `main` package and its `package.json`,
+and stop, saying which is missing, anywhere else. The directory needn't have a `go.mod` of its own,
 as an app inside a bigger Go module doesn't.
 
 ## What the commands share
@@ -364,6 +366,63 @@ for its example:
 
 ```sh
 tug gen && git diff --exit-code resources/js/tug
+```
+
+## `tug routes`
+
+```
+tug routes [-json] [text]
+```
+
+Lists the app's routes, by path, then method: each one's method, path,
+name, the struct it takes, the file and line of the app's that added it,
+and its handler, as that line has it. With a text, only the routes whose
+path or name has it, in any case. In an app made with `tug new -auth`:
+
+```
+$ tug routes login
+METHOD  PATH                    NAME                    TAKES                    ADDED        HANDLER
+GET     /login                  login                                            main.go:391  a.guestsOnly(loginPage)
+POST    /login                  login.store             LoginInput               main.go:392  a.guestsOnly(a.login)
+POST    /login/passkey          login.passkey           PasskeyInput             main.go:394  a.guestsOnly(a.passkeyLogin)
+POST    /login/passkey/options  login.passkey.options                            main.go:393  a.guestsOnly(a.passkeyLoginOptions)
+GET     /two-factor-challenge   two-factor.login                                 main.go:395  a.guestsOnly(twoFactorChallengePage)
+POST    /two-factor-challenge   two-factor.login.store  TwoFactorChallengeInput  main.go:396  a.guestsOnly(a.twoFactorChallenge)
+```
+
+- **Every route of the app's,** named or not, a group's, and one of any
+  method, as `ANY`; not tug's own, as the misses' catch-all, or the
+  endpoints of Inertia's DevTools.
+- **Its handler as the app wrote it:** a route's function is often a
+  wrapper's closure, `main.newApp.(*app).guestsOnly.func15`, which says
+  nothing of the handler inside it; the line that added the route says
+  it, so `tug routes` reads it, on one line, a function literal without
+  its body. A route a helper of the app's adds, whose line gives the
+  helper's own variable, is listed by its function's name, and at the
+  helper's line.
+- **`TAKES`** is the struct the route `Takes`
+  ([TypeScript](typescript.md#forms)), and `ADDED` where the app added it.
+
+`tug routes` builds the app and runs it, as `tug gen` does, and the app
+says its routes as it writes its types: the routes are the ones `main`
+adds as it starts, with the app's `.env`, so a route the environment
+leaves out, as the auth starter's `/files` without a disk of its own, is
+left out here too. `-json` writes the same as JSON, with the function's
+name beside the handler, for a script:
+
+```json
+[
+  {
+    "method": "POST",
+    "path": "/login",
+    "name": "login.store",
+    "handler": "a.guestsOnly(a.login)",
+    "function": "main.newApp.(*app).guestsOnly.func15",
+    "takes": "LoginInput",
+    "file": "main.go",
+    "line": 392
+  }
+]
 ```
 
 ## `tug lang`

@@ -94,11 +94,12 @@ func generate(env []string, bin string) ([]string, error) {
 }
 
 // generated is what the app writes when tug gen runs it: the TypeScript
-// of its pages and of its routes, and the texts tug says, with its rules',
-// which tug lang reads.
+// of its pages and of its routes, the texts tug says, with its rules',
+// which tug lang reads, and every route, which tug routes lists.
 type generated struct {
 	Pages, Routes string
 	Texts         []string
+	RouteList     []listedRoute
 }
 
 // runForGen runs the app with TUG_GEN, as tug gen does, and reads back
