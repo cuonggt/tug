@@ -142,6 +142,13 @@ func showPost(c *tug.Ctx) error {
   - **Error pages:** errors show as a page (`Config.ErrorPage`) with their
     own status.
   - **Empty lists:** nil slices go out as `[]`, never `null`.
+  - **A page's head:** `c.Head` gives a page its title, its description
+    and the tags a link's preview is made from, from Go, each escaped,
+    which the client keeps in the document's head, and a first visit's
+    HTML has too, for search engines and previews, without SSR.
+  - **Big integers:** `inertia.BigInt` goes to the page as a JavaScript
+    `BigInt`, past the safe range of a number too, and is a `bigint` in
+    TypeScript.
   - **DevTools:** under `tug dev`, each request is kept for Inertia's
     DevTools, the browser's panel: its route and the function that
     answered, where the page was rendered, each prop with its type and

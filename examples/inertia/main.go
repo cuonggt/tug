@@ -93,6 +93,9 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTim
 		Template: rootTemplate,
 		Funcs:    assets.Funcs(),
 		Version:  assets.Version(),
+		// A page's title from its handler, said in a first visit's HTML as
+		// app.tsx's title callback says it in the browser.
+		Title: func(title string) string { return title + " · tug" },
 	})
 	if err != nil {
 		return nil, err
@@ -367,6 +370,9 @@ func (p *posts) show(c *tug.Ctx) error {
 	if err != nil {
 		return err
 	}
+	// The post's title and words, in the first visit's HTML too, for a
+	// search engine, and a link's preview.
+	c.Head(inertia.Title(post.Title), inertia.Meta("description", post.Body))
 	return PostsShow.Render(c, PostsShowProps{Post: post})
 }
 

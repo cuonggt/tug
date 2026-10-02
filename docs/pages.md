@@ -25,6 +25,7 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 		Template: rootTemplate,
 		Funcs:    assets.Funcs(),
 		Version:  assets.Version(),
+		Title:    pageTitle,
 	})
 	if err != nil {
 		return nil, err
@@ -44,7 +45,7 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 ```
 
 `assets` loads the frontend, from `build` or the dev server: see
-[Vite](#vite). `inertia.Config` has five fields:
+[Vite](#vite). `inertia.Config` has six fields:
 
 - `Template` is the root template, in html/template syntax. `New` fails
   when it's empty or doesn't parse.
@@ -53,6 +54,9 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 - `EncryptHistory` is under [History encryption](#history-encryption).
 - `SSR` renders first visits on the server, when it's set:
   [ssr.md](ssr.md).
+- `Title` says a page's title from Go in a first visit's HTML, as the
+  client's `title` callback says it in the browser:
+  [A page's head](#a-pages-head).
 
 With `Config.Inertia` set, `c.Inertia` and `Page.Render` render with it,
 and every request goes through its middleware, inside the App's own.
@@ -64,7 +68,8 @@ a redirect ([forms.md](forms.md)). The root template, `app.html`:
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title data-inertia>blog</title>
+    {{ .InertiaHead }}
+    <title>blog</title>
     {{ viteReactRefresh .Nonce }}
     {{ vite .Nonce "resources/js/app.tsx" (printf "resources/js/pages/%s.tsx" .Page.Component) }}
   </head>
@@ -79,10 +84,12 @@ a redirect ([forms.md](forms.md)). The root template, `app.html`:
 `<div id="app">` the app mounts in. encoding/json escapes `<`, `>` and `&`,
 so no prop can close the script element early. `.Page` is the
 `*inertia.Page` being rendered; here `vite` loads its component's script
-with the app's, so a first visit fetches both at once. With server-side
-rendering, the `<div id="app">` has the page's HTML in it, and
-`{{ .InertiaHead }}`, in the head, has the tags of its `<Head>`, its
-`<title>` first: [ssr.md](ssr.md).
+with the app's, so a first visit fetches both at once.
+`{{ .InertiaHead }}`, in the head, has the head the page's handler gave it,
+its `<title>` first, before the template's own, which is for a page without
+one ([A page's head](#a-pages-head)). With server-side rendering, the
+`<div id="app">` has the page's HTML in it, and `{{ .InertiaHead }}` the
+tags of its `<Head>` too: [ssr.md](ssr.md).
 
 `.Nonce` is the response's Content-Security-Policy nonce, which
 `middleware.CSP` makes ([deployment.md](deployment.md#security-headers)),
@@ -164,6 +171,34 @@ type DashboardProps struct {
 A struct whose type has no prop type in it, such as `User`, is data: it
 goes out whole, as encoding/json writes it, so its own `MarshalJSON` keeps
 working. So is a list: a prop type in a slice isn't worked out.
+
+### Numbers past JavaScript's
+
+A JavaScript number holds every whole number up to 2^53 - 1, and the
+browser rounds one past it as it reads the page: a snowflake ID,
+`900719925474099988`, arrives as `900719925474100000`. An `inertia.BigInt`
+goes to the page as a JavaScript `BigInt`, which Inertia's client reads
+since 3.8.0:
+
+```go
+type Order struct {
+	ID    inertia.BigInt `json:"id"`
+	Total int64          `json:"total"`
+}
+```
+
+It goes out as the protocol's `{"$bigint": "900719925474099988"}`, a small
+one too, in props of any type and in flash data, and its page says it has
+one, `preserveBigIntegers`, for the client to make each a `BigInt`. tug gen
+types it `bigint` ([typescript.md](typescript.md)). A page without one goes
+as it did, for a client before 3.8.0 too. An `int64` is a `number`, as
+encoding/json writes it, rounded past the safe range, or a string with
+`json:",string"`, which tug gen types `string`.
+
+The client sends a `BigInt` back as its digits, which `Bind` reads into an
+`inertia.BigInt` from JSON, a form, the query or the path, as it reads an
+`int64`, and tugtest reads one from a page as the number it is
+([testing.md](testing.md)).
 
 ## Props worked out later
 
@@ -468,6 +503,119 @@ wins over `ShareFunc`, which wins over `Share`, and a later call of each
 over an earlier one. The App's own middleware runs outside the session's,
 so middleware that needs the session goes on a group or a route
 ([routing.md](routing.md)).
+
+## A page's head
+
+A page's `<Head>` gives it its title in the browser, once its scripts have
+run. A search engine's crawler, and the app that makes a link's preview, as
+Slack's or iMessage's, read the HTML and run no script: they'd see the root
+template's title on every page. A handler gives its page the elements of
+its `<head>` from Go:
+
+```go
+func show(c *tug.Ctx) error {
+	post, err := store.Find(c.Param("id"))
+	if err != nil {
+		return err
+	}
+	canonical, err := c.AbsoluteURL("posts.show", post.ID)
+	if err != nil {
+		return err
+	}
+	c.Head(
+		inertia.Title(post.Title),
+		inertia.Meta("description", post.Summary),
+		inertia.Property("og:image", post.ImageURL),
+		inertia.Link("canonical", canonical),
+	)
+	return PostsShow.Render(c, PostsShowProps{Post: post})
+}
+```
+
+`inertia.Title` is its title; `inertia.Meta`, a meta tag by its name, as the
+description; `inertia.Property`, one by its property, as Open Graph's, which
+a link's preview is made from; and `inertia.Link`, a link by its rel, as the
+canonical one. They go out as the page's `head` prop, which Inertia's
+client keeps in the document's head with its `serverHead` option on, as the
+starters' `resources/js/inertia.tsx` has it:
+
+```ts
+createInertiaApp({
+  title: (title) => (title ? `${title} · blog` : 'blog'),
+  serverHead: true,
+  // ...
+})
+```
+
+and in a first visit's HTML, through `{{ .InertiaHead }}`, before the root
+template's own title:
+
+```html
+<title>Hello, tug · blog</title>
+<meta data-inertia="description" name="description" content="Pages rendered by React, with props from Go handlers.">
+```
+
+where its title is `inertia.Config.Title`'s, which says it as the client's
+callback does:
+
+```go
+// pageTitle says a page's title as resources/js/inertia.tsx says one in
+// the browser.
+func pageTitle(title string) string {
+	if title == "" {
+		return "blog"
+	}
+	return title + " · blog"
+}
+```
+
+- **Escaped:** the client puts the `head` prop's strings in the page as
+  HTML, so tug writes each element itself, from its parts, each escaped as
+  `html/template` escapes text, and takes no HTML from the app: a post's
+  words can't be a script. A title, meta tags and links are what search
+  engines and previews read; a script, as JSON-LD's structured data, isn't
+  one of them.
+- **Keyed:** each element carries `data-inertia`, its key: `title`, the
+  meta tag's name or property, or the link's rel. The client matches the
+  elements by it from page to page, and a page's own `<Head>` element with
+  that `head-key` wins over the server's. An element replaces the one
+  before it of the same key, so middleware gives every page the site's own
+  with `inertia.WithHead`, and a handler's replace them; `Key` gives an
+  element a key of its own, as a second `og:image` needs. A first visit's
+  title has none: React's and Vue's adapters replace a title without one
+  with their own, the same, and Svelte puts the document's title in the
+  first `<title>` there, which a keyed one would take away with it.
+- **The title as the client says it:** the client says a title through its
+  `title` callback, as it says a `<Head title>`. A first visit's HTML, which
+  no script has run in, says it through `inertia.Config.Title`, which the
+  starters' `pageTitle` says the same way, `Hello, tug · blog`; the two are
+  the app's to keep alike.
+- **Svelte's title from `Head.svelte`:** Svelte sets the document's title
+  itself, in the first `<title>` there, and its adapter would take a title
+  from the server away, the document's with it, as a visit leaves the
+  page. So the Svelte starters' `serverHead` is a function that leaves the
+  title out, and a page, the home page too, has its title from
+  `Head.svelte`, as `pageTitle` says it in the first visit's HTML.
+- **The page's own:** `head` isn't a shared prop, which an instant visit
+  takes on to the next page. A page's own prop named `head` wins, and its
+  HTML has none of tug's. A partial reload leaves it out unless it asks for
+  it, as the client keeps the head on a reload of the page, and syncs it as
+  a visit goes to another URL, and back. An error page has the head
+  middleware gave it, not the one its handler gave the page it meant to
+  render.
+- **With SSR:** a page rendered on the server has the head in its own
+  already, as the client's code put it there, so tug writes none; one SSR
+  didn't render gets tug's ([ssr.md](ssr.md)).
+
+```go
+// siteHead gives every page the site's card, which a page's own replaces.
+func siteHead(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := inertia.WithHead(r.Context(), inertia.Property("og:image", "https://example.com/card.png"))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+```
 
 ## Redirects and visits
 

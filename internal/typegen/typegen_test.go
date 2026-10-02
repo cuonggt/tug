@@ -236,3 +236,29 @@ func TestFlashDataIsTheKeysDeclaredEachOptional(t *testing.T) {
 		t.Errorf("an app that declares no key got flash types:\n%s", out)
 	}
 }
+
+type Order struct {
+	ID       inertia.BigInt   `json:"id"`
+	Previous *inertia.BigInt  `json:"previous"`
+	Items    []inertia.BigInt `json:"items"`
+	Total    int64            `json:"total"`
+}
+
+type RefundInput struct {
+	Order  inertia.BigInt `json:"order"`
+	Amount int64          `json:"amount"`
+}
+
+func TestABigIntIsABigintWhereverItGoes(t *testing.T) {
+	out := must(Generate(Input{
+		Pages:  []Page{{Component: "Orders/Show", Props: reflect.TypeFor[struct{ Order Order }]()}},
+		Routes: []Route{{Name: "refunds.store", Method: "POST", Path: "/refunds", Input: reflect.TypeFor[RefundInput]()}},
+		Flash:  map[string]reflect.Type{"placed": reflect.TypeFor[inertia.BigInt]()},
+	}))
+	contains(t, out.Pages,
+		"export interface Order {\n  id: bigint\n  previous: bigint | null\n  items: bigint[]\n  total: number\n}",
+		"export interface FlashData {\n  placed?: bigint\n}",
+	)
+	// The client sends one back as its digits, which Bind reads.
+	contains(t, out.Routes, "export interface RefundInput {\n  order: bigint\n  amount: number\n}")
+}

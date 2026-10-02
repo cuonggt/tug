@@ -1,6 +1,7 @@
 package tug
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -84,5 +85,50 @@ func TestRenderingAPageNeedsConfigInertia(t *testing.T) {
 	app.Get("/", func(c *Ctx) error { return c.Inertia("Home", nil) })
 	if rec := serve(app, "GET", "/", ""); rec.Code != 500 {
 		t.Fatalf("got %d, want a 500", rec.Code)
+	}
+}
+
+func TestAHandlerGivesItsPageAHeadOverTheMiddlewares(t *testing.T) {
+	pages, err := inertia.New(inertia.Config{
+		Template: `<head>{{ .InertiaHead }}</head><body>{{ .Inertia }}</body>`,
+		Version:  "v1",
+		Title:    func(title string) string { return title + " · tug" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(Config{Inertia: pages, ErrorPage: "Error"})
+	// The site's title and image, on every page.
+	app.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := inertia.WithHead(r.Context(), inertia.Title("tug"), inertia.Property("og:image", "/site.png"))
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	})
+	app.Get("/posts/{id}", func(c *Ctx) error {
+		c.Head(inertia.Title("Post "+c.Param("id")), inertia.Meta("description", "One post"))
+		if c.Param("id") == "9" {
+			return NewHTTPError(http.StatusNotFound, "post not found")
+		}
+		return c.Inertia("Posts/Show", nil)
+	})
+
+	rec := serve(app, "GET", "/posts/1", "")
+	want := `<head><title>Post 1 · tug</title>` + "\n" +
+		`<meta data-inertia="og:image" property="og:image" content="/site.png">` + "\n" +
+		`<meta data-inertia="description" name="description" content="One post"></head>`
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("got\n%s\nwant the head in\n%s", rec.Body, want)
+	}
+
+	// The error page has the site's head, not the post's the handler gave.
+	rec = serve(app, "GET", "/posts/9", "", "X-Inertia", "true", "X-Inertia-Version", "v1")
+	var p inertia.Page
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatalf("%d %s: %v", rec.Code, rec.Body, err)
+	}
+	head, _ := p.Props["head"].([]any)
+	if p.Component != "Error" || len(head) != 2 || head[0] != `<title data-inertia="title">tug</title>` {
+		t.Errorf("the error page's head is %v", head)
 	}
 }

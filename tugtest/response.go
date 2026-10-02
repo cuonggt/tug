@@ -67,9 +67,51 @@ func (r *Response) readPage() bool {
 		r.t.Fatalf("%s %s: the page object isn't one: %v\n%s", r.req.method, r.req.path, err, data)
 		return false
 	}
+	if r.Page.PreserveBigIntegers {
+		data = numbered(data)
+		r.Page = inertia.Page{}
+		json.Unmarshal([]byte(data), &r.Page)
+	}
 	json.Unmarshal([]byte(data), &raw)
 	r.props, r.flash = raw.Props, raw.Flash
 	return true
+}
+
+// numbered is a page's JSON with each BigInt in it written as the number
+// it is, in place of the protocol's {"$bigint": "..."}, which the client
+// reads as a BigInt: Props, Prop and Flash read one into an
+// inertia.BigInt, an int64 or a json.Number, as it is.
+func numbered(data string) string {
+	d := json.NewDecoder(strings.NewReader(data))
+	d.UseNumber()
+	var page any
+	if d.Decode(&page) != nil {
+		return data
+	}
+	out, err := json.Marshal(revive(page))
+	if err != nil {
+		return data
+	}
+	return string(out)
+}
+
+// revive is v with each BigInt's marker in it a json.Number, as the client
+// makes each a BigInt.
+func revive(v any) any {
+	switch v := v.(type) {
+	case map[string]any:
+		if digits, ok := v["$bigint"].(string); ok {
+			return json.Number(digits)
+		}
+		for k, e := range v {
+			v[k] = revive(e)
+		}
+	case []any:
+		for n, e := range v {
+			v[n] = revive(e)
+		}
+	}
+	return v
 }
 
 // String describes the response for a test's message, with the request it

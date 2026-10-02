@@ -1,4 +1,4 @@
-import { Form, Head } from '@inertiajs/react'
+import { Form } from '@inertiajs/react'
 import Layout from '../Layout'
 import type { PageProps } from '../tug/pages'
 import { form, route, type Inputs } from '../tug/routes'
@@ -9,7 +9,6 @@ import { form, route, type Inputs } from '../tug/routes'
 export default function Home({ appName, greeting }: PageProps<'Home'>) {
   return (
     <Layout>
-      <Head title="Home" />
       <h1>{appName}</h1>
       <p>{greeting}</p>
 

@@ -874,7 +874,11 @@ variables, one set for light and one for dark.
 `layouts/settings-layout.tsx` inside `layouts/app-layout.tsx` for
 `Settings/...`; `app-layout` for the rest; and none for `Home`, the
 landing page. A page names its card's title with a static `layout`, as
-`Login.layout = { title: 'Log in', ... }`.
+`Login.layout = { title: 'Log in', ... }`. The landing page has its title
+and description from its handler, `home` in `main.go`, with `c.Head`, so
+a search engine, and a link's preview, have them without SSR
+([A page's head](pages.md#a-pages-head)); the other pages, behind a login,
+give theirs with `<Head>`.
 
 The pages run under the Content-Security-Policy `main.go` sends
 ([Security headers](deployment.md#security-headers)): `app.html`'s script,
@@ -907,7 +911,9 @@ say them, so the Go and its tests are the same whichever it is, and
 names its card's title with
 `defineOptions({ layout: { title: 'Log in', ... } })`, and a Svelte page
 with `export const layout = { title: 'Log in', ... }` in its
-`<script module>`. Neither Inertia has a place for the toasts at the root
+`<script module>`. A Svelte page, the landing page too, gives its title
+with `Head.svelte`, as Svelte sets the document's title itself, which
+Inertia's head would take away from it. Neither Inertia has a place for the toasts at the root
 of the app, as React's `withApp` is, so `app.ts` mounts them on their own
 beside it, in the browser, where they outlive each page.
 

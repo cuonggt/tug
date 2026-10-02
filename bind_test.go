@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cuonggt/tug/inertia"
 )
 
 const formType = "application/x-www-form-urlencoded"
@@ -527,5 +529,43 @@ func TestAJSONBodyCanBeBoundTwice(t *testing.T) {
 	serve(app, "PUT", "/posts/7", `{"title":"Hi","draft":"on"}`, "Content-Type", "application/json")
 	if err1 != nil || err2 != nil || id.ID != 7 || in.Title != "Hi" || !in.Draft {
 		t.Fatalf("bound %d and %+v, errors %v %v", id.ID, in, err1, err2)
+	}
+}
+
+func TestABigIntBindsAsTheClientSendsItBack(t *testing.T) {
+	const want = 900719925474099988
+	type input struct {
+		Order inertia.BigInt `json:"order" query:"order"`
+	}
+	for _, tc := range []struct {
+		name, method, target, contentType, body string
+	}{
+		{"its digits, in JSON", "POST", "/", "application/json", `{"order":"900719925474099988"}`},
+		{"a number, in JSON", "POST", "/", "application/json", `{"order":900719925474099988}`},
+		{"a form", "POST", "/", formType, "order=900719925474099988"},
+		{"the query", "GET", "/?order=900719925474099988", "", ""},
+	} {
+		got, err := bind[input](t, "/", tc.method, tc.target, tc.contentType, tc.body)
+		if err != nil || got.Order != want {
+			t.Errorf("%s: bound %d, %v", tc.name, got.Order, err)
+		}
+	}
+	type path struct {
+		Order inertia.BigInt `path:"order"`
+	}
+	if got, err := bind[path](t, "/orders/{order}", "GET", "/orders/900719925474099988", "", ""); err != nil || got.Order != want {
+		t.Errorf("the path: bound %d, %v", got.Order, err)
+	}
+
+	// One that isn't a whole number is a 400 that says so, as an int64's.
+	for _, tc := range []struct{ contentType, body string }{
+		{"application/json", `{"order":"12a"}`},
+		{"application/json", `{"order":1.5}`},
+		{formType, "order=12a"},
+	} {
+		_, err := bind[input](t, "/", "POST", "/", tc.contentType, tc.body)
+		if he := httpError(t, err); he.Code != 400 || he.Message != "order must be a whole number" {
+			t.Errorf("%s: got %d %q", tc.body, he.Code, he.Message)
+		}
 	}
 }

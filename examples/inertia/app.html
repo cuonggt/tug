@@ -3,7 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title data-inertia>tug</title>
+    {{/* The head a page's handler gave it, its title first: the one
+         after it is for a page without one. */}}
+    {{ .InertiaHead }}
+    <title>tug</title>
     <link rel="icon" href="data:,">
     {{/* The scripts carry the page's nonce, which its policy runs scripts
          by, and the page's own component loads alongside the app, not

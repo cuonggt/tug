@@ -276,6 +276,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		// that logging out throws away, so the next person at the browser
 		// can't go Back to the last one's.
 		EncryptHistory: true,
+		Title:          pageTitle,
 [[- if .SSR ]]
 		SSR:            &ssr.Gateway{DevServer: assets.DevServer, Server: server, URL: os.Getenv("SSR_URL")},
 [[- end ]]
@@ -507,7 +508,25 @@ var (
 )
 
 func home(c *tug.Ctx) error {
+	// The landing page's title and description, in its first visit's
+	// HTML too, for a search engine, and a link's preview.
+	c.Head(
+		inertia.Title("Welcome"),
+		inertia.Meta("description", "Go handlers render [[ .Name ]]'s pages, with Inertia in between and no API to write. "+
+			"People make accounts, verify their email, and log in with a second factor if they like."),
+	)
 	return Home.Render(c, NoProps{})
+}
+
+// pageTitle says a page's title, as its handler gives it with c.Head, with
+// the app's name after it, as [[ if .Svelte ]]resources/js/Head.svelte[[ else ]]resources/js/inertia.[[ .Script ]][[ end ]] says one in the
+// browser: this says it in a first visit's HTML, which no script has run
+// in yet.
+func pageTitle(title string) string {
+	if title == "" {
+		return "[[ .Name ]]"
+	}
+	return title + " · [[ .Name ]]"
 }
 
 // DashboardProps are the dashboard's props: the user, who is always there,

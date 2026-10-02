@@ -3,12 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-[[- if .SSR ]]
-    {{/* What the page rendered on the server puts in the head, its own
-         <title> first: the one after it is for a page without one. */}}
+    {{/* The page's head: what it put there, rendered on the server, or
+         else what its handler gave it with c.Head. Its own <title>
+         comes first: the one after it is for a page without one, with no
+         key, as Inertia's head takes a keyed one away, where Svelte may
+         have put the document's title. */}}
     {{ .InertiaHead }}
-[[- end ]]
-    <title data-inertia>[[ .Name ]]</title>
+    <title>[[ .Name ]]</title>
     <link rel="icon" href="data:,">
     {{/* The scripts carry the page's nonce, which its policy runs scripts
          by, and the page's own component loads alongside the app, not

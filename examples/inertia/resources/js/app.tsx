@@ -8,6 +8,8 @@ const pages = import.meta.glob<{ default: ResolvedComponent }>('./pages/**/*.tsx
 
 createInertiaApp({
   title: (title) => (title ? `${title} · tug` : 'tug'),
+  // The head a page's handler gives it, as a post's title: its head prop.
+  serverHead: true,
   resolve: async (name) => {
     const load = pages[`./pages/${name}.tsx`]
     if (!load) {

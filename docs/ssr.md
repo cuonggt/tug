@@ -34,8 +34,7 @@ An app made with `-ssr` has, beyond the rest:
 - In `main.go`, the SSR build embedded from `ssr/build`, a
   `ssr.Gateway` as `inertia.Config.SSR`, and `app.Go(server.Run)`, which
   runs Node.
-- `{{ .InertiaHead }}` in `app.html`, and a `Dockerfile` whose image has
-  Node.
+- A `Dockerfile` whose image has Node.
 
 ```tsx
 // resources/js/ssr.tsx
@@ -66,7 +65,8 @@ A first visit renders the page object as always, and hands it, as JSON, to
 `Config.SSR`, whose answer is the page's head and body. The body, the page
 object and the `<div id="app" data-server-rendered="true">` with the
 page's HTML, goes where `{{ .Inertia }}` is, and the head, the page's
-`<title>` and the tags its `<Head>` has, where `{{ .InertiaHead }}` is. A
+`<title>` and the tags its `<Head>` has, and the head its handler gave it,
+where `{{ .InertiaHead }}` is. A
 visit from Inertia's client, as after a link is clicked, gets JSON, as
 without SSR: only first visits render on the server.
 
@@ -132,10 +132,15 @@ A component renders first in Node, which has no browser:
   `useSyncExternalStore`, whose server snapshot is `'system'`, so the page
   hydrates as the server rendered it and then shows the browser's choice.
 - **The head.** A page's `<Head>` tags come in `{{ .InertiaHead }}`, its
-  `<title>` first. The root template's own `<title>` comes after, for a
-  page without one. A script among them carries the response's nonce, as
-  the page's policy runs it in the browser, where Inertia adds it to the
-  page itself ([Security headers](deployment.md#security-headers)).
+  `<title>` first, and the head its handler gave it from Go, which the
+  client's code puts there with its `serverHead` option, as it does in the
+  browser ([A page's head](pages.md#a-pages-head)): tug adds none of its
+  own. A page the server didn't render, as one under `WithoutSSR`, or whose
+  render failed, has the head from Go there all the same, as tug writes it.
+  The root template's own `<title>` comes after, for a page without one. A
+  script among them carries the response's nonce, as the page's policy
+  runs it in the browser, where Inertia adds it to the page itself
+  ([Security headers](deployment.md#security-headers)).
 
 ## Development
 

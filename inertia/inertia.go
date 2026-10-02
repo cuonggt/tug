@@ -50,23 +50,28 @@ type Props map[string]any
 
 // Page is the page object: everything the client needs to show a page.
 type Page struct {
-	Component        string                `json:"component"`
-	Props            map[string]any        `json:"props"`
-	URL              string                `json:"url"`
-	Version          string                `json:"version"`
-	EncryptHistory   bool                  `json:"encryptHistory,omitempty"`
-	ClearHistory     bool                  `json:"clearHistory,omitempty"`
-	PreserveFragment bool                  `json:"preserveFragment,omitempty"`
-	MergeProps       []string              `json:"mergeProps,omitempty"`
-	PrependProps     []string              `json:"prependProps,omitempty"`
-	DeepMergeProps   []string              `json:"deepMergeProps,omitempty"`
-	MatchPropsOn     []string              `json:"matchPropsOn,omitempty"`
-	DeferredProps    map[string][]string   `json:"deferredProps,omitempty"`
-	RescuedProps     []string              `json:"rescuedProps,omitempty"`
-	ScrollProps      map[string]ScrollMeta `json:"scrollProps,omitempty"`
-	OnceProps        map[string]OnceMeta   `json:"onceProps,omitempty"`
-	Flash            map[string]any        `json:"flash,omitempty"`
-	SharedProps      []string              `json:"sharedProps,omitempty"`
+	Component           string                `json:"component"`
+	Props               map[string]any        `json:"props"`
+	URL                 string                `json:"url"`
+	Version             string                `json:"version"`
+	EncryptHistory      bool                  `json:"encryptHistory,omitempty"`
+	ClearHistory        bool                  `json:"clearHistory,omitempty"`
+	PreserveFragment    bool                  `json:"preserveFragment,omitempty"`
+	PreserveBigIntegers bool                  `json:"preserveBigIntegers,omitempty"` // a BigInt is in it
+	MergeProps          []string              `json:"mergeProps,omitempty"`
+	PrependProps        []string              `json:"prependProps,omitempty"`
+	DeepMergeProps      []string              `json:"deepMergeProps,omitempty"`
+	MatchPropsOn        []string              `json:"matchPropsOn,omitempty"`
+	DeferredProps       map[string][]string   `json:"deferredProps,omitempty"`
+	RescuedProps        []string              `json:"rescuedProps,omitempty"`
+	ScrollProps         map[string]ScrollMeta `json:"scrollProps,omitempty"`
+	OnceProps           map[string]OnceMeta   `json:"onceProps,omitempty"`
+	Flash               map[string]any        `json:"flash,omitempty"`
+	SharedProps         []string              `json:"sharedProps,omitempty"`
+
+	// head is what went out as the head prop, WithHead's, for a first
+	// visit's HTML.
+	head []HeadElement
 }
 
 // TemplateData is what the root template is executed with.
@@ -80,11 +85,12 @@ type TemplateData struct {
 	// page's HTML in it already.
 	Inertia template.HTML
 
-	// InertiaHead is what a page rendered on the server puts in the head,
-	// such as its <title>: {{ .InertiaHead }}. It's empty without
-	// Config.SSR, or for a page rendered in the browser. Its scripts carry
-	// the Nonce, as the page's <Head> puts them in the head in the browser,
-	// where the policy lets them run.
+	// InertiaHead is what goes in the page's head, such as its <title>:
+	// {{ .InertiaHead }}. For a page rendered on the server, it's what the
+	// page put there, its scripts with the Nonce, as the page's <Head> puts
+	// them in the head in the browser, where the policy lets them run. For
+	// one rendered in the browser, it's the elements WithHead gave the
+	// page, its title as Config.Title says it, or else nothing.
 	InertiaHead template.HTML
 
 	// Nonce is the response's Content-Security-Policy nonce, which
@@ -119,6 +125,16 @@ type Config struct {
 	// doesn't render goes out to be rendered in the browser, as it would
 	// without it. WithoutSSR skips it for a request.
 	SSR Renderer
+
+	// Title says a page's title, from WithHead's Title, in a first visit's
+	// HTML, as the client's title callback says it in the browser:
+	//
+	//	func(title string) string { return title + " · blog" }
+	//
+	// With none, it's said as it was given. React's and Vue's adapters say
+	// a title from the server through their callback; Svelte's says it as
+	// it comes.
+	Title func(title string) string
 }
 
 // A Renderer renders a page on the server, for a first visit: the page
@@ -142,6 +158,7 @@ type Inertia struct {
 	version     string
 	encrypt     bool
 	ssr         Renderer
+	title       func(string) string
 	shared      Props
 	sharedFuncs []func(r *http.Request) Props
 
@@ -160,7 +177,7 @@ func New(cfg Config) (*Inertia, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inertia: root template: %w", err)
 	}
-	return &Inertia{tmpl: tmpl, version: cfg.Version, encrypt: cfg.EncryptHistory, ssr: cfg.SSR, shared: Props{}, shareSources: map[string]devtools.Source{}}, nil
+	return &Inertia{tmpl: tmpl, version: cfg.Version, encrypt: cfg.EncryptHistory, ssr: cfg.SSR, title: cfg.Title, shared: Props{}, shareSources: map[string]devtools.Source{}}, nil
 }
 
 // Share adds a prop that every page gets, such as the app's name. A page's
@@ -211,7 +228,7 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 	}
 	addVary(w.Header())
 	if IsInertia(r) {
-		body, err := json.Marshal(page)
+		body, err := encode(page)
 		if err != nil {
 			return err
 		}
@@ -224,7 +241,7 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 
 	// encoding/json escapes <, > and &, so no prop can close the script
 	// element early; the page object goes in as it is, never HTML-escaped.
-	data, err := json.Marshal(page)
+	data, err := encode(page)
 	if err != nil {
 		return err
 	}
@@ -233,6 +250,7 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 		Inertia: template.HTML(`<script data-page="app" type="application/json">` + string(data) + `</script><div id="app"></div>`),
 		Nonce:   nonce.From(r.Context()),
 	}
+	onServer := false
 	if i.ssr != nil && !skipsSSR(r.Context()) {
 		rendered, err := i.ssr.Render(r.Context(), data)
 		switch {
@@ -240,7 +258,15 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 			slog.WarnContext(r.Context(), "inertia: a page wasn't rendered on the server, so it renders in the browser", "component", component, "err", err)
 		case rendered.Body != "":
 			td.Inertia, td.InertiaHead = template.HTML(rendered.Body), template.HTML(strings.Join(nonced(rendered.Head, td.Nonce), "\n"))
+			onServer = true
 		}
+	}
+	if !onServer && len(page.head) > 0 {
+		// A page rendered on the server has its head from WithHead in it,
+		// as the client's own code put it there; one rendered in the
+		// browser gets it here, for what reads the page without running
+		// its scripts, as the client would put it in.
+		td.InertiaHead = headHTML(page.head, i.title)
 	}
 	if rec := devtools.From(r.Context()); rec != nil && code == http.StatusOK {
 		// For Inertia's DevTools, which read the entry's ID from the page
@@ -258,6 +284,18 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 	w.WriteHeader(code)
 	w.Write(buf.Bytes())
 	return nil
+}
+
+// encode is the page object as JSON. A page with a BigInt in it says so,
+// for the client to read them back as BigInts; every other page's JSON is
+// as it was, for a client before 3.8.0 too.
+func encode(p *Page) ([]byte, error) {
+	data, err := json.Marshal(p)
+	if err != nil || p.PreserveBigIntegers || !bytes.Contains(data, bigIntMarker) {
+		return data, err
+	}
+	p.PreserveBigIntegers = true
+	return json.Marshal(p)
 }
 
 // nonced gives each script of head, the elements a page rendered on the
@@ -312,11 +350,25 @@ func (i *Inertia) page(r *http.Request, component string, props any) (*Page, err
 	for _, e := range own {
 		ownKeys[e.key] = true
 	}
+	// The head WithHead gave the page is the head prop, the client's own
+	// name for it, unless the page has a head prop of its own. It's the
+	// page's, not shared: a shared prop goes on to the next page in an
+	// instant visit.
+	head := headFrom(r.Context())
+	if ownKeys["head"] {
+		head = nil
+	} else if len(head) > 0 {
+		delete(shared, "head")
+		delete(sources, "head")
+	}
 	var all []entry
 	for _, e := range sortedEntries(shared) {
 		if !ownKeys[e.key] {
 			all = append(all, e)
 		}
+	}
+	if len(head) > 0 {
+		all = append(all, entry{"head", headProp(head)})
 	}
 	all = append(all, own...)
 
@@ -326,6 +378,7 @@ func (i *Inertia) page(r *http.Request, component string, props any) (*Page, err
 		Version:        i.version,
 		EncryptHistory: i.encrypt,
 		SharedProps:    slices.Sorted(maps.Keys(shared)),
+		head:           head,
 	}
 	ctx := r.Context()
 	if on, ok := ctx.Value(encryptKey).(bool); ok {
@@ -581,6 +634,7 @@ const (
 	flashKey
 	fragmentKey
 	noSSRKey
+	headKey
 )
 
 // WithoutSSR returns a context whose pages render in the browser, even

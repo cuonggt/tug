@@ -343,3 +343,15 @@ func TestThePagesOpenHearOfEachPostMadeChangedAndDeleted(t *testing.T) {
 	c.Delete(post, nil)
 	heard(event{"deleted", said})
 }
+
+func TestAPostsFirstVisitHasItsTitleAndWordsInItsHead(t *testing.T) {
+	r := newClient(t).FirstVisit("/posts/1")
+	for _, want := range []string{
+		`<title>Hello, tug · tug</title>`,
+		`<meta data-inertia="description" name="description" content="Pages rendered by React, with props from Go handlers.">`,
+	} {
+		if !strings.Contains(r.Body, want) {
+			t.Errorf("no %s in %s", want, r.Body)
+		}
+	}
+}

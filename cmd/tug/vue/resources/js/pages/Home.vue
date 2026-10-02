@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3'
+import { Form } from '@inertiajs/vue3'
 import Layout from '../Layout.vue'
 import type { Pages, SharedProps } from '../tug/pages'
 import { form, route } from '../tug/routes'
@@ -13,7 +13,6 @@ defineProps<Pages['Home'] & SharedProps>()
 
 <template>
   <Layout>
-    <Head title="Home" />
     <h1>{{ appName }}</h1>
     <p>{{ greeting }}</p>
 

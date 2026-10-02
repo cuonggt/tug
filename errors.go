@@ -174,6 +174,9 @@ func (c *Ctx) errorPage(code int, message string) bool {
 	if pages == nil || component == "" || wantsJSON(c.r) {
 		return false
 	}
+	// The head the handler gave the page it meant to render, as a post's
+	// title, isn't the error's.
+	c.head = nil
 	err := pages.RenderStatus(&c.rw, c.pageRequest(component), code, component, ErrorPageProps{Status: code, Message: message})
 	if err != nil {
 		slog.ErrorContext(c.Context(), "the error page failed", "component", component, "err", err)

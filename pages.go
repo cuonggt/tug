@@ -94,6 +94,21 @@ func (c *Ctx) Inertia(component string, props any) error {
 	return pages.Render(&c.rw, c.pageRequest(component), component, props)
 }
 
+// Head gives the page this request renders the elements of its <head>:
+// its title, its description, and the tags a link's preview is made from.
+//
+//	c.Head(inertia.Title(post.Title), inertia.Meta("description", post.Summary))
+//
+// They go out as the page's head prop, which Inertia's client puts in the
+// document's head with its serverHead option on, and in a first visit's
+// HTML, through the root template's {{ .InertiaHead }}, for a search
+// engine's crawler, or the app that makes a link's preview, which run no
+// script. An element replaces the one before it of the same key, the
+// handler's those of middleware, which gives them with inertia.WithHead.
+func (c *Ctx) Head(head ...inertia.HeadElement) {
+	c.head = append(c.head, head...)
+}
+
 // Location sends the client to url with a full page load, which is how an
 // Inertia app leaves for another site: see inertia.Location.
 func (c *Ctx) Location(url string) error {

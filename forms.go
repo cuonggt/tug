@@ -224,6 +224,9 @@ func (c *Ctx) pageRequest(component string) *http.Request {
 	if preserveFragment {
 		ctx = inertia.WithPreserveFragment(ctx)
 	}
+	if len(c.head) > 0 {
+		ctx = inertia.WithHead(ctx, c.head...)
+	}
 	return c.r.WithContext(ctx)
 }
 

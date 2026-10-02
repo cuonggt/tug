@@ -233,6 +233,7 @@ export interface PostsIndexProps {
 |------------------------------------------------|------------|
 | `bool`                                         | `boolean` |
 | `int`, `uint8`, `float64`, and the other numbers | `number` |
+| `inertia.BigInt`                               | `bigint`: the client reads it as a `BigInt`, past JavaScript's safe range too ([pages.md](pages.md#numbers-past-javascripts)) |
 | `string`                                       | `string` |
 | `[]byte`                                       | `string`, the base64 that encoding/json writes; a `[N]byte` is `number[]` |
 | `[]T`, `[N]T`                                  | `T[]`, or `(A \| B)[]` for a union: `[]*int` is `(number \| null)[]` |

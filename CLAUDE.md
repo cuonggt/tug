@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M41 are done, which is
+the decisions behind it and where it stands: M1 to M42 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -108,7 +108,11 @@ added it, and the request, its secrets redacted, which Inertia's client
 shows in its modal, with links to the editor `APP_EDITOR` names, and the
 route list (v0.36.0): `tug routes`, every route of the app's, from tug
 gen's run, by path, with the line that added it, and its handler as that
-line has it.
+line has it, and Inertia 3.8 (v0.37.0): a page's head from Go, `c.Head`
+and `inertia.WithHead`, elements written escaped and keyed, which the
+client keeps with its `serverHead` option, and which a first visit's HTML
+has too, its title by `Config.Title`, and `inertia.BigInt`, a whole number
+that goes to the page as a JavaScript `BigInt`, `bigint` to tug gen.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -317,8 +321,10 @@ dev server that isn't there: delete it.
   - `pages.go`: `Page[P]`, which declares a component with its props
     type in the registry tug gen reads (`declare`, `declaredPages`) and
     returns a `PageOf[P]` that renders only those props, `Ctx.Inertia`
-    (which, under DevTools, records where the app rendered the page) and
-    `Ctx.Location`.
+    (which, under DevTools, records where the app rendered the page),
+    `Ctx.Head`, the elements of the page's head, which `pageRequest`, in
+    forms.go, gives the page through `inertia.WithHead`, after
+    middleware's, and `errorPage` drops, and `Ctx.Location`.
     `Config.Inertia` puts the Inertia middleware inside the App's own.
   - `flash.go`: `Flash[T]`, which declares a flash key and its value's
     type in the registry tug gen reads (`declareFlash`,
@@ -345,7 +351,9 @@ dev server that isn't there: delete it.
   the page's head and body, and keeps the browser's when it has none or
   fails, which it logs; `WithoutSSR` skips it; `TemplateData.Nonce` is
   the context's nonce, `internal/nonce`'s, which `nonced` gives the scripts
-  of the head from SSR), and holds the middleware (Vary, the 409 for another
+  of the head from SSR; `encode` writes the page object, and again with
+  `PreserveBigIntegers` when it has `bigIntMarker` in it), and holds the
+  middleware (Vary, the 409 for another
   build, and `redirects`: 302 → 303, and a redirect to a #fragment → 409
   with X-Inertia-Redirect) and the context helpers. `props.go` has the
   prop types: generic structs, each with its `behavior` (first load,
@@ -360,6 +368,21 @@ dev server that isn't there: delete it.
   props (`holdsProps`); other values are data for encoding/json. Siblings
   resolve concurrently. `empty.go` copies whatever holds a nil slice or map
   so it goes out as `[]` or `{}`, caching which types can't hold one.
+  `head.go`: a page's head, the client's `serverHead`: `HeadElement`
+  (`Title`, `Meta`, `Property`, `Link`, each keyed, its `data-inertia`,
+  and `Key`), written by `html`, each value through
+  `template.HTMLEscapeString`; `WithHead` keeps them in the context, a
+  later one of a key in the earlier's place; `page` makes them the `head`
+  prop (`headProp`), unless the page has its own, out of `sharedProps`
+  and in the place of a shared one, and keeps them in `Page.head`, which
+  `RenderStatus` writes as `InertiaHead` (`headHTML`, the title through
+  `Config.Title`, with no key, which React's and Vue's adapters replace,
+  and a keyed one Svelte's would take away with the document's title)
+  when SSR didn't render the page. `bigint.go`: `BigInt`,
+  an int64 that marshals as the protocol's `{"$bigint": "digits"}`,
+  and reads back digits in a string, a number or the marker, with
+  encoding/json's type error; no `UnmarshalText`, so Bind reads a form's
+  by its kind.
   `protocol_test.go` has a test for each rule M4 added. Under tug's
   DevTools, the request's context has a `devtools.Recording`, which `page`
   hands the page (`record`): each prop's metadata, by its path, as the
@@ -512,7 +535,8 @@ dev server that isn't there: delete it.
   errors, json, else form, else the field's name, with a path field left
   out, an upload `File`, and a field whose form or query tag says another
   name an error `Generate` returns. The prop types are found by package
-  path and generic name (`propOf`). The app runs it: see
+  path and generic name (`propOf`), and `inertia.BigInt`, a `bigint`, by
+  its name (`isBigInt`). The app runs it: see
   `App.gen` in app.go, reached from Run when TUG_GEN names a file, and the
   page registry `declare`d by `tug.Page` in pages.go.
 - `cmd/tug`: the CLI, on the stdlib flag package. `gen.go` builds the app
@@ -566,8 +590,11 @@ dev server that isn't there: delete it.
   checksum), and otherwise `replace`s it with the checkout it was built
   from (`checkoutDir`). The starters' Go files are `.tmpl` so the go tool
   doesn't build them in place; `tug_test.go` makes a real app of each
-  kind, React's four and two each of Vue's and Svelte's, and runs an SSR
-  one's binary for a page rendered on the server, and the auth one's
+  kind, React's four and two each of Vue's and Svelte's, and runs each
+  one's binary (`serveApp`, `firstVisit`), for its home page's title and
+  description from Go, once each (`hasItsHead`), in the HTML tug writes
+  (`showsItsHead`), or an SSR one's page rendered on the server
+  (`rendersOnTheServer`), and the auth one's
   `migrate` command on a new database (`migratesByItsCommand`), and reads
   a page's entry for the DevTools from it under `TUG_DEV`
   (`answersTheDevTools`), and checks that one, and each SSR one, sends the
@@ -575,7 +602,15 @@ dev server that isn't there: delete it.
   Postgres and MySQL, which writes its types with no database running. Every starter makes its
   app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
   `createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
-  server's, call. Vue and Svelte are on TypeScript 6, as vue-tsc and
+  server's, call. React's and Vue's have `serverHead: true`, a title
+  from the server said through their `title` callback, as `pageTitle` in
+  `main.go` says it in a first visit's HTML; Svelte's `serverHead` leaves
+  the title out, as Svelte puts the document's title in the first
+  `<title>`, which its adapter's head would take away as a visit leaves
+  the page, so a Svelte page, the home page too, has its title from
+  `Head.svelte`, and the root templates' fallback `<title>` has no key.
+  The home page's handler gives it its title and description with
+  `c.Head`. Vue and Svelte are on TypeScript 6, as vue-tsc and
   svelte-check need its compiler API, which 7 hasn't; a Vue page's props
   are `defineProps<Pages['Name'] & SharedProps>()`, as Vue's compiler
   can't resolve `PageProps<'Name'>`. `e2e/` is one Playwright suite for
@@ -758,7 +793,9 @@ dev server that isn't there: delete it.
   `.Nonce`. `e2e/tests/headers.spec.ts` checks the headers, and a script
   the page didn't bring blocked, and reported to the app's log, and the
   build's scripts and styles gzipped in the browser, and
-  `tug_test.go`'s `rendersOnTheServer` a served page's scripts' nonce.
+  `tug_test.go`'s `rendersOnTheServer` a served page's scripts' nonce;
+  `e2e/tests/head.spec.ts` checks the home page's title and description
+  from Go, once, and the login page's own after a visit, and back.
   Both starters embed `lang/` (a
   `.gitkeep` until there's a file) and load it in `newApp`, with
   `APP_LOCALE` for the default.
@@ -978,7 +1015,9 @@ dev server that isn't there: delete it.
   `Location`, `Follow` (redirects and the protocol's 409s) and `Errors`,
   and `Props`, `Prop` and `Flash`, which read the page's JSON into Go
   types; `valuesOnly` drops what went out for inertia's prop types, which
-  hold functions, so a page's own props struct takes the rest. It fails
+  hold functions, so a page's own props struct takes the rest; a page that
+  says `preserveBigIntegers` is read `numbered`, each BigInt's marker the
+  number it is (`revive`), for an int64 or a `json.Number`. It fails
   the test itself, with t.Fatalf, when asked for what isn't there. Package
   tug's own tests can't use it, as it imports tug. `upload.go`: `File`,
   which makes a map body a multipart form (`multipartBody`), written as
@@ -987,7 +1026,9 @@ dev server that isn't there: delete it.
   with `tug.Limit`. Its tests are the end to end check.
 - `examples/inertia`: React pages on tug, its post routes `Takes`
   `PostInput`, and `PostForm.tsx` a `<Form<Inputs['posts.store']>>` of
-  `form()`'s action. `main.go` embeds `app.html` and
+  `form()`'s action. A post's page has its title and words from its
+  handler, `c.Head`, which `app.tsx`'s `serverHead` keeps, its title said
+  by `Config.Title` as `app.tsx`'s callback says it. `main.go` embeds `app.html` and
   `public/` (the build lands in `public/build`; `.gitkeep` lets it compile
   before one). `main_test.go` runs on tugtest without Node, against a fake
   manifest; `e2e/` drives the real build in a browser, in order: the later

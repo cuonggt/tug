@@ -102,6 +102,12 @@ first := tugtest.Prop[string](r, "posts.data.0.title") // a number picks an item
 `tugtest.Flash[[]string](r, "recoveryCodes")`; `r.Page.Flash` has it all,
 for a message: `r.Page.Flash["success"] != "Post created"`.
 
+An `inertia.BigInt` goes out as the protocol's `{"$bigint": "..."}`, which
+the client makes a `BigInt` ([pages.md](pages.md#numbers-past-javascripts));
+`Props`, `Prop` and `Flash` read it as the number it is, into an
+`inertia.BigInt`, an `int64` or a `json.Number`:
+`tugtest.Prop[int64](r, "order.id")`.
+
 ## Forms and redirects
 
 A form sent from a page goes back to it when it doesn't validate, as

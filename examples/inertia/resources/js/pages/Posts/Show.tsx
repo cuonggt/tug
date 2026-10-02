@@ -1,4 +1,4 @@
-import { Head, Link } from '@inertiajs/react'
+import { Link } from '@inertiajs/react'
 import Layout from '../../Layout'
 import type { PageProps } from '../../tug/pages'
 import { route } from '../../tug/routes'
@@ -6,7 +6,6 @@ import { route } from '../../tug/routes'
 export default function Show({ post }: PageProps<'Posts/Show'>) {
   return (
     <Layout>
-      <Head title={post.title} />
       <h1>{post.title}</h1>
       <p>{post.body}</p>
       <ul className="tags">

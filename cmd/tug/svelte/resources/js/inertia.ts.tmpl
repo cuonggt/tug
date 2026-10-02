@@ -11,6 +11,14 @@ const pages = import.meta.glob<ResolvedComponent>('./pages/**/*.svelte')
 // page's title is Head.svelte's.
 export function createApp() {
   return createInertiaApp({
+    // The head a page's handler gives it with c.Head, as the home page's
+    // description: its head prop, but for its title, which a page has
+    // from Head.svelte. Svelte puts the document's title in the first
+    // <title> there, and the adapter's head would take one from the
+    // server away, the document's title with it, as a visit leaves the
+    // page; main.go's Title says it in a first visit's HTML, as
+    // Head.svelte does.
+    serverHead: (page) => ((page.props.head as string[] | undefined) ?? []).filter((element) => !element.startsWith('<title')),
     resolve: async (name) => {
       const load = pages[`./pages/${name}.svelte`]
       if (!load) {

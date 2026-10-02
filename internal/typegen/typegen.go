@@ -201,6 +201,12 @@ func propOf(t reflect.Type) (string, reflect.Type, bool) {
 	return "", nil, false
 }
 
+// isBigInt reports whether t is package inertia's BigInt, which goes out
+// as a JavaScript BigInt, whatever it holds.
+func isBigInt(t reflect.Type) bool {
+	return t.PkgPath() == "github.com/cuonggt/tug/inertia" && t.Name() == "BigInt"
+}
+
 // typeOf is the TypeScript type of a value of type t, as encoding/json
 // writes it.
 func (g *gen) typeOf(t reflect.Type) string {
@@ -209,6 +215,8 @@ func (g *gen) typeOf(t reflect.Type) string {
 		return "string"
 	case t == rawMessageType:
 		return "unknown"
+	case isBigInt(t):
+		return "bigint" // the protocol's marker, which the client reads as a BigInt, and sends back as its digits
 	case g.input && t == fileType:
 		return "File" // an upload, which Inertia sends as multipart, as Bind reads it
 	case g.input && t.Kind() == reflect.Slice && t.Elem() == reflect.PointerTo(fileType):

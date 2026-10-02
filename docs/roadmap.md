@@ -1,7 +1,8 @@
 # Roadmap
 
 tug is built in milestones, each ending in something that runs. It targets
-the Inertia.js v3 protocol (v3.0.0, March 2026), written against
+the Inertia.js v3 protocol (v3.0.0, March 2026, and what its client added
+to 3.8.0, October 2026), written against
 [the spec](https://inertiajs.com/the-protocol).
 
 |     | Milestone                  | Status |
@@ -47,7 +48,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M39 | Request IDs in jobs        | done   |
 | M40 | Debug error page           | done   |
 | M41 | Route list                 | done   |
-| M42 | Inertia 3.8                | later  |
+| M42 | Inertia 3.8                | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3658,18 +3659,18 @@ Choices made on the way:
   new`, listing `POST /login` as `login.store`, taking `LoginInput`,
   added in `main.go`, by `a.guestsOnly(a.login)`.
 
-## M42 · Inertia 3.8 — later
+## M42 · Inertia 3.8 — done
 
-tug speaks Inertia's protocol as v3.0.0 had it, in March, and the client
-is at 3.8.0, which the starters' `^3.7.1` installs. Two of the things
+tug spoke Inertia's protocol as v3.0.0 had it, in March, and the client
+was at 3.8.0, which the starters' `^3.7.1` installed. Two of the things
 that came since ask something of the server. A page's head, its title,
 its description and the tags a link's preview is made from, can come
 from the server, as a prop the client keeps in the head, `serverHead`,
 since 3.5.0. And a whole number past JavaScript's safe range, which
 ends at 2^53 - 1, can go to the page as a `BigInt`, since 3.8.0, where
-now it's rounded on the way: a snowflake ID, `900719925474099988`,
-arrives as `900719925474100000`. tug has each page's props, the HTML of
-its first visit, which it writes without Node, and the Go type of each
+it was rounded on the way: a snowflake ID, `900719925474099988`, arrived
+as `900719925474100000`. tug has each page's props, the HTML of its
+first visit, which it writes without Node, and the Go type of each
 value, which tug gen says in TypeScript. To be released as v0.37.0.
 
 - **A page's head, from Go:** `c.Head(...)` gives the page the request
@@ -3684,98 +3685,134 @@ value, which tug gen says in TypeScript. To be released as v0.37.0.
   and what makes a link's preview, as Slack and iMessage do, read the
   HTML and run no script. With the head in it, through the root
   template's `{{ .InertiaHead }}`, they see each page's own title and
-  description, as with SSR, and no Node. The client finds the elements
-  there, by their keys, and leaves them be.
+  description, as with SSR, and no Node.
 - **Big integers:** `inertia.BigInt`, an `int64`, goes out as the
   protocol's `{"$bigint": "…"}`, which the client makes a `BigInt`: in
   props, deferred, merged and the rest, and in flash data, on a page that
   says so, `preserveBigIntegers`. tug gen types it `bigint`. The client
-  sends one back as its digits, which `Bind` reads, from JSON, a form or
-  the query, and tugtest reads one from a page as the number it is.
+  sends one back as its digits, which `Bind` reads, from JSON, a form,
+  the query or the path, and tugtest reads one from a page as the number
+  it is.
 - **The starters, on 3.8:** Inertia at `^3.8.0`, `serverHead` on,
   `{{ .InertiaHead }}` in every root template, not only an SSR one's, and
   the home page's title and description from its handler, in all three
-  frontends, with accounts and without.
+  frontends, with accounts and without. `examples/inertia`'s post page
+  has its title and words from its handler.
 - **The guide:** Pages, a section on a page's head, and one on numbers
-  past the safe range; TypeScript, `bigint`; Testing, a BigInt read
-  back; SSR, the head with it and without; the roadmap's first lines,
-  the protocol as 3.8.0 has it; and the README.
+  past the safe range; TypeScript, `bigint`; Testing, a BigInt read back;
+  SSR, the head with it and without; the roadmap's first lines; and the
+  README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Elements, not HTML:** the client puts the `head` prop's strings in
   the page as HTML, so a description taken from a post, written into
-  one, is a script a stranger wrote. tug writes each element from its
-  parts, escaped as `html/template` escapes text and attributes, and
-  takes no HTML from the app. A title, a meta tag by name or by
-  property, and a link are what search engines and previews read;
-  JSON-LD's structured data, a script, waits for an app that asks.
+  one, would be a script a stranger wrote. tug writes each element from
+  its parts, each value through `template.HTMLEscapeString`, and takes no
+  HTML from the app. A title, a meta tag by name or by property, and a
+  link are what search engines and previews read; JSON-LD's structured
+  data, a script, waits for an app that asks.
 - **Keyed as the client keys them:** each element carries `data-inertia`,
   its key: `title`, the meta's name or property, the link's rel. The
   client matches elements by it across visits, so a description replaces
   the one before, and a page's `<Head>` element with that `head-key` wins
-  over the server's. Two elements of one key are one, the later; `Key`
-  gives one its own, for a second `og:image`.
+  over the server's. Two elements of one key are one, the later, in the
+  earlier's place; `Key` gives one its own, for a second `og:image`.
 - **For the response, not in the props struct:** a head is made from
   what the handler loaded, as the post's title, and the site's from
   middleware; a field in each page's props would be one more for every
   page to carry, and for tug gen to type. `head` is the client's default
   name, a prop of tug's own, as `errors` is: a page's own `head` wins,
-  and tug gen leaves it out of the types, as the client reads it, not
-  the page.
+  with none of tug's in its HTML, and tug gen leaves it out of the types,
+  as the client reads it, not the page.
+- **Not shared:** the head isn't in the page's `sharedProps`, whose props
+  the client takes on to the next page in an instant visit, and a shared
+  prop named `head` gives way to the request's.
 - **A partial reload leaves it out, unless it asks:** the head follows
   the page's props, as Laravel's does. The client syncs the head only as
-  a visit goes to another URL, and a reload of the page keeps the one it
-  has.
+  a visit goes to another URL, or back, and a reload of the page keeps
+  the one it has.
 - **The title as the client says it:** the client says a title through
   its `title` callback, `Welcome · blog` in the starters, which a first
   visit without SSR doesn't run, so `inertia.Config.Title` says it the
-  same way in Go, for the HTML tug writes, and a page with no title from
-  Go keeps the template's own `<title>`, as now. The two are the app's to
-  keep alike, as the root template's and the callback's app name are
-  now.
+  same way in Go, for the HTML tug writes, as the starters' `pageTitle`
+  does, and a page with no title from Go keeps the template's own
+  `<title>`. The two are the app's to keep alike, as the root template's
+  and the callback's app name were.
+- **The first visit's title has no key, nor the template's:** React's
+  and Vue's adapters replace a title without one with their own, the
+  same, as the client has since 3.0.1. Svelte puts the document's title
+  in the first `<title>` there, and its adapter's head takes away a keyed
+  one that isn't the next page's, as a visit leaves a page, the
+  document's title with it: the browser suite caught Svelte's login page
+  with no title, after the home page.
+- **Svelte's title from `Head.svelte`:** Svelte's adapter puts a title
+  from the server in as it comes, with no callback, and takes it away,
+  as above, after Svelte has put the next page's title in it. The plan
+  had Svelte's starters say it in a `title` callback, which Svelte's
+  adapter doesn't call. Their `serverHead` is a function that leaves the
+  title out, and a page, the home page too, has its title from
+  `Head.svelte`, which `pageTitle` says the same way in a first visit's
+  HTML; React's and Vue's home pages have theirs from Go alone.
 - **With SSR, the client's head:** a page rendered on the server has the
   head from Go in its head already, as the client's own code put it
   there, so tug adds none; a page SSR didn't render, as `WithoutSSR`'s,
   or one whose render failed, gets tug's.
+- **An error page, without the handler's:** the head a handler gave the
+  page it meant to render, as a post's title, isn't its error's; the
+  error page keeps middleware's.
 - **Big integers by type, not by value:** inertia-laravel, when it's on,
   sends any integer past the safe range as a BigInt, as PHP's integers
   have no type to tell, so a field's TypeScript would have to be
   `number | bigint`. tug goes by the Go type: an `inertia.BigInt` always
   goes as one, a small one too, and is `bigint`, and an `int64` is a
-  `number`, rounded past the safe range, as now, or a string with
+  `number`, rounded past the safe range, as before, or a string with
   encoding/json's `,string`, which tug gen types `string`.
 - **The flag only where there's one:** `preserveBigIntegers` goes on a
-  page whose JSON holds a BigInt, in its props or its flash data, so
-  every other page's JSON is as it was, for a client before 3.8 too.
+  page whose JSON has a BigInt's marker, `{"$bigint":`, which a string's
+  escaped quotes can't make, in its props or its flash data: the page is
+  written again with it. Every other page's JSON is as it was, for a
+  client before 3.8 too.
 - **An int64:** a snowflake ID, a count of nanoseconds and a 64-bit
   column are int64s, and Go's arithmetic on one stays an int64's. A
   `uint64` past 2^63, and `big.Int`, are left out: rarer, and not IDs.
 - **Read back as it's sent:** the client sends a BigInt in a request as
-  its digits, in a JSON string, a form field or the query;
-  `inertia.BigInt` takes each, a JSON number, and the protocol's marker,
-  for a page's JSON read back into Go, as an app's test does.
+  its digits. `inertia.BigInt` reads them in JSON, from a string, a
+  number, or the protocol's marker, for a page's JSON read back, with
+  encoding/json's type error, which Bind names the field of, "order must
+  be a whole number"; an empty string, a form's empty field, leaves it as
+  it was. It has no `UnmarshalText`, so a form, the query and the path
+  set it by its kind, as an int64, and say what an int64 says.
+- **tugtest reads the number:** a page that says it has a BigInt is read
+  with each marker the number it is, so `Prop[int64]` and `json.Number`
+  read one, as `Props` reads an `inertia.BigInt`.
 - **The starters' home page from Go:** the landing page is the one a
-  search engine sees, so its handler gives it a title and a description,
-  and its `<Head>` goes; a page behind a login keeps its `<Head>`, as no
-  crawler sees it. Svelte's starters get the `title` callback React's and
-  Vue's have, for a title from the server, as their `Head.svelte` writes
-  a `<title>` of its own, which the client removes when the server sends
-  one.
+  search engine sees, so its handler gives it a title and a description;
+  a page behind a login keeps its `<Head>`, as no crawler sees it.
+- **The example's post:** `examples/inertia`'s post page has its title
+  and words from its handler, its first visit's head tested without Node,
+  against the fake manifest, and in the browser, on its lock's 3.7.1,
+  which has `serverHead`.
 - **Tests:** in package inertia, each element written escaped, with its
-  key: a title, a description with `"` and `<` in it, an `og:` property,
-  a link; the `head` prop on a page, a later element of a key replacing
-  the earlier, a page's own `head` winning, and a partial reload leaving
-  it out unless it asks; the first visit's HTML with the head, its title
-  through `Config.Title`, and none of tug's beside SSR's; a BigInt as the
-  marker in props, nested and deferred, and in flash data, with the
-  page's flag, and a page without one without it; tug gen's `bigint`;
-  Bind reading one from JSON, a form and the query; tugtest reading one
-  from a page; the starters' home page's first visit, in an app made by
-  `tug new`, with its title and description, and with `-ssr`, each once;
-  and in the browser suite, the home page's title and description in
-  each frontend after it's started, once each, and after a visit to the
-  login page and back.
+  key; a later element of a key replacing the earlier; the head out of
+  `sharedProps`, over a shared prop, and a page's own `head` winning;
+  a partial reload leaving it out unless it asks; the first visit's HTML
+  with the head, its title through `Config.Title` without a key; none of
+  tug's beside SSR's, and tug's for a page SSR failed or was skipped; a
+  BigInt as the marker in props, nested, in a list, lazy and deferred,
+  and in flash data, with the page's flag, and a page without one, a
+  string with the marker's text in it too, without it; and a BigInt read
+  back from each form, and refused, with the field's path, from what
+  isn't a whole number. In package tug, a handler's head over
+  middleware's, and an error page with middleware's alone; Bind reading
+  a BigInt from JSON, a form, the query and the path, and a 400 for one
+  that isn't one. tug gen's `bigint`, in props, a list, a pointer, flash
+  data and a route's input; tugtest reading one into each type; the
+  starters' home page's first visit, in an app of each kind made by `tug
+  new`, its title and description once each, rendered on the server or
+  not; and in the browser suite, the home page's title and description
+  in each frontend, the login page's own title and none after a visit,
+  and the home page's again, back.
 
 ## Decisions
 

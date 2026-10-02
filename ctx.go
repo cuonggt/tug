@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/internal/rw"
 	"github.com/cuonggt/tug/lang"
 )
@@ -37,6 +38,10 @@ type Ctx struct {
 	flash            map[string]any
 	clearHistory     bool
 	preserveFragment bool
+
+	// head is what the page this request renders has in its <head>; see
+	// Head.
+	head []inertia.HeadElement
 }
 
 // Request returns the request.

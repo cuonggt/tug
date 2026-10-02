@@ -2,6 +2,7 @@ package tugtest_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -450,5 +451,30 @@ func TestABodyWithAFileGoesAsAFormWithTheFileInIt(t *testing.T) {
 	c.Post("/uploads", map[string]any{"title": "Ann"})
 	if !strings.HasPrefix(contentType, "application/json") {
 		t.Errorf("a body with no file goes as %s", contentType)
+	}
+}
+
+type OrderProps struct {
+	ID    inertia.BigInt   `json:"id"`
+	Items []inertia.BigInt `json:"items"`
+}
+
+var Order = tug.Page[OrderProps]("Orders/Show")
+
+func TestABigIntReadsBackAsTheNumberItIs(t *testing.T) {
+	app := newApp(t)
+	app.Get("/orders/1", func(c *tug.Ctx) error {
+		c.Flash("placed", inertia.BigInt(900719925474099988))
+		return Order.Render(c, OrderProps{ID: 900719925474099988, Items: []inertia.BigInt{1, -2}})
+	})
+	r := tugtest.New(t, app).Get("/orders/1")
+	if props := tugtest.Props(r, Order); props.ID != 900719925474099988 || !slices.Equal(props.Items, []inertia.BigInt{1, -2}) {
+		t.Errorf("props %+v", props)
+	}
+	if tugtest.Prop[int64](r, "id") != 900719925474099988 || tugtest.Prop[json.Number](r, "items.1") != "-2" {
+		t.Errorf("props %v", r.Page.Props)
+	}
+	if tugtest.Flash[int64](r, "placed") != 900719925474099988 {
+		t.Errorf("flash %v", r.Page.Flash)
 	}
 }

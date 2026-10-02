@@ -258,8 +258,13 @@ func TestNewFillsInTheStarter(t *testing.T) {
 				t.Errorf("go.mod:\n%s", mod)
 			}
 			html := read("app.html")
-			if !strings.Contains(html, "<title data-inertia>blog</title>") || !strings.Contains(html, "{{ .Inertia }}") {
+			if !strings.Contains(html, "<title>blog</title>") || !strings.Contains(html, "{{ .Inertia }}") {
 				t.Errorf("app.html should have the name, and keep its own template: %s", html)
+			}
+			// The head a page's handler gives it, which a page rendered in
+			// the browser has too, before its own title.
+			if head := strings.Index(html, "{{ .InertiaHead }}"); head < 0 || head > strings.Index(html, "<title>blog</title>") {
+				t.Errorf("app.html hasn't the page's head before its title: %s", html)
 			}
 			if want := `{{ vite .Nonce "resources/js/app.` + data.Script() + `" (printf "resources/js/pages/%s.` + data.Component() + `" .Page.Component) }}`; !strings.Contains(html, want) {
 				t.Errorf("app.html doesn't load the app and its page from %s's files: %s", data.Framework(), html)
@@ -530,8 +535,16 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(dir, "public/build/.vite/manifest.json")); err != nil {
 				t.Errorf("the build has no manifest where the server reads it: %v", err)
 			}
+			// The home page's title, which its handler gives it, with the
+			// app's name after it.
+			title := "Home · blog"
+			if slices.Contains(kind.flags, "-auth") {
+				title = "Welcome · blog"
+			}
 			if slices.Contains(kind.flags, "-ssr") {
-				rendersOnTheServer(t, dir)
+				rendersOnTheServer(t, dir, title)
+			} else {
+				showsItsHead(t, dir, title)
 			}
 			if kind.name == "plain" {
 				writesItsTexts(t, dir)
@@ -776,13 +789,10 @@ func answersTheDevTools(t *testing.T, dir string) {
 	}
 }
 
-// rendersOnTheServer builds the app in dir, runs it as it runs deployed,
-// and checks a first visit comes back rendered on the server, by Node.
-func rendersOnTheServer(t *testing.T, dir string) {
+// serveApp builds the app in dir, and runs it as it runs deployed until
+// the test ends, at the address it returns, writing what it says to out.
+func serveApp(t *testing.T, dir string) (base string, out *bytes.Buffer) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(dir, "ssr/build/ssr.mjs")); err != nil {
-		t.Fatalf("the build has no SSR bundle where the server embeds it: %v", err)
-	}
 	build := exec.Command("go", "build", "-o", "app", ".")
 	build.Dir = dir
 	if out, err := build.CombinedOutput(); err != nil {
@@ -798,33 +808,72 @@ func rendersOnTheServer(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out bytes.Buffer
+	out = &bytes.Buffer{}
 	app := exec.Command(filepath.Join(dir, "app"))
 	app.Dir = dir
 	// Its address, as a deployed app has one, and tug dev gives it: the
 	// auth starter's links, and its passkeys, need it.
 	app.Env = append(append(os.Environ(), vars...), "ADDR="+addr, "APP_URL=http://"+addr)
-	app.Stdout, app.Stderr = &out, &out
+	app.Stdout, app.Stderr = out, out
 	if err := app.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		app.Process.Signal(os.Interrupt)
 		app.Wait()
-	}()
+	})
+	return "http://" + addr, out
+}
 
+// firstVisit gets the home page of the app at base, as a browser's first
+// visit does, until the page has want in it.
+func firstVisit(t *testing.T, base string, out *bytes.Buffer, want string) (string, http.Header) {
+	t.Helper()
 	var page string
 	var header http.Header
-	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(page, `data-server-rendered="true"`); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(page, want); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatalf("no first visit came back rendered on the server; the last was\n%s\nand the app said\n%s", page, out.String())
+			t.Fatalf("no first visit came back with %s in it; the last was\n%s\nand the app said\n%s", want, page, out.String())
 		}
-		if resp, err := http.Get("http://" + addr + "/"); err == nil {
+		if resp, err := http.Get(base + "/"); err == nil {
 			b, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			page, header = string(b), resp.Header
 		}
 	}
+	return page, header
+}
+
+// hasItsHead checks page has the head the home page's handler gave it, its
+// title and its description, once each, beside the root template's title
+// for a page without one.
+func hasItsHead(t *testing.T, page, title string) {
+	t.Helper()
+	if strings.Count(page, ">"+title+"</title>") != 1 || strings.Count(page, `name="description"`) != 1 {
+		t.Errorf("the home page hasn't its title, %s, and its description, once each:\n%s", title, page)
+	}
+}
+
+// showsItsHead runs the app in dir, as it runs deployed, and checks a first
+// visit has the home page's head in its HTML, for what reads a page
+// without running its scripts.
+func showsItsHead(t *testing.T, dir, title string) {
+	t.Helper()
+	base, out := serveApp(t, dir)
+	page, _ := firstVisit(t, base, out, "</html>")
+	hasItsHead(t, page, title)
+}
+
+// rendersOnTheServer runs the app in dir, as it runs deployed, and checks a
+// first visit comes back rendered on the server, by Node, with the home
+// page's head, whose title is title.
+func rendersOnTheServer(t *testing.T, dir, title string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(dir, "ssr/build/ssr.mjs")); err != nil {
+		t.Fatalf("the build has no SSR bundle where the server embeds it: %v", err)
+	}
+	base, out := serveApp(t, dir)
+	page, header := firstVisit(t, base, out, `data-server-rendered="true"`)
 
 	// The page says what a browser may do with it, and its scripts carry
 	// the nonce its policy runs scripts by: the template's, Vite's, and
@@ -849,7 +898,9 @@ func rendersOnTheServer(t *testing.T, dir string) {
 	if scripts == 0 {
 		t.Errorf("the page runs no scripts:\n%s", page)
 	}
-	sendsItsBuildGzipped(t, "http://"+addr, page)
+	// The head is the one the client's own code put there, on the server.
+	hasItsHead(t, page, title)
+	sendsItsBuildGzipped(t, base, page)
 }
 
 // sendsItsBuildGzipped fetches the first of the build's scripts page loads,

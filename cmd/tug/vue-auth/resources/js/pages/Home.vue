@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3'
+import { Link } from '@inertiajs/vue3'
 import { Database, KeyRound, LayoutDashboard, Mail, Package, ShieldCheck } from '@lucide/vue'
 import AppLogo from '@/components/AppLogo.vue'
 import { Button } from '@/components/ui/button'
@@ -24,7 +24,6 @@ defineProps<Pages['Home'] & SharedProps>()
 </script>
 
 <template>
-  <Head title="Welcome" />
   <div class="flex min-h-svh flex-col">
     <header class="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-4">
       <AppLogo />

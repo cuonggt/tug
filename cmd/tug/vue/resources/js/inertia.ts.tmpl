@@ -11,7 +11,12 @@ const pages = import.meta.glob<{ default: DefineComponent }>('./pages/**/*.vue')
 // server-side rendering, ssr.ts's returns what renders a page to HTML.
 export function createApp() {
   return createInertiaApp({
+    // A page's title, with the app's name after it, which main.go's Title
+    // says the same way in a first visit's HTML.
     title: (title) => (title ? `${title} · [[ .Name ]]` : '[[ .Name ]]'),
+    // The head a page's handler gives it with c.Head, as the home page's
+    // title and description: its head prop.
+    serverHead: true,
     resolve: async (name) => {
       const load = pages[`./pages/${name}.vue`]
       if (!load) {

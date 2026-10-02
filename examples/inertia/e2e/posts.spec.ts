@@ -28,6 +28,10 @@ test('a link changes the page without loading a new one', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Hello, tug' })).toBeVisible()
   await expect(page).toHaveURL(/\/posts\/1$/)
   await expect(page).toHaveTitle('Hello, tug · tug')
+  // The head the post's handler gave it, which the client keeps in the
+  // document's head.
+  const description = page.locator('meta[name="description"]')
+  await expect(description).toHaveAttribute('content', 'Pages rendered by React, with props from Go handlers.')
   expect(await page.evaluate(() => 'stillHere' in window)).toBe(true)
 })
 

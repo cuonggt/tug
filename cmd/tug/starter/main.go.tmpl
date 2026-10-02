@@ -98,6 +98,7 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 		Template: rootTemplate,
 		Funcs:    assets.Funcs(),
 		Version:  assets.Version(),
+		Title:    pageTitle,
 [[- if .SSR ]]
 		SSR:      &ssr.Gateway{DevServer: assets.DevServer, Server: server, URL: os.Getenv("SSR_URL")},
 [[- end ]]
@@ -163,7 +164,24 @@ type HomeProps struct {
 var Home = tug.Page[HomeProps]("Home")
 
 func home(c *tug.Ctx) error {
+	// Its title and description, in its first visit's HTML too, for a
+	// search engine, and a link's preview.
+	c.Head(
+		inertia.Title("Home"),
+		inertia.Meta("description", "Go handlers render [[ .Name ]]'s pages, with Inertia in between and no API to write."),
+	)
 	return Home.Render(c, HomeProps{Greeting: "This page was rendered by Go at " + time.Now().Format("15:04:05") + "."})
+}
+
+// pageTitle says a page's title, as its handler gives it with c.Head, with
+// the app's name after it, as [[ if .Svelte ]]resources/js/Head.svelte[[ else ]]resources/js/inertia.[[ .Script ]][[ end ]] says one in the
+// browser: this says it in a first visit's HTML, which no script has run
+// in yet.
+func pageTitle(title string) string {
+	if title == "" {
+		return "[[ .Name ]]"
+	}
+	return title + " · [[ .Name ]]"
 }
 
 // HelloInput is what the form on the home page sends.
