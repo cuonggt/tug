@@ -47,6 +47,7 @@ the Inertia.js v3 protocol (v3.0.0, March 2026), written against
 | M39 | Request IDs in jobs        | done   |
 | M40 | Debug error page           | done   |
 | M41 | Route list                 | done   |
+| M42 | Inertia 3.8                | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3656,6 +3657,125 @@ Choices made on the way:
   it was added and what it takes; and the auth starter, made by `tug
   new`, listing `POST /login` as `login.store`, taking `LoginInput`,
   added in `main.go`, by `a.guestsOnly(a.login)`.
+
+## M42 · Inertia 3.8 — later
+
+tug speaks Inertia's protocol as v3.0.0 had it, in March, and the client
+is at 3.8.0, which the starters' `^3.7.1` installs. Two of the things
+that came since ask something of the server. A page's head, its title,
+its description and the tags a link's preview is made from, can come
+from the server, as a prop the client keeps in the head, `serverHead`,
+since 3.5.0. And a whole number past JavaScript's safe range, which
+ends at 2^53 - 1, can go to the page as a `BigInt`, since 3.8.0, where
+now it's rounded on the way: a snowflake ID, `900719925474099988`,
+arrives as `900719925474100000`. tug has each page's props, the HTML of
+its first visit, which it writes without Node, and the Go type of each
+value, which tug gen says in TypeScript. To be released as v0.37.0.
+
+- **A page's head, from Go:** `c.Head(...)` gives the page the request
+  renders the elements of its `<head>`: `inertia.Title`; `inertia.Meta`,
+  by name, as the description; `inertia.Property`, Open Graph's, as
+  `og:image`; and `inertia.Link`, as the canonical one. They go out as
+  the page's `head` prop, which the client, with `serverHead`, keeps in
+  the head as it shows the page, until a visit to another page replaces
+  them. `inertia.WithHead` is the same for any router, and for
+  middleware, as a site's own image on every page.
+- **In the first visit's HTML, without SSR:** a search engine's crawler,
+  and what makes a link's preview, as Slack and iMessage do, read the
+  HTML and run no script. With the head in it, through the root
+  template's `{{ .InertiaHead }}`, they see each page's own title and
+  description, as with SSR, and no Node. The client finds the elements
+  there, by their keys, and leaves them be.
+- **Big integers:** `inertia.BigInt`, an `int64`, goes out as the
+  protocol's `{"$bigint": "…"}`, which the client makes a `BigInt`: in
+  props, deferred, merged and the rest, and in flash data, on a page that
+  says so, `preserveBigIntegers`. tug gen types it `bigint`. The client
+  sends one back as its digits, which `Bind` reads, from JSON, a form or
+  the query, and tugtest reads one from a page as the number it is.
+- **The starters, on 3.8:** Inertia at `^3.8.0`, `serverHead` on,
+  `{{ .InertiaHead }}` in every root template, not only an SSR one's, and
+  the home page's title and description from its handler, in all three
+  frontends, with accounts and without.
+- **The guide:** Pages, a section on a page's head, and one on numbers
+  past the safe range; TypeScript, `bigint`; Testing, a BigInt read
+  back; SSR, the head with it and without; the roadmap's first lines,
+  the protocol as 3.8.0 has it; and the README.
+
+Choices, to settle before any code:
+
+- **Elements, not HTML:** the client puts the `head` prop's strings in
+  the page as HTML, so a description taken from a post, written into
+  one, is a script a stranger wrote. tug writes each element from its
+  parts, escaped as `html/template` escapes text and attributes, and
+  takes no HTML from the app. A title, a meta tag by name or by
+  property, and a link are what search engines and previews read;
+  JSON-LD's structured data, a script, waits for an app that asks.
+- **Keyed as the client keys them:** each element carries `data-inertia`,
+  its key: `title`, the meta's name or property, the link's rel. The
+  client matches elements by it across visits, so a description replaces
+  the one before, and a page's `<Head>` element with that `head-key` wins
+  over the server's. Two elements of one key are one, the later; `Key`
+  gives one its own, for a second `og:image`.
+- **For the response, not in the props struct:** a head is made from
+  what the handler loaded, as the post's title, and the site's from
+  middleware; a field in each page's props would be one more for every
+  page to carry, and for tug gen to type. `head` is the client's default
+  name, a prop of tug's own, as `errors` is: a page's own `head` wins,
+  and tug gen leaves it out of the types, as the client reads it, not
+  the page.
+- **A partial reload leaves it out, unless it asks:** the head follows
+  the page's props, as Laravel's does. The client syncs the head only as
+  a visit goes to another URL, and a reload of the page keeps the one it
+  has.
+- **The title as the client says it:** the client says a title through
+  its `title` callback, `Welcome · blog` in the starters, which a first
+  visit without SSR doesn't run, so `inertia.Config.Title` says it the
+  same way in Go, for the HTML tug writes, and a page with no title from
+  Go keeps the template's own `<title>`, as now. The two are the app's to
+  keep alike, as the root template's and the callback's app name are
+  now.
+- **With SSR, the client's head:** a page rendered on the server has the
+  head from Go in its head already, as the client's own code put it
+  there, so tug adds none; a page SSR didn't render, as `WithoutSSR`'s,
+  or one whose render failed, gets tug's.
+- **Big integers by type, not by value:** inertia-laravel, when it's on,
+  sends any integer past the safe range as a BigInt, as PHP's integers
+  have no type to tell, so a field's TypeScript would have to be
+  `number | bigint`. tug goes by the Go type: an `inertia.BigInt` always
+  goes as one, a small one too, and is `bigint`, and an `int64` is a
+  `number`, rounded past the safe range, as now, or a string with
+  encoding/json's `,string`, which tug gen types `string`.
+- **The flag only where there's one:** `preserveBigIntegers` goes on a
+  page whose JSON holds a BigInt, in its props or its flash data, so
+  every other page's JSON is as it was, for a client before 3.8 too.
+- **An int64:** a snowflake ID, a count of nanoseconds and a 64-bit
+  column are int64s, and Go's arithmetic on one stays an int64's. A
+  `uint64` past 2^63, and `big.Int`, are left out: rarer, and not IDs.
+- **Read back as it's sent:** the client sends a BigInt in a request as
+  its digits, in a JSON string, a form field or the query;
+  `inertia.BigInt` takes each, a JSON number, and the protocol's marker,
+  for a page's JSON read back into Go, as an app's test does.
+- **The starters' home page from Go:** the landing page is the one a
+  search engine sees, so its handler gives it a title and a description,
+  and its `<Head>` goes; a page behind a login keeps its `<Head>`, as no
+  crawler sees it. Svelte's starters get the `title` callback React's and
+  Vue's have, for a title from the server, as their `Head.svelte` writes
+  a `<title>` of its own, which the client removes when the server sends
+  one.
+- **Tests:** in package inertia, each element written escaped, with its
+  key: a title, a description with `"` and `<` in it, an `og:` property,
+  a link; the `head` prop on a page, a later element of a key replacing
+  the earlier, a page's own `head` winning, and a partial reload leaving
+  it out unless it asks; the first visit's HTML with the head, its title
+  through `Config.Title`, and none of tug's beside SSR's; a BigInt as the
+  marker in props, nested and deferred, and in flash data, with the
+  page's flag, and a page without one without it; tug gen's `bigint`;
+  Bind reading one from JSON, a form and the query; tugtest reading one
+  from a page; the starters' home page's first visit, in an app made by
+  `tug new`, with its title and description, and with `-ssr`, each once;
+  and in the browser suite, the home page's title and description in
+  each frontend after it's started, once each, and after a visit to the
+  login page and back.
 
 ## Decisions
 
