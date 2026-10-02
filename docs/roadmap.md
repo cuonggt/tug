@@ -3937,8 +3937,8 @@ Laravel's Jetstream lists the browsers an account is logged in from, with
 Laravel's sessions in the database, and logs out the others; GitHub and
 Google list them too, and mail the owner of a login from a new one. tug
 has the login, `auth.Login`, the user's every request, `a.user`, a
-database in three layers, and notifications, in the app and by mail. To
-be released as v0.39.0.
+database in three layers, and notifications, in the app and by mail.
+Released as v0.39.0.
 
 - **Each login kept:** `auth.Login` gives each login an ID of its own,
   random, in the session, which `auth.LoginID` reads, and the auth

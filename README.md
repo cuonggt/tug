@@ -6,7 +6,7 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.38.0 is the latest release: the framework, its CLI,
+**Status: early.** v0.39.0 is the latest release: the framework, its CLI,
 background jobs, on a schedule in any time zone too, pushed in the app's
 own transactions, and so many at once or a second across the instances,
 server-side rendering, tests of an app's pages, uploads kept on the app's
@@ -32,8 +32,8 @@ whole numbers past JavaScript's safe range sent as BigInts, the mail an
 app sends under `tug dev` kept in a mailbox it shows as a mail program
 would, and starters in React, Vue or Svelte, one with accounts, from
 registering to two-factor logins, passkeys, a profile photo, API tokens,
-admins, and notifications in the app and by mail, in SQLite, Postgres or
-MySQL.
+admins, notifications in the app and by mail, and the browsers an account
+is logged in from, each to log out, in SQLite, Postgres or MySQL.
 [The guide](docs/README.md) covers all of it, and
 [docs/roadmap.md](docs/roadmap.md) has what's next.
 
