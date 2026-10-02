@@ -1,7 +1,7 @@
 // Package mail sends email: through an SMTP server, or, while developing,
-// out to the terminal, where a link in it can be clicked.
+// into a mailbox the app shows under tug dev, or out to the terminal.
 //
-//	mailer, err := mail.FromEnv() // SMTP when MAIL_HOST is set, and Log when it isn't
+//	mailer, err := mail.FromEnv() // SMTP when MAIL_HOST is set, and Mailbox or Log when it isn't
 //	...
 //	err = mailer.Send(ctx, mail.Message{
 //		To:      []string{user.Email},
@@ -48,6 +48,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cuonggt/tug/internal/mailbox"
 )
 
 // Message is an email.
@@ -121,7 +123,9 @@ type Mailer interface {
 // FromEnv returns the Mailer the environment sets up, with the variables
 // Laravel uses: an SMTP through MAIL_HOST and MAIL_PORT, logging in with
 // MAIL_USERNAME and MAIL_PASSWORD when they're set, or, without a
-// MAIL_HOST, a Log. Mail is from MAIL_FROM_ADDRESS, by MAIL_FROM_NAME.
+// MAIL_HOST, a Mailbox under tug dev, which sets TUG_DEV, its links at
+// APP_URL, and else a Log. Mail is from MAIL_FROM_ADDRESS, by
+// MAIL_FROM_NAME.
 func FromEnv() (Mailer, error) {
 	from := os.Getenv("MAIL_FROM_ADDRESS")
 	if name := os.Getenv("MAIL_FROM_NAME"); name != "" && from != "" {
@@ -129,6 +133,9 @@ func FromEnv() (Mailer, error) {
 	}
 	host := os.Getenv("MAIL_HOST")
 	if host == "" {
+		if os.Getenv("TUG_DEV") != "" {
+			return &Mailbox{From: from, URL: os.Getenv("APP_URL")}, nil
+		}
 		return &Log{From: from}, nil
 	}
 	port := 587
@@ -271,7 +278,7 @@ func (l *Log) Send(ctx context.Context, m Message) error {
 		b.WriteString("\n")
 	}
 	for _, a := range m.Attachments {
-		fmt.Fprintf(&b, "  Attached: %s, %s\n", a.Name, size(len(a.Content)))
+		fmt.Fprintf(&b, "  Attached: %s, %s\n", a.Name, mailbox.Size(len(a.Content)))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -283,8 +290,58 @@ func (l *Log) Send(ctx context.Context, m Message) error {
 	return err
 }
 
+// Mailbox keeps email rather than sending it, for development: each mail,
+// as a server would take it, in Dir, which an app under tug dev shows at
+// /_tug/mail, as a mail program would, and a line in the log for it, with
+// its link there. FromEnv returns one under tug dev, with no MAIL_HOST.
+type Mailbox struct {
+	// Dir is where the mail is kept: .tug/mail by default, where the App
+	// reads it.
+	Dir string
+
+	// URL is the app's address, for each mail's link in the log, as
+	// APP_URL has it, which tug dev sets: "http://localhost:8080".
+	URL string
+
+	// W is the log, the standard error when it's nil, which tug dev shows.
+	W    io.Writer
+	From string
+
+	once  sync.Once
+	store *mailbox.Store
+	mu    sync.Mutex
+}
+
+// Send keeps m, as SMTP would send it, and says so in a line of the log:
+// who it's to, Bcc too, its subject, and its link. A message that SMTP
+// wouldn't send is an error here too, so that it's found while
+// developing.
+func (b *Mailbox) Send(ctx context.Context, m Message) error {
+	from := cmp.Or(m.From, b.From)
+	data, _, rcpts, err := m.build(from, time.Now())
+	if err != nil {
+		return err
+	}
+	b.once.Do(func() { b.store = mailbox.New(cmp.Or(b.Dir, mailbox.Dir)) })
+	id, err := b.store.Keep(mailbox.Mail{From: from, To: m.To, Cc: m.Cc, Bcc: m.Bcc, Subject: m.Subject}, data)
+	if err != nil {
+		return fmt.Errorf("mail: the mailbox didn't keep it: %w", err)
+	}
+	line := fmt.Sprintf("mail, kept in the mailbox (MAIL_HOST isn't set): %q to %s: %s%s/%s\n",
+		m.Subject, strings.Join(rcpts, ", "), strings.TrimSuffix(b.URL, "/"), mailbox.Path, id)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	w := b.W
+	if w == nil {
+		w = os.Stderr
+	}
+	_, err = io.WriteString(w, line)
+	return err
+}
+
 // build writes m as a mail server takes it, and returns the addresses the
-// server sends it from and to. from may be empty only for a Log.
+// server sends it from and to. from may be empty only for a Log and a
+// Mailbox.
 func (m Message) build(from string, now time.Time) (data []byte, sender string, rcpts []string, err error) {
 	var h bytes.Buffer
 	header := func(name, value string) {
@@ -477,19 +534,6 @@ func writeBase64(w io.Writer, b []byte) {
 		s = s[76:]
 	}
 	io.WriteString(w, s)
-}
-
-// size says n bytes as a person reads it: 512 bytes, 48 KB, 1.5 MB, a KB
-// being 1,024 bytes, as validate's file_max has it.
-func size(n int) string {
-	switch {
-	case n < 1<<10:
-		return fmt.Sprintf("%d bytes", n)
-	case n < 1<<20:
-		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
-	default:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
-	}
 }
 
 // writeQP writes s as quoted-printable, which keeps the lines short that

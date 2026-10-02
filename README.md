@@ -219,10 +219,11 @@ func showPost(c *tug.Ctx) error {
   What ran is kept with a hash of its SQL, so a file changed after it ran
   is caught, and instances starting at once take turns. The auth
   starter's tables are its migrations, in SQLite, Postgres or MySQL.
-- **Mail** (package `mail`): through an SMTP server, or in development
-  written out where `tug dev` shows it, links and all, with copies, a
-  `Bcc` no one sees, replies to another address, files, and a link to
-  unsubscribe in one click, as Gmail and Yahoo ask of mail sent in bulk.
+- **Mail** (package `mail`): through an SMTP server, or under `tug dev`
+  kept in a mailbox the app shows at `/_tug/mail`, each mail as a mail
+  program would show it, with copies, a `Bcc` no one sees, replies to
+  another address, files, and a link to unsubscribe in one click, as
+  Gmail and Yahoo ask of mail sent in bulk.
   `mailtest.Outbox` keeps what an app sends, for its tests, which read it
   in order, or by who it went to.
 - **Background jobs** (package `queue`): work a request starts and doesn't

@@ -130,19 +130,18 @@ them.
 Postgres or MySQL, `DB_URL`: the database `compose.yaml` runs, which
 `docker compose up -d` starts. `tug dev` gives the app `APP_URL`, the
 address it shows it at, so its links lead there; with no `MAIL_HOST`,
-mail is written out rather than sent. Register, and the link that
-verifies the email is in `tug dev`'s output, to click:
+mail is kept in the app's mailbox rather than sent. Register, and
+`tug dev`'s output has a line for the mail that verifies the email, with
+its link:
 
 ```
-app  │ mail, not sent (MAIL_HOST isn't set):
-app  │   From: (nobody)
-app  │   To: ann@example.com
-app  │   Subject: Verify your email for blog
-app  │   ...
-app  │   http://localhost:8080/verify-email/1/tlz8g9.TVcaDFHYjwXK12bVYHJQCw
+app  │ mail, kept in the mailbox (MAIL_HOST isn't set): "Verify your email for blog" to ann@example.com: http://localhost:8080/_tug/mail/01M3XF66NHF91FYEN5EC3KZV84
 ```
 
-A reset link comes the same way. To turn two-factor logins on, go to
+The mailbox, at `/_tug/mail`, lists the mail the app sent, and shows each
+as a mail program would, its button opening the link that verifies the
+email in a tab of its own, logged in as the browser is, and its text with
+the link in it too. A reset link comes the same way. To turn two-factor logins on, go to
 Settings, then Security, and scan the QR code with an authenticator app on
 a phone; to add a passkey, "Add a passkey" there, and the browser offers
 the laptop's, the phone's, or a password manager. Passkeys work at
@@ -1368,20 +1367,32 @@ mail is from when a message doesn't say.
   minute when `ctx` has no deadline, so a server that stops answering
   can't hold on to it.
 
-`Log` writes mail out instead, for development: to its `W`, or the
-standard error, which `tug dev` shows. It writes who the mail is from and
+`Mailbox` keeps mail instead, for development: each mail as `SMTP` would
+send it, in its `Dir`, `.tug/mail`, which git leaves out, and a line in
+its `W`, or the standard error, which `tug dev` shows: whom it's to, `Bcc`
+too, its subject, and its link at `URL`, the app's address. Under
+`tug dev`, the App shows the mailbox at `/_tug/mail`, as it answers
+Inertia's DevTools: the mail newest first, the newest 100, and each
+mail's headers, its `Bcc`, its HTML in a sandboxed frame, whose links
+open in a tab of their own and in which nothing runs, its text, with its
+links, its files, to download, and its source. It refuses the messages
+`SMTP` would, but for one with no `From`.
+
+`Log` writes mail out instead: to its `W`, or the standard error. It writes who the mail is from and
 to, `Bcc` too, which the mail itself doesn't show, its subject and its
 link to unsubscribe, `Text` with each line whole, so a link can be
 clicked, and each file's name and size, and it leaves `HTML` out. It
 refuses the messages `SMTP` would, but for one with no `From`, so a bad
 message is found while developing.
 
-`FromEnv` returns an `SMTP` when `MAIL_HOST` is set and a `Log` when it
-isn't, from the variables Laravel uses:
+`FromEnv` returns an `SMTP` when `MAIL_HOST` is set, and when it isn't, a
+`Mailbox` under `tug dev`, which sets `TUG_DEV`, with `APP_URL` its
+`URL`, and a `Log` otherwise, as a deploy without a mail server has, from
+the variables Laravel uses:
 
 | Variable                         | What it is                                       |
 |----------------------------------|--------------------------------------------------|
-| `MAIL_HOST`                      | the SMTP server; without it, mail is written out |
+| `MAIL_HOST`                      | the SMTP server; without it, mail is kept in the mailbox under `tug dev`, and written out otherwise |
 | `MAIL_PORT`                      | default 587; 465 for TLS from the start          |
 | `MAIL_USERNAME`, `MAIL_PASSWORD` | for a server that wants them                     |
 | `MAIL_FROM_ADDRESS`              | who mail is from; needed with `MAIL_HOST`        |

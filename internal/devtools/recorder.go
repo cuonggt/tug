@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cuonggt/tug/internal/ulid"
 )
 
 // endpoints is where the panel reads the entries: the list of them, and
@@ -21,7 +23,7 @@ const (
 // panel, which it serves at its endpoints.
 type Recorder struct {
 	store *store
-	ids   ulids
+	ids   ulid.Maker
 	now   func() time.Time
 }
 
@@ -39,7 +41,7 @@ func (rc *Recorder) Serve(w http.ResponseWriter, r *http.Request, next http.Hand
 		return
 	}
 	began := rc.now()
-	rec := &Recording{id: rc.ids.next(began)}
+	rec := &Recording{id: rc.ids.Next(began)}
 	// The batch a follow-up visit is of, which the client says from the
 	// response before it's; a first visit starts one, and a prefetch is
 	// its own, as it's a guess at a visit, which mustn't move the batch.

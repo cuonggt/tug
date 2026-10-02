@@ -59,9 +59,10 @@ and the frontend has Tailwind and shadcn/ui. With `-postgres` or
 `compose.yaml` runs: `docker compose up -d` before `tug dev`. The code is
 the app's own, the handlers in `auth.go` and the files beside it, and the
 database's SQL in `migrations/`, which makes its tables, and the `_db.go`
-files, to change as the app needs ([Migrations](migrations.md)). Until `MAIL_HOST` is set, mail isn't sent: it's written out with
-the app's output in `tug dev`, links and all. [Accounts](auth.md) has the
-rest.
+files, to change as the app needs ([Migrations](migrations.md)). Until `MAIL_HOST` is set, mail isn't sent: under `tug dev` it's
+kept in the app's mailbox, at `/_tug/mail`, which shows each mail as a
+mail program would, and the app's output has a line for each, with its
+link. [Accounts](auth.md) has the rest.
 
 For pages rendered on the server, for search engines and pages that show
 before their scripts run, add `-ssr`, to either: Node renders them, beside

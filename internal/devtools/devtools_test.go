@@ -14,31 +14,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-)
 
-func TestAnIDIsAULIDAndTheIDsSortAsTheyWereMade(t *testing.T) {
-	var u ulids
-	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
-	ids := []string{u.next(at), u.next(at), u.next(at), u.next(at.Add(time.Millisecond)), u.next(at.Add(-time.Hour))}
-	if !slices.IsSorted(ids) || len(slices.Compact(slices.Clone(ids))) != len(ids) {
-		t.Errorf("made in order, %v aren't sorted, or repeat", ids)
-	}
-	for _, id := range ids {
-		if !isULID(id) {
-			t.Errorf("%q isn't a ULID", id)
-		}
-	}
-	// The millisecond is the first ten digits, as in the spec's example.
-	var spec ulids
-	if got := spec.next(time.UnixMilli(1469918176385))[:10]; got != "01ARYZ6S41" {
-		t.Errorf("made at the spec's example's time, the time is %s, want 01ARYZ6S41", got)
-	}
-	for _, s := range []string{"", "01K6FN4MW0", "81K6FN4MW0ZZZZZZZZZZZZZZZZ", "01K6FN4MW0ZZZZZZZZZZZZZZZU", "../../etc/passwd/xxxxxxxxxx"} {
-		if isULID(s) {
-			t.Errorf("%q is a ULID", s)
-		}
-	}
-}
+	"github.com/cuonggt/tug/internal/ulid"
+)
 
 func TestTheAppsFramesAreThoseOfNeitherTugNorTheStandardLibrary(t *testing.T) {
 	defer func(m string) { mainModule = m }(mainModule)
@@ -128,15 +106,15 @@ func TestSecretsAreRedactedAtAnyDepthAndInAnyCase(t *testing.T) {
 }
 
 // entryWith is an entry of the tab, made at at.
-func entryWith(u *ulids, tab *string, at time.Time) entry {
-	return entry{Meta: meta{ID: u.next(at), TabUUID: tab, Utime: float64(at.UnixMicro()) / 1e6, RequestType: "navigate"}}
+func entryWith(u *ulid.Maker, tab *string, at time.Time) entry {
+	return entry{Meta: meta{ID: u.Next(at), TabUUID: tab, Utime: float64(at.UnixMicro()) / 1e6, RequestType: "navigate"}}
 }
 
 func TestTheStoreKeepsTheNewestOfEachTabForADayAcrossRuns(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), ".tug", "devtools")
 	now := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	st := &store{dir: dir, now: func() time.Time { return now }}
-	var u ulids
+	var u ulid.Maker
 	tab := "tab-1"
 	var first string
 	for i := range keepPerTab + 5 {
@@ -217,7 +195,7 @@ func TestEachResponseSaysItsEntryAndBatch(t *testing.T) {
 	first := httptest.NewRequest("GET", "/", nil)
 	w, e := served(t, rc, first, ok)
 	id := w.Header().Get(HeaderID)
-	if !isULID(id) || w.Header().Get(HeaderParentOut) != id || at(e, "__meta.batchId") != nil {
+	if !ulid.Valid(id) || w.Header().Get(HeaderParentOut) != id || at(e, "__meta.batchId") != nil {
 		t.Errorf("a first visit: id %q, parent out %q, batch %v", id, w.Header().Get(HeaderParentOut), at(e, "__meta.batchId"))
 	}
 

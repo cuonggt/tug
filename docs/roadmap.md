@@ -49,7 +49,7 @@ to 3.8.0, October 2026), written against
 | M40 | Debug error page           | done   |
 | M41 | Route list                 | done   |
 | M42 | Inertia 3.8                | done   |
-| M43 | Development mailbox        | later  |
+| M43 | Development mailbox        | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3815,13 +3815,13 @@ Choices made on the way:
   in each frontend, the login page's own title and none after a visit,
   and the home page's again, back.
 
-## M43 · Development mailbox — later
+## M43 · Development mailbox — done
 
-Under `tug dev`, with no `MAIL_HOST`, the mail an app sends is written
+Under `tug dev`, with no `MAIL_HOST`, the mail an app sent was written
 out to the terminal, as `mail.Log` writes it: who it's from and to, its
 subject, and its text, with the link that verifies an email among it, to
 copy into the browser. Its HTML, which a person's mail program shows,
-isn't seen, nor its files, nor the message a mail server would take.
+wasn't seen, nor its files, nor the message a mail server would take.
 Phoenix keeps the mail its app sends in a mailbox at `/dev/mailbox`,
 Rails' letter_opener opens each one in the browser, and Laravel's Sail
 and Herd run Mailpit beside the app. tug has each mail as a server takes
@@ -3834,75 +3834,96 @@ own routes under `tug dev`. To be released as v0.38.0.
   each mail it's sent in `.tug/mail`, as a mail server would take it, and
   writes a line to the log for each: who it's to, its subject, and the
   link to it in the mailbox. Without `TUG_DEV`, as a deploy, a test and
-  the browser suite run, it's `Log`, as now.
+  the browser suite run, it's `Log`, as before.
 - **A page of the mail:** `/_tug/mail`, which the App answers under
   `Config.DevTools`, before its own middleware and routes, as it does
-  DevTools' endpoints: the mail kept, newest first, each with who it's
-  from and to, its subject, and when it came. A mail's own page,
+  DevTools' endpoints: the mail kept, newest first, each with when it
+  came, whom it's to and its subject. A mail's own page,
   `/_tug/mail/{id}`, has its headers, its Bcc, which no header has, its
-  HTML, as a mail program shows it, its text, its files, to download, and
-  its source.
+  HTML, as a mail program shows it, its text, its links each a link, its
+  files, to download, and its source.
 - **The HTML in a frame of its own:** `/_tug/mail/{id}/html`, sandboxed,
   so nothing in it runs, and its links open in a tab of their own, as the
   link that verifies an email does, into the app, in the browser the
   developer is logged in with.
-- **The guide:** Accounts, the mail while developing; CLI, what `tug dev`
-  keeps; Deployment, `MAIL_HOST` and `TUG_DEV`; Getting started; and the
-  README.
+- **The guide:** Accounts, the mail while developing, and package mail's
+  `Mailbox`; CLI, what `TUG_DEV` turns on; Deployment, `MAIL_HOST` and
+  `TUG_DEV`; Getting started; and the README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Under tug dev alone:** a deploy with no `MAIL_HOST` writes its mail
-  out, as now, where its platform's log keeps it; the mailbox is for the
-  machine the app is made on, which `TUG_DEV` says, as `Config.DevTools`
-  reads it. A `MAIL_HOST`, as a Mailpit's, gets the mail, under `tug dev`
-  too.
+  out, as before, where its platform's log keeps it; the mailbox is for
+  the machine the app is made on, which `TUG_DEV` says, as
+  `Config.DevTools` reads it. A `MAIL_HOST`, as a Mailpit's, gets the
+  mail, under `tug dev` too.
 - **A Mailer in package mail, and a page of the App's:** `mail.Mailbox`
-  is a Mailer, as `Log` is, with no import of tug. The App serves the page
-  from what it kept, through an internal package both use,
-  `internal/mailbox`: the files, their names, and their order, as
-  DevTools' store has its entries.
+  is a Mailer, as `Log` is, with no import of tug. The App serves the
+  page from what it kept, through `internal/mailbox`, which both use: the
+  files, their names, and their order. Its mail is named by ULIDs, as
+  DevTools' entries are, whose maker moved from `internal/devtools` to
+  `internal/ulid`, which both use.
 - **As a server takes it:** each mail is kept as `build` writes it for
-  SMTP, with its envelope beside it, the Bcc among it, so the page shows
-  what a mail program would get, its parts read back with the standard
-  library's `mime/multipart`, quoted-printable and base64. A mail SMTP
-  wouldn't send fails here too, as with `Log`.
+  SMTP, in an `.eml`, with a `.json` beside it of the rest, the Bcc
+  among it, written last, so a mail is listed once it's whole. The page
+  shows what a mail program would get, its parts read back with the
+  standard library's `mime/multipart`, whose reader reads a
+  quoted-printable part itself, and base64. A mail SMTP wouldn't send
+  fails here too, as with `Log`.
 - **One line in the log:** the mail is on its page, so the log has a line
-  for it, not the mail: who it's to, its subject, and its link, from
-  `APP_URL`, which `tug dev` sets, as
-  `http://localhost:8080/_tug/mail/01K…`.
+  for it, not the mail: whom it's to, Bcc too, its subject, and its link,
+  from `APP_URL`, which `tug dev` sets, after
+  `mail, kept in the mailbox (MAIL_HOST isn't set):`.
 - **On the app's address:** the page is at the app's own, `/_tug/mail`,
   beside DevTools' `/_inertia/devtools`, so the mail's links lead into
-  the app as the browser has it. Answered before the App's middleware, it
-  has no session, CSRF or policy of the app's, and sends a policy of its
-  own: its style, and the mail's frame, from the app.
-- **No script:** HTML and CSS, as the debug page is, and a reload shows
-  the mail that came since. The mail's HTML is in an `<iframe>`, sent
-  with a Content-Security-Policy of `sandbox`, with `allow-popups` and
-  `allow-popups-to-escape-sandbox`, and with a `<base target="_blank">`
-  put in its head, so its links open in a tab of their own, which runs
-  the app's scripts, and nothing in the mail runs.
+  the app as the browser has it. Answered before DevTools and the App's
+  middleware, it's no request of the app's for DevTools to keep, has no
+  session, CSRF or policy of the app's, and sends a policy of its own:
+  its style, and the mail's frame, from the app, and no script.
+- **No script:** HTML and CSS, in the debug page's look, and a reload
+  shows the mail that came since. The text's links are made links on the
+  server, so the link that verifies an email is followed from the text
+  too. The mail's HTML is in an `<iframe>`, sent with a
+  Content-Security-Policy of `sandbox`, with `allow-popups` and
+  `allow-popups-to-escape-sandbox`, and with a `<base target="_blank">`,
+  so its links open in a tab of their own, which runs the app's scripts,
+  and nothing in the mail runs.
+- **The base after the head, or the html, or the doctype:** a starter's
+  mail has no `<head>`, from which the browser makes one, and a `<base>`
+  before the doctype would have the frame render in quirks mode.
 - **Its files as downloads:** each at `/_tug/mail/{id}/files/{n}`, as an
   attachment, by its name, with `nosniff`, so no file is shown as a page;
   and its source, `/_tug/mail/{id}/source`, as text.
-- **Kept as DevTools' entries are:** the newest 100, each named by a
-  ULID, and the rest deleted as mail comes. `.tug` is git-ignored, and
-  outlives the app's restarts, which `tug dev` makes as the app changes.
+- **Kept as DevTools' entries are:** the newest 100, and the rest deleted
+  as mail comes, with no limit of time, as last week's mail is still
+  worth a look. `.tug` is git-ignored, and outlives the app's restarts,
+  which `tug dev` makes as the app changes. A mail is read by a ULID
+  alone, and a path with `..` in it is cleaned, out of the mailbox, by
+  its ServeMux.
 - **Not previews:** Rails renders a mail without sending it, from a
   preview class of the app's; a tug app sends one to the mailbox from a
   command or a test of its own.
-- **Tests:** in package mail, `Mailbox` keeping a mail as it's built,
-  its envelope with the Bcc, and its line in the log with its link, and
-  refusing what `Log` refuses; `FromEnv` picking it under `TUG_DEV`
-  without `MAIL_HOST`, `SMTP` with one, and `Log` otherwise; in
-  `internal/mailbox`, the newest 100 kept, newest first; in package tug,
-  the list, a mail's page with its headers, Bcc, text, files and source,
-  its HTML's response, with its sandbox and its base, a file as a
-  download, with `nosniff`, and none of it without `Config.DevTools`; in
-  an app made by `tug new -auth`, run under `TUG_DEV`, the mail that
-  registering sends listed on the page, with the link that verifies the
-  email in its HTML; and by hand in a browser, the page and its frame,
-  and the link out of it, as no suite runs `tug dev`.
+- **Checked by hand in a browser:** an app made by `tug new -auth`, run
+  under `TUG_DEV`, a mail sent by registering, its list and its page, and
+  its HTML, which renders as a mail program shows it. The browser pane
+  draws no sandboxed frame, so the HTML was looked at by its own path,
+  and its button followed: the app's log had the link's request, from a
+  window of its own, which the pane opens no tab for.
+- **Tests:** in `internal/mailbox`, mail kept and listed newest first,
+  read back by its ID alone, and the newest 100 kept; a message read as a
+  mail program reads it, its encoded subject, its quoted-printable text
+  and HTML, and its base64 file, and a text alone; in package mail,
+  `Mailbox` keeping a message as it's built, with no Bcc header and its
+  Bcc beside it, its line in the log, and refusing what `Log` refuses,
+  and `FromEnv` picking it under `TUG_DEV` without `MAIL_HOST`; in
+  package tug, through a `Mailbox`, the list, a mail's page with its
+  headers, Bcc, frame, linked text, file and source, and no script, its
+  HTML's response with its sandbox and its base, its file as a download,
+  its source with no Bcc, a 404 for a mail that isn't kept, and none of
+  it without `Config.DevTools`, and where the base goes in a mail's HTML;
+  and in an app made by `tug new -auth`, run under `TUG_DEV`, the mail
+  registering sends listed in its mailbox, with the link that verifies
+  the email in its HTML.
 
 ## Decisions
 

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cuonggt/tug/internal/ulid"
 )
 
 // Of each tab's entries, and of those of the requests with none, as from a
@@ -74,7 +76,7 @@ func (st *store) save(e entry) error {
 
 // get returns the entry with id, as JSON, and whether there is one.
 func (st *store) get(id string) ([]byte, bool) {
-	if !isULID(id) {
+	if !ulid.Valid(id) {
 		return nil, false
 	}
 	data, err := os.ReadFile(st.path(id))
@@ -110,7 +112,7 @@ func (st *store) read() {
 	}
 	for _, f := range files {
 		id, ok := strings.CutSuffix(f.Name(), ".json")
-		if !ok || !isULID(id) {
+		if !ok || !ulid.Valid(id) {
 			continue
 		}
 		data, err := os.ReadFile(st.path(id))

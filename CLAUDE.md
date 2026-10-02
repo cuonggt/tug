@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M42 are done, which is
+the decisions behind it and where it stands: M1 to M43 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -112,7 +112,11 @@ line has it, and Inertia 3.8 (v0.37.0): a page's head from Go, `c.Head`
 and `inertia.WithHead`, elements written escaped and keyed, which the
 client keeps with its `serverHead` option, and which a first visit's HTML
 has too, its title by `Config.Title`, and `inertia.BigInt`, a whole number
-that goes to the page as a JavaScript `BigInt`, `bigint` to tug gen.
+that goes to the page as a JavaScript `BigInt`, `bigint` to tug gen, and
+the development mailbox (v0.38.0): under tug dev, with no `MAIL_HOST`,
+`mail.Mailbox`, the mail an app sends kept in `.tug/mail`, as a server
+would take it, which the App shows at `/_tug/mail`, as a mail program
+would, its HTML in a sandboxed frame whose links open a tab of their own.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -276,6 +280,17 @@ dev server that isn't there: delete it.
     `template.URL` by `Config.Editor`, one of `editors` or a link of the
     app's. The page has no script, as Inertia's modal runs it under the
     page's own policy; its style carries the response's nonce.
+  - `mailbox.go`: under `Config.DevTools`, the mail `mail.Mailbox` kept,
+    at `/_tug/mail` (`mailboxPages`, which `ServeHTTP` in app.go answers
+    when it `serves` the path, before DevTools and the App's middleware,
+    on a ServeMux of its own): the list, newest first, and a mail's page,
+    `mailbox.html`'s, of its headers, its Bcc, its HTML in a frame, its
+    text, `linked`, its links each a link, its files and its source, with
+    no script and a policy of their own (`mailboxPolicy`); the HTML at
+    its own path, with `mailPolicy`'s sandbox, and `withBase` putting
+    `<base target="_blank">` in its head, so its links open a tab of their
+    own; a file as a download (`attachment`), and the source as text; and
+    `gone`, a 404, for a mail past the newest 100.
   - `commands.go`: `Command` adds one of the app's commands (`command`,
     in the App's `commands`), which `Run` runs in place of serving
     (`runCommand`) when it has any and the binary has an argument, with
@@ -515,9 +530,21 @@ dev server that isn't there: delete it.
   (`plainKey`: in any case, without `_` or `-`), at any depth, and of the
   query, and secret headers, which `RedactHeaders` and `RedactQuery` do
   for the debug page too. `store.go`: an entry per file, named by its
-  ULID (`ulid.go`, monotonic in a millisecond), an index of their metas
-  read at the first use, the newest `keepPerTab` of each tab, and none
-  older than `keepFor`, pruned every `pruneEvery`.
+  ULID (`internal/ulid`'s `Maker`, monotonic in a millisecond), an index
+  of their metas read at the first use, the newest `keepPerTab` of each
+  tab, and none older than `keepFor`, pruned every `pruneEvery`.
+- `internal/ulid`: ULIDs, which sort as they were made (`Maker.Next`,
+  `Valid`), which DevTools' entries and the mailbox's mail are named by.
+- `internal/mailbox`: the mail an app keeps under tug dev, which
+  `mail.Mailbox` writes and the App's pages read: `Store` (`Keep`, an
+  `.eml` of the message as built and a `.json` of the rest, its `Mail`,
+  each written beside its place and renamed, the `.json` last, and the
+  newest `keep`, 100, kept; `List`, newest first; and `Get`, by a ULID
+  alone), `Dir`, `.tug/mail`, and `Path`, `/_tug/mail`; `Parse`, a
+  message read back for its page (its headers in order, their encoded
+  words read, and its parts, `part`, multipart's in turn, quoted-printable
+  as `multipart`'s reader reads it and base64, a file by its disposition),
+  and `Size`, which `mail`'s `Log` says a file's size with too.
 - `internal/frames`: whose a frame is (`Of`, an `Owner`): tug's, by its
   package or by its file under `TugDir`, as a closure of tug's inlined
   into the app's has the app's name, though tug's `_test.go` files and
@@ -599,7 +626,7 @@ dev server that isn't there: delete it.
   (`rendersOnTheServer`), and the auth one's
   `migrate` command on a new database (`migratesByItsCommand`), and reads
   a page's entry for the DevTools from it under `TUG_DEV`
-  (`answersTheDevTools`), and checks that one, and each SSR one, sends the
+  (`answersTheDevTools`), and the mail registering sends from its mailbox, and checks that one, and each SSR one, sends the
   build's scripts gzipped (`sendsItsBuildGzipped`), and one on each of
   Postgres and MySQL, which writes its types with no database running. Every starter makes its
   app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
@@ -882,8 +909,10 @@ dev server that isn't there: delete it.
   CBOR writer.
 - `mail`: `Message` (with `Cc`, `Bcc`, `ReplyTo`, `Attachments`,
   `Headers` and `Unsubscribe`), `SMTP` on net/smtp (STARTTLS, TLS on 465,
-  deadlines from the context), `Log`, which writes mail out, and
-  `FromEnv`. `build` writes a message as a server takes it, and returns
+  deadlines from the context), `Mailbox`, which keeps mail in
+  `internal/mailbox`'s store under tug dev, with a line in the log of its
+  link at `URL`, `Log`, which writes mail out, and `FromEnv`, a `Mailbox`
+  with no `MAIL_HOST` under `TUG_DEV`, its `URL` `APP_URL`'s. `build` writes a message as a server takes it, and returns
   its envelope: the headers, the app's among them, which `checkHeader`
   refuses when they're a name the fields set (`ownHeaders`, and any
   `Content-`) or have a line break; `List-Unsubscribe` and

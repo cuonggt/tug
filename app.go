@@ -23,6 +23,7 @@ import (
 
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/internal/devtools"
+	"github.com/cuonggt/tug/internal/mailbox"
 	"github.com/cuonggt/tug/internal/route"
 	"github.com/cuonggt/tug/internal/typegen"
 	"github.com/cuonggt/tug/lang"
@@ -162,6 +163,9 @@ type App struct {
 	// Config.DevTools, and answers the panel.
 	devtools *devtools.Recorder
 
+	// mailbox shows the mail mail.Mailbox kept, under Config.DevTools.
+	mailbox *mailboxPages
+
 	// background is what Go runs beside the server.
 	background []func(ctx context.Context) error
 
@@ -216,6 +220,7 @@ func New(config ...Config) *App {
 		// Beside the app's build, which tug dev makes in .tug, and which
 		// git leaves out: a file is kept as the app's built again.
 		a.devtools = devtools.New(filepath.Join(".tug", "devtools"))
+		a.mailbox = newMailboxPages(mailbox.Dir)
 	}
 	return a
 }
@@ -224,6 +229,12 @@ func New(config ...Config) *App {
 // middleware: adding either after it panics.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.start.Do(a.freeze)
+	if a.mailbox != nil && a.mailbox.serves(r) {
+		// The mail the app kept, which no route of the app's is, nor a
+		// request of its own for DevTools to keep.
+		a.mailbox.ServeHTTP(w, r)
+		return
+	}
 	if a.devtools != nil {
 		// Outside the App's own middleware, so the panel's requests are
 		// answered before any of it, and each other is recorded as sent.

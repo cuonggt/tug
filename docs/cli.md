@@ -195,8 +195,10 @@ Runs the app for development. It has no flags.
    `ADDR`, and as `APP_URL`, where it shows it, `http://localhost:8080`,
    unless one is set already, with `TUG_DEV=1`, which turns on the app's
    entries for Inertia's DevTools ([pages.md](pages.md#devtools)), and
-   tells an app with server-side rendering that the dev server renders its
-   pages, so it runs no Node of its own.
+   its mailbox, at `/_tug/mail`, where `mail.FromEnv` keeps the mail the
+   app sends with no `MAIL_HOST` ([Accounts](auth.md#package-mail)), and
+   tells an app with server-side rendering that the dev server renders
+   its pages, so it runs no Node of its own.
 4. It builds the app into `.tug/app`, writes its types as `tug gen` does,
    starts it, and waits for it to take connections. Then it says where the
    app is, and reloads the browser:

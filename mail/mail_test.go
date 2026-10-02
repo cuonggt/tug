@@ -11,10 +11,13 @@ import (
 	"net"
 	netmail "net/mail"
 	"net/textproto"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cuonggt/tug/internal/mailbox"
 )
 
 // read parses what build wrote, as a mail program would.
@@ -469,11 +472,20 @@ func TestLogWritesTheCopiesAndTheFiles(t *testing.T) {
 
 func TestTheEnvironmentPicksTheMailer(t *testing.T) {
 	t.Setenv("MAIL_HOST", "")
+	t.Setenv("TUG_DEV", "")
 	t.Setenv("MAIL_FROM_ADDRESS", "hello@blog.example")
 	t.Setenv("MAIL_FROM_NAME", "The Blog")
 	m, err := FromEnv()
 	if l, ok := m.(*Log); err != nil || !ok || l.From != `"The Blog" <hello@blog.example>` {
 		t.Fatalf("without MAIL_HOST: %#v, %v", m, err)
+	}
+
+	// Under tug dev, which sets TUG_DEV and APP_URL.
+	t.Setenv("TUG_DEV", "1")
+	t.Setenv("APP_URL", "http://localhost:8080")
+	m, err = FromEnv()
+	if b, ok := m.(*Mailbox); err != nil || !ok || b.From != `"The Blog" <hello@blog.example>` || b.URL != "http://localhost:8080" {
+		t.Fatalf("under tug dev, without MAIL_HOST: %#v, %v", m, err)
 	}
 
 	t.Setenv("MAIL_HOST", "smtp.example.com")
@@ -497,4 +509,46 @@ func TestTheEnvironmentPicksTheMailer(t *testing.T) {
 
 func qpReader(s string) io.Reader {
 	return quotedprintable.NewReader(strings.NewReader(s))
+}
+
+func TestAMailboxKeepsAMessageAsAServerWouldTakeIt(t *testing.T) {
+	var b bytes.Buffer
+	dir := t.TempDir()
+	box := &Mailbox{Dir: dir, URL: "http://localhost:8080/", W: &b, From: "hello@blog.example"}
+	err := box.Send(context.Background(), Message{
+		To:          []string{"ann@example.com"},
+		Cc:          []string{"bob@example.com"},
+		Bcc:         []string{"eve@example.com"},
+		Subject:     "Verify your email",
+		Text:        "Follow this link.",
+		HTML:        "<p>Follow this link.</p>",
+		Attachments: []Attachment{{Name: "notes.txt", Content: []byte("hello")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := mailbox.New(dir).List()
+	if len(kept) != 1 {
+		t.Fatalf("the mailbox has %v", kept)
+	}
+	m := kept[0]
+	if m.From != "hello@blog.example" || !slices.Equal(m.To, []string{"ann@example.com"}) || !slices.Equal(m.Bcc, []string{"eve@example.com"}) || m.Subject != "Verify your email" {
+		t.Errorf("kept %+v", m)
+	}
+	_, message, ok := mailbox.New(dir).Get(m.ID)
+	msg, _ := read(t, message)
+	if !ok || msg.Header.Get("Subject") != "Verify your email" || msg.Header.Get("Cc") != "<bob@example.com>" || msg.Header.Get("Bcc") != "" {
+		t.Errorf("the message kept has the headers %v", msg.Header)
+	}
+
+	// One line, with who it's to, Bcc too, and its link.
+	want := `mail, kept in the mailbox (MAIL_HOST isn't set): "Verify your email" to ann@example.com, bob@example.com, eve@example.com: http://localhost:8080/_tug/mail/` + m.ID + "\n"
+	if b.String() != want {
+		t.Errorf("logged %q, want %q", b.String(), want)
+	}
+
+	// What SMTP wouldn't send isn't kept.
+	if err := box.Send(context.Background(), Message{Subject: "to nobody"}); err == nil || len(mailbox.New(dir).List()) != 1 {
+		t.Errorf("a message to nobody: %v", err)
+	}
 }

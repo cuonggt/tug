@@ -787,6 +787,31 @@ func answersTheDevTools(t *testing.T, dir string) {
 	if resp == nil || json.Unmarshal([]byte(body), &failed) != nil || failed.Route.Action != "main.(*app).login" {
 		t.Errorf("a failed login's entry: %v\n%s", resp, body)
 	}
+
+	// The mail the app sends, with no MAIL_HOST, is kept in its mailbox,
+	// as registering's, which a job sends, with the link that verifies the
+	// email in its HTML.
+	form := "name=Ann+Lee&email=ann%40example.com&password=correct+horse+battery&password_confirmation=correct+horse+battery"
+	resp, err = stay.Post("http://"+addr+"/register", "application/x-www-form-urlencoded", strings.NewReader(form))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("registering got %d", resp.StatusCode)
+	}
+	var kept string
+	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(kept, "Verify your email for blog"); time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the mailbox has no mail that verifies the email:\n%s", kept)
+		}
+		_, kept = get("/_tug/mail")
+	}
+	_, after, _ := strings.Cut(kept, `<a href="/_tug/mail/`)
+	id, _, _ = strings.Cut(after, `"`)
+	if _, html := get("/_tug/mail/" + id + "/html"); !strings.Contains(html, "http://"+addr+"/verify-email/") {
+		t.Errorf("the mail %s's HTML has no link that verifies the email:\n%s", id, html)
+	}
 }
 
 // serveApp builds the app in dir, and runs it as it runs deployed until

@@ -1,4 +1,7 @@
-package devtools
+// Package ulid makes IDs that sort as they were made: ULIDs, 48 bits of the
+// millisecond and 80 random ones, in 26 characters of Crockford's base32.
+// DevTools names its entries by them, and the mailbox its mail.
+package ulid
 
 import (
 	"crypto/rand"
@@ -12,18 +15,17 @@ import (
 // letters that read as others, I, L, O and U.
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-// ulids makes the entries' IDs, ULIDs, as the protocol's are: 48 bits of
-// the millisecond and 80 random ones, in 26 characters, which sort as they
-// were made. Two made in one millisecond are one apart, so they sort too.
-type ulids struct {
+// A Maker makes ULIDs, which sort as they were made: two made in one
+// millisecond are one apart, so they sort too. Its zero value is ready.
+type Maker struct {
 	mu   sync.Mutex
 	ms   uint64
 	high uint16 // the random part's top 16 bits
 	low  uint64 // and the rest
 }
 
-// next is a new ID, made at t.
-func (u *ulids) next(t time.Time) string {
+// Next is a new ID, made at t.
+func (u *Maker) Next(t time.Time) string {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	ms := uint64(t.UnixMilli())
@@ -49,9 +51,9 @@ func (u *ulids) next(t time.Time) string {
 	return string(id[:])
 }
 
-// isULID reports whether s is a ULID: what an entry's file is named, and
-// what the endpoint of one takes.
-func isULID(s string) bool {
+// Valid reports whether s is a ULID, as a file is named by one, and an
+// endpoint takes one.
+func Valid(s string) bool {
 	if len(s) != 26 || s[0] > '7' {
 		return false
 	}
