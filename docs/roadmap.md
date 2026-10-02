@@ -3827,7 +3827,7 @@ Rails' letter_opener opens each one in the browser, and Laravel's Sail
 and Herd run Mailpit beside the app. tug has each mail as a server takes
 it, which package `mail` builds, a place under `.tug`, where DevTools
 keeps its entries, and an App that answers DevTools' endpoints before its
-own routes under `tug dev`. To be released as v0.38.0.
+own routes under `tug dev`. Released as v0.38.0.
 
 - **A mailbox under tug dev:** with no `MAIL_HOST`, and `TUG_DEV` set, as
   `tug dev` sets it, `mail.FromEnv` returns a `mail.Mailbox`, which keeps
