@@ -123,7 +123,11 @@ func TestANotificationIsntKeptWhenItsChangeIsnt(t *testing.T) {
 	if n, got := unread(c), lines(c, ""); n != 0 || len(got) != 0 {
 		t.Errorf("the bell counts %d, and the list has %q, of a change that wasn't made", n, got)
 	}
-	if r := logIn(app.client(), "ann@example.com", "correct horse"); r.Location() != "/dashboard" {
+	// The old password still logs in, from this browser, which is no new
+	// one to tell of: a new one's login is told of in its transaction, and
+	// fails with the jobs table down.
+	c.Post("/logout", nil)
+	if r := logIn(c, "ann@example.com", "correct horse"); r.Location() != "/dashboard" {
 		t.Errorf("the old password: %v", r)
 	}
 }

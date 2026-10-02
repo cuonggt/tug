@@ -443,7 +443,9 @@ the `Store`'s `Lifetime`, as a login that ticked "Remember me" does in the
 auth starter: a month, where everyone else's lasts two hours. The lifetime
 travels in the cookie with the rest, so each response starts it again as
 it does the `Store`'s, until `Clear`, or `SetLifetime(0)`, goes back to the
-`Store`'s.
+`Store`'s. `Lifetime()` says how long the session lasts: its own, or the
+`Store`'s, as the auth starter keeps it with a login's row, for when the
+login ends.
 
 `Clear` empties the session, flash data included. Values go through
 encoding/json on their way into the cookie, so a later request gets JSON

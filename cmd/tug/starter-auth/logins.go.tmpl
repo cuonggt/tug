@@ -1,0 +1,232 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/session"
+)
+
+// Browser is a browser a user is logged in from, a login of theirs, as
+// their security page lists it.
+type Browser struct {
+	ID       int64     `json:"id"`
+	Name     string    `json:"name"` // as browserName says it: "Chrome on macOS"
+	IP       string    `json:"ip"`
+	Began    time.Time `json:"began"`
+	LastSeen time.Time `json:"lastSeen"`
+	Current  bool      `json:"current"` // the browser the page is shown in
+}
+
+// browsers are the browsers users are logged in from, a row in logins for
+// each login, by the hash of its ID, auth.LoginID's, and the browsers each
+// user has logged in from, in browsers: logins_db.go. A login's row is
+// how it's ended from another browser: a session whose login has none is
+// logged out.
+type browsers struct {
+	db dbtx
+}
+
+// in is the browsers as tx writes them: see inTx.
+func (bs *browsers) in(tx *sql.Tx) *browsers {
+	return &browsers{db: tx}
+}
+
+// errNoLogin is a login with no row: ended, or from before they were kept.
+var errNoLogin = errors.New("no such login")
+
+// hashOf is what the tables keep of a login's ID, or a browser's: its
+// SHA-256, as an API token's is kept, so that what they keep logs no one
+// in.
+func hashOf(id string) []byte {
+	sum := sha256.Sum256([]byte(id))
+	return sum[:]
+}
+
+// browserCookie is the cookie a browser is told apart by, an ID of its own,
+// which outlives logging out, as its logins come and go, for browserFor.
+const (
+	browserCookie = "tug_browser"
+	browserFor    = 365 * 24 * time.Hour
+)
+
+// resetLoginKey marks a login a password reset began, which the second
+// factor finishes: no login to tell of, as the reset's mail has just
+// come.
+const resetLoginKey = "reset-login"
+
+// seenEvery is how often a login's last sight is written: once a minute at
+// most, as an API token's last use is, so that a page's every request
+// isn't a write.
+const seenEvery = time.Minute
+
+// logIn logs u in to the browser c is from: auth.Login, a row of the login
+// in logins, and the browser kept in browsers, with its cookie. With tell,
+// a login from a browser the account hasn't logged in from before is a
+// notification, in the bell and by mail; registering and a new password
+// are no logins to tell of, as the account's own mail has just come.
+func (a *app) logIn(c *tug.Ctx, u *User, tell bool) error {
+	s := c.Session()
+	auth.Login(s, u.authID(), u.PasswordHash)
+	login, _ := auth.LoginID(s)
+	browser := a.browserID(c)
+	userAgent := c.Request().UserAgent()
+	if len(userAgent) > 512 {
+		userAgent = userAgent[:512]
+	}
+	now := time.Now()
+	return a.inTx(c.Context(), func(tx *sql.Tx) error {
+		bs := a.browsers.in(tx)
+		if err := bs.add(c.Context(), u.ID, hashOf(login), userAgent, c.IP(), s.Lifetime(), now); err != nil {
+			return err
+		}
+		known, err := bs.known(c.Context(), u.ID, hashOf(browser))
+		if err != nil {
+			return err
+		}
+		if err := bs.keepBrowser(c.Context(), u.ID, hashOf(browser), now); err != nil {
+			return err
+		}
+		if known || !tell {
+			return nil
+		}
+		return a.notify(c.Context(), tx, u.ID, "new-login", noticeData{Browser: browserName(userAgent), IP: c.IP()})
+	})
+}
+
+// browserID is the ID of the browser c is from, which its cookie keeps, or
+// a new one, and the cookie given again, for a year from now.
+func (a *app) browserID(c *tug.Ctx) string {
+	id := ""
+	if cookie, err := c.Request().Cookie(browserCookie); err == nil && len(cookie.Value) == 26 {
+		id = cookie.Value
+	}
+	if id == "" {
+		id = rand.Text()
+	}
+	http.SetCookie(c.Response(), &http.Cookie{
+		Name:     browserCookie,
+		Value:    id,
+		Path:     "/",
+		MaxAge:   int(browserFor / time.Second),
+		HttpOnly: true,
+		Secure:   a.secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return id
+}
+
+// stillLoggedIn reports whether s's login, of u, has its row, and writes
+// its last sight, once a minute at most, which moves its end on, as each
+// response starts its session's lifetime again.
+func (a *app) stillLoggedIn(ctx context.Context, s *session.Session, u *User) (bool, error) {
+	login, ok := auth.LoginID(s)
+	if !ok {
+		return false, nil
+	}
+	now := time.Now()
+	lastSeen, err := a.browsers.lastSeen(ctx, u.ID, hashOf(login))
+	if errors.Is(err, errNoLogin) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if now.Sub(lastSeen) >= seenEvery {
+		if err := a.browsers.seen(ctx, hashOf(login), now); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// endLogin logs one of the user's other browsers out, which finds no login
+// at its next request.
+func (a *app) endLogin(c *tug.Ctx, user *User) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return tug.NewHTTPError(http.StatusNotFound, "login not found")
+	}
+	login, _ := auth.LoginID(c.Session())
+	browser, err := a.browsers.end(c.Context(), user.ID, id, hashOf(login))
+	if errors.Is(err, errNoLogin) {
+		return tug.NewHTTPError(http.StatusNotFound, "login not found")
+	}
+	if err != nil {
+		return err
+	}
+	Success.Set(c, "Logged out of "+browserName(browser)+".")
+	return c.RedirectRoute("security.edit")
+}
+
+// endOtherLogins logs every one of the user's browsers out but this one.
+func (a *app) endOtherLogins(c *tug.Ctx, user *User) error {
+	login, _ := auth.LoginID(c.Session())
+	if err := a.browsers.endOthers(c.Context(), user.ID, hashOf(login)); err != nil {
+		return err
+	}
+	Success.Set(c, "Logged out of every other browser.")
+	return c.RedirectRoute("security.edit")
+}
+
+// browserName says which browser a User-Agent is, on which system, as the
+// security page lists it and a new login's notification says it: "Chrome
+// on macOS", or "a browser on Linux", which the page writes with a capital,
+// for one it doesn't know. Each browser's names its engine's too, so the
+// order matters: Edge's and Opera's say Chrome, Chrome's says Safari, and
+// iOS says Mac OS X, as Android and ChromeOS say Linux.
+func browserName(userAgent string) string {
+	has := func(s ...string) bool {
+		for _, v := range s {
+			if strings.Contains(userAgent, v) {
+				return true
+			}
+		}
+		return false
+	}
+	browser, system := "", ""
+	switch {
+	case has("Edg/", "EdgiOS/", "EdgA/"):
+		browser = "Edge"
+	case has("OPR/", "Opera"):
+		browser = "Opera"
+	case has("Firefox/", "FxiOS/"):
+		browser = "Firefox"
+	case has("Chrome/", "CriOS/"):
+		browser = "Chrome"
+	case has("Safari/"):
+		browser = "Safari"
+	}
+	switch {
+	case has("iPhone", "iPad"):
+		system = "iOS"
+	case has("Android"):
+		system = "Android"
+	case has("CrOS"):
+		system = "ChromeOS"
+	case has("Macintosh", "Mac OS X"):
+		system = "macOS"
+	case has("Windows"):
+		system = "Windows"
+	case has("Linux"):
+		system = "Linux"
+	}
+	switch {
+	case browser != "" && system != "":
+		return browser + " on " + system
+	case browser != "":
+		return browser
+	case system != "":
+		return "a browser on " + system
+	}
+	return "a browser"
+}

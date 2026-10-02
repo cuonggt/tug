@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
@@ -131,6 +132,10 @@ type SecurityProps struct {
 
 	// Passkeys are the user's passkeys, which log in with no password.
 	Passkeys []Passkey `json:"passkeys"`
+
+	// Browsers are the browsers the user is logged in from, this one
+	// first, each of which they can log out: logins.go.
+	Browsers []Browser `json:"browsers"`
 }
 
 // TwoFactorSetup is what sets up an authenticator app.
@@ -144,9 +149,15 @@ func (a *app) securityPage(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
+	login, _ := auth.LoginID(c.Session())
+	logins, err := a.browsers.of(c.Context(), user.ID, hashOf(login), time.Now())
+	if err != nil {
+		return err
+	}
 	props := SecurityProps{
 		User:     *user,
 		Passkeys: passkeys,
+		Browsers: logins,
 		RecoveryCodes: inertia.Optional(func() ([]string, error) {
 			return a.openCodes(user.RecoveryCodes)
 		}),
@@ -177,16 +188,21 @@ func (a *app) updatePassword(c *tug.Ctx, user *User) error {
 		if err := a.users.in(tx).setPassword(c.Context(), user.ID, hash); err != nil {
 			return err
 		}
+		if err := a.browsers.in(tx).endAll(c.Context(), user.ID); err != nil {
+			return err
+		}
 		return a.notify(c.Context(), tx, user.ID, "password-changed", noticeData{})
 	})
 	if err != nil {
 		return err
 	}
-	// The new hash ends every login made with the old one, which is the
-	// way to end one on a lost laptop; this browser logs in with the new.
-	s := c.Session()
-	auth.Login(s, user.authID(), hash)
-	auth.SetPasswordConfirmed(s)
+	// The new hash ends every login made with the old one, rows and all;
+	// this browser logs in with the new.
+	user.PasswordHash = hash
+	if err := a.logIn(c, user, false); err != nil {
+		return err
+	}
+	auth.SetPasswordConfirmed(c.Session())
 	Success.Set(c, "Password changed. You've been logged out everywhere else.")
 	return c.RedirectRoute("security.edit")
 }

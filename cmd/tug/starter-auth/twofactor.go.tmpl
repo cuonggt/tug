@@ -83,7 +83,13 @@ func (a *app) twoFactorChallenge(c *tug.Ctx) error {
 	if err := a.codes.Clear(c.Context(), id); err != nil {
 		return err
 	}
-	auth.Login(s, u.authID(), u.PasswordHash)
+	// A login a reset began is no login to tell of: the reset's mail has
+	// just come.
+	reset := s.Get(resetLoginKey) == true
+	s.Delete(resetLoginKey)
+	if err := a.logIn(c, u, !reset); err != nil {
+		return err
+	}
 	auth.SetPasswordConfirmed(s)
 	return toIntended(c)
 }

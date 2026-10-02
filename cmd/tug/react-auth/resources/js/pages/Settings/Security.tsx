@@ -1,6 +1,7 @@
 import { Form, Head } from '@inertiajs/react'
 import Heading from '@/components/heading'
 import InputError from '@/components/input-error'
+import LoginSettings from '@/components/login-settings'
 import PasskeySettings from '@/components/passkey-settings'
 import PasswordInput from '@/components/password-input'
 import TwoFactorSettings from '@/components/two-factor-settings'
@@ -10,7 +11,8 @@ import type { PageProps } from '@/tug/pages'
 import { form, type Inputs } from '@/tug/routes'
 
 // Security changes the user's password, which logs them out everywhere
-// else, turns two-factor logins on and off, and keeps their passkeys.
+// else, turns two-factor logins on and off, keeps their passkeys, and
+// lists the browsers they're logged in from.
 export default function Security(props: PageProps<'Settings/Security'>) {
   return (
     <>
@@ -50,6 +52,7 @@ export default function Security(props: PageProps<'Settings/Security'>) {
       </section>
       <PasskeySettings {...props} />
       <TwoFactorSettings {...props} />
+      <LoginSettings {...props} />
     </>
   )
 }

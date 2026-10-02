@@ -4,8 +4,9 @@
 register and verify their email, log in, with a code from an authenticator
 app too once they turn that on, reset a forgotten password with a link sent
 by email, change their profile, email, photo, password and appearance
-in their settings, make API tokens for a script or another service, or
-delete their account. The handlers are the app's own code, to
+in their settings, see the browsers they're logged in from and log one
+out, make API tokens for a script or another service, or delete their
+account. The handlers are the app's own code, to
 change as the app does. They stand on package `auth`, which has the parts
 where a slip is a security hole, and package `mail`, which sends the links.
 The frontend is React with Tailwind and shadcn/ui, as Laravel's React
@@ -67,6 +68,7 @@ pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
 | `POST`, `DELETE /settings/two-factor`     | `two-factor.enable`, `two-factor.disable`     | verified users, password confirmed |
 | `POST /settings/two-factor/confirm`       | `two-factor.confirm`                          | verified users, password confirmed |
 | `POST /settings/two-factor/recovery-codes` | `two-factor.recovery-codes`                  | verified users, password confirmed |
+| `DELETE /settings/logins/{id}`, `/settings/logins` | `logins.destroy`, `logins.destroy-others` | verified users, password confirmed |
 | `GET /settings/appearance`                | `appearance.edit`                             | users |
 
 The names are Laravel's. A guest on a route for users is sent to log in,
@@ -90,7 +92,8 @@ them.
   tokens. `broadcasts.go`: the events a user's pages follow.
   `abilities.go`: what users may do, and `admin.go`, the admins' page and
   the `admins` command. `notifications.go`: what happened to an account,
-  in the app and by mail. `mail.go`: the mail the app sends.
+  in the app and by mail. `logins.go`: the browsers a user is logged in
+  from, and logging one out. `mail.go`: the mail the app sends.
 - `jobs.go`: the background jobs, in tables of their own, for package
   `queue`, which runs them beside the server, and the `jobs` command,
   which lists the ones that failed for good and runs them again. The mail
@@ -103,14 +106,15 @@ them.
   which `migrations.go` runs as the app starts, and has the `migrate`
   command run; `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
   `throttles_db.go`, `cache_db.go`, `tokens_db.go`, `broadcasts_db.go`,
-  `notifications_db.go` and `migrations_db.go`, the SQL of each;
+  `notifications_db.go`, `logins_db.go` and `migrations_db.go`, the SQL
+  of each;
   `db_test.go`, the tests' databases; and on Postgres or MySQL,
   `compose.yaml`, which runs the database in development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
   `passkeys_test.go`, `photos_test.go`, `jobs_test.go`,
   `throttles_test.go`, `cache_test.go`, `tokens_test.go`,
   `broadcasts_test.go`, `admin_test.go`, `notifications_test.go`,
-  `migrations_test.go`: a test of each flow, in browsers of package `tugtest`, with the mail kept in
+  `logins_test.go`, `migrations_test.go`: a test of each flow, in browsers of package `tugtest`, with the mail kept in
   memory, the photos in a temporary directory, and a database of each
   test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
@@ -211,16 +215,25 @@ func (a *app) user(r *http.Request) (*User, error) {
     if err != nil {
         return nil, err
     }
+    if ok, err := a.stillLoggedIn(r.Context(), s, u); err != nil || !ok {
+        if err == nil {
+            auth.Logout(s)
+        }
+        return nil, err
+    }
     return u, nil
 }
 ```
 
-`auth.UserID` reads the ID the session keeps, the user is loaded, and
+`auth.UserID` reads the ID the session keeps, the user is loaded,
 `auth.Current` checks that the login was made with the password the user
-has now. A user who's gone, or who has set a new password since, is logged
-out there and then, and the request goes on as a guest's. When the
-database fails, there's no user and an error: `usersOnly` answers it with a
-500, and `shareAuth` logs it and shows the page as a guest's.
+has now, and `stillLoggedIn` that the login still has its row, which
+logging it out from another browser deletes ([Browsers](#browsers)). A
+user who's gone, or who has set a new password since, or whose login was
+ended, is logged out there and then, and the request goes on as a
+guest's. When the database fails, there's no user and an error:
+`usersOnly` answers it with a 500, and `shareAuth` logs it and shows the
+page as a guest's.
 
 ### `auth.user` on every page
 
@@ -261,7 +274,8 @@ with `auth.HashPassword(in.Password)`. Its insert does nothing when the
 email is taken, so two people registering the same email at once make one
 account, and the second gets the same error.
 
-The new user is logged in, with `auth.Login`, and has just typed their
+The new user is logged in, with `a.logIn`, which calls `auth.Login` and
+keeps a row of the login ([Browsers](#browsers)), and has just typed their
 password, so `auth.SetPasswordConfirmed` records that. A link to verify
 the email is mailed to them, and they go to the dashboard, which, for a
 user whose email isn't verified, is the page that asks them to follow the
@@ -350,13 +364,16 @@ if err := a.logins.Clear(c.Context(), key); err != nil {
   `Bind` reads as `true` for `LoginInput.Remember`, a `bool`, as it reads a
   form's value ([Routing](routing.md#binding)).
 - A user with two-factor logins on goes on to give a code (below).
-  Everyone else is logged in with `auth.Login`, and goes to the page
-  `auth.Intended` kept, or the dashboard.
+  Everyone else is logged in with `a.logIn`, which calls `auth.Login`,
+  keeps a row of the login, and tells the user of a login from a browser
+  the account hasn't logged in from before ([Browsers](#browsers)), and
+  goes to the page `auth.Intended` kept, or the dashboard.
 
-`logout` calls `auth.Logout`, which empties the whole session, not only
-the login, and `c.ClearHistory()`, which has the client throw away the
-pages it kept for Back (see [Before going live](#before-going-live)), and
-goes home with a flash message. It's a POST, from a
+`logout` deletes the login's row, then calls `auth.Logout`, which empties
+the whole session, not only the login, and `c.ClearHistory()`, which has
+the client throw away the pages it kept for Back (see
+[Before going live](#before-going-live)), and goes home with a flash
+message. It's a POST, from a
 `<Link method="post" as="button">` in the user menu, so
 `middleware.CSRF()` turns it away from another site.
 
@@ -481,9 +498,10 @@ sent again for them: they go back to the page it was on, which
   browser is logged out and its history cleared, and the user's other
   sessions end at their next request, which finds no user.
 - **Security**: a new password, which takes the current one. The new hash
-  ends every login made with the old one, which is how to end a login on a
-  lost laptop, and this browser logs in again with it. Then two-factor
-  logins, above.
+  ends every login made with the old one, and this browser logs in again
+  with it. Then passkeys and two-factor logins, above, and the browsers
+  the account is logged in from, each to log out, as one left on a lost
+  laptop: [Browsers](#browsers).
 - **API tokens**: tokens for a script, the user's phone's app or another
   service, which call the app's API in place of a login, made, listed and
   revoked: [API tokens](#api-tokens).
@@ -496,6 +514,82 @@ sent again for them: they go back to the page it was on, which
 Password checks in the settings, as in the page that asks for it again,
 count five tries a minute for a user (`a.passwords`), so whoever has
 someone's browser can guess no faster than at the login page.
+
+### Browsers
+
+The security page lists the browsers the account is logged in from, this
+one first: which browser, on which system, as its User-Agent says,
+"Chrome on macOS", the address it logged in from, and when it logged in
+and was last seen. Each of the others logs out by its button, and "Log
+out of every other browser" logs them all out, with no new password;
+they're behind `passwordConfirmed`, as the page is.
+
+```go
+auth.Login(s, u.authID(), u.PasswordHash)
+login, _ := auth.LoginID(s)
+browser := a.browserID(c)
+return a.inTx(c.Context(), func(tx *sql.Tx) error {
+    bs := a.browsers.in(tx)
+    if err := bs.add(c.Context(), u.ID, hashOf(login), userAgent, c.IP(), s.Lifetime(), now); err != nil {
+        return err
+    }
+    known, err := bs.known(c.Context(), u.ID, hashOf(browser))
+    if err != nil {
+        return err
+    }
+    if err := bs.keepBrowser(c.Context(), u.ID, hashOf(browser), now); err != nil {
+        return err
+    }
+    if known || !tell {
+        return nil
+    }
+    return a.notify(c.Context(), tx, u.ID, "new-login", noticeData{Browser: browserName(userAgent), IP: c.IP()})
+})
+```
+
+A login lives in its browser's cookie, which the app can't take back, so
+it keeps a row of each in the `logins` table. Every way in, a password, a
+code, a passkey, registering and a new password, logs in through
+`a.logIn`, in `logins.go`: `auth.Login` gives the login an ID of its own,
+random, which `auth.LoginID` reads, and the row keeps its SHA-256, as an
+API token's is kept, with the browser's User-Agent, its first 512 bytes,
+the address, `c.IP()`'s, and the session's lifetime. `a.user` reads the
+row at each request, and a session whose login has none is logged out
+([Finding the request's user](#finding-the-requests-user)): a browser
+logged out from another finds its row gone at its next request, and goes
+to the login page.
+
+- **A login ends** as its session does: two hours after its last
+  request, or 30 days with "Remember me". Its row's last sight is written
+  as it's seen, once a minute at most, as an API token's last use is,
+  which moves its end on; the page lists the logins that haven't ended,
+  and `prune-logins` deletes the rest every hour.
+- **Logging out** deletes the login's row. A new password, in the
+  settings or by a reset, and a hash made again with newer settings,
+  delete every row of the account's, as the new hash ends every login,
+  and the browser that set it logs in again. Deleting the account deletes
+  its rows.
+- **A session from before** the app kept its logins has no ID, and no
+  row, and logs in again, once.
+- **A login from a new browser** is a notification, in the bell and by
+  mail: "A new login, from Chrome on macOS". A browser is told apart by a
+  cookie of its own, `tug_browser`, a random ID it keeps for a year,
+  logged in or out, and the `browsers` table keeps the hash of each one an
+  account has logged in from in the last year: a browser with no such
+  cookie, or one the
+  account hasn't had, is new, and the same browser on another address
+  isn't, as a phone's changes all day. Registering, a reset and a new
+  password are no logins to tell of: the account's own mail has just come.
+  The notification is kept in the login's transaction, as the others are
+  in theirs ([Notifications](#notifications)), so a login that can't be
+  told of isn't made, and its browser gets an error.
+- **The browser's name** is `browserName`'s: a few lines that tell Chrome,
+  Edge, Firefox, Safari and Opera apart, on macOS, Windows, iOS, Android,
+  ChromeOS and Linux, and say "a browser on Linux", or "a browser", of one
+  they don't know, as a User-Agent can say anything.
+- **An event stream**, as the bell's, of a browser logged out from
+  another stays open until it connects again, but each reload an event
+  starts is a request, which finds no login.
 
 ### API tokens
 
@@ -659,8 +753,9 @@ What happens to an account, of the kind that could hand it to someone
 else, its owner hears of, in the app and by mail: a new password, set in
 the settings or by a reset link; a new email, told at the old one, the
 address its owner may still read, as the new one gets its link to
-verify; two-factor logins turned off; a passkey added; and an API token
-made.
+verify; two-factor logins turned off; a passkey added; an API token
+made; and a login from a browser the account hasn't logged in from before
+([Browsers](#browsers)).
 
 ```go
 err := a.inTx(c.Context(), func(tx *sql.Tx) error {
@@ -713,7 +808,7 @@ starts ([Migrations](migrations.md)):
 migrations/20260925171438_create_users.sql
 migrations/20260926042744_create_jobs.sql
 ...
-migrations/20261001121927_add_carried_to_jobs.sql
+migrations/20261002053504_create_logins.sql
 ```
 
 To change the tables, add a migration, `tug migrate new add_bio_to_users`,
@@ -747,8 +842,8 @@ before that start, and how it rolls back after.
 
 The SQL of each table is in a file of its own, `users_db.go`,
 `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,
-`tokens_db.go`, `broadcasts_db.go`, `notifications_db.go` and
-`migrations_db.go`, beside the Go that's the same on any database, and
+`tokens_db.go`, `broadcasts_db.go`, `notifications_db.go`,
+`logins_db.go` and `migrations_db.go`, beside the Go that's the same on any database, and
 it's written for its database, where they differ:
 
 | | SQLite | Postgres | MySQL |
@@ -965,13 +1060,14 @@ id, ok := auth.UserID(s) // "42", true, on the requests after
 if !auth.Current(s, user.PasswordHash) {
     auth.Logout(s) // the password has changed since
 }
+login, ok := auth.LoginID(s) // this login's own ID, to keep where it can be ended
 ```
 
 - `Login(s, id, passwordHash)` keeps the ID in the session, under
-  `tug.auth.id`, and under `tug.auth.check` a fingerprint of the password
+  `tug.auth.id`; under `tug.auth.check` a fingerprint of the password
   hash as it's stored: 12 bytes of SHA-256, which tell one hash from
-  another and give nothing away should a cookie ever be read. A login
-  starts afresh: a password confirmed before it, or a login waiting for
+  another and give nothing away should a cookie ever be read; and under
+  `tug.auth.login` an ID of the login's own. A login starts afresh: a password confirmed before it, or a login waiting for
   its second factor, is forgotten. It panics without a session: set tug's
   `Config.Session`.
 - `UserID(s)` returns the ID, a string whatever the app's IDs are, and
@@ -980,6 +1076,13 @@ if !auth.Current(s, user.PasswordHash) {
   password hash the user has now. After a new password it's false for
   every session logged in with the old one, which is how a reset logs out
   the other browsers.
+- `LoginID(s)` returns the login's own ID, 26 characters from
+  `crypto/rand`, new at each `Login`, and whether there's one: a session
+  logged in before `Login` gave IDs has none. A cookie can't be taken
+  back, so an app that lists its logins, and ends one from another
+  browser, keeps them by their IDs, or their hashes, and logs out a
+  session whose login it no longer has, as the auth starter does
+  ([Browsers](#browsers)).
 - `Logout(s)` empties the session, flash data and all: whoever uses the
   browser next shouldn't find anything kept for the last person.
 
@@ -1467,12 +1570,12 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
   for an email together: five from anyone, and its owner waits too. Name
   the proxies in it, and `c.IP()` is the client's, read from their
   `X-Forwarded-For`. [Deployment](deployment.md#behind-a-proxy) has how.
-- **Logins live in the cookie**, and the server keeps no list of them.
-  Logging out rewrites that browser's cookie, but a copy taken before still
-  works until the user sets a new password or the session expires: two
-  hours from its last request, or a month with "Remember me", and a copy
-  in use keeps itself alive. Changing the password, in the security
-  settings, ends every other login. A new `APP_KEY`, without the old one in
+- **Logins live in the cookie**, and the database has a row of each, which
+  a login needs at every request. Logging out, or out of a browser from
+  the security page, deletes its row, so a copy of the cookie taken
+  before is logged out too; a login lasts two hours from its last
+  request, or a month with "Remember me", and a copy in use keeps itself
+  alive until then. A new `APP_KEY`, without the old one in
   `APP_PREVIOUS_KEYS`, ends every session at once, and every link mailed.
 - **Rotating `APP_KEY`**: `tug key` makes the new one. Keep the old key in
   `APP_PREVIOUS_KEYS` for a month, as long as a remembered login lasts.
@@ -1528,7 +1631,7 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
   attestation would say, for a site that takes only some.
 - **Accounts with a passkey and no password**: registering takes one, and
   passkeys come after.
-- **A list of the sessions logged in**, to end one: logins live in
-  cookies, so there's nothing to list. A new password ends them all but
-  this browser's.
+- **Where a browser is**, as a place: the security page says the
+  address it logged in from, and a place takes a database of where
+  addresses are, such as MaxMind's.
 - **Logging in with another site**, such as GitHub or Google.

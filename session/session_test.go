@@ -251,6 +251,9 @@ func TestASessionCanOutliveTheStoresLifetimeUntilItsCleared(t *testing.T) {
 		if s.Get("user_id") != 7.0 {
 			t.Errorf("a month-long session ended after three hours: user_id %v", s.Get("user_id"))
 		}
+		if s.Lifetime() != month {
+			t.Errorf("the session's lifetime is %v, want a month", s.Lifetime())
+		}
 	})
 	if !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=2592000") {
 		t.Errorf("the next response's Set-Cookie %q, want a month still", rec.Header().Get("Set-Cookie"))
@@ -259,6 +262,9 @@ func TestASessionCanOutliveTheStoresLifetimeUntilItsCleared(t *testing.T) {
 	rec = b.do(func(s *Session) {
 		s.Clear()
 		s.Set("user_id", 8)
+		if s.Lifetime() != 2*time.Hour {
+			t.Errorf("after Clear, the session's lifetime is %v, want the Store's two hours", s.Lifetime())
+		}
 	})
 	if !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=7200") {
 		t.Errorf("after Clear, Set-Cookie %q, want the Store's two hours", rec.Header().Get("Set-Cookie"))

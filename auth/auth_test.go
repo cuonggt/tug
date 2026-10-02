@@ -58,6 +58,35 @@ func TestALoginLastsFromOneRequestToTheNext(t *testing.T) {
 	})
 }
 
+func TestEachLoginHasAnIDOfItsOwnTillItsLoggedOut(t *testing.T) {
+	b := newBrowser(t)
+	var first string
+	b.request("GET", "/", func(s *session.Session, _ *http.Request) {
+		if id, ok := LoginID(s); ok || id != "" {
+			t.Errorf("a guest's login is %q", id)
+		}
+		Login(s, "42", "hash-1")
+		first, _ = LoginID(s)
+	})
+	b.request("GET", "/dashboard", func(s *session.Session, _ *http.Request) {
+		if id, ok := LoginID(s); !ok || id != first || len(id) < 26 {
+			t.Errorf("the next request's login is %q, %v; it was %q", id, ok, first)
+		}
+		// Logging in again, as a new password does, is a login of its own.
+		Login(s, "42", "hash-2")
+		if id, _ := LoginID(s); id == first {
+			t.Errorf("a new login kept the ID %q", id)
+		}
+		Logout(s)
+		if id, ok := LoginID(s); ok {
+			t.Errorf("a logged-out session's login is %q", id)
+		}
+	})
+	if _, ok := LoginID(nil); ok {
+		t.Error("no session has a login")
+	}
+}
+
 func TestANewPasswordEndsTheLoginsMadeWithTheOldOne(t *testing.T) {
 	b := newBrowser(t)
 	b.request("POST", "/login", func(s *session.Session, _ *http.Request) {

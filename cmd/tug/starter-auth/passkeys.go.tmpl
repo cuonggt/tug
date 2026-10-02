@@ -209,7 +209,9 @@ func (a *app) passkeyLogin(c *tug.Ctx) error {
 	} else {
 		s.SetLifetime(0)
 	}
-	auth.Login(s, u.authID(), u.PasswordHash)
+	if err := a.logIn(c, u, true); err != nil {
+		return err
+	}
 	auth.SetPasswordConfirmed(s)
 	return toIntended(c)
 }

@@ -3,6 +3,7 @@
   import Head from '@/Head.svelte'
   import Heading from '@/components/Heading.svelte'
   import InputError from '@/components/InputError.svelte'
+  import LoginSettings from '@/components/LoginSettings.svelte'
   import PasskeySettings from '@/components/PasskeySettings.svelte'
   import PasswordInput from '@/components/PasswordInput.svelte'
   import TwoFactorSettings from '@/components/TwoFactorSettings.svelte'
@@ -12,7 +13,8 @@
   import { form } from '@/tug/routes'
 
   // Security changes the user's password, which logs them out everywhere
-  // else, turns two-factor logins on and off, and keeps their passkeys.
+  // else, turns two-factor logins on and off, keeps their passkeys, and
+  // lists the browsers they're logged in from.
   let props: PageProps<'Settings/Security'> = $props()
 </script>
 
@@ -48,3 +50,4 @@
 </section>
 <PasskeySettings {...props} />
 <TwoFactorSettings {...props} />
+<LoginSettings {...props} />

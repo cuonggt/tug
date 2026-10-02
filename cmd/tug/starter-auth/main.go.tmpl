@@ -200,6 +200,12 @@ type app struct {
 	hub        *broadcast.Hub
 	broadcasts *broadcasts
 
+	// The browsers each user is logged in from, a row for each login, which
+	// their security page lists and ends, and the browsers they've logged
+	// in from, whose cookie is Secure over HTTPS: logins.go.
+	browsers *browsers
+	secure   bool
+
 	// The users' API tokens: accessTokens makes a token and its hash, which
 	// apiTokens keeps, and each token has apiRequests a minute: tokens.go.
 	accessTokens *auth.AccessTokens
@@ -310,6 +316,8 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		accessTokens:  &auth.AccessTokens{Prefix: tokenPrefix},
 		apiTokens:     &apiTokens{db: e.DB},
 		notifications: &notifications{db: e.DB},
+		browsers:      &browsers{db: e.DB},
+		secure:        strings.HasPrefix(cfg.URL, "https://"),
 		apiRequests:   &auth.Throttle{Name: "api", Max: 60, Window: time.Minute, Store: counts},
 		logins:        &auth.Throttle{Name: "logins", Max: 5, Window: time.Minute, Store: counts},
 		passwords:     &auth.Throttle{Name: "passwords", Max: 5, Window: time.Minute, Store: counts},
@@ -322,8 +330,8 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// more, such as a replaced photo: photos.go. Every night, a job deletes
 	// the jobs that failed for good over a month ago: prune, in jobs_db.go,
 	// and another the notifications read three months ago; and every hour,
-	// the throttles' counts that count nothing any more, and what the cache
-	// kept that has expired.
+	// the throttles' counts that count nothing any more, what the cache
+	// kept that has expired, and the logins that have ended.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
 	a.notificationMail = queue.Handle(e.Queue, "notification-mail", a.mailNotification)
@@ -332,6 +340,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	queue.Handle(e.Queue, "prune-notifications", a.notifications.prune).Schedule(queue.Cron("@daily"), struct{}{})
 	queue.Handle(e.Queue, "prune-throttles", counts.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	queue.Handle(e.Queue, "prune-cache", cached.prune).Schedule(queue.Every(time.Hour), struct{}{})
+	queue.Handle(e.Queue, "prune-logins", a.browsers.prune).Schedule(queue.Every(time.Hour), struct{}{})
 [[- if not .Postgres ]]
 	// The events the hub carried go after a minute, which every instance
 	// has read them in.
@@ -443,7 +452,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Post("/login/passkey", a.guestsOnly(a.passkeyLogin)).Name("login.passkey").Takes(PasskeyInput{})
 	app.Get("/two-factor-challenge", a.guestsOnly(twoFactorChallengePage)).Name("two-factor.login")
 	app.Post("/two-factor-challenge", a.guestsOnly(a.twoFactorChallenge)).Name("two-factor.login.store").Takes(TwoFactorChallengeInput{})
-	app.Post("/logout", a.usersOnly(logout)).Name("logout")
+	app.Post("/logout", a.usersOnly(a.logout)).Name("logout")
 	app.Get("/forgot-password", a.guestsOnly(forgotPasswordPage)).Name("password.request")
 	app.Post("/forgot-password", a.guestsOnly(a.forgotPassword)).Name("password.email").Takes(ForgotPasswordInput{})
 	app.Get("/reset-password/{token}", a.guestsOnly(resetPasswordPage)).Name("password.reset")
@@ -468,9 +477,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Post("/admin/failed-jobs/retry", a.usersOnly(verified(only(seeFailedJobs, a.retryFailedJobs)))).Name("failed-jobs.retry-all")
 	app.Post("/admin/failed-jobs/{id}/retry", a.usersOnly(verified(only(seeFailedJobs, a.retryFailedJob)))).Name("failed-jobs.retry")
 
-	// Settings: settings.go, two-factor logins in twofactor.go, and passkeys
-	// in passkeys.go. What could hand the account to someone else asks for
-	// the password again.
+	// Settings: settings.go, two-factor logins in twofactor.go, passkeys in
+	// passkeys.go, and the browsers logged in from in logins.go. What could
+	// hand the account to someone else asks for the password again.
 	app.Get("/settings", toProfile).Name("settings")
 	app.Get("/settings/profile", a.usersOnly(passwordConfirmed(profilePage))).Name("profile.edit")
 	app.Patch("/settings/profile", a.usersOnly(passwordConfirmed(a.updateProfile))).Name("profile.update").Takes(ProfileInput{})
@@ -486,6 +495,8 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Post("/settings/passkeys/options", a.usersOnly(verified(passwordConfirmed(a.newPasskeyOptions)))).Name("passkeys.options")
 	app.Post("/settings/passkeys", a.usersOnly(verified(passwordConfirmed(a.addPasskey)))).Name("passkeys.store").Takes(NewPasskeyInput{})
 	app.Delete("/settings/passkeys/{id}", a.usersOnly(verified(passwordConfirmed(a.removePasskey)))).Name("passkeys.destroy")
+	app.Delete("/settings/logins", a.usersOnly(verified(passwordConfirmed(a.endOtherLogins)))).Name("logins.destroy-others")
+	app.Delete("/settings/logins/{id}", a.usersOnly(verified(passwordConfirmed(a.endLogin)))).Name("logins.destroy")
 	app.Get("/settings/appearance", a.usersOnly(appearancePage)).Name("appearance.edit")
 
 	// API tokens, which a user makes and revokes in their settings, and the

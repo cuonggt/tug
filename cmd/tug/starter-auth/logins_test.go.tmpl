@@ -1,0 +1,242 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// browsersOf are the browsers c's user is logged in from, as their
+// security page lists them.
+func browsersOf(t *testing.T, c *tugtest.Client) []Browser {
+	t.Helper()
+	return tugtest.Props(c.Get("/settings/security"), Security).Browsers
+}
+
+// loggedIn is a browser that logs in as the user with email, a browser of
+// its own.
+func (a *testApp) loggedIn(email, password string) *tugtest.Client {
+	a.t.Helper()
+	c := a.client()
+	if r := logIn(c, email, password); r.Location() != "/dashboard" {
+		a.t.Fatalf("logging in as %s: %v", email, r)
+	}
+	return c
+}
+
+func TestEachLoginIsListedThisBrowsersFirst(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := app.loggedIn("ann@example.com", "correct horse")
+	listed := browsersOf(t, ann)
+	if len(listed) != 2 || !listed[0].Current || listed[1].Current {
+		t.Fatalf("listed %+v", listed)
+	}
+	if b := listed[0]; b.Name != "a browser" || b.IP != "192.0.2.1" || time.Since(b.Began) > time.Minute || time.Since(b.LastSeen) > time.Minute {
+		t.Errorf("this browser is listed as %+v", b)
+	}
+	// The other browser lists itself first.
+	if theirs := browsersOf(t, other); len(theirs) != 2 || !theirs[0].Current || theirs[0].ID != listed[1].ID {
+		t.Errorf("the other browser lists %+v", theirs)
+	}
+}
+
+func TestALoginEndedFromAnotherBrowserEndsAtItsNextRequest(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := app.loggedIn("ann@example.com", "correct horse")
+	listed := browsersOf(t, ann)
+	r := ann.Delete(fmt.Sprintf("/settings/logins/%d", listed[1].ID), nil)
+	if r.Location() != "/settings/security" || r.Follow().Page.Flash["success"] != "Logged out of a browser." {
+		t.Fatalf("ending the other login: %v", r)
+	}
+	if r := other.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("the ended login's next request: %v", r)
+	}
+	if listed := browsersOf(t, ann); len(listed) != 1 || !listed[0].Current {
+		t.Errorf("after ending it, listed %+v", listed)
+	}
+
+	// Not this browser's own, which logging out ends, nor another user's.
+	this := fmt.Sprintf("/settings/logins/%d", listed[0].ID)
+	if r := ann.Delete(this, nil); r.Code != http.StatusNotFound {
+		t.Errorf("ending this browser's own login: %v", r)
+	}
+	bob := app.verifiedUser("Bob", "bob@example.com", "battery staple")
+	if r := bob.Delete(this, nil); r.Code != http.StatusNotFound {
+		t.Errorf("ending another user's login: %v", r)
+	}
+	if r := ann.Get("/dashboard"); r.Code != http.StatusOK {
+		t.Errorf("this browser after both: %v", r)
+	}
+}
+
+func TestEndingTheOtherLoginsLeavesThisBrowsers(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	others := []*tugtest.Client{app.loggedIn("ann@example.com", "correct horse"), app.loggedIn("ann@example.com", "correct horse")}
+	if r := ann.Delete("/settings/logins", nil); r.Follow().Page.Flash["success"] != "Logged out of every other browser." {
+		t.Fatalf("ending the others: %v", r)
+	}
+	if listed := browsersOf(t, ann); len(listed) != 1 || !listed[0].Current {
+		t.Errorf("listed %+v", listed)
+	}
+	for _, c := range others {
+		if r := c.Get("/dashboard"); r.Location() != "/login" {
+			t.Errorf("an ended login's next request: %v", r)
+		}
+	}
+}
+
+func TestANewPasswordEndsTheOtherLoginsRowsAndAll(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := app.loggedIn("ann@example.com", "correct horse")
+	ann.Put("/settings/password", map[string]any{"current_password": "correct horse", "password": "battery staple", "password_confirmation": "battery staple"})
+	if listed := browsersOf(t, ann); len(listed) != 1 || !listed[0].Current {
+		t.Errorf("after a new password, listed %+v", listed)
+	}
+	if r := other.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("the other browser after a new password: %v", r)
+	}
+}
+
+func TestALoginFromANewBrowserIsToldOfAndOneFromAKnownBrowserIsnt(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := app.loggedIn("ann@example.com", "correct horse")
+	m := app.outbox.NextTo(t, "ann@example.com")
+	if m.Subject != "A new login to your "+appName+" account" || !strings.Contains(m.Text, "from a browser, at 192.0.2.1:") {
+		t.Errorf("the mail is %q:\n%s", m.Subject, m.Text)
+	}
+	if got := lines(ann, ""); len(got) != 1 || got[0] != "A new login, from a browser." {
+		t.Errorf("the notifications are %q", got)
+	}
+
+	// Logging out and in again, from a browser that has logged in, the one
+	// that registered too, is no new login.
+	for _, c := range []*tugtest.Client{other, ann} {
+		c.Post("/logout", nil)
+		if r := logIn(c, "ann@example.com", "correct horse"); r.Location() != "/dashboard" {
+			t.Fatalf("logging in again: %v", r)
+		}
+	}
+	app.outbox.None(t)
+	if n := unread(ann); n != 0 {
+		t.Errorf("the bell counts %d", n)
+	}
+}
+
+func TestALoginAResetBeganIsntToldOf(t *testing.T) {
+	app := newTestApp(t)
+	secret, _ := turnOnTwoFactor(t, app, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	c := app.client()
+	resetPassword(t, c, resetLink(t, app, "ann@example.com"), "battery staple")
+	if r := c.Post("/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)}); r.Location() != "/dashboard" {
+		t.Fatalf("the code after the reset: %v", r)
+	}
+	if m := app.outbox.NextTo(t, "ann@example.com"); m.Subject != "Your "+appName+" password was changed" {
+		t.Errorf("mailed %q", m.Subject)
+	}
+	app.outbox.None(t)
+}
+
+func TestALoginWithThePasswordAfterAResetLeftAtItsCodeIsToldOf(t *testing.T) {
+	app := newTestApp(t)
+	_, codes := turnOnTwoFactor(t, app, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	c := app.client()
+	resetPassword(t, c, resetLink(t, app, "ann@example.com"), "battery staple")
+	app.outbox.NextTo(t, "ann@example.com") // the new password's
+	logIn(c, "ann@example.com", "battery staple")
+	if r := c.Post("/two-factor-challenge", map[string]any{"recovery_code": codes[0]}); r.Location() != "/dashboard" {
+		t.Fatalf("the code after the password: %v", r)
+	}
+	if m := app.outbox.NextTo(t, "ann@example.com"); m.Subject != "A new login to your "+appName+" account" {
+		t.Errorf("mailed %q", m.Subject)
+	}
+}
+
+func TestALoginWithNoRowIsLoggedOut(t *testing.T) {
+	app := newTestApp(t)
+	app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	u, err := (&users{db: app.db}).byEmail(context.Background(), "ann@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := session.New(session.Config{Keys: app.keys})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// As a login from before they were kept, or one whose row is gone.
+	c := app.client()
+	c.Session(sessions, func(s *session.Session) { auth.Login(s, u.authID(), u.PasswordHash) })
+	if r := c.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("a login with no row: %v", r)
+	}
+}
+
+func TestALoginsLastSightIsWrittenOnceAMinute(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	execSQL(t, app.db, "UPDATE logins SET last_seen_at = last_seen_at - 120000, ends_at = ends_at - 120000")
+	ann.Get("/dashboard")
+	if seen := browsersOf(t, ann)[0].LastSeen; time.Since(seen) > 30*time.Second {
+		t.Errorf("seen two minutes ago, then seen again, the last sight is %v", seen)
+	}
+	execSQL(t, app.db, "UPDATE logins SET last_seen_at = last_seen_at - 30000")
+	ann.Get("/dashboard")
+	if seen := browsersOf(t, ann)[0].LastSeen; time.Since(seen) < 29*time.Second {
+		t.Errorf("seen within the minute, the last sight was written again: %v", seen)
+	}
+}
+
+func TestPruneDeletesTheEndedLoginsAndTheBrowsersLongUnseen(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := app.loggedIn("ann@example.com", "correct horse")
+	app.outbox.NextTo(t, "ann@example.com") // the new login's
+	execSQL(t, app.db, fmt.Sprintf("UPDATE logins SET ends_at = 0 WHERE id = %d", browsersOf(t, ann)[1].ID))
+	execSQL(t, app.db, "UPDATE browsers SET last_seen_at = 0")
+	if err := (&browsers{db: app.db}).prune(context.Background(), struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if listed := browsersOf(t, ann); len(listed) != 1 || !listed[0].Current {
+		t.Errorf("after prune, listed %+v", listed)
+	}
+	var kept int
+	if err := app.db.QueryRow("SELECT COUNT(*) FROM browsers").Scan(&kept); err != nil || kept != 0 {
+		t.Errorf("the browsers a year unseen: %d left, %v", kept, err)
+	}
+	// Its session is over, and a login from it is a new browser's again.
+	if r := other.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("an ended login's next request: %v", r)
+	}
+	logIn(other, "ann@example.com", "correct horse")
+	if m := app.outbox.NextTo(t, "ann@example.com"); !strings.HasPrefix(m.Subject, "A new login") {
+		t.Errorf("the mail after is %q", m.Subject)
+	}
+}
+
+func TestABrowsersNameIsWhatItsUserAgentSays(t *testing.T) {
+	for ua, want := range map[string]string{
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36":                   "Chrome on macOS",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0":           "Edge on Windows",
+		"Mozilla/5.0 (X11; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0":                                                                  "Firefox on Linux",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1": "Safari on iOS",
+		"Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36":                   "Chrome on Android",
+		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36":                           "Chrome on Linux",
+		"curl/8.7.1": "a browser",
+		"":           "a browser",
+	} {
+		if got := browserName(ua); got != want {
+			t.Errorf("%q is %q, want %q", ua, got, want)
+		}
+	}
+}

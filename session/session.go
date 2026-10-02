@@ -148,6 +148,7 @@ type Session struct {
 	next     map[string]any // flashed by this request, for the next
 	had      bool           // the request came with a session cookie
 	lifetime time.Duration  // this session's own, from SetLifetime; 0 for the Store's
+	base     time.Duration  // the Store's
 
 	// changed is whether the request has changed the session's values or
 	// lifetime, and passed whether it calls Pass.
@@ -195,6 +196,15 @@ func (s *Session) Clear() {
 func (s *Session) SetLifetime(d time.Duration) {
 	s.lifetime = max(d.Truncate(time.Second), 0)
 	s.changed = true
+}
+
+// Lifetime is how long the session lasts without a request: its own, as
+// SetLifetime set it, or else the Store's.
+func (s *Session) Lifetime() time.Duration {
+	if s.lifetime > 0 {
+		return s.lifetime
+	}
+	return s.base
 }
 
 // Flash stores value under key for the next request, which reads it with
@@ -250,7 +260,7 @@ func (st *Store) Middleware(next http.Handler) http.Handler {
 }
 
 func (st *Store) load(r *http.Request) *Session {
-	s := &Session{values: map[string]any{}, now: map[string]any{}, next: map[string]any{}}
+	s := &Session{values: map[string]any{}, now: map[string]any{}, next: map[string]any{}, base: st.lifetime}
 	c, err := r.Cookie(st.cookie)
 	if err != nil {
 		return s

@@ -137,7 +137,7 @@ func (a *testApp) verifiedUser(name, email, password string) *tugtest.Client {
 
 // oldLogin returns a browser logged in as the user with email, as one that
 // logged in longer ago than a confirmed password lasts: the session has
-// the login, and no password typed since.
+// the login, and its row, and no password typed since.
 func (a *testApp) oldLogin(email string) *tugtest.Client {
 	a.t.Helper()
 	u, err := (&users{db: a.db}).byEmail(context.Background(), email)
@@ -149,7 +149,13 @@ func (a *testApp) oldLogin(email string) *tugtest.Client {
 		a.t.Fatal(err)
 	}
 	c := a.client()
-	c.Session(sessions, func(s *session.Session) { auth.Login(s, u.authID(), u.PasswordHash) })
+	c.Session(sessions, func(s *session.Session) {
+		auth.Login(s, u.authID(), u.PasswordHash)
+		login, _ := auth.LoginID(s)
+		if err := (&browsers{db: a.db}).add(context.Background(), u.ID, hashOf(login), "", "192.0.2.1", s.Lifetime(), time.Now()); err != nil {
+			a.t.Fatal(err)
+		}
+	})
 	return c
 }
 

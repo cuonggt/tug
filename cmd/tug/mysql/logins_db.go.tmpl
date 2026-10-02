@@ -1,0 +1,136 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+// The logins and browsers tables' queries, in MySQL. Times are Unix
+// milliseconds, which compare as numbers.
+
+// add keeps a new login: whose it is, the hash of its ID, its browser's
+// User-Agent and address, and how long its session lasts without a
+// request, from now.
+func (bs *browsers) add(ctx context.Context, userID int64, hash []byte, userAgent, ip string, lifetime time.Duration, now time.Time) error {
+	_, err := bs.db.ExecContext(ctx, `
+		INSERT INTO logins (user_id, login_hash, user_agent, ip, lifetime, created_at, last_seen_at, ends_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, hash, userAgent, ip, lifetime.Milliseconds(), now.UnixMilli(), now.UnixMilli(), now.Add(lifetime).UnixMilli())
+	return err
+}
+
+// lastSeen returns when the user's login with hash was last seen, or
+// errNoLogin. A login past its end is the session's to have ended:
+// prune-logins deletes its row a minute after, as its last sight is
+// written once a minute.
+func (bs *browsers) lastSeen(ctx context.Context, userID int64, hash []byte) (time.Time, error) {
+	var ms int64
+	err := bs.db.QueryRowContext(ctx, "SELECT last_seen_at FROM logins WHERE login_hash = ? AND user_id = ?", hash, userID).Scan(&ms)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, errNoLogin
+	}
+	return time.UnixMilli(ms), err
+}
+
+// seen keeps that the login with hash was seen now, which moves its end on
+// by its lifetime.
+func (bs *browsers) seen(ctx context.Context, hash []byte, now time.Time) error {
+	_, err := bs.db.ExecContext(ctx, "UPDATE logins SET last_seen_at = ?, ends_at = ? + lifetime WHERE login_hash = ?",
+		now.UnixMilli(), now.UnixMilli(), hash)
+	return err
+}
+
+// of returns the user's logins that haven't ended by now, the one with
+// this, the browser's own, first, then the last seen first.
+func (bs *browsers) of(ctx context.Context, userID int64, this []byte, now time.Time) ([]Browser, error) {
+	rows, err := bs.db.QueryContext(ctx, `
+		SELECT id, user_agent, ip, created_at, last_seen_at, login_hash = ? FROM logins
+		WHERE user_id = ? AND ends_at > ? ORDER BY login_hash = ? DESC, last_seen_at DESC, id DESC`,
+		this, userID, now.UnixMilli(), this)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	listed := []Browser{}
+	for rows.Next() {
+		var l Browser
+		var userAgent string
+		var began, seen int64
+		if err := rows.Scan(&l.ID, &userAgent, &l.IP, &began, &seen, &l.Current); err != nil {
+			return nil, err
+		}
+		l.Name, l.Began, l.LastSeen = browserName(userAgent), time.UnixMilli(began).UTC(), time.UnixMilli(seen).UTC()
+		listed = append(listed, l)
+	}
+	return listed, rows.Err()
+}
+
+// end deletes one of the user's logins, but not the one with this, the
+// browser's own, and returns its User-Agent, or errNoLogin. MySQL's DELETE
+// returns no row, so the row is read first: of two ends of one login at
+// once, both say so.
+func (bs *browsers) end(ctx context.Context, userID, id int64, this []byte) (string, error) {
+	var userAgent string
+	err := bs.db.QueryRowContext(ctx, "SELECT user_agent FROM logins WHERE id = ? AND user_id = ? AND login_hash <> ?",
+		id, userID, this).Scan(&userAgent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errNoLogin
+	}
+	if err != nil {
+		return "", err
+	}
+	_, err = bs.db.ExecContext(ctx, "DELETE FROM logins WHERE id = ? AND user_id = ?", id, userID)
+	return userAgent, err
+}
+
+// endOthers deletes the user's logins but the one with this.
+func (bs *browsers) endOthers(ctx context.Context, userID int64, this []byte) error {
+	_, err := bs.db.ExecContext(ctx, "DELETE FROM logins WHERE user_id = ? AND login_hash <> ?", userID, this)
+	return err
+}
+
+// endAll deletes the user's logins, which a new password ends.
+func (bs *browsers) endAll(ctx context.Context, userID int64) error {
+	_, err := bs.db.ExecContext(ctx, "DELETE FROM logins WHERE user_id = ?", userID)
+	return err
+}
+
+// endLogin deletes the login with hash, which logging out ends.
+func (bs *browsers) endLogin(ctx context.Context, hash []byte) error {
+	_, err := bs.db.ExecContext(ctx, "DELETE FROM logins WHERE login_hash = ?", hash)
+	return err
+}
+
+// known reports whether the user has logged in from the browser with hash.
+func (bs *browsers) known(ctx context.Context, userID int64, hash []byte) (bool, error) {
+	var one int
+	err := bs.db.QueryRowContext(ctx, "SELECT 1 FROM browsers WHERE user_id = ? AND browser_hash = ?", userID, hash).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// keepBrowser keeps that the user logged in from the browser with hash,
+// now.
+func (bs *browsers) keepBrowser(ctx context.Context, userID int64, hash []byte, now time.Time) error {
+	_, err := bs.db.ExecContext(ctx, `
+		INSERT INTO browsers (user_id, browser_hash, last_seen_at) VALUES (?, ?, ?) AS kept
+		ON DUPLICATE KEY UPDATE last_seen_at = kept.last_seen_at`,
+		userID, hash, now.UnixMilli())
+	return err
+}
+
+// prune deletes the logins that ended a minute ago or more, and the
+// browsers no login has come from for a year, as their cookies are gone.
+// It runs every hour, as prune-logins.
+func (bs *browsers) prune(ctx context.Context, _ struct{}) error {
+	now := time.Now()
+	if _, err := bs.db.ExecContext(ctx, "DELETE FROM logins WHERE ends_at < ?", now.Add(-seenEvery).UnixMilli()); err != nil {
+		return err
+	}
+	_, err := bs.db.ExecContext(ctx, "DELETE FROM browsers WHERE last_seen_at < ?", now.Add(-browserFor).UnixMilli())
+	return err
+}

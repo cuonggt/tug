@@ -198,16 +198,18 @@ func showPost(c *tug.Ctx) error {
   verify their email, log in, with a code from an authenticator app too
   once they turn that on, or with a passkey and no password at all, reset
   a forgotten password by email, change their profile and photo, password
-  and appearance in settings, and make API tokens, for a script or another
-  service to call the app's API with, hear of each change to their
-  account that could hand it to someone else, at once in the app, by its
-  bell, and by mail, the old email too, and where admins, whom a command
-  makes, have a page of the jobs that failed, with the users in SQLite,
-  or with `-postgres` or `-mysql`, in Postgres or MySQL, and a frontend of
-  Tailwind and shadcn's components, as Laravel's starter kits have, in
-  React, Vue or Svelte. Its handlers are the app's own code, on package
+  and appearance in settings, see the browsers they're logged in from and
+  log one out, and make API tokens, for a script or another service to
+  call the app's API with, hear of each change to their account that
+  could hand it to someone else, a login from a new browser too, at once
+  in the app, by its bell, and by mail, the old email too, and where
+  admins, whom a command makes, have a page of the jobs that failed, with
+  the users in SQLite, or with `-postgres` or `-mysql`, in Postgres or
+  MySQL, and a frontend of Tailwind and shadcn's components, as Laravel's
+  starter kits have, in React, Vue or Svelte. Its handlers are the app's own code, on package
   `auth`, which has the parts where a slip is a security hole: argon2id
-  password hashes, logins that end when the password changes, signed
+  password hashes, logins that end when the password changes, each with
+  an ID of its own, by which the app ends one from another browser, signed
   tokens for reset and verification links, two-factor codes and recovery
   codes kept encrypted, passkeys, WebAuthn's checks on the standard
   library, asking for the password again, API tokens kept as their hashes,

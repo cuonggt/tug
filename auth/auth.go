@@ -5,7 +5,9 @@
 //     argon2id.
 //   - Login, Logout and UserID keep who a session is logged in as, in the
 //     session's cookie. A login is tied to the password it was made with,
-//     so a new password logs out every session that knew the old one.
+//     so a new password logs out every session that knew the old one, and
+//     has an ID of its own, LoginID, by which an app keeps, lists and ends
+//     its logins.
 //   - Resets makes and checks the tokens that password reset links carry.
 //   - Throttle limits tries, such as at guessing a password.
 //   - SetIntended and Intended send someone who was asked to log in back
@@ -39,6 +41,7 @@
 package auth
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -54,6 +57,7 @@ import (
 const (
 	idKey        = "tug.auth.id"
 	checkKey     = "tug.auth.check"
+	loginKey     = "tug.auth.login"
 	intendedKey  = "tug.auth.intended"
 	confirmedKey = "tug.auth.confirmed"
 	pendingKey   = "tug.auth.pending"
@@ -82,6 +86,18 @@ func Login(s *session.Session, id, passwordHash string) {
 	s.Delete(passkeyKey)
 	s.Set(idKey, id)
 	s.Set(checkKey, fingerprint(passwordHash))
+	s.Set(loginKey, rand.Text())
+}
+
+// LoginID returns the ID Login gave this login, random, and new each time,
+// which an app keeps of the logins it lists and ends, and whether there's
+// one: a session logged in before Login gave one has none.
+func LoginID(s *session.Session) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	id, ok := s.Get(loginKey).(string)
+	return id, ok && id != ""
 }
 
 // Logout logs s out. It empties the session, since whoever uses the

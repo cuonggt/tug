@@ -27,8 +27,9 @@ type Auth struct {
 }
 
 // user returns the user r's session is logged in as, or nil for a guest. A
-// login whose user has gone, or has set a new password since, is over:
-// the session is logged out.
+// login whose user has gone, or has set a new password since, or whose
+// row is gone, ended from another browser, is over: the session is
+// logged out.
 func (a *app) user(r *http.Request) (*User, error) {
 	s := session.From(r.Context())
 	id, ok := auth.UserID(s)
@@ -46,6 +47,12 @@ func (a *app) user(r *http.Request) (*User, error) {
 		return nil, nil
 	}
 	if err != nil {
+		return nil, err
+	}
+	if ok, err := a.stillLoggedIn(r.Context(), s, u); err != nil || !ok {
+		if err == nil {
+			auth.Logout(s)
+		}
 		return nil, err
 	}
 	a.withPhoto(r.Context(), u)
@@ -183,9 +190,10 @@ func (a *app) register(c *tug.Ctx) error {
 	if err != nil {
 		return err
 	}
-	s := c.Session()
-	auth.Login(s, u.authID(), u.PasswordHash)
-	auth.SetPasswordConfirmed(s)
+	if err := a.logIn(c, u, false); err != nil {
+		return err
+	}
+	auth.SetPasswordConfirmed(c.Session())
 	Success.Set(c, "Welcome, "+u.Name+"!")
 	// The dashboard is for verified users, so this is the page that asks
 	// them to follow the link, until they have.
@@ -249,8 +257,16 @@ func (a *app) login(c *tug.Ctx) error {
 		return err
 	}
 	if auth.NeedsRehash(u.PasswordHash) {
+		// A new hash ends the logins made with the old, as a new password
+		// does, and their rows with them.
 		u.PasswordHash = auth.HashPassword(in.Password)
-		if err := a.users.setPassword(c.Context(), u.ID, u.PasswordHash); err != nil {
+		err := a.inTx(c.Context(), func(tx *sql.Tx) error {
+			if err := a.users.in(tx).setPassword(c.Context(), u.ID, u.PasswordHash); err != nil {
+				return err
+			}
+			return a.browsers.in(tx).endAll(c.Context(), u.ID)
+		})
+		if err != nil {
 			return err
 		}
 	}
@@ -261,11 +277,15 @@ func (a *app) login(c *tug.Ctx) error {
 		s.SetLifetime(0)
 	}
 	if u.TwoFactor {
-		// The password is right; a code from their phone comes next.
+		// The password is right; a code from their phone comes next. A reset
+		// left at its code began no login of this, which is told of.
 		auth.StartTwoFactor(s, u.authID())
+		s.Delete(resetLoginKey)
 		return c.RedirectRoute("two-factor.login")
 	}
-	auth.Login(s, u.authID(), u.PasswordHash)
+	if err := a.logIn(c, u, true); err != nil {
+		return err
+	}
 	auth.SetPasswordConfirmed(s)
 	return toIntended(c)
 }
@@ -285,8 +305,14 @@ func tooMany(wait time.Duration) string {
 	return fmt.Sprintf("too many tries: wait %d seconds, and try again", int(math.Ceil(wait.Seconds())))
 }
 
-func logout(c *tug.Ctx, _ *User) error {
-	auth.Logout(c.Session())
+func (a *app) logout(c *tug.Ctx, _ *User) error {
+	s := c.Session()
+	if login, ok := auth.LoginID(s); ok {
+		if err := a.browsers.endLogin(c.Context(), hashOf(login)); err != nil {
+			return err
+		}
+	}
+	auth.Logout(s)
 	c.ClearHistory()
 	Success.Set(c, "You've logged out.")
 	return c.RedirectRoute("home")
@@ -396,6 +422,9 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 		if err := a.users.in(tx).setVerified(c.Context(), u.ID, u.Email); err != nil {
 			return err
 		}
+		if err := a.browsers.in(tx).endAll(c.Context(), u.ID); err != nil {
+			return err
+		}
 		return a.notify(c.Context(), tx, u.ID, "password-changed", noticeData{})
 	})
 	if err != nil {
@@ -409,9 +438,12 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 	Success.Set(c, "Your password is reset.")
 	if u.TwoFactor {
 		auth.StartTwoFactor(s, u.authID())
+		s.Set(resetLoginKey, true)
 		return c.RedirectRoute("two-factor.login")
 	}
-	auth.Login(s, u.authID(), u.PasswordHash)
+	if err := a.logIn(c, u, false); err != nil {
+		return err
+	}
 	auth.SetPasswordConfirmed(s)
 	return c.RedirectRoute("dashboard")
 }

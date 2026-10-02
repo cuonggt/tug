@@ -22,11 +22,14 @@ import (
 // The table's SQL is in notifications_db.go.
 
 // noticeData is what a notification says of its change, kept as JSON: the
-// name of the passkey or token it's about, or the emails, old and new.
+// name of the passkey or token it's about, the emails, old and new, or the
+// browser of a new login, and its address.
 type noticeData struct {
 	Name     string `json:"name,omitempty"`
 	OldEmail string `json:"oldEmail,omitempty"`
 	NewEmail string `json:"newEmail,omitempty"`
+	Browser  string `json:"browser,omitempty"`
+	IP       string `json:"ip,omitempty"`
 }
 
 // A notice is a kind of notification: its line, in the reader's language,
@@ -92,6 +95,20 @@ var notices = map[string]notice{
 				Intro:  "A passkey called “" + d.Name + "” was added to your account, and logs in with no password.",
 				Action: "See your passkeys", URL: link,
 				Outro: "If that wasn't you, remove it there, and change your password: someone else has been in your account.",
+			}
+		},
+	},
+	"new-login": {
+		line: func(c *tug.Ctx, d noticeData) string {
+			return c.T("A new login, from :browser.", "browser", d.Browser)
+		},
+		link: "security.edit", mailLink: "security.edit",
+		mail: func(u *User, d noticeData, link string) message {
+			return message{
+				To: u, Subject: "A new login to your " + appName + " account",
+				Intro:  "Your account was logged in to from " + d.Browser + ", at " + d.IP + ": a browser it hadn't been logged in from before.",
+				Action: "See where you're logged in", URL: link,
+				Outro: "If that wasn't you, log it out there, and change your password: someone else knows it.",
 			}
 		},
 	},

@@ -2,6 +2,7 @@
 import { Form, Head } from '@inertiajs/vue3'
 import Heading from '@/components/Heading.vue'
 import InputError from '@/components/InputError.vue'
+import LoginSettings from '@/components/LoginSettings.vue'
 import PasskeySettings from '@/components/PasskeySettings.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
 import TwoFactorSettings from '@/components/TwoFactorSettings.vue'
@@ -11,7 +12,8 @@ import type { Pages, SharedProps } from '@/tug/pages'
 import { form } from '@/tug/routes'
 
 // Security changes the user's password, which logs them out everywhere
-// else, turns two-factor logins on and off, and keeps their passkeys.
+// else, turns two-factor logins on and off, keeps their passkeys, and
+// lists the browsers they're logged in from.
 const props = defineProps<Pages['Settings/Security'] & SharedProps>()
 </script>
 
@@ -47,4 +49,5 @@ const props = defineProps<Pages['Settings/Security'] & SharedProps>()
   </section>
   <PasskeySettings v-bind="props" />
   <TwoFactorSettings v-bind="props" />
+  <LoginSettings v-bind="props" />
 </template>

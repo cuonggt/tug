@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M43 are done, which is
+the decisions behind it and where it stands: M1 to M44 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -116,7 +116,12 @@ that goes to the page as a JavaScript `BigInt`, `bigint` to tug gen, and
 the development mailbox (v0.38.0): under tug dev, with no `MAIL_HOST`,
 `mail.Mailbox`, the mail an app sends kept in `.tug/mail`, as a server
 would take it, which the App shows at `/_tug/mail`, as a mail program
-would, its HTML in a sandboxed frame whose links open a tab of their own.
+would, its HTML in a sandboxed frame whose links open a tab of their own,
+and browser sessions (v0.39.0): `auth.LoginID`, a login's own ID, by
+which the auth starter keeps a row of each login, which its session needs
+at every request, lists the browsers an account is logged in from on its
+security page, logs one out from another, and tells of a login from a
+browser the account hasn't logged in from before.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour.
 
@@ -416,7 +421,7 @@ dev server that isn't there: delete it.
   response starts. Flash: `next` is what this request flashes, `now` what
   the one before did; values go through JSON. `SetLifetime` gives one
   session a lifetime of its own, kept in the payload (`l`), which `Clear`
-  drops. `Pass` leaves the cookie as it came, unwritten, when the request
+  drops; `Lifetime` says it, or else the Store's (`base`). `Pass` leaves the cookie as it came, unwritten, when the request
   changes nothing (`changed`, set by `Set`, `Delete`, `Clear` and
   `SetLifetime`) and flashes nothing, and else reflashes what it had.
 - `validate`: `Struct` over one go-playground validator that names fields
@@ -782,7 +787,8 @@ dev server that isn't there: delete it.
   (`markRead`, by the IDs' range); and `Bell`, shared as `bell`, the
   unread count. A new password, in the settings or by a reset, a new
   email, told at the old one, two-factor logins off, a passkey added (its
-  own mail's job gone) and a token made notify; `prune-notifications`
+  own mail's job gone), a token made and a login from a new browser
+  notify; `prune-notifications`
   deletes what was read 90 days ago. The browser's side: each layout's
   bell, and `resources/js/lib/broadcasts.ts`'s `listen`, one connection
   to `/broadcasts` a page, whose listeners reload as their event comes
@@ -794,6 +800,29 @@ dev server that isn't there: delete it.
   A reload is a visit, and empties the page's flash, so the tokens page
   and the recovery codes keep, in their own state, what came in it.
   `notifications_test.go` and `e2e/tests/notifications.spec.ts` test it.
+  `logins.go.tmpl` has the browsers a user is logged in from, `a.browsers`
+  (each layer's `logins_db.go`, `browsers`, over two tables: `logins`, a
+  row of each login by the SHA-256 of its `auth.LoginID` (`hashOf`), with
+  its User-Agent, its address, its session's lifetime, `Lifetime`'s, and
+  times in Unix milliseconds, its end its last sight and that lifetime;
+  and `browsers`, the hashes of the browsers' own IDs, the `tug_browser`
+  cookie's (`browserID`), each account has logged in from): `a.logIn`,
+  which every way in calls, `auth.Login`, then the row and the browser in
+  one transaction, and with `tell`, a `new-login` notification of a
+  browser the account hasn't had (`known`), but not at registering, a
+  reset, whose second factor's login `reset-login` marks, which a login
+  with the password unmarks, or a new password; `stillLoggedIn`, which
+  `a.user` calls, a session whose login has no row logged out, and its
+  last sight written once a minute at most (`seenEvery`), which moves its
+  end on; `endLogin` and `endOtherLogins`, at `DELETE
+  /settings/logins/{id}` and `/settings/logins`, behind
+  `passwordConfirmed`; `browserName`, a User-Agent's browser and system,
+  in lower case for one it doesn't know, which the pages capitalize; and
+  `prune`, `prune-logins`, every hour. `logout` deletes its row, and a new
+  password, a reset and a hash made again every row of the account's. Each
+  frontend's security page lists them, its `login-settings.tsx`,
+  `LoginSettings.vue` or `LoginSettings.svelte`. `logins_test.go` and
+  `e2e/tests/logins.spec.ts` test it.
   Every layer's `broadcasts_db.go` is `broadcasts`, a `broadcast.Store`,
   which `main` gives the `broadcast.Hub` it runs with `app.Go`, and
   `newApp` the app as `a.hub`, with `a.broadcasts` for `in(tx)`: in
@@ -872,8 +901,10 @@ dev server that isn't there: delete it.
   import of tug and no idea what a user is. `password.go`: argon2id at
   OWASP's settings, PHC strings, a check against a decoy when there's no
   hash, and `hashing`, which runs one hash per CPU. `auth.go`: the login
-  in the session (`tug.auth.id`, and `tug.auth.check`, a fingerprint of
-  the password hash that `Current` compares), the intended page, the time
+  in the session (`tug.auth.id`, `tug.auth.check`, a fingerprint of the
+  password hash that `Current` compares, and `tug.auth.login`, the
+  login's own ID, `rand.Text`'s, new at each `Login`, which `LoginID`
+  reads), the intended page, the time
   the password was last confirmed (`tug.auth.confirmed`), and a login held
   back for its second factor (`tug.auth.pending`), which `Login` drops.
   `tokens.go`: tokens for links in mail, signed with an HKDF key for their
