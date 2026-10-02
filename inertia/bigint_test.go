@@ -1,8 +1,6 @@
 package inertia
 
 import (
-	"encoding/json"
-	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -57,36 +55,5 @@ func TestABigIntGoesOutAsTheProtocolsMarkerOnAPageThatSaysSo(t *testing.T) {
 	rec, _ = render(t, i, visit("GET", "/"), "Home", Props{"id": int64(900719925474099988), "note": `{"$bigint":"1"}`})
 	if strings.Contains(rec.Body.String(), "preserveBigIntegers") {
 		t.Errorf("a page without a BigInt says it has one: %s", rec.Body)
-	}
-}
-
-func TestABigIntIsReadAsTheClientSendsItBack(t *testing.T) {
-	for _, tc := range []struct {
-		json string
-		want BigInt
-	}{
-		{`"900719925474099988"`, 900719925474099988}, // the client's, its digits
-		{`-900719925474099988`, -900719925474099988},
-		{`{"$bigint":"900719925474099988"}`, 900719925474099988}, // a page's, read back
-		{`""`, 5},   // a form's empty field
-		{`null`, 5}, // as encoding/json leaves a number
-	} {
-		n := BigInt(5)
-		if err := json.Unmarshal([]byte(tc.json), &n); err != nil || n != tc.want {
-			t.Errorf("%s: got %d, %v; want %d", tc.json, n, err, tc.want)
-		}
-	}
-
-	// What isn't a whole number is a type error, which Bind names the
-	// field of.
-	for _, bad := range []string{`"12a"`, `1.5`, `1e3`, `"9223372036854775808"`, `true`, `[1]`, `{"id":1}`} {
-		var dst struct {
-			ID BigInt `json:"id"`
-		}
-		var te *json.UnmarshalTypeError
-		err := json.Unmarshal([]byte(`{"id":`+bad+`}`), &dst)
-		if !errors.As(err, &te) || te.Field != "id" {
-			t.Errorf("%s: got %v, want a type error for id", bad, err)
-		}
 	}
 }

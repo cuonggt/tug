@@ -3776,13 +3776,14 @@ Choices made on the way:
 - **An int64:** a snowflake ID, a count of nanoseconds and a 64-bit
   column are int64s, and Go's arithmetic on one stays an int64's. A
   `uint64` past 2^63, and `big.Int`, are left out: rarer, and not IDs.
-- **Read back as it's sent:** the client sends a BigInt in a request as
-  its digits. `inertia.BigInt` reads them in JSON, from a string, a
-  number, or the protocol's marker, for a page's JSON read back, with
-  encoding/json's type error, which Bind names the field of, "order must
-  be a whole number"; an empty string, a form's empty field, leaves it as
-  it was. It has no `UnmarshalText`, so a form, the query and the path
-  set it by its kind, as an int64, and say what an int64 says.
+- **Read as an int64:** the client sends a BigInt in a request as its
+  digits, which Bind reads into an `inertia.BigInt` as it reads an int64:
+  a string of them in JSON, as a form sent as JSON, and a form, the query
+  and the path by its kind, with "order must be a whole number" for what
+  isn't one. It has no `UnmarshalJSON` of its own: CI's Go 1.27.1 caught
+  that encoding/json, from 1.27, gives the error of one no field, where
+  1.26 gave it the field's path, which Bind names. A page's marker is
+  tugtest's to read.
 - **tugtest reads the number:** a page that says it has a BigInt is read
   with each marker the number it is, so `Prop[int64]` and `json.Number`
   read one, as `Props` reads an `inertia.BigInt`.
@@ -3801,9 +3802,8 @@ Choices made on the way:
   tug's beside SSR's, and tug's for a page SSR failed or was skipped; a
   BigInt as the marker in props, nested, in a list, lazy and deferred,
   and in flash data, with the page's flag, and a page without one, a
-  string with the marker's text in it too, without it; and a BigInt read
-  back from each form, and refused, with the field's path, from what
-  isn't a whole number. In package tug, a handler's head over
+  string with the marker's text in it too, without it. In package tug, a
+  handler's head over
   middleware's, and an error page with middleware's alone; Bind reading
   a BigInt from JSON, a form, the query and the path, and a 400 for one
   that isn't one. tug gen's `bigint`, in props, a list, a pointer, flash

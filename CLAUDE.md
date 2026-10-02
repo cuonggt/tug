@@ -378,11 +378,13 @@ dev server that isn't there: delete it.
   `RenderStatus` writes as `InertiaHead` (`headHTML`, the title through
   `Config.Title`, with no key, which React's and Vue's adapters replace,
   and a keyed one Svelte's would take away with the document's title)
-  when SSR didn't render the page. `bigint.go`: `BigInt`,
-  an int64 that marshals as the protocol's `{"$bigint": "digits"}`,
-  and reads back digits in a string, a number or the marker, with
-  encoding/json's type error; no `UnmarshalText`, so Bind reads a form's
-  by its kind.
+  when SSR didn't render the page. `bigint.go`: `BigInt`, an int64 that
+  marshals as the protocol's `{"$bigint": "digits"}` (`bigIntMarker`),
+  and reads as an int64 does, with no `UnmarshalJSON` or `UnmarshalText`
+  of its own: Bind reads the client's digits, in JSON as a form sent as
+  JSON, and the rest by its kind, naming the field of an error, which
+  encoding/json, from Go 1.27, leaves out of the error of a type's own
+  `UnmarshalJSON`; tugtest reads a page's marker.
   `protocol_test.go` has a test for each rule M4 added. Under tug's
   DevTools, the request's context has a `devtools.Recording`, which `page`
   hands the page (`record`): each prop's metadata, by its path, as the
