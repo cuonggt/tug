@@ -50,6 +50,7 @@ to 3.8.0, October 2026), written against
 | M41 | Route list                 | done   |
 | M42 | Inertia 3.8                | done   |
 | M43 | Development mailbox        | done   |
+| M44 | Browser sessions           | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -3924,6 +3925,94 @@ Choices made on the way:
   and in an app made by `tug new -auth`, run under `TUG_DEV`, the mail
   registering sends listed in its mailbox, with the link that verifies
   the email in its HTML.
+
+## M44 · Browser sessions — later
+
+A login of the auth starter's lives in its browser's cookie, and nowhere
+else: the guide's list of what the starter leaves out has "a list of the
+sessions logged in", as there's nothing to list. A new password ends every
+login but the browser's that set it, so a login on a lost laptop, which
+"Remember me" keeps for 30 days, ends only with the password. Laravel's
+Jetstream lists the browsers an account is logged in from, with Laravel's
+sessions in the database, and logs out the others; GitHub and Google list
+them too, and mail the owner of a login from a new one. tug has the login,
+`auth.Login`, the user's every request, `a.user`, a database in three
+layers, and notifications, in the app and by mail. To be released as
+v0.39.0.
+
+- **Each login kept:** `auth.Login` gives each login an ID of its own,
+  random, in the session, which `auth.LoginID` reads, and the auth
+  starter keeps a row of it in a `logins` table: the user, the hash of
+  the ID, the browser, as its User-Agent says, the address, `c.IP()`'s,
+  when it began, and when it was last seen, written at most once a
+  minute, as an API token's last use is.
+- **A login ended, at its next request:** `a.user` reads the login's row
+  with the user, and a session whose login has no row is logged out, as
+  one with an old password is.
+- **The logins listed:** the security page lists the browsers the
+  account is logged in from, "Chrome on macOS", their addresses, and when
+  each was last seen, this browser's first, and logs one out, or all the
+  others, without a new password, in all three frontends.
+- **A login from a new browser:** a login from a browser the account
+  hasn't logged in from before is a notification, in the bell and by
+  mail, as the other changes that could hand the account to someone else
+  are: "A new login, from Chrome on macOS".
+- **The guide:** Accounts, the logins, their page and their
+  notification, and package auth's `LoginID`, and the line of what the
+  starter leaves out gone; and the README.
+
+Choices, to settle before any code:
+
+- **In the database, beside the cookie:** the session stays in its
+  cookie, as `session` keeps it, and the table has a row a login can be
+  ended by, which a cookie alone can't be. The row is checked on every
+  request of a logged-in user, the read the user's already is.
+- **The ID, `auth`'s; the table, the starter's:** an ID that can't be
+  guessed, from `crypto/rand`, is the part a slip would make a hole of,
+  so `Login` makes it, as it keeps the password's fingerprint; what an
+  app keeps of a login, and where, is its own. The table keeps the ID's
+  SHA-256, as an API token's is kept.
+- **A login from before, with no ID, ends:** a session from an app that
+  didn't keep its logins has no row, and logs in again, once.
+- **Its end, as the session's:** a session lasts its lifetime, two
+  hours, or 30 days for "Remember me", from its last response, so a row
+  keeps when it ends, its last sight and that lifetime, and the page lists
+  the logins that haven't; `prune-logins` deletes the rest every hour.
+- **A new password, as now:** it ends every other login by its
+  fingerprint, and their rows go with it; the browser that set it logs
+  in again, as now, its row with it.
+- **Logging out, ending the row:** logging out deletes its row, and
+  deleting the account its rows with it, by its key.
+- **The others, after the password:** logging out the other browsers
+  asks for the password again, as the security page does already, and a
+  browser of its own, one by one, too.
+- **A new browser, by a cookie of its own:** a browser is told apart by
+  a cookie the app gives it at a login, an ID of its own, random, which
+  outlives logging out, for a year, and a table, `browsers`, of the
+  hashes of the IDs each account has logged in from. A login from a
+  browser with no such cookie, or one the account hasn't had, is new;
+  the same browser on a new address isn't, as a phone's changes all day.
+  Registering, and a new password by a reset, are no logins to tell of,
+  as the account's own mail just came.
+- **The browser's name from its User-Agent:** a few lines of the
+  starter's, `browserName`, say which of Chrome, Edge, Firefox, Safari
+  and Opera, on which of macOS, Windows, iOS, Android, ChromeOS and
+  Linux, and "A browser" else; the row keeps the User-Agent as it came,
+  its first 512 bytes. No dependency, and no place, from the address.
+- **An event stream, as it is:** a browser whose login ends keeps its
+  `/broadcasts` stream until it connects again, but each reload an event
+  starts is a request, which finds no login.
+- **Tests:** in package auth, a login's ID new at each `Login`, and gone
+  at `Logout`; in the starter's tests, each login a row, listed with this
+  browser's first, one ended logging its browser out at its next
+  request, the others ended, a new password ending the others' rows, a
+  login with no ID logged out, a login from a new browser told of, in the
+  bell and by mail, and one from a known browser not, the last sight
+  written once a minute, and `prune-logins`; each layer's SQL on its
+  database, as CI's servers run them; and in the browser suite, in each
+  frontend, a second browser logging in, told of in the first's bell,
+  then logged out from the first's security page, and sent to the login
+  page at its next visit.
 
 ## Decisions
 
