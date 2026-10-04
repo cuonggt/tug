@@ -4064,10 +4064,11 @@ tug has `Run` and `Serve`, its `Config` from the environment, `APP_URL`,
 and the session cookie's `Secure` and HSTS from it. To be released as
 v0.40.0.
 
-- **Certificates from Let's Encrypt:** with `TLS_DOMAINS` set, as
-  `example.com,www.example.com`, `Run` serves HTTPS on `:443`, and
-  HTTP/2, with a certificate for each domain from Let's Encrypt, by
-  autocert, kept, and renewed before it runs out.
+- **Certificates from Let's Encrypt:** package `letsencrypt`, which an
+  app's `main` gives its `Config`, as the starters' does: with
+  `TLS_DOMAINS` set, as `example.com,www.example.com`, `Run` serves HTTPS
+  on `:443`, and HTTP/2, with a certificate for each domain from Let's
+  Encrypt, by autocert, kept, and renewed before it runs out.
 - **Port 80, for the challenges and the way in:** `:80` answers Let's
   Encrypt's HTTP-01 challenges, and sends every other request to its path
   over HTTPS.
@@ -4075,11 +4076,13 @@ v0.40.0.
   place of Let's Encrypt's, as Cloudflare's origin certificates or a
   company's own CA's are, read again as they change.
 - **`Config.TLS`:** the same for an app that makes its own `Config`: the
-  domains, or the files, where the certificates are kept, and the
-  addresses.
-- **The starters:** their images keep the certificates in `/data/certs`,
-  on their volume, which the plain starter's gains, and say how to run
-  them with HTTPS; `.env.example` has the variables.
+  files, or a source of certificates, as `letsencrypt`'s, and the
+  addresses; `letsencrypt.Config` has the domains and where the
+  certificates are kept.
+- **The starters:** their `main` gives the `Config` what
+  `letsencrypt.FromEnv` makes; their images keep the certificates in
+  `/data/certs`, on their volume, which the plain starter's gains, and
+  say how to run them with HTTPS; `.env.example` has the variables.
 - **The guide:** Deployment, HTTPS on its own, beside Behind a proxy, and
   its variables; and the README.
 
@@ -4089,36 +4092,64 @@ Choices, to settle before any code:
   key, signed requests and their nonces, orders, challenges, a CSR and a
   chain, and renewal, which the Go team keeps in
   `x/crypto/acme/autocert`, in the module tug has; it brings `x/net`'s
-  `idna`, for domain names, a module of theirs too. A dependency with a
-  reason, as the conventions ask. Package tug imports it, as `Run` serves
-  with it, so every app's binary has it, used or not.
-- **In Run, from the environment:** `ConfigFromEnv` reads `TLS_DOMAINS`,
-  `TLS_CERT` and `TLS_KEY`, `CERTS_PATH` and `HTTP_ADDR`; `Run` serves
-  HTTPS on `ADDR`, `:443` by default with TLS, and HTTP on `HTTP_ADDR`,
-  `:80`, and shuts both down together, as it does one now. `Serve`
-  serves the listener it's given, as now: a TLS one serves HTTPS, and
-  HTTP/2.
+  `idna`, for domain names, a module of theirs too, and with it x/text's
+  Unicode tables, from a module tug has already, through the validator.
+  A dependency with a reason, as the conventions ask.
+- **In a package of its own:** autocert, with what it brings, adds
+  0.9 MB to a stripped binary, to a minimal app's 9.9, on Go 1.26: twice
+  `time/tzdata`, which tug leaves an app to import. Imported by package
+  tug, as `Run` would serve with it, it would be in every app's binary,
+  used or not, though most end TLS in front of the app. So package
+  `letsencrypt` imports it, and package tug adds only what needs `Run`,
+  on the standard library: both ports, their shutdown, and the files,
+  with any source of certificates `Config.TLS` is given. An app that
+  doesn't import `letsencrypt` doesn't build autocert; the starters do,
+  as one machine is where they're meant to run, so `TLS_DOMAINS` alone
+  still turns it on in theirs.
+- **In Run, from the environment:** `ConfigFromEnv` reads `TLS_CERT`,
+  `TLS_KEY` and `HTTP_ADDR`, and `letsencrypt.FromEnv` reads
+  `TLS_DOMAINS`, `CERTS_PATH` and `ACME_URL`, and makes none without
+  `TLS_DOMAINS`. With neither, nothing changes: `Run` serves HTTP on
+  `ADDR`, for TLS ended in front of it. With either, `Run` serves HTTPS
+  on `ADDR`, `:443` by default, and HTTP on `HTTP_ADDR`, `:80`, and shuts
+  both down together, as it does one now. `Serve` serves the listener
+  it's given, as now: a TLS one serves HTTPS, and HTTP/2 only when its
+  `tls.Config` offers `h2`, as net/http adds that for `ServeTLS` alone,
+  which `Serve`'s doc says.
 - **Only the domains named:** a certificate is asked for only for
   `TLS_DOMAINS`, `autocert.HostWhitelist`'s, as a handshake for any other
   name, as a scanner's by the address, would spend Let's Encrypt's limits
   on it. `APP_URL`'s host is one of them, or the app doesn't start.
 - **Asked for as the app starts:** each domain's certificate is asked for
-  in the background as the app starts, rather than at the first
-  visitor's handshake, so no one waits seconds for it, and a domain whose
-  DNS doesn't reach the machine shows in the log at once.
+  in the background as the app starts, once both ports listen, as the
+  CA's checks come to them, rather than at the first visitor's
+  handshake, so no one waits seconds for it, and a domain whose DNS
+  doesn't reach the machine shows in the log at once. It's asked for by
+  a hello that offers ECDSA, as a browser's does: autocert keeps a
+  domain's ECDSA certificate apart from its RSA one, and gives a hello
+  with no ECDSA suite in it, as a bare `tls.ClientHelloInfo`, the RSA
+  one, which would leave the browser's to be asked for at its handshake
+  after all.
+- **Both challenges:** autocert tries TLS-ALPN-01, on `:443`, before
+  HTTP-01, on `:80`, so with `letsencrypt`, `:443` offers `acme-tls/1`
+  beside `h2` and `http/1.1`, as `Manager.TLSConfig` does. Without it,
+  each certificate would begin with a failed validation, which Let's
+  Encrypt counts against the domain, before autocert fell back to
+  HTTP-01; with it, a certificate is got where `:80` is closed too, as
+  some hosts close it, and `:80` is still the way in.
 - **Kept on the disk:** the account's key and the certificates are in
   `CERTS_PATH`, `certs/` beside the binary by default, through
   `autocert.DirCache`, which writes them for the app's user alone. The
   images set it to `/data/certs`, on their volume, so a new container
   doesn't ask again: Let's Encrypt gives the same names five
-  certificates a week. `Config.TLS.Cache` takes any `autocert.Cache`, as
-  a table of the app's, for instances on more than one machine, which,
-  behind a load balancer, end TLS there anyway.
-- **The way in:** `:80` sends a request for one of the domains to
-  `https://`, with its host, path and query, by a 308, which keeps the
-  method, as Caddy does, and one for any other host, as by the address,
-  to `APP_URL`'s. HSTS, as the starters send it, has a browser go to
-  HTTPS itself after.
+  certificates a week. `letsencrypt.Config`'s `Cache` takes any
+  `autocert.Cache`, as a table of the app's, for instances on more than
+  one machine, which, behind a load balancer, end TLS there anyway.
+- **The way in:** `:80` sends a request for one of the domains, or of the
+  names the files' certificate is for, to `https://`, with its host,
+  path and query, by a 308, which keeps the method, as Caddy does, and
+  one for any other host, as by the address, to `APP_URL`'s. HSTS, as
+  the starters send it, has a browser go to HTTPS itself after.
 - **Let's Encrypt's terms:** autocert asks the app to accept the CA's
   terms, `autocert.AcceptTOS`; setting `TLS_DOMAINS` is the operator
   accepting them, which the guide says, with the link. No email: Let's
@@ -4131,10 +4162,12 @@ Choices, to settle before any code:
   as the app starts, and again at a handshake, once a minute at most,
   when their time has changed, as a renewal by certbot replaces them; a
   pair that doesn't load leaves the last in use, and logs why. Both or
-  neither, and not with `TLS_DOMAINS`, or the app doesn't start.
-- **HTTP/2 by ALPN:** Go's server agrees on it in the handshake, and
-  `c.Events` and `c.Stream` flush through it as they do now. Over plain
-  HTTP, as behind a proxy, it's HTTP/1.1, as now.
+  neither, and not with a source of certificates, as `letsencrypt`'s, or
+  the app doesn't start.
+- **HTTP/2 by ALPN:** `Run`'s TLS offers `h2` and `http/1.1` itself, as
+  it serves through `Serve`, so Go's server agrees on HTTP/2 in the
+  handshake, and `c.Events` and `c.Stream` flush through it as they do
+  now. Over plain HTTP, as behind a proxy, it's HTTP/1.1, as now.
 - **The request's scheme and address:** over HTTPS in the app, a
   request's `TLS` is set, so the session cookie is `Secure` by itself,
   and `c.IP()` is the browser's, with no `TRUSTED_PROXIES`.
@@ -4152,12 +4185,17 @@ Choices, to settle before any code:
 - **Tests:** in package tug, HTTPS with a certificate the test makes: a
   request answered, HTTP/2 agreed on, the session cookie `Secure`, and
   the files read again as they change; `:80`'s redirect, with its path,
-  query and method, another host's to `APP_URL`'s, and a challenge's path
-  answered by autocert; `ConfigFromEnv`'s variables, and an `APP_URL`
-  that isn't one of the domains stopping the app; against Pebble, Let's
-  Encrypt's test CA, in CI as MinIO is, when `TUG_TEST_ACME` names one, a
-  certificate got as the app starts, kept in `CERTS_PATH`, and served;
-  and in the CLI, `tug dev` leaving the variables out.
+  query and method, and another host's to `APP_URL`'s; `ConfigFromEnv`'s
+  variables, none of them serving HTTP as now, and package tug's
+  dependencies, by `go list -deps`, with no autocert in them. In package
+  `letsencrypt`: a challenge's path answered by autocert, `acme-tls/1`
+  offered, `FromEnv`'s variables, and an `APP_URL` that isn't one of the
+  domains stopping the app; against Pebble, Let's Encrypt's test CA, in
+  CI as MinIO is, when `TUG_TEST_ACME` names one, a certificate got as
+  the app starts, an ECDSA one, kept in `CERTS_PATH`, and served at a
+  browser's handshake without another order, and one got by TLS-ALPN-01
+  alone, with nothing on `:80`. And in the CLI, `tug dev` leaving the
+  variables out.
 
 ## Decisions
 
