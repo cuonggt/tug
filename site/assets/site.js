@@ -264,6 +264,10 @@
   const run = () => {
     const phrase = input.value.trim().toLowerCase().replace(/\s+/g, ' ')
     if (!sections) {
+      // The index comes the first time search is used: say so while it does.
+      results.textContent = ''
+      hits = []
+      note.textContent = 'Loading the index…'
       load().then(run, failed)
       return
     }
@@ -316,7 +320,14 @@
   }
 
   if (search) {
-    for (const button of $$('[data-search-open]')) button.addEventListener('click', openSearch)
+    for (const button of $$('[data-search-open]')) {
+      button.addEventListener('click', openSearch)
+      // Fetched as the reader heads for search, the index is there when it
+      // opens.
+      for (const type of ['pointerenter', 'focus']) {
+        button.addEventListener(type, () => load().catch(() => {}), { once: true })
+      }
+    }
     $('[data-search-close]', search).addEventListener('click', () => search.close())
     search.addEventListener('click', (event) => {
       if (event.target === search && outside(search, event)) search.close()
