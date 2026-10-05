@@ -124,7 +124,9 @@ security page, logs one out from another, and tells of a login from a
 browser the account hasn't logged in from before.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
-pages by `site/`, which GitHub Pages serves.
+pages by `site/`, which GitHub Pages serves, and `bench/` measures tug
+beside other frameworks, for `docs/benchmarks.md`, the README and the
+website's home page.
 
 ## Commands
 
@@ -132,7 +134,7 @@ pages by `site/`, which GitHub Pages serves.
 go test -short ./...                       # a few seconds, no network or Node
 go test ./...                              # also makes an app of each kind with tug new: needs npm
 go test -race ./...                        # what CI runs; a server is concurrent
-go test -run '^$' -bench . -benchmem .     # tug next to ServeMux alone
+go test -run '^$' -bench . -benchmem .     # tug next to ServeMux alone; bench/ has the rest
 go vet ./... && gofmt -l .
 ADDR=127.0.0.1:8080 go run ./examples/api
 ```
@@ -188,6 +190,18 @@ main, publishes:
 ```bash
 go run . -serve 127.0.0.1:8090            # made again as docs/ or the site changes
 go test ./... && go run . -check          # every link of the guide's, to a page or a heading, is there
+```
+
+The benchmarks, in `bench/`, a module of its own, whose numbers are
+`results.json`, which a run writes, with the tables in
+`docs/benchmarks.md` and the README; measure on a machine with nothing
+else running:
+
+```bash
+go run . go                               # tug, ServeMux, Gin, Echo, Chi and gonertia, by go test
+go run . setup && go run . http           # each app in apps/ under load: needs PHP with Swoole, Ruby, Python and Node
+go run . http tug laravel                 # only these, keeping the others' results
+go test ./...                             # what CI runs: the frameworks answer alike, and the load's reader
 ```
 
 Manual runs should set `ADDR=127.0.0.1:...`: the default `:8080` listens on
@@ -1131,7 +1145,44 @@ dev server that isn't there: delete it.
   (`tokenClass`). `templates/`, `assets/` (`site.css`, its colors tokens,
   light and dark; `site.js`, search, the drawer, copying, and the heading
   the reader is at) and `snippets/`, the home page's code, are read from
-  the directory it runs in.
+  the directory it runs in. `bench.go`: `loadBench` reads
+  `bench/results.json` for the home page's charts, each a table of bars
+  (`chart`, `bar`, each bar's length a share of the longest, `--w`), and
+  its headline's numbers, tug's visits a second over the others'; with no
+  results, the page has no section of them. `benchmarks` is a page the
+  index needn't list as a part, as the roadmap is.
+- `bench/`: tug beside other frameworks, a module of its own, for Gin,
+  Echo, Chi and gonertia, which tug has no need of. `page/`: the page
+  every app serves, `page.json`'s post and comments as `Posts/Show`, which
+  each app, in whatever language, reads once as it starts (`For`, the
+  props with the route's ID). `routers_test.go`: one route through
+  ServeMux and each Go framework, as its `New` makes it (`routers`,
+  `serve`, with `discard`, a writer that keeps nothing);
+  `inertia_test.go`: the page through tug's App, its `inertia` package on
+  ServeMux and gonertia on ServeMux (`adapters`), a visit and a first
+  visit, read back by `pageOf`. `main.go`: the commands, `setup`, `go`,
+  `http` and `docs`. `gobench.go`: `runGo`, `go test -bench` `-count`
+  times, its lines read (`parseBenchLine`, a name's underscores spaces
+  again) and each one's `median`. `apps.go`: the `apps`, each a directory
+  of `apps/` with its `setup.sh`, `start.sh`, given `PORT` and `WORKERS`,
+  the cores, and `versions.sh`; a `server` is one started in a process
+  group of its own, stopped with its workers, and `requests` checks its
+  page, props and all, by `page.For`, and makes the requests the load
+  sends, a first visit's with no cookies, and a visit's with the version
+  and the cookies the first visit set. `load.go`: `load`, `conns`
+  connections kept alive, each a `worker` sending its next request as its
+  answer comes, a warmup, then counting; `readResponse` reads an answer no
+  further than its length or its chunks say; `histogram` keeps the times
+  in buckets a 64th of a power of two wide. `results.go`: `results.json`
+  (`goResults`, `httpResults`, the round with the median requests a second
+  of each page), `thisMachine`, and the tables, which `writeDocs` puts
+  between a doc's `<!-- bench:name -->` and `<!-- /bench:name -->`
+  (`replaceRegion`), in `docs/benchmarks.md` and the README. `apps/tug` is
+  an app as `tug new` makes one, its sessions and middleware, without a
+  frontend; the others are their frameworks' generators' apps, trimmed to
+  the page, each pinned by its lock file and served in production as its
+  docs say: Laravel on Octane and Swoole, Rails on Puma, Django on
+  gunicorn and AdonisJS on Node's cluster module.
 
 tug logs through `slog.Default()` and never sets it; that's the app's call.
 

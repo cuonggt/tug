@@ -37,6 +37,7 @@ type site struct {
 	Version string // the latest release's, from the README
 	Parts   []part // the guide's, in its order
 	Index   *page  // docs/README.md
+	Bench   *bench // what the home page shows of bench/results.json, when there is one
 	pages   map[string]*page
 	names   []string // the pages', sorted
 
@@ -98,6 +99,9 @@ func load(cfg config) (*site, error) {
 	}
 	s.Parts = s.Index.parts
 
+	if s.Bench, err = loadBench(cfg.Root); err != nil {
+		return nil, err
+	}
 	if err := s.loadOwn(); err != nil {
 		return nil, err
 	}
@@ -175,7 +179,7 @@ func (s *site) loadOwn() error {
 // and pages its index doesn't list.
 func (s *site) check() []string {
 	var problems []string
-	listed := map[string]bool{"README": true, "roadmap": true}
+	listed := map[string]bool{"README": true, "roadmap": true, "benchmarks": true}
 	for _, p := range s.Parts {
 		listed[p.Name] = true
 	}

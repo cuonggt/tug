@@ -129,11 +129,14 @@ func serveSite(addr string, cfg config) error {
 }
 
 // fingerprint is the names, sizes and times of the site's sources: the
-// guide and the README, and the site's own files.
+// guide, the README and the benchmarks' results, and the site's own files.
 func fingerprint(root string) (string, error) {
 	var b strings.Builder
 	add := func(dir string) error {
 		return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil // as results.json, before the benchmarks first run
+			}
 			if err != nil || d.IsDir() {
 				return err
 			}
@@ -145,7 +148,7 @@ func fingerprint(root string) (string, error) {
 			return nil
 		})
 	}
-	for _, dir := range []string{filepath.Join(root, "docs"), filepath.Join(root, "README.md"), "templates", "assets", "snippets"} {
+	for _, dir := range []string{filepath.Join(root, "docs"), filepath.Join(root, "README.md"), filepath.Join(root, "bench", "results.json"), "templates", "assets", "snippets"} {
 		if err := add(dir); err != nil {
 			return "", err
 		}

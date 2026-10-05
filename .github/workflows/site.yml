@@ -1,5 +1,6 @@
 # The website: the guide in docs/, made into pages by the Go program in
-# site/. Every push and pull request that changes the guide checks its
+# site/, with the benchmarks' last results, bench/results.json, on its
+# home page. Every push and pull request that changes the guide checks its
 # links, to pages and to the headings in them, as the site's tests and its
 # -check do, so a link a change breaks fails here rather than on the site.
 # A push to main also publishes it on GitHub Pages, under the path and the
@@ -11,9 +12,9 @@ name: site
 
 on:
   push:
-    paths: ['docs/**', 'README.md', 'site/**', '.github/workflows/site.yml']
+    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', '.github/workflows/site.yml']
   pull_request:
-    paths: ['docs/**', 'README.md', 'site/**', '.github/workflows/site.yml']
+    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', '.github/workflows/site.yml']
   workflow_dispatch:
 
 concurrency:

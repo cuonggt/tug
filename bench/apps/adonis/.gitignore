@@ -1,0 +1,10 @@
+# Installed packages, and the production build, which has its own
+node_modules/
+build/
+
+# Files the app writes as it runs, such as uploads, under app.tmpPath()
+tmp/
+
+# An environment for running ace commands locally: the benchmark's is in
+# start.sh
+.env

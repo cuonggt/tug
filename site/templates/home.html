@@ -82,7 +82,36 @@
     </div>
   </section>
 
-  <section class="section" aria-labelledby="guide-title">
+  {{with .Bench}}
+  <section class="section" aria-labelledby="bench-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">How fast</p>
+        <h2 id="bench-title">The same page, {{.Lead}} to {{.Most}} times the requests a second.</h2>
+        <p>One Inertia page, a post and its comments, served by tug and by {{.Others}}, each through its own Inertia adapter, in production, with the server its docs recommend on every core. tug answers {{.Lead}} times as many visits a second as {{.Next}}, the fastest of the others, and {{.Most}} times as many as {{.Fewest}}.</p>
+      </div>
+      <div class="bench">
+        {{range $i, $c := .Charts}}<figure class="bench-chart{{if eq $i 0}} bench-wide{{end}}">
+          <figcaption class="bench-cap" id="{{.ID}}"><span class="bench-title">{{.Title}}</span><span class="bench-about">{{.About}}</span></figcaption>
+          <table class="bars" aria-labelledby="{{.ID}}">
+            <thead class="sr-only"><tr><th scope="col">Framework</th><th scope="col">{{.Column}}</th></tr></thead>
+            <tbody>
+              {{range .Bars}}<tr{{if .Tug}} class="is-tug"{{end}}>
+                <th scope="row"><span class="bar-name">{{.Name}}</span>{{with .Note}}<span class="bar-note">{{.}}</span>{{end}}</th>
+                <td><div class="bar-track"><span class="bar" style="{{.Width}}"></span><span class="bar-value">{{.Value}}{{with .Detail}}<span class="bar-detail">{{.}}</span>{{end}}</span></div></td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </figure>
+        {{end}}
+      </div>
+      <p class="bench-foot">Measured <time datetime="{{.Date}}">{{.Date}}</time> on {{.Machine}}. <a href="{{href "docs/benchmarks/"}}">Every number, and how they were measured{{template "i-arrow"}}</a></p>
+    </div>
+  </section>
+  {{end}}
+
+  <section class="section{{if .Bench}} section-alt{{end}}" aria-labelledby="guide-title">
     <div class="wrap">
       <div class="section-head">
         <p class="eyebrow">The guide</p>

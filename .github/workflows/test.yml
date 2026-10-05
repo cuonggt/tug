@@ -15,6 +15,8 @@
 # And the auth starter in each frontend, React, Vue and Svelte, made by tug
 # new, served as it's deployed, and driven by one suite: the same steps, by
 # the same labels, so the three stay one app.
+#
+# And the benchmarks' module, bench/: its tests, not its benchmarks.
 name: test
 
 on:
@@ -91,6 +93,27 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "not gofmt'd:"; echo "$unformatted"; exit 1
           fi
+      - run: go test -race ./...
+
+  # The benchmarks' module, bench/, a module of its own: that ServeMux and
+  # each Go framework answer the benchmarks' request alike, that tug and
+  # gonertia render the same page, and the load's reader of responses.
+  # The benchmarks themselves run by hand, on a machine with nothing else
+  # running: a runner's numbers would be its neighbours' as much as its own.
+  bench:
+    name: bench
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: bench
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bench/go.mod
+          cache-dependency-path: bench/go.sum
+      - run: go vet ./...
       - run: go test -race ./...
 
   e2e:

@@ -63,4 +63,5 @@ the detail.
     `tug migrate`, `tug build` and `tug key`, in full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,
-and what comes next.
+and what comes next, and [the benchmarks](benchmarks.md) how fast it
+serves a page beside other frameworks, and how that was measured.

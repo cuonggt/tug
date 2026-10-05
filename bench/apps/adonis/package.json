@@ -1,0 +1,45 @@
+{
+  "name": "adonis",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node bin/server.js",
+    "build": "node ace build"
+  },
+  "imports": {
+    "#exceptions/*": "./app/exceptions/*.js",
+    "#middleware/*": "./app/middleware/*.js",
+    "#start/*": "./start/*.js",
+    "#config/*": "./config/*.js"
+  },
+  "devDependencies": {
+    "@adonisjs/assembler": "^8.5.2",
+    "@adonisjs/tsconfig": "^2.0.0",
+    "@poppinss/ts-exec": "^1.4.4",
+    "@types/node": "~26.6.2",
+    "pino-pretty": "^13.2.0",
+    "typescript": "~6.0.3",
+    "youch": "^4.1.1"
+  },
+  "dependencies": {
+    "@adonisjs/core": "^7.5.2",
+    "@adonisjs/cors": "^3.0.0",
+    "@adonisjs/inertia": "^5.0.1",
+    "@adonisjs/session": "^8.1.0",
+    "@adonisjs/shield": "^9.0.0",
+    "@adonisjs/static": "^2.0.1",
+    "@adonisjs/vite": "^6.0.2",
+    "edge.js": "^6.5.1",
+    "reflect-metadata": "^0.2.2"
+  },
+  "allowScripts": {
+    "@swc/core": true,
+    "esbuild": true,
+    "fsevents": true
+  }
+}

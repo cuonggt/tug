@@ -1,0 +1,26 @@
+{
+  "component": "Posts/Show",
+  "post": {
+    "id": 0,
+    "title": "What a request costs",
+    "body": "Every framework puts something between the socket and the handler: a router, a context, a middleware stack, the session, and whatever the page needs to be written out. Each of those is small, and none of them is free. This post follows one request through a web app, from the moment its bytes arrive to the moment the last byte of the page leaves, and counts what each layer adds. The handler at the end of it does almost nothing on purpose, so that what's measured is the framework, not the app built on it.",
+    "author": {
+      "id": 7,
+      "name": "Ada Lovelace"
+    },
+    "tags": ["web", "inertia", "performance"],
+    "published_at": "2026-10-05T09:00:00Z"
+  },
+  "comments": [
+    {"id": 1, "author": "Grace Hopper", "body": "A clear walk through it. I'd like to see the same request with a database query at the end, to see what share of the time the framework is."},
+    {"id": 2, "author": "Alan Turing", "body": "The middleware stack is where I'd have guessed the time goes, and it's good to see it measured rather than guessed."},
+    {"id": 3, "author": "Katherine Johnson", "body": "Worth saying that the numbers are per request on one machine. Under load the queueing changes the picture, which the follow-up could show."},
+    {"id": 4, "author": "Edsger Dijkstra", "body": "Simplicity is a prerequisite for reliability, and it turns out for speed as well."},
+    {"id": 5, "author": "Barbara Liskov", "body": "I liked that the handler is the same in every framework. It's the only way the comparison means anything."},
+    {"id": 6, "author": "Donald Knuth", "body": "Premature optimization is the root of much evil, but knowing where the time goes is never premature."},
+    {"id": 7, "author": "Margaret Hamilton", "body": "How much of it is the session? Encrypting a cookie on every response isn't free either."},
+    {"id": 8, "author": "John McCarthy", "body": "Would the result change much with keep-alive off? Opening a connection costs more than most of these layers."},
+    {"id": 9, "author": "Frances Allen", "body": "The compilers matter too: a JIT that has warmed up is a different program from the one that started."},
+    {"id": 10, "author": "Ken Thompson", "body": "When in doubt, use brute force, and then measure it."}
+  ]
+}

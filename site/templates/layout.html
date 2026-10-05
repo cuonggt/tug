@@ -33,8 +33,9 @@ try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') 
     <a class="brand" href="{{href ""}}" aria-label="tug, home">{{template "logo"}}<span class="brand-name">tug</span></a>
     {{with .Version}}<a class="version" href="{{$.Repo}}/releases/tag/{{.}}" aria-label="Version {{.}}, on GitHub">{{.}}</a>{{end}}
     <nav class="topnav" aria-label="Site">
-      <a href="{{href "docs/"}}"{{if eq .Kind "guide"}} aria-current="page"{{end}}{{if and (eq .Kind "doc") (ne .Path "docs/roadmap/")}} class="is-in"{{end}}>Guide</a>
+      <a href="{{href "docs/"}}"{{if eq .Kind "guide"}} aria-current="page"{{end}}{{if and (eq .Kind "doc") .Part}} class="is-in"{{end}}>Guide</a>
       <a href="{{href "docs/roadmap/"}}"{{if eq .Path "docs/roadmap/"}} aria-current="page"{{end}}>Roadmap</a>
+      <a href="{{href "docs/benchmarks/"}}"{{if eq .Path "docs/benchmarks/"}} aria-current="page"{{end}}>Benchmarks</a>
       <a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference{{template "i-out"}}</a>
     </nav>
     <div class="topbar-tools">
@@ -51,6 +52,7 @@ try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') 
     <nav class="footer-nav" aria-label="Footer">
       <a href="{{href "docs/"}}">Guide</a>
       <a href="{{href "docs/roadmap/"}}">Roadmap</a>
+      <a href="{{href "docs/benchmarks/"}}">Benchmarks</a>
       <a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference</a>
       <a href="{{.Repo}}">GitHub</a>
     </nav>
@@ -92,6 +94,7 @@ try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') 
   <p class="sidenav-title">Project</p>
   <ul class="sidenav-list">
     <li><a href="{{href "docs/roadmap/"}}"{{if eq $.Path "docs/roadmap/"}} aria-current="page"{{end}}>Roadmap</a></li>
+    <li><a href="{{href "docs/benchmarks/"}}"{{if eq $.Path "docs/benchmarks/"}} aria-current="page"{{end}}>Benchmarks</a></li>
     <li><a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference{{template "i-out"}}</a></li>
     <li><a href="{{.Repo}}">GitHub{{template "i-out"}}</a></li>
   </ul>
