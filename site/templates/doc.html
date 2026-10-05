@@ -1,0 +1,25 @@
+{{define "main"}}
+<div class="docs">
+  <aside class="sidebar">{{template "sidenav" .}}</aside>
+  <main id="content" class="docs-main" tabindex="-1">
+    <article class="doc">
+      <header class="doc-head">
+        <p class="eyebrow">{{if .Part}}Guide <span aria-hidden="true">/</span> {{num .Part.Num}}{{else}}Project{{end}}</p>
+        <h1>{{.Page.TitleHTML}}</h1>
+      </header>
+      {{if .Page.TOC}}<details class="toc-inline"><summary>On this page</summary>{{template "toc" .}}</details>{{end}}
+      <div class="prose">{{.Page.Body}}</div>
+      <footer class="doc-foot">
+        <a class="edit" href="{{.Repo}}/edit/main/docs/{{.Page.Name}}.md">{{template "i-edit"}}Edit this page on GitHub</a>
+        {{if or .Prev .Next}}<nav class="pager" aria-label="Pages of the guide">
+          {{with .Prev}}<a class="pager-link pager-prev" href="{{href .Path}}" rel="prev"><span class="pager-dir">{{template "i-arrow-left"}}Previous</span><span class="pager-title">{{.Title}}</span></a>{{end}}
+          {{with .Next}}<a class="pager-link pager-next" href="{{href .Path}}" rel="next"><span class="pager-dir">Next{{template "i-arrow"}}</span><span class="pager-title">{{.Title}}</span></a>{{end}}
+        </nav>{{end}}
+      </footer>
+    </article>
+  </main>
+  {{if .Page.TOC}}<aside class="toc-side" aria-label="On this page"><p class="toc-title">On this page</p>{{template "toc" .}}</aside>{{end}}
+</div>
+{{end}}
+
+{{define "toc"}}<ol class="toc">{{range .Page.TOC}}<li class="toc-{{.Level}}"><a href="#{{.ID}}">{{.HTML}}</a></li>{{end}}</ol>{{end}}

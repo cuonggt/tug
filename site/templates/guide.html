@@ -1,0 +1,22 @@
+{{define "main"}}
+<div class="docs docs-wide">
+  <aside class="sidebar">{{template "sidenav" .}}</aside>
+  <main id="content" class="docs-main" tabindex="-1">
+    <article class="doc">
+      <header class="doc-head">
+        <p class="eyebrow">Guide</p>
+        <h1>{{.Page.TitleHTML}}</h1>
+      </header>
+      <div class="prose">{{.Page.Body}}</div>
+      {{template "parts" .}}
+      <div class="prose">{{.Page.After}}</div>
+      <footer class="doc-foot">
+        <a class="edit" href="{{.Repo}}/edit/main/docs/README.md">{{template "i-edit"}}Edit this page on GitHub</a>
+        {{with .Next}}<nav class="pager" aria-label="Pages of the guide">
+          <a class="pager-link pager-next" href="{{href .Path}}" rel="next"><span class="pager-dir">Start{{template "i-arrow"}}</span><span class="pager-title">{{.Title}}</span></a>
+        </nav>{{end}}
+      </footer>
+    </article>
+  </main>
+</div>
+{{end}}

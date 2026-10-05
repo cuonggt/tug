@@ -123,7 +123,8 @@ at every request, lists the browsers an account is logged in from on its
 security page, logs one out from another, and tells of a login from a
 browser the account hasn't logged in from before.
 `README.md` is the front door, and `docs/` the guide, a page per part of
-tug. Change them with the behaviour.
+tug. Change them with the behaviour. The website is the guide made into
+pages by `site/`, which GitHub Pages serves.
 
 ## Commands
 
@@ -179,6 +180,14 @@ app of each frontend with tug new and runs it as it's deployed:
 ```bash
 npm install && npx playwright test                           # minutes the first time: it makes three apps
 TUG_E2E_DIR=/tmp/tug-e2e FRONTENDS=vue npx playwright test   # keeps the apps for the next run; one frontend
+```
+
+The website, in `site/`, a module of its own, which CI builds and, from
+main, publishes:
+
+```bash
+go run . -serve 127.0.0.1:8090            # made again as docs/ or the site changes
+go test ./... && go run . -check          # every link of the guide's, to a page or a heading, is there
 ```
 
 Manual runs should set `ADDR=127.0.0.1:...`: the default `:8080` listens on
@@ -1104,6 +1113,25 @@ dev server that isn't there: delete it.
   reloading its stats, follow with `resources/js/useEvents.ts`.
   `resources/js/tug` is written by tug gen and committed (CI checks it's
   current); its flash key, `Success`, is declared with `tug.Flash`.
+- `site/`: the website, a module of its own, for goldmark and chroma,
+  which tug has no need of; `.github/workflows/site.yml` builds it on a
+  change to the guide, and publishes it on GitHub Pages from main.
+  `build.go`: `load` reads `docs/*.md` and the README's latest release,
+  `check` finds a link to a page or a heading that isn't there, and a page
+  the index doesn't list, and `write` puts each page at `docs/<name>/`,
+  the index at `docs/`, the home page, `404.html`, `search.json` (each
+  page's sections, the roadmap's cut short, so search finds the guide
+  first) and, with `-url`, the sitemap, in a directory it empties only
+  when it wrote it (`marker`). `markdown.go`: `convert` gives a heading
+  the ID GitHub gives it (`githubSlug`, `uniqueSlug`), so the guide's links
+  to headings work on both, and makes a link to a page of `docs/` the
+  site's, and to a file of the checkout's GitHub's (`rewrite`); the index's
+  numbered list is the guide's parts (`partsOf`), the sidebar's and the
+  cards'. `highlight.go`: code as chroma's tokens, in a few classes
+  (`tokenClass`). `templates/`, `assets/` (`site.css`, its colors tokens,
+  light and dark; `site.js`, search, the drawer, copying, and the heading
+  the reader is at) and `snippets/`, the home page's code, are read from
+  the directory it runs in.
 
 tug logs through `slog.Default()` and never sets it; that's the app's call.
 

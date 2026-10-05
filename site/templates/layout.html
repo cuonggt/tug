@@ -1,0 +1,108 @@
+{{define "layout"}}<!doctype html>
+<html lang="en" data-base="{{href ""}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<meta name="description" content="{{.Description}}">
+{{with .Canonical}}<link rel="canonical" href="{{.}}">
+<meta property="og:url" content="{{.}}">
+{{end}}<meta property="og:type" content="website">
+<meta property="og:site_name" content="tug">
+<meta property="og:title" content="{{.Title}}">
+<meta property="og:description" content="{{.Description}}">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="{{asset "site.css"}}">
+<script>
+// The theme picked on an earlier visit, set before the page paints; with
+// none, the system's, by site.css's media query.
+try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t } catch (e) {}
+</script>
+<script src="{{asset "site.js"}}" defer></script>
+</head>
+<body class="kind-{{.Kind}}">
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-in">
+    <button type="button" class="icon-btn nav-open" data-nav-open aria-label="Open the guide's pages" aria-controls="nav-drawer" aria-expanded="false">{{template "i-menu"}}</button>
+    <a class="brand" href="{{href ""}}" aria-label="tug, home">{{template "logo"}}<span class="brand-name">tug</span></a>
+    {{with .Version}}<a class="version" href="{{$.Repo}}/releases/tag/{{.}}" aria-label="Version {{.}}, on GitHub">{{.}}</a>{{end}}
+    <nav class="topnav" aria-label="Site">
+      <a href="{{href "docs/"}}"{{if eq .Kind "guide"}} aria-current="page"{{end}}{{if and (eq .Kind "doc") (ne .Path "docs/roadmap/")}} class="is-in"{{end}}>Guide</a>
+      <a href="{{href "docs/roadmap/"}}"{{if eq .Path "docs/roadmap/"}} aria-current="page"{{end}}>Roadmap</a>
+      <a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference{{template "i-out"}}</a>
+    </nav>
+    <div class="topbar-tools">
+      <button type="button" class="search-btn" data-search-open aria-label="Search the guide" aria-keyshortcuts="Control+K Meta+K /">{{template "i-search"}}<span class="search-btn-label">Search</span><kbd class="kbd" data-kbd>Ctrl K</kbd></button>
+      <button type="button" class="icon-btn" data-theme-toggle aria-pressed="false" aria-label="Dark theme">{{template "i-moon"}}{{template "i-sun"}}</button>
+      <a class="icon-btn" href="{{.Repo}}" aria-label="tug on GitHub">{{template "i-github"}}</a>
+    </div>
+  </div>
+</header>
+{{template "main" .}}
+<footer class="footer">
+  <div class="footer-in">
+    <div class="footer-brand">{{template "logo"}}<p><strong>tug</strong> A tugboat is small, and moves ships many times its size.</p></div>
+    <nav class="footer-nav" aria-label="Footer">
+      <a href="{{href "docs/"}}">Guide</a>
+      <a href="{{href "docs/roadmap/"}}">Roadmap</a>
+      <a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference</a>
+      <a href="{{.Repo}}">GitHub</a>
+    </nav>
+    <p class="footer-fine">Released under the MIT License. These pages are the guide in <a href="{{.Repo}}/tree/main/docs">docs/</a>, made into a site by a Go program in <a href="{{.Repo}}/tree/main/site">site/</a>.</p>
+  </div>
+</footer>
+
+<dialog class="drawer" id="nav-drawer" aria-label="The guide's pages">
+  <div class="drawer-head">
+    <a class="brand" href="{{href ""}}" aria-label="tug, home">{{template "logo"}}<span class="brand-name">tug</span></a>
+    <button type="button" class="icon-btn" data-nav-close aria-label="Close">{{template "i-x"}}</button>
+  </div>
+  {{template "sidenav" .}}
+</dialog>
+
+<dialog class="search" id="search" aria-label="Search the guide">
+  <div class="search-head">
+    {{template "i-search"}}
+    <input class="search-input" id="search-input" type="text" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search the guide" aria-label="Search the guide">
+    <button type="button" class="search-close" data-search-close><span aria-hidden="true">Esc</span><span class="sr-only">Close search</span></button>
+  </div>
+  <div id="search-results" class="search-results" role="listbox" aria-label="Results"></div>
+  <p class="search-note" data-search-note></p>
+  <div class="search-foot" aria-hidden="true"><span><kbd class="kbd">↑</kbd><kbd class="kbd">↓</kbd> to move</span><span><kbd class="kbd">↵</kbd> to open</span><span><kbd class="kbd">Esc</kbd> to close</span></div>
+  <p class="sr-only" role="status" aria-live="polite" data-search-status></p>
+</dialog>
+<p class="sr-only" role="status" aria-live="polite" data-announce></p>
+</body>
+</html>
+{{end}}
+
+{{define "sidenav"}}
+<nav class="sidenav" aria-label="Guide">
+  <p class="sidenav-title"><a href="{{href "docs/"}}"{{if eq $.Path "docs/"}} aria-current="page"{{end}}>The guide</a></p>
+  <ol class="sidenav-list">
+    {{range .Parts}}<li><a href="{{href .Path}}"{{if eq $.Path .Path}} aria-current="page"{{end}}><span class="num" aria-hidden="true">{{num .Num}}</span>{{.Title}}</a></li>
+    {{end}}
+  </ol>
+  <p class="sidenav-title">Project</p>
+  <ul class="sidenav-list">
+    <li><a href="{{href "docs/roadmap/"}}"{{if eq $.Path "docs/roadmap/"}} aria-current="page"{{end}}>Roadmap</a></li>
+    <li><a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference{{template "i-out"}}</a></li>
+    <li><a href="{{.Repo}}">GitHub{{template "i-out"}}</a></li>
+  </ul>
+</nav>
+{{end}}
+
+{{/* The guide's parts as cards, on the home page and the guide's index: a
+card's link is its title, stretched over the card by site.css. */}}
+{{define "parts"}}
+<ol class="parts">
+  {{range .Parts}}<li class="part"><span class="part-num" aria-hidden="true">{{num .Num}}</span><a class="part-title" href="{{href .Path}}">{{.Title}}</a><p class="part-about">{{.About}}</p></li>
+  {{end}}
+</ol>
+{{end}}

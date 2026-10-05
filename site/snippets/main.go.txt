@@ -1,0 +1,13 @@
+type PostsIndexProps struct {
+	Posts []Post                   `json:"posts"`
+	Stats inertia.DeferProp[Stats] `json:"stats"`
+}
+
+var PostsIndex = tug.Page[PostsIndexProps]("Posts/Index")
+
+func index(c *tug.Ctx) error {
+	return PostsIndex.Render(c, PostsIndexProps{
+		Posts: store.List(),
+		Stats: inertia.Defer(store.Count), // after the page shows
+	})
+}

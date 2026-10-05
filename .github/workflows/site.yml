@@ -1,0 +1,71 @@
+# The website: the guide in docs/, made into pages by the Go program in
+# site/. Every push and pull request that changes the guide checks its
+# links, to pages and to the headings in them, as the site's tests and its
+# -check do, so a link a change breaks fails here rather than on the site.
+# A push to main also publishes it on GitHub Pages, under the path and the
+# address Pages gives the repository, which configure-pages says.
+#
+# Pages has to be on, with GitHub Actions as its source, in the
+# repository's settings, before the first deploy.
+name: site
+
+on:
+  push:
+    paths: ['docs/**', 'README.md', 'site/**', '.github/workflows/site.yml']
+  pull_request:
+    paths: ['docs/**', 'README.md', 'site/**', '.github/workflows/site.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A deploy under way finishes; a check of a branch that's moved on stops.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: read
+    defaults:
+      run:
+        working-directory: site
+    env:
+      DEPLOY: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: site/go.mod
+          cache-dependency-path: site/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+      - name: Pages' path and address
+        id: pages
+        if: env.DEPLOY == 'true'
+        uses: actions/configure-pages@v6
+      - name: build, failing on a broken link
+        run: go run . -check -base "${{ steps.pages.outputs.base_path }}/" -url "${{ steps.pages.outputs.base_url }}"
+      - if: env.DEPLOY == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

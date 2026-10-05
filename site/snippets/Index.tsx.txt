@@ -1,0 +1,23 @@
+import { Deferred, Link } from '@inertiajs/react'
+import type { PageProps } from '../../tug/pages'
+import { route } from '../../tug/routes'
+
+type Props = PageProps<'Posts/Index'>
+
+export default function Index({ posts, stats }: Props) {
+  return (
+    <>
+      <Deferred data="stats" fallback={<p>Counting…</p>}>
+        {stats && <p>{stats.posts} posts</p>}
+      </Deferred>
+      {posts.map((post) => (
+        <Link
+          key={post.id}
+          href={route('posts.show', { id: post.id })}
+        >
+          {post.title}
+        </Link>
+      ))}
+    </>
+  )
+}
