@@ -1,7 +1,0 @@
-source "https://rubygems.org"
-
-gem "rails", "~> 8.1.4"
-# Use the Puma web server [https://github.com/puma/puma]
-gem "puma", ">= 5.0"
-# Inertia's server side for Rails [https://inertia-rails.dev]
-gem "inertia_rails", "~> 3.22"

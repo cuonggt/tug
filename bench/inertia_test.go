@@ -5,28 +5,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/bench/page"
 	"github.com/cuonggt/tug/inertia"
-	gonertia "github.com/romsar/gonertia/v3"
 )
 
 // The Inertia benchmark renders one page, page.json's post and comments as
-// Posts/Show, through tug and through gonertia, the other Go adapter of
-// Inertia's protocol, with no session and no middleware but Inertia's: a
-// visit from Inertia's client, answered with the page object as JSON, and
-// a first visit, answered with the root template's HTML. tug's inertia
-// package, which needs no tug App, is on ServeMux beside gonertia's.
+// Posts/Show, through tug's App and through its inertia package on
+// ServeMux, which needs no App, with no session and no middleware but
+// Inertia's: a visit from Inertia's client, answered with the page object
+// as JSON, and a first visit, answered with the root template's HTML.
 //
 //	go test -run '^$' -bench Inertia -benchmem
 
 var show = tug.Page[page.Props](page.Component)
 
-// root is the root template, the same HTML as every app's in apps/; gonertia
-// names what it fills in with lower case.
+// root is the root template, the same HTML as the app's in apps/tug.
 const root = `<!doctype html>
 <html lang="en">
   <head>
@@ -65,23 +61,8 @@ func adapters(tb testing.TB) []adapter {
 		}
 	})))
 
-	g, err := gonertia.New(lowerCase.Replace(root), gonertia.WithVersion("1"))
-	if err != nil {
-		tb.Fatal(err)
-	}
-	gMux := http.NewServeMux()
-	gMux.Handle("GET /posts/{id}", g.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id, _ := strconv.Atoi(r.PathValue("id"))
-		p := page.For(id)
-		if err := g.Render(w, r, page.Component, gonertia.Props{"post": p.Post, "comments": p.Comments}); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	})))
-
-	return []adapter{{"tug, App", app}, {"tug's inertia, ServeMux", onMux}, {"gonertia, ServeMux", gMux}}
+	return []adapter{{"tug, App", app}, {"tug's inertia, ServeMux", onMux}}
 }
-
-var lowerCase = strings.NewReplacer("{{ .InertiaHead }}", "{{ .inertiaHead }}", "{{ .Inertia }}", "{{ .inertia }}")
 
 func BenchmarkInertia(b *testing.B) {
 	for _, a := range adapters(b) {

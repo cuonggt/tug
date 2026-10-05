@@ -62,7 +62,7 @@ func runGo(count int) (*goResults, error) {
 
 // A line go test prints for a benchmark:
 //
-//	BenchmarkInertia/first_visit/gonertia,_ServeMux-10   47869   12681 ns/op   11528 B/op   62 allocs/op
+//	BenchmarkInertia/first_visit/tug's_inertia,_ServeMux-10   125550   9555 ns/op   11618 B/op   49 allocs/op
 var benchLine = regexp.MustCompile(`^Benchmark(\S+?)(?:-\d+)?\s+\d+\s+([\d.]+) ns/op\s+(\d+) B/op\s+(\d+) allocs/op`)
 
 // parseBenchLine reads a benchmark's line into its group, as Router or

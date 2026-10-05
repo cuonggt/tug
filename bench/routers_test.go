@@ -8,16 +8,12 @@ import (
 	"testing"
 
 	"github.com/cuonggt/tug"
-	"github.com/gin-gonic/gin"
-	"github.com/go-chi/chi/v5"
-	"github.com/labstack/echo/v5"
 )
 
-// The routers' benchmark puts one route and its response, GET /posts/{id}
-// answering the ID as text, through ServeMux alone and through each
-// framework, each as its New makes it, with no middleware: what each adds
-// to a request. tug's App recovers a handler's panic without being asked;
-// the others need a middleware for it, which this leaves out.
+// The router's benchmark puts one route and its response, GET /posts/{id}
+// answering the ID as text, through ServeMux alone and through tug's App,
+// as New makes it, with no middleware: what tug adds to a request, its
+// Ctx, the error a handler returns, and the recovery of a handler's panic.
 //
 //	go test -run '^$' -bench Router -benchmem
 
@@ -37,21 +33,7 @@ func routers() []router {
 	app := tug.New(tug.Config{})
 	app.Get("/posts/{id}", func(c *tug.Ctx) error { return c.String(http.StatusOK, c.Param("id")) })
 
-	gin.SetMode(gin.ReleaseMode)
-	g := gin.New()
-	g.GET("/posts/:id", func(c *gin.Context) { c.String(http.StatusOK, c.Param("id")) })
-
-	e := echo.New()
-	e.GET("/posts/:id", func(c *echo.Context) error { return c.String(http.StatusOK, c.Param("id")) })
-
-	ch := chi.NewRouter()
-	ch.Get("/posts/{id}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, chi.URLParam(r, "id"))
-	})
-
-	return []router{{"ServeMux", mux}, {"tug", app}, {"Gin", g}, {"Echo", e}, {"Chi", ch}}
+	return []router{{"ServeMux", mux}, {"tug", app}}
 }
 
 func BenchmarkRouter(b *testing.B) {
@@ -85,7 +67,7 @@ func serve(b *testing.B, h http.Handler, req *http.Request) {
 }
 
 // discard is a ResponseWriter that keeps nothing, so the benchmarks measure
-// the framework and not a recorder.
+// the router and not a recorder.
 type discard struct{ h http.Header }
 
 func (d *discard) Header() http.Header               { return d.h }

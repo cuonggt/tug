@@ -151,12 +151,10 @@ func (w *worker) run() {
 	}
 }
 
-// abort closes a connection the app closes after each answer, as
-// gunicorn's sync workers do, with a reset, so that it doesn't wait out
-// TIME_WAIT on the client's side: on macOS, that's 30 seconds, and the
-// 16,384 ports a client has run out in seconds at thousands of
-// connections a second. The app's side is as it was: it has answered, and
-// closed.
+// abort closes a connection the app has closed, or that broke, with a
+// reset, so that it doesn't wait out TIME_WAIT on the client's side: on
+// macOS, that's 30 seconds, and the 16,384 ports a client has run out in
+// seconds at thousands of connections a second.
 func abort(conn net.Conn) {
 	if tcp, ok := conn.(*net.TCPConn); ok {
 		tcp.SetLinger(0)

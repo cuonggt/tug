@@ -1,5 +1,0 @@
-# What setup.sh installs from composer.lock. The caches it writes, in
-# bootstrap/cache, and what the server writes, in storage (its state
-# file, Swoole's log), are ignored by the .gitignore files Laravel keeps
-# in those directories.
-/vendor/

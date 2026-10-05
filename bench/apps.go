@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	"net"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,33 +21,21 @@ import (
 	"github.com/cuonggt/tug/bench/page"
 )
 
-// An app is one of the apps in apps/, each a framework's, serving the same
-// page: setup.sh installs what it needs and builds it for production,
-// start.sh serves it on 127.0.0.1:$PORT with $WORKERS, the machine's
-// cores, as the framework's own docs say to, and versions.sh says what it
-// runs on.
+// An app is an app in apps/ that serves the page: setup.sh builds it for
+// production, start.sh serves it on 127.0.0.1:$PORT, and versions.sh says
+// what it runs on. There's one, tug's, as tug new makes an app.
 type app struct {
-	Dir      string // its directory in apps/
-	Name     string
-	Language string
+	Dir  string // its directory in apps/
+	Name string
 	// Server is how it's served, for the tables.
 	Server string
+	// Deployed are the paths in its directory a deploy copies, for its
+	// size.
+	Deployed []string
 }
 
 var apps = []app{
-	{"tug", "tug", "Go", "net/http, one process"},
-	{"laravel", "Laravel", "PHP", "Octane on Swoole, a worker a core"},
-	{"rails", "Rails", "Ruby", "Puma, a worker a core, 3 threads each"},
-	{"django", "Django", "Python", "gunicorn, two workers a core, and one"},
-	{"adonis", "AdonisJS", "JavaScript", "Node's cluster, a process a core"},
-}
-
-func appNamed(dir string) (app, bool) {
-	i := slices.IndexFunc(apps, func(a app) bool { return a.Dir == dir })
-	if i < 0 {
-		return app{}, false
-	}
-	return apps[i], true
+	{Dir: "tug", Name: "tug", Server: "net/http, one process", Deployed: []string{".build/blog"}},
 }
 
 func (a app) dir() string { return filepath.Join("apps", a.Dir) }
@@ -93,7 +79,7 @@ func (a app) start() (*server, error) {
 	}
 	cmd := exec.Command("./start.sh")
 	cmd.Dir = a.dir()
-	cmd.Env = append(os.Environ(), "PORT="+strconv.Itoa(port), "WORKERS="+strconv.Itoa(runtime.NumCPU()))
+	cmd.Env = append(os.Environ(), "PORT="+strconv.Itoa(port))
 	cmd.Stdout, cmd.Stderr = log, log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -114,8 +100,7 @@ func freePort() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
-// ready waits for the app to answer its page, which a server with many
-// workers to start can take a while to.
+// ready waits for the app to answer its page.
 func (s *server) ready(timeout time.Duration) error {
 	client := &http.Client{Timeout: 5 * time.Second}
 	deadline := time.Now().Add(timeout)
@@ -145,8 +130,7 @@ func (s *server) stop() {
 	case <-s.exit:
 	case <-time.After(15 * time.Second):
 	}
-	// What's left of the group, workers that outlived their master among
-	// them, so the next app has the machine to itself.
+	// What's left of the group, so the next run has the machine to itself.
 	syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 }
 
@@ -196,12 +180,9 @@ type sentPage struct {
 	Version   string     `json:"version"`
 }
 
-var (
-	// Inertia v3's adapters write the page object in a script element,
-	pageScript = regexp.MustCompile(`(?s)<script data-page="app" type="application/json">(.*?)</script>`)
-	// and v2's in the app's element's data-page.
-	pageAttribute = regexp.MustCompile(`data-page="([^"]*)"`)
-)
+// pageScript is where a first visit's HTML has the page object, as Inertia
+// v3 has it.
+var pageScript = regexp.MustCompile(`(?s)<script data-page="app" type="application/json">(.*?)</script>`)
 
 // get sends a GET of path with headers, each a "Name: value" line, and
 // returns the page its answer has, and the cookies it set, as a Cookie
@@ -235,8 +216,6 @@ func (s *server) get(client *http.Client, path string, headers []string) (sentPa
 		}
 	} else if m := pageScript.FindSubmatch(body); m != nil {
 		body = m[1]
-	} else if m := pageAttribute.FindSubmatch(body); m != nil {
-		body = []byte(html.UnescapeString(string(m[1])))
 	} else {
 		return sentPage{}, nil, fmt.Errorf("%s answered %s with no page object:\n%.2000s", s.Name, what, body)
 	}

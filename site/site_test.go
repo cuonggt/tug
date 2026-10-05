@@ -217,7 +217,25 @@ func TestAnotherDirectoryIsntEmptiedForTheSite(t *testing.T) {
 	}
 }
 
-func TestTheHomePageShowsTheBenchmarksResults(t *testing.T) {
+func TestWhatTugAddsToARequestIsSaidOnlyWhenItWasMeasured(t *testing.T) {
+	router := func(times ...benchTime) *benchResults {
+		r := &benchResults{}
+		r.Go = &struct {
+			Router []benchTime `json:"router"`
+		}{times}
+		return r
+	}
+	if got, ok := addedToRequest(router(benchTime{"ServeMux", 158}, benchTime{"tug", 233.1})); !ok || got != "75 ns" {
+		t.Errorf("tug at 233.1 ns beside ServeMux's 158 adds %q, %v", got, ok)
+	}
+	for _, r := range []*benchResults{{}, router(benchTime{"tug", 233.1}), router(benchTime{"ServeMux", 158}, benchTime{"tug", 150})} {
+		if got, ok := addedToRequest(r); ok {
+			t.Errorf("%+v says tug adds %q", r.Go, got)
+		}
+	}
+}
+
+func TestTheHomePageShowsTugsOwnNumbers(t *testing.T) {
 	pages := map[string]string{
 		"README.md":               "v0.39.0 is the latest release.\n",
 		"docs/README.md":          index,
@@ -227,15 +245,16 @@ func TestTheHomePageShowsTheBenchmarksResults(t *testing.T) {
 		"docs/roadmap.md":         "# Roadmap\n",
 	}
 	without := guide(t, pages)
+	// Another app is in the results, as an older file's might have one: the
+	// home page shows tug's numbers alone.
 	pages["bench/results.json"] = `{
-		"go": {
-			"router": [{"name": "tug", "ns_op": 233.1}, {"name": "Gin", "ns_op": 93.2}],
-			"visit": [{"name": "tug, App", "ns_op": 8300}, {"name": "gonertia, ServeMux", "ns_op": 10100}]
-		},
+		"go": {"router": [{"name": "ServeMux", "ns_op": 158.0}, {"name": "tug", "ns_op": 233.1}]},
 		"http": {"date": "2026-10-05", "machine": {"cpu": "Apple M1 Max", "cores": 10, "os": "macOS 27.0"}, "apps": [
-			{"name": "tug", "language": "Go", "visit": {"per_second": 60000, "p99_ms": 2.1}, "first_visit": {"per_second": 50000}},
-			{"name": "Rails", "language": "Ruby", "visit": {"per_second": 3000, "p99_ms": 48}, "first_visit": {"per_second": 2500}},
-			{"name": "Laravel", "language": "PHP", "visit": {"per_second": 7500, "p99_ms": 21}, "first_visit": {"per_second": 6000}}
+			{"name": "tug", "visit": {"per_second": 60000, "p99_ms": 4.38}, "first_visit": {"per_second": 56000, "p99_ms": 5.09}},
+			{"name": "Laravel", "visit": {"per_second": 7500, "p99_ms": 21}, "first_visit": {"per_second": 6000}}
+		]},
+		"footprint": {"apps": [
+			{"name": "tug", "processes": 1, "startup_ms": 14.6, "memory_start_mib": 6.39, "memory_peak_mib": 19.89, "size_mib": 9.63}
 		]}
 	}`
 	with := guide(t, pages)
@@ -254,36 +273,30 @@ func TestTheHomePageShowsTheBenchmarksResults(t *testing.T) {
 	}
 	got := home(with)
 	for _, want := range []string{
-		// The headline, from the fastest of the others and the slowest.
-		"The same page, 8.0 to 20 times the requests a second.",
-		"tug answers 8.0 times as many visits a second as Laravel, the fastest of the others, and 20 times as many as Rails.",
-		"served by tug and by Laravel and Rails,",
-		// tug's bar is the longest, and the others are their share of it.
-		`<tr class="is-tug">`, `style="--w: 100.0%"`, `style="--w: 12.5%"`, "60,000",
-		// The adapters, by time, tug's App with its note, and the routers.
-		`<span class="bar-name">tug</span><span class="bar-note">App</span>`, "8.3 µs", "10.1 µs",
-		"What a router adds", "93 ns", "233 ns",
+		`<h2 id="bench-title">60,000 visits a second, in 19.9 MB of memory.</h2>`,
+		`<span class="stat-value">60,000</span> <span class="stat-title">visits a second</span>`, "99 in 100 within 4.38 ms.",
+		`<span class="stat-value">56,000</span> <span class="stat-title">first visits a second</span>`, "99 in 100 within 5.09 ms.",
+		`<span class="stat-value">19.9 MB</span> <span class="stat-title">of memory under load</span>`, "6.4 MB once it has started, idle.",
+		`<span class="stat-value">15 ms</span> <span class="stat-title">to start</span>`,
+		`<span class="stat-value">9.6 MB</span> <span class="stat-title">to deploy</span>`,
+		`<span class="stat-value">75 ns</span> <span class="stat-title">added to a request</span>`,
 		`Measured <time datetime="2026-10-05">2026-10-05</time> on Apple M1 Max, 10 cores, macOS 27.0.`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the home page has no %s", want)
 		}
 	}
-	if strings.Index(got, "Laravel</span>") > strings.Index(got, "Rails</span>") {
-		t.Error("the apps aren't in the order of their visits a second")
-	}
-	if strings.Index(got, "93 ns") > strings.Index(got, "233 ns") {
-		t.Error("the routers aren't the fastest first")
+	if strings.Contains(got, "Laravel") {
+		t.Error("the home page names another framework")
 	}
 	if got := home(without); strings.Contains(got, "bench-title") {
 		t.Error("a checkout with no results has a section of them")
 	}
 
-	// Why Go is there either way, its table's Go row marked, and the
-	// sections' backgrounds still alternate.
-	for _, got := range []string{got, home(without)} {
-		if !strings.Contains(got, `<h2 id="why-title">`) || !strings.Contains(got, `<tr class="is-go"><th scope="row">Go <span>net/http, Gin</span></th>`) {
-			t.Error("the home page has no Why Go, or no Go row in its table")
+	// Why Go is there either way, with no table of other languages.
+	for _, page := range []string{got, home(without)} {
+		if !strings.Contains(page, `<h2 id="why-title">`) || strings.Contains(page, "langs") {
+			t.Error("the home page has no Why Go, or a table of languages")
 		}
 	}
 	if !strings.Contains(got, `<section class="section" aria-labelledby="guide-title">`) ||

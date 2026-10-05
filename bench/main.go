@@ -1,20 +1,19 @@
-// Command bench measures tug beside other frameworks, and keeps what it
-// measured in results.json, which the website's home page shows, and the
-// tables in docs/benchmarks.md and the README are written from. Run it in
-// bench/:
+// Command bench measures tug, and keeps what it measured in results.json,
+// which the website's home page shows, and the tables in
+// docs/benchmarks.md and the README are written from. Run it in bench/:
 //
-//	go run . setup             # each app's dependencies and build, by its setup.sh
-//	go run . check             # each app started, and its page checked, with no load
-//	go run . go                # tug, ServeMux, Gin, Echo, Chi and gonertia, in one process
-//	go run . http              # tug, Laravel, Rails, Django and AdonisJS, each under load
-//	go run . http tug rails    # only these apps, keeping the others' results
+//	go run . setup             # tug's app built, by its setup.sh
+//	go run . check             # the app started, and its page checked, with no load
+//	go run . go                # what tug adds to ServeMux, and its Inertia, in one process
+//	go run . http              # the app's page under load
+//	go run . footprint         # the app's memory, startup and size
 //	go run . docs              # the docs' tables again, from results.json
 //
-// go measures what each framework adds to a request, with go test's own
-// benchmarks; http measures how many requests each app answers a second
-// over HTTP, and how long they take, an app at a time, each served as its
-// framework's docs say to in production. Close what else runs on the
-// machine first: the load and the app share its cores.
+// go measures what tug adds to a request, with go test's own benchmarks;
+// http measures how many requests the app answers a second over HTTP, and
+// how long they take, served as an app tug new makes is in production.
+// Close what else runs on the machine first: the load and the app share
+// its cores.
 package main
 
 import (
@@ -32,17 +31,18 @@ func main() {
 		count    = flag.Int("count", 10, "go: how many times each benchmark runs, for the median")
 		conns    = flag.Int("conns", 64, "http: the connections the load keeps open")
 		warmup   = flag.Duration("warmup", 10*time.Second, "http: the load before counting, for JITs, caches and pools")
-		duration = flag.Duration("duration", 10*time.Second, "http: each round's load")
+		duration = flag.Duration("duration", 10*time.Second, "http: each round's load; footprint: the load memory is measured around")
 		rounds   = flag.Int("rounds", 3, "http: rounds of each page, for the median")
+		starts   = flag.Int("starts", 5, "footprint: cold starts of each app, for the median")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: go run . setup|check|go|http|docs [app...]\n\napps: tug, laravel, rails, django, adonis\n\n")
+		fmt.Fprintf(os.Stderr, "usage: go run . setup|check|go|http|footprint|docs\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 	log.SetFlags(0)
 	log.SetPrefix("bench: ")
-	if flag.NArg() == 0 {
+	if flag.NArg() != 1 {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -51,10 +51,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	cmd, names := flag.Arg(0), flag.Args()[1:]
-	switch cmd {
+	switch flag.Arg(0) {
 	case "setup":
-		for _, a := range chosen(names) {
+		for _, a := range apps {
 			log.Printf("%s: setup.sh", a.Name)
 			if err := a.setup(); err != nil {
 				log.Fatalf("%s: setup.sh: %v", a.Name, err)
@@ -62,7 +61,7 @@ func main() {
 		}
 		return
 	case "check":
-		for _, a := range chosen(names) {
+		for _, a := range apps {
 			firstVisit, visit, err := check(a)
 			if err != nil {
 				log.Fatal(err)
@@ -75,31 +74,29 @@ func main() {
 			log.Fatal(err)
 		}
 	case "http":
-		if r.HTTP == nil || r.HTTP.Conns != *conns {
-			// Results under another load don't compare with these.
-			r.HTTP = &httpResults{}
-		}
-		h := r.HTTP
-		h.Date, h.Machine, h.Conns = time.Now().Format(time.DateOnly), thisMachine(), *conns
-		h.Warmup, h.Seconds, h.Rounds = warmup.Seconds(), duration.Seconds(), *rounds
-		for _, a := range chosen(names) {
+		h := &httpResults{Date: time.Now().Format(time.DateOnly), Machine: thisMachine(), Conns: *conns,
+			Warmup: warmup.Seconds(), Seconds: duration.Seconds(), Rounds: *rounds}
+		for _, a := range apps {
 			res, err := measure(a, *conns, *warmup, *duration, *rounds)
 			if err != nil {
 				log.Fatal(err)
 			}
-			if i := slices.IndexFunc(h.Apps, func(o appResult) bool { return o.Name == a.Name }); i >= 0 {
-				h.Apps[i] = res
-			} else {
-				h.Apps = append(h.Apps, res)
-			}
-			// In the apps' order, whichever ran.
-			slices.SortStableFunc(h.Apps, func(x, y appResult) int { return order(x.Name) - order(y.Name) })
-			// Kept as each app finishes, so a later one's failing loses
-			// nothing.
-			if err := r.write(*file); err != nil {
+			h.Apps = append(h.Apps, res)
+		}
+		r.HTTP = h
+	case "footprint":
+		f := &footprintResults{Date: time.Now().Format(time.DateOnly), Machine: thisMachine(), Memory: memoryMethod(), Load: duration.Seconds()}
+		for _, a := range apps {
+			log.Printf("%s: its size, %d starts, and its memory around %v of visits", a.Name, *starts, *duration)
+			res, err := footprint(a, *starts, *duration)
+			if err != nil {
 				log.Fatal(err)
 			}
+			log.Printf("%s: starts in %s; %s started, %s under load, %s after, its processes %d; %s deployed", a.Name,
+				startup(res.Startup), megabytes(res.MemoryStart), megabytes(res.MemoryPeak), megabytes(res.MemoryAfter), res.Processes, megabytes(res.Size))
+			f.Apps = append(f.Apps, res)
 		}
+		r.Footprint = f
 	case "docs":
 	default:
 		flag.Usage()
@@ -111,26 +108,6 @@ func main() {
 	if err := r.writeDocs(); err != nil {
 		log.Fatal(err)
 	}
-}
-
-// chosen is the apps named, or every app.
-func chosen(names []string) []app {
-	if len(names) == 0 {
-		return apps
-	}
-	var out []app
-	for _, n := range names {
-		a, ok := appNamed(n)
-		if !ok {
-			log.Fatalf("no app %q: the apps are tug, laravel, rails, django and adonis", n)
-		}
-		out = append(out, a)
-	}
-	return out
-}
-
-func order(name string) int {
-	return slices.IndexFunc(apps, func(a app) bool { return a.Name == name })
 }
 
 // check starts a and checks it answers each request with the page,
@@ -150,7 +127,7 @@ func check(a app) (firstVisit, visit []byte, err error) {
 // measure starts a, checks its page, and puts each page under load, a
 // visit's and a first visit's, rounds times after a warmup.
 func measure(a app, conns int, warmup, duration time.Duration, rounds int) (appResult, error) {
-	res := appResult{Name: a.Name, Language: a.Language, Server: a.Server}
+	res := appResult{Name: a.Name, Server: a.Server}
 	var err error
 	if res.Versions, err = a.versions(); err != nil {
 		return res, err

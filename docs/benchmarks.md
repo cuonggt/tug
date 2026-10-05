@@ -1,43 +1,21 @@
 # Benchmarks
 
-First, why Go: the language beside the others web apps are written in, by
-rough figures. Then tug itself, measured two ways, each beside other
-frameworks. Over HTTP, an app of each framework serves the same Inertia
-page under load: tug's, and Laravel's, Rails', Django's and AdonisJS's. In
-one process, Go's own benchmarks show what tug adds to a request beside
-ServeMux, Gin, Echo and Chi, and its Inertia beside gonertia's. The code is
-in [bench/](../bench), a module of its own, so tug's `go.mod` needs none of
-theirs. The last run's numbers are in
+What tug costs a request, and what an app made with it takes to run,
+measured two ways. Over HTTP, an app as `tug new` makes one serves an
+Inertia page under load, and its memory, startup and size are measured.
+In one process, Go's own benchmarks show what tug adds to a request over
+ServeMux, Go's own router, and what rendering the page takes. The code is
+in [bench/](../bench), a module of its own. The last run's numbers are in
 [bench/results.json](../bench/results.json), which the tables here are
 written from, and the website's home page shows.
 
 ## Why Go
 
-Go is the best all-round choice for a web app's speed, size, memory and
-deploying. Rust does better on raw numbers, but takes much longer to
-write.
+Go makes a web app one static binary, which uses every core in one
+process, starts in milliseconds, and runs in tens of MB of memory:
 
-| Language · framework | Speed | RAM, idle | Image | Cold start | Deploying |
-|---|---|---|---|---|---|
-| **Rust** · Axum, Actix | Top | 2–20 MB | 5–20 MB | ms | Easy: one binary, but slow compiles |
-| **Go** · net/http, Gin | High | 10–40 MB | 10–30 MB | ms | Easiest: one static binary |
-| **C#** · ASP.NET Core | Top | 40–100 MB | 100–200 MB | ~0.2 s | Easy: `dotnet publish` builds the container |
-| **Java/Kotlin** · Spring Boot | High, after warm-up | 150–500 MB | 150–300 MB | 1–10 s | OK: a heavy JVM that needs tuning |
-| **JS/TS** · Node, Bun | Medium | 50–150 MB | 150–400 MB | 0.1–0.5 s | Easy: every host and serverless platform runs it |
-| **Elixir** · Phoenix | Medium | 50–100 MB | 30–100 MB | ~1 s | OK: releases work, in a smaller ecosystem |
-| **PHP** · Laravel | Medium-low | 20–50 MB a worker | 100–300 MB | ~instant | Easy: the cheapest hosting runs it |
-| **Python** · FastAPI, Django | Low | 50–150 MB a worker | 150–500 MB | 0.5–2 s | OK: needs an app server, and its workers tuned |
-| **Ruby** · Rails | Low | 150–400 MB a worker | 200–500 MB | 1–5 s | Easy with Kamal |
-
-These are rough figures, for a small JSON API in a Linux container, and a
-real app's grow with its dependencies. PHP, Python and Ruby use more than
-one core with a process for each worker, so their RAM is a worker's times
-the workers. C#'s Native AOT and Java's GraalVM native images bring theirs
-down to about 20–80 MB, and start in tens of milliseconds, for slower
-builds and some libraries that won't work.
-
-- **Performance:** close to the fastest, in a container of about 15 MB,
-  in tens of MB of RAM.
+- **Performance:** tens of thousands of requests a second on a laptop, in
+  one process that uses every core, in tens of MB of RAM.
 - **Startup:** in milliseconds, which keeps the cost down on a platform
   that scales to zero.
 - **Deploying:** one file to copy, with no runtime or dependencies to
@@ -49,108 +27,62 @@ tug keeps each of them for an Inertia app. The app is one static binary,
 its frontend's build inside it, served by net/http. `tug build` makes it
 for the machine it runs on, and with its frontend built, `go build` makes
 it again for Linux or ARM, as [Deployment](deployment.md#tug-build) shows.
-What tug adds to Go is what the rest of this page measures: what a
-request costs, beside frameworks in four of the table's other languages,
-and beside Go's other routers and Inertia adapter.
+The rest of this page measures what tug adds to Go.
 
 ## Over HTTP
 
 ### The page
 
-Every app serves one page, `GET /posts/{id}`: Inertia's `Posts/Show`, with
+The app serves one page, `GET /posts/{id}`: Inertia's `Posts/Show`, with
 a post and its ten comments as its props. They're in
-[bench/page/page.json](../bench/page/page.json), which each app reads once,
-as it starts, and sets the post's ID from the route. Two requests for it
-are measured:
+[bench/page/page.json](../bench/page/page.json), which the app has built
+in, and it sets the post's ID from the route. Two requests for it are
+measured:
 
 - **A visit**, as Inertia's client makes one from another page of the
   app: `X-Inertia`, the build's version, `X-Requested-With`, and the
   cookies the first visit set, as a browser sends them. It's answered with
   the page object as JSON, about 2.3 KB.
 - **A first visit**, as a browser makes one from a link: no cookies, and
-  answered with the root template's HTML, the page object in it. The
-  template is the same in every app, with no scripts or styles, so it's
-  each adapter's own markup and nothing more.
+  answered with the root template's HTML, the page object in it, with no
+  scripts or styles.
 
-There's no database: a query takes the same time from any framework, and
-what's measured is what the framework itself costs a request, which is
-what it takes from the time an app has for its own work.
+There's no database: what's measured is what tug itself costs a request,
+which is what it takes from the time an app has for its own work.
 
-### The apps
+### The app
 
-Each app is made by its framework's own generator, at its latest
-releases, pinned by its lock file, and keeps the middleware a new app
-has, with its Inertia adapter's added. Each runs in production mode,
-with its sessions in a cookie, so none needs a database or Redis, and
-writes no log line per request. Each is served the way its framework's
-docs say to serve one in production, on every core:
-
-- **tug**: as `tug new` makes an app, with its session, `TrustProxies`,
-  `RequestID`, `Logger`, `Recover`, `Headers`, `CSP`, which makes a nonce
-  for each response, and `CSRF`, in one process, which uses every core.
-- **Laravel**: Octane on Swoole, Laravel's own server for an app kept in
-  memory between requests, with a worker a core, as Octane starts it, and
-  its other defaults, a worker started again after 500 requests among
-  them. OPcache is on, which takes two settings under Octane: PHP's
-  command line leaves it off, and Octane's `clear_opcache`, on by
-  default, would keep it from holding the app's code. The config, routes
-  and views are cached, as `php artisan optimize` caches them for a deploy.
-- **Rails**: Puma in cluster mode, with a worker a core, as Puma's docs
-  recommend, three threads each, as Rails' `puma.rb` has, the app loaded
-  before the workers start, and YJIT on, as Rails turns it on. The
-  `allow_browser` line `rails new` writes is left out: it reads each
-  request's User-Agent, for a frontend the page doesn't have.
-- **Django**: gunicorn, with two workers a core, and one, as gunicorn's
-  docs recommend. They're its default kind, sync, which close a connection
-  after each answer, as gunicorn expects a proxy such as nginx in front of
-  it, so each of Django's requests opens a connection.
-- **AdonisJS**: its own server, a process a core, through Node's cluster
-  module, as its docs for v6 recommend PM2's cluster mode for; v7's start
-  one process, which would leave every core but one idle.
-
-Every app's `setup.sh`, `start.sh` and settings are in
-[bench/apps](../bench/apps).
+The app, in [bench/apps/tug](../bench/apps/tug), is as `tug new` makes
+one, without a frontend: its session, and `TrustProxies`, `RequestID`,
+`Logger`, `Recover`, `Headers`, `CSP`, which makes a nonce for each
+response, and `CSRF`. It's built as `tug build` builds an app, static,
+without its paths, and stripped, writes no log line per request, and
+serves in one process, which uses every core.
 
 ### The load
 
-`go run . http` starts each app in turn, alone, and checks that its answer
-to each request is the page, props and all, before any load. Then it
-sends each request on 64 connections kept open, each sending the next as
-the answer to its last comes in, as wrk does: for 10 seconds first,
-uncounted, for each runtime's JIT, caches and pools, then for 3 rounds of
-10 seconds each. The table has the round with the median requests a
-second, and its 99th percentile: the time from sending a request to
-reading the end of its answer, which 99 in 100 took no longer than.
-
-64 connections keep every app's workers busy. tug answers more still with
-more of them, as its one process takes on as many as come, but Django's
-gunicorn refuses connections past its listen queue, which macOS holds to
-128. An app that closes each connection after its answer, as gunicorn's
-workers do, gets the next request on a new one, and the load resets its
-own end of the old one, so that its ports aren't held waiting out
-TIME_WAIT, which on macOS would use them all up in seconds.
+`go run . http` starts the app and checks that its answer to each request
+is the page, props and all, before any load. Then it sends each request
+on 64 connections kept open, each sending the next as the answer to its
+last comes in, as wrk does: for 10 seconds first, uncounted, then for 3
+rounds of 10 seconds each. The table has the round with the median
+requests a second, and its 99th percentile: the time from sending a
+request to reading the end of its answer, which 99 in 100 took no longer
+than.
 
 <!-- bench:http -->
 
-| | Language | Visits a second | p99 | First visits a second | p99 |
-|---|---|--:|--:|--:|--:|
-| **tug** | Go | 62,919 | 5.22 ms | 57,715 | 5.92 ms |
-| AdonisJS | JavaScript | 27,740 (tug 2.3×) | 16.3 ms | 28,781 (tug 2.0×) | 21.6 ms |
-| Rails | Ruby | 10,752 (tug 5.9×) | 16.3 ms | 9,920 (tug 5.8×) | 14.3 ms |
-| Django | Python | 7,567 (tug 8.3×) | 28.0 ms | 6,471 (tug 8.9×) | 41.2 ms |
-| Laravel | PHP | 6,611 (tug 9.5×) | 31.4 ms | 6,267 (tug 9.2×) | 35.1 ms |
+| | Visits a second | p99 | First visits a second | p99 |
+|---|--:|--:|--:|--:|
+| **tug** | 60,061 | 4.38 ms | 56,146 | 5.09 ms |
 
 <!-- /bench:http -->
 
 <!-- bench:http-setup -->
 
-Measured 2026-10-05 on Apple M1 Max, 10 cores, 32 GB, macOS 27.0.1: 64 connections, 10 seconds of warmup, then 3 rounds of 10 seconds, the median round's. Each app's versions and server:
+Measured 2026-10-05 on Apple M1 Max, 10 cores, 32 GB, macOS 27.0.1: 64 connections, 10 seconds of warmup, then 3 rounds of 10 seconds, the median round's, with these versions and server:
 
-- **tug**: Go 1.26.1, tug v0.39.0-4-g3987f06; net/http, one process.
-- **Laravel**: PHP 8.5.10, Laravel 13.34.0, inertia-laravel 3.5.1, Octane 2.20.0, Swoole 6.2.2; Octane on Swoole, a worker a core.
-- **Rails**: Ruby 4.0.5 +YJIT, Rails 8.1.4, inertia_rails 3.22.0, Puma 8.0.2; Puma, a worker a core, 3 threads each.
-- **Django**: Python 3.14.3, Django 6.1.1, inertia-django 2.0.0, gunicorn 26.2.0; gunicorn, two workers a core, and one.
-- **AdonisJS**: Node 24.14.0, AdonisJS 7.5.2, @adonisjs/http-server 9.3.1, @adonisjs/inertia 5.0.1; Node's cluster, a process a core.
+- **tug**: Go 1.26.1, tug v0.39.0-10-ge286336; net/http, one process.
 
 <!-- /bench:http-setup -->
 
@@ -158,63 +90,73 @@ Measured 2026-10-05 on Apple M1 Max, 10 cores, 32 GB, macOS 27.0.1: 64 connectio
 
 - **The load runs on the same machine** as the app, and they share its
   cores. Its client reads each answer only as far as its length says, so
-  it takes as little of them as it can, and the same from every app.
-- **A visit carries cookies,** the ones the first visit set. Laravel's,
-  Rails' and AdonisJS's sessions keep a CSRF token, so a first visit
-  starts one, and each visit after it has its session cookie read and
-  written again, encrypted, with the token's: from Laravel, about 1.7 KB
-  of `Set-Cookie` an answer. Django sets its CSRF cookie again at each
-  visit, with no session. tug's `CSRF` needs no token, and its session
-  sets no cookie until there's something in it, so a guest's visits have
-  none. That's each framework as it comes, and part of the difference.
-- **The page objects differ a little:** each adapter adds fields of its
-  own, such as `sharedProps` and the history's flags, Laravel's and
-  AdonisJS's JSON escapes its slashes, and Django's has a space after
-  each comma and colon. Each is within a tenth of the others' size.
+  it takes as little of them as it can.
+- **A visit carries the cookies the first visit set:** none, for a guest.
+  tug's `CSRF` needs no token, and its session sets no cookie until
+  there's something in it.
 - **The 99th percentile follows from the rate:** with 64 requests always
-  in flight, the fewer a second an app answers, the longer each waits for
-  a worker.
-- **A real page does more**, such as a query or two, which take the same
-  time from any framework. Where those dominate, the gap narrows; what
-  the table shows is how much of each second the framework leaves the app.
+  in flight, each waits its turn at the cores.
+- **A real page does more**, such as a query or two. What the table shows
+  is how much of each second tug leaves the app for its own work.
+
+## Memory, startup and size
+
+The same app, served as above, measured by `go run . footprint`:
+
+- **Start:** from starting the app to its first answer to the page,
+  asked for every 5 ms. A start is cold, with nothing kept from one
+  before; the table has the median of 5.
+- **Memory:** as macOS's `footprint` counts it, which is what Activity
+  Monitor shows: the memory the process has written to. It's measured once
+  the app has answered its first requests, then at the most while it
+  answers visits on 64 connections for 10 seconds, and then 2 seconds
+  after.
+- **Size:** what a deploy copies: the app's one binary, which needs
+  nothing installed beside it.
+
+<!-- bench:footprint -->
+
+| | Start | Memory, started | Memory, under load | Memory, after | Size |
+|---|--:|--:|--:|--:|--:|
+| **tug** | 15 ms | 6.4 MB | 19.9 MB | 19.3 MB | 9.6 MB |
+
+<!-- /bench:footprint -->
+
+<!-- bench:footprint-setup -->
+
+Measured 2026-10-05 on Apple M1 Max, 10 cores, 32 GB, macOS 27.0.1, memory as macOS's footprint, the load 10 seconds of visits on 64 connections.
+
+<!-- /bench:footprint-setup -->
 
 ## In one process
 
 The Go benchmarks run with `go test`, each as many times as `-count` says,
 and the tables have each one's median.
 
-### What a router adds
+### What tug adds to a request
 
 One route, `GET /posts/{id}`, answering the ID as text, through ServeMux
-alone and through each framework as its `New` makes it, with no
-middleware:
+alone and through tug's App, as `New` makes it, with no middleware:
 
 <!-- bench:router -->
 
 | | ns a request | Bytes | Allocations |
 |---|--:|--:|--:|
-| Gin | 93.2 | 48 | 1 |
-| Echo | 117 | 16 | 1 |
 | ServeMux | 158 | 32 | 2 |
 | **tug** | 233 | 176 | 3 |
-| Chi | 390 | 720 | 5 |
 
 <!-- /bench:router -->
 
 tug's App is ServeMux underneath: its routes are ServeMux's patterns.
 What it adds is its `Ctx`, the error a handler returns, and the recovery
-of a handler's panic, which the others leave to a middleware. Gin and Echo
-have routers of their own, and keep their contexts in a pool. Each of
-them costs a request well under a microsecond, a small share of what the
+of a handler's panic: well under a microsecond, a small share of what the
 page itself takes, as the next table shows.
 
 ### Inertia
 
-The page, through tug and through
-[gonertia](https://github.com/romsar/gonertia), the other Go adapter of
-Inertia's protocol, each with no session and no middleware but Inertia's
-own: tug's App, tug's `inertia` package on ServeMux, which needs no App,
-and gonertia on ServeMux.
+The page, through tug's App and through tug's `inertia` package on
+ServeMux, which needs no App, each with no session and no middleware but
+Inertia's own:
 
 <!-- bench:inertia -->
 
@@ -222,7 +164,6 @@ and gonertia on ServeMux.
 |---|--:|--:|--:|--:|--:|--:|
 | **tug, App** | 7.4 | 5,795 | 38 | 10.3 | 12,133 | 52 |
 | **tug's inertia, ServeMux** | 7.0 | 5,281 | 35 | 9.6 | 11,618 | 49 |
-| gonertia, ServeMux | 10.1 | 8,030 | 45 | 12.3 | 11,537 | 62 |
 
 <!-- /bench:inertia -->
 
@@ -237,19 +178,18 @@ Measured 2026-10-05 on Apple M1 Max, 10 cores, 32 GB, macOS 27.0.1, with Go 1.26
 In `bench/`, with nothing else running on the machine:
 
 ```sh
-go run . go                  # the Go benchmarks: needs Go alone
-go run . setup               # each app's dependencies and build
-go run . check               # each app started, and its page checked, with no load
-go run . http                # each app under load, in turn
-go run . http tug laravel    # only these, keeping the others' results
+go run . go                  # the Go benchmarks
+go run . setup               # the app's build
+go run . check               # the app started, and its page checked, with no load
+go run . http                # the app under load
+go run . footprint           # the app's memory, startup and size
 ```
 
-`setup` needs each language's runtime: PHP with Swoole and Composer, Ruby
-and Bundler, Python 3, and Node. Each run writes `results.json`, and the
-tables here and in the README again; `go run . docs` writes the tables
-alone. `-conns`, `-warmup`, `-duration`, `-rounds` and `-count` change the
-load and the runs. The Go benchmarks are `go test`'s own, which run alone
-too, for benchstat to compare two runs of:
+They need Go alone. Each run writes `results.json`, and the tables here
+and in the README again; `go run . docs` writes the tables alone.
+`-conns`, `-warmup`, `-duration`, `-rounds`, `-starts` and `-count`
+change the load and the runs. The Go benchmarks are `go test`'s own,
+which run alone too, for benchstat to compare two runs of:
 
 ```sh
 go test -run '^$' -bench . -benchmem -count 10 > new.txt
@@ -258,7 +198,7 @@ go test -run '^$' -bench . -benchmem -count 10 > new.txt
 ## What's not measured
 
 - **A database:** the page reads none.
-- **TLS:** every app is reached over plain HTTP, as an app behind a load
+- **TLS:** the app is reached over plain HTTP, as an app behind a load
   balancer that ends TLS is.
-- **Server-side rendering:** each would render in Node, the same Node.
-- **A logged-in user:** each app's visit is a guest's.
+- **Server-side rendering:** it would render in Node.
+- **A logged-in user:** the visit is a guest's.

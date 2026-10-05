@@ -1,8 +1,0 @@
-# What setup.sh installs.
-/.bundle/
-/vendor/bundle/
-
-# What the server writes: bin/rails server makes tmp/cache, tmp/pids and
-# tmp/sockets, and Rails would log to log/ if not to stdout.
-/tmp/
-/log/

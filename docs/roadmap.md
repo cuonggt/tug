@@ -78,7 +78,7 @@ ServeMux (groups, middleware, named routes, URL building); Ctx (binding,
 responses); one ErrorHandler for errors, panics, 404s and 405s; and the
 RequestID, Logger, Recover and CSRF middleware. tug adds about 75 ns and one
 allocation to a request over ServeMux alone, as
-[the benchmarks](benchmarks.md#what-a-router-adds) measure it.
+[the benchmarks](benchmarks.md#what-tug-adds-to-a-request) measure it.
 
 ## M2 · Inertia core + Vite — done
 

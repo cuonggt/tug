@@ -324,21 +324,25 @@ the rest is the standard library.
 
 ## Benchmarks
 
-The same Inertia page, a post and its comments, served by tug and by
-frameworks in four other languages, each through its own Inertia adapter,
-in production, with the server its docs recommend on every core:
+An Inertia page, a post and its comments, served by an app as `tug new`
+makes one, with its session, CSRF and Content-Security-Policy, in one
+process that uses every core:
 
 <!-- bench:http -->
 
-| | Language | Visits a second | p99 | First visits a second | p99 |
-|---|---|--:|--:|--:|--:|
-| **tug** | Go | 62,919 | 5.22 ms | 57,715 | 5.92 ms |
-| AdonisJS | JavaScript | 27,740 (tug 2.3×) | 16.3 ms | 28,781 (tug 2.0×) | 21.6 ms |
-| Rails | Ruby | 10,752 (tug 5.9×) | 16.3 ms | 9,920 (tug 5.8×) | 14.3 ms |
-| Django | Python | 7,567 (tug 8.3×) | 28.0 ms | 6,471 (tug 8.9×) | 41.2 ms |
-| Laravel | PHP | 6,611 (tug 9.5×) | 31.4 ms | 6,267 (tug 9.2×) | 35.1 ms |
+| | Visits a second | p99 | First visits a second | p99 |
+|---|--:|--:|--:|--:|
+| **tug** | 60,061 | 4.38 ms | 56,146 | 5.09 ms |
 
 <!-- /bench:http -->
+
+<!-- bench:footprint -->
+
+| | Start | Memory, started | Memory, under load | Memory, after | Size |
+|---|--:|--:|--:|--:|--:|
+| **tug** | 15 ms | 6.4 MB | 19.9 MB | 19.3 MB | 9.6 MB |
+
+<!-- /bench:footprint -->
 
 <!-- bench:http-machine -->
 
@@ -346,10 +350,9 @@ Measured 2026-10-05 on Apple M1 Max, 10 cores, 32 GB, macOS 27.0.1.
 
 <!-- /bench:http-machine -->
 
-[docs/benchmarks.md](docs/benchmarks.md) has why Go, beside the other
-languages web apps are written in, how these were measured, what tug adds
-to a request beside ServeMux, Gin, Echo and Chi, its Inertia beside
-gonertia's, and how to run them.
+[docs/benchmarks.md](docs/benchmarks.md) has how these were measured, what
+tug adds to a request over ServeMux, Go's own router, the time it takes to
+render a page, and how to run them.
 
 ## Development
 

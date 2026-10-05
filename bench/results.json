@@ -21,24 +21,6 @@
         "ns_op": 233.05,
         "bytes_op": 176,
         "allocs_op": 3
-      },
-      {
-        "name": "Gin",
-        "ns_op": 93.16499999999999,
-        "bytes_op": 48,
-        "allocs_op": 1
-      },
-      {
-        "name": "Echo",
-        "ns_op": 117.4,
-        "bytes_op": 16,
-        "allocs_op": 1
-      },
-      {
-        "name": "Chi",
-        "ns_op": 389.65,
-        "bytes_op": 720,
-        "allocs_op": 5
       }
     ],
     "visit": [
@@ -53,12 +35,6 @@
         "ns_op": 7005,
         "bytes_op": 5281,
         "allocs_op": 35
-      },
-      {
-        "name": "gonertia, ServeMux",
-        "ns_op": 10100,
-        "bytes_op": 8030,
-        "allocs_op": 45
       }
     ],
     "first_visit": [
@@ -73,12 +49,6 @@
         "ns_op": 9555,
         "bytes_op": 11618,
         "allocs_op": 49
-      },
-      {
-        "name": "gonertia, ServeMux",
-        "ns_op": 12289,
-        "bytes_op": 11537,
-        "allocs_op": 62
       }
     ]
   },
@@ -97,157 +67,53 @@
     "apps": [
       {
         "name": "tug",
-        "language": "Go",
         "server": "net/http, one process",
         "versions": [
           "Go 1.26.1",
-          "tug v0.39.0-4-g3987f06"
+          "tug v0.39.0-10-ge286336"
         ],
         "visit": {
-          "requests": 629195,
-          "seconds": 10.00004475,
-          "per_second": 62919.21843649749,
+          "requests": 600610,
+          "seconds": 10.000041917,
+          "per_second": 60060.74824336158,
           "errors": 0,
           "bytes": 2924,
-          "p50_ms": 0.516,
-          "p99_ms": 5.216,
-          "max_ms": 25.073
+          "p50_ms": 0.628,
+          "p99_ms": 4.384,
+          "max_ms": 13.639
         },
         "first_visit": {
-          "requests": 577175,
-          "seconds": 10.000486125,
-          "per_second": 57714.69434442118,
+          "requests": 561465,
+          "seconds": 10.000004458,
+          "per_second": 56146.474969901465,
           "errors": 0,
           "bytes": 3205,
-          "p50_ms": 0.532,
-          "p99_ms": 5.92,
-          "max_ms": 28.936
+          "p50_ms": 0.612,
+          "p99_ms": 5.088,
+          "max_ms": 14.929
         }
-      },
+      }
+    ]
+  },
+  "footprint": {
+    "date": "2026-10-05",
+    "machine": {
+      "cpu": "Apple M1 Max",
+      "cores": 10,
+      "memory": "32 GB",
+      "os": "macOS 27.0.1"
+    },
+    "memory": "footprint",
+    "load_s": 10,
+    "apps": [
       {
-        "name": "Laravel",
-        "language": "PHP",
-        "server": "Octane on Swoole, a worker a core",
-        "versions": [
-          "PHP 8.5.10",
-          "Laravel 13.34.0",
-          "inertia-laravel 3.5.1",
-          "Octane 2.20.0",
-          "Swoole 6.2.2"
-        ],
-        "visit": {
-          "requests": 66112,
-          "seconds": 10.000246917,
-          "per_second": 6611.036762263577,
-          "errors": 0,
-          "bytes": 4225,
-          "p50_ms": 7.456,
-          "p99_ms": 31.36,
-          "max_ms": 112.207
-        },
-        "first_visit": {
-          "requests": 62668,
-          "seconds": 10.000156208,
-          "per_second": 6266.702109099694,
-          "errors": 0,
-          "bytes": 4504,
-          "p50_ms": 7.84,
-          "p99_ms": 35.072,
-          "max_ms": 141.269
-        }
-      },
-      {
-        "name": "Rails",
-        "language": "Ruby",
-        "server": "Puma, a worker a core, 3 threads each",
-        "versions": [
-          "Ruby 4.0.5 +YJIT",
-          "Rails 8.1.4",
-          "inertia_rails 3.22.0",
-          "Puma 8.0.2"
-        ],
-        "visit": {
-          "requests": 107520,
-          "seconds": 10.000042958,
-          "per_second": 10751.953811756815,
-          "errors": 0,
-          "bytes": 3327,
-          "p50_ms": 5.6,
-          "p99_ms": 16.32,
-          "max_ms": 98.168
-        },
-        "first_visit": {
-          "requests": 99205,
-          "seconds": 10.000044959,
-          "per_second": 9920.455398624574,
-          "errors": 0,
-          "bytes": 3784,
-          "p50_ms": 6.112,
-          "p99_ms": 14.272,
-          "max_ms": 75.074
-        }
-      },
-      {
-        "name": "Django",
-        "language": "Python",
-        "server": "gunicorn, two workers a core, and one",
-        "versions": [
-          "Python 3.14.3",
-          "Django 6.1.1",
-          "inertia-django 2.0.0",
-          "gunicorn 26.2.0"
-        ],
-        "visit": {
-          "requests": 75674,
-          "seconds": 10.000019875,
-          "per_second": 7567.384959822392,
-          "errors": 0,
-          "bytes": 2820,
-          "p50_ms": 7.008,
-          "p99_ms": 28.032,
-          "max_ms": 236.215
-        },
-        "first_visit": {
-          "requests": 64710,
-          "seconds": 10.000366917,
-          "per_second": 6470.762576720765,
-          "errors": 0,
-          "bytes": 3108,
-          "p50_ms": 7.968,
-          "p99_ms": 41.216,
-          "max_ms": 296.914
-        }
-      },
-      {
-        "name": "AdonisJS",
-        "language": "JavaScript",
-        "server": "Node's cluster, a process a core",
-        "versions": [
-          "Node 24.14.0",
-          "AdonisJS 7.5.2",
-          "@adonisjs/http-server 9.3.1",
-          "@adonisjs/inertia 5.0.1"
-        ],
-        "visit": {
-          "requests": 277397,
-          "seconds": 10.000017708,
-          "per_second": 27739.650878626224,
-          "errors": 0,
-          "bytes": 3437,
-          "p50_ms": 1.176,
-          "p99_ms": 16.32,
-          "max_ms": 147.025
-        },
-        "first_visit": {
-          "requests": 287812,
-          "seconds": 10.000014875,
-          "per_second": 28781.157188028683,
-          "errors": 0,
-          "bytes": 3678,
-          "p50_ms": 1.192,
-          "p99_ms": 21.632,
-          "max_ms": 164.021
-        }
+        "name": "tug",
+        "processes": 1,
+        "startup_ms": 14.568,
+        "memory_start_mib": 6.3912200927734375,
+        "memory_peak_mib": 19.89124298095703,
+        "memory_after_mib": 19.29749298095703,
+        "size_mib": 9.63243293762207
       }
     ]
   }

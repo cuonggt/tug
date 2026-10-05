@@ -96,8 +96,9 @@ jobs:
       - run: go test -race ./...
 
   # The benchmarks' module, bench/, a module of its own: that ServeMux and
-  # each Go framework answer the benchmarks' request alike, that tug and
-  # gonertia render the same page, and the load's reader of responses.
+  # tug answer the benchmarks' request alike, that tug's App and its
+  # inertia package render the same page, and the load's reader of
+  # responses.
   # The benchmarks themselves run by hand, on a machine with nothing else
   # running: a runner's numbers would be its neighbours' as much as its own.
   bench:

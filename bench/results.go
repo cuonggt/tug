@@ -20,8 +20,9 @@ import (
 // the website's home page reads, and the tables in the guide and the
 // README are written from.
 type results struct {
-	Go   *goResults   `json:"go,omitempty"`
-	HTTP *httpResults `json:"http,omitempty"`
+	Go        *goResults        `json:"go,omitempty"`
+	HTTP      *httpResults      `json:"http,omitempty"`
+	Footprint *footprintResults `json:"footprint,omitempty"`
 }
 
 type goResults struct {
@@ -57,7 +58,6 @@ type httpResults struct {
 
 type appResult struct {
 	Name       string     `json:"name"`
-	Language   string     `json:"language"`
 	Server     string     `json:"server"`
 	Versions   []string   `json:"versions"`
 	Visit      loadResult `json:"visit"`
@@ -158,6 +158,10 @@ func (r results) writeDocs() error {
 		tables["http-setup"] = r.HTTP.setup()
 		tables["http-machine"] = fmt.Sprintf("Measured %s on %s.\n", r.HTTP.Date, r.HTTP.Machine)
 	}
+	if r.Footprint != nil {
+		tables["footprint"] = r.Footprint.table()
+		tables["footprint-setup"] = r.Footprint.setup()
+	}
 	if r.Go != nil {
 		tables["router"] = r.Go.routerTable()
 		tables["inertia"] = r.Go.inertiaTable()
@@ -198,48 +202,59 @@ func replaceRegion(doc []byte, region, text string) []byte {
 	return slices.Concat(doc[:i], []byte("\n"+strings.TrimSpace(text)+"\n\n"), doc[i+j:])
 }
 
-// table is the apps, the most requests a second first, with how many
-// times as many tug answered.
+// table is each app's visits and first visits a second, and the time 99
+// in 100 of each took.
 func (h *httpResults) table() string {
-	byVisits := slices.Clone(h.Apps)
-	slices.SortStableFunc(byVisits, func(a, b appResult) int { return cmp.Compare(b.Visit.PerSecond, a.Visit.PerSecond) })
-	var tug *appResult
-	for i := range h.Apps {
-		if h.Apps[i].Name == "tug" {
-			tug = &h.Apps[i]
-		}
-	}
 	var b strings.Builder
-	b.WriteString("| | Language | Visits a second | p99 | First visits a second | p99 |\n")
-	b.WriteString("|---|---|--:|--:|--:|--:|\n")
-	for _, a := range byVisits {
-		name := a.Name
-		if a.Name == "tug" {
-			name = "**tug**"
-		}
-		fmt.Fprintf(&b, "| %s | %s | %s%s | %s | %s%s | %s |\n", name, a.Language,
-			thousands(a.Visit.PerSecond), times(tug, a, func(r appResult) float64 { return r.Visit.PerSecond }), millis(a.Visit.P99),
-			thousands(a.FirstVisit.PerSecond), times(tug, a, func(r appResult) float64 { return r.FirstVisit.PerSecond }), millis(a.FirstVisit.P99))
+	b.WriteString("| | Visits a second | p99 | First visits a second | p99 |\n")
+	b.WriteString("|---|--:|--:|--:|--:|\n")
+	for _, a := range h.Apps {
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", bold(a.Name),
+			thousands(a.Visit.PerSecond), millis(a.Visit.P99), thousands(a.FirstVisit.PerSecond), millis(a.FirstVisit.P99))
 	}
 	return b.String()
 }
 
-// times says how many times a's number tug's is, after a's own.
-func times(tug *appResult, a appResult, of func(appResult) float64) string {
-	if tug == nil || a.Name == "tug" || of(a) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(" (tug %.1f×)", of(*tug)/of(a))
-}
-
 func (h *httpResults) setup() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Measured %s on %s: %d connections, %g seconds of warmup, then %d rounds of %g seconds, the median round's. Each app's versions and server:\n\n",
+	fmt.Fprintf(&b, "Measured %s on %s: %d connections, %g seconds of warmup, then %d rounds of %g seconds, the median round's, with these versions and server:\n\n",
 		h.Date, h.Machine, h.Conns, h.Warmup, h.Rounds, h.Seconds)
 	for _, a := range h.Apps {
 		fmt.Fprintf(&b, "- **%s**: %s; %s.\n", a.Name, strings.Join(a.Versions, ", "), a.Server)
 	}
 	return b.String()
+}
+
+// table is each app's startup, memory and size.
+func (f *footprintResults) table() string {
+	var b strings.Builder
+	b.WriteString("| | Start | Memory, started | Memory, under load | Memory, after | Size |\n")
+	b.WriteString("|---|--:|--:|--:|--:|--:|\n")
+	for _, a := range f.Apps {
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n", bold(a.Name),
+			startup(a.Startup), megabytes(a.MemoryStart), megabytes(a.MemoryPeak), megabytes(a.MemoryAfter), megabytes(a.Size))
+	}
+	return b.String()
+}
+
+func (f *footprintResults) setup() string {
+	return fmt.Sprintf("Measured %s on %s, memory as macOS's %s, the load %g seconds of visits on 64 connections.\n",
+		f.Date, f.Machine, f.Memory, f.Load)
+}
+
+// startup is ms milliseconds, in seconds from a second up.
+func startup(ms float64) string {
+	if ms >= 1000 {
+		return fmt.Sprintf("%.1f s", ms/1000)
+	}
+	return fmt.Sprintf("%.0f ms", ms)
+}
+
+func megabytes(mib float64) string {
+	if mib >= 100 {
+		return thousands(mib) + " MB"
+	}
+	return fmt.Sprintf("%.1f MB", mib)
 }
 
 func (g *goResults) routerTable() string {

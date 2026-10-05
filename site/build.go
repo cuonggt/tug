@@ -99,9 +99,11 @@ func load(cfg config) (*site, error) {
 	}
 	s.Parts = s.Index.parts
 
-	if s.Bench, err = loadBench(cfg.Root); err != nil {
+	results, err := readBenchResults(cfg.Root)
+	if err != nil {
 		return nil, err
 	}
+	s.Bench = benchOf(results)
 	if err := s.loadOwn(); err != nil {
 		return nil, err
 	}
