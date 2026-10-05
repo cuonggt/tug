@@ -82,8 +82,42 @@
     </div>
   </section>
 
+  <section class="section" aria-labelledby="why-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Why Go</p>
+        <h2 id="why-title">Close to the fastest, in one small binary that starts in milliseconds.</h2>
+        <p>Go is the best all-round choice for a web app's speed, size, memory and deploying. Rust does better on raw numbers, but takes much longer to write. tug keeps all of it for an Inertia app: one static binary, its frontend's build inside it, served by Go's own HTTP server.</p>
+      </div>
+      <ul class="points">
+        <li class="point">{{template "i-gauge"}}<h3>Performance</h3><p>Close to the fastest, in a container of about 15 MB, in tens of MB of RAM.</p></li>
+        <li class="point">{{template "i-bolt"}}<h3>Startup</h3><p>In milliseconds, which keeps the cost down on a platform that scales to zero.</p></li>
+        <li class="point">{{template "i-file"}}<h3>Deploying</h3><p>One file to copy, with no runtime or dependencies to install, built for Linux or ARM from a Mac.</p></li>
+        <li class="point">{{template "i-term"}}<h3>Development</h3><p>A small language that compiles fast, with an HTTP server in its standard library that's good enough for production.</p></li>
+      </ul>
+      <div class="table langs">
+        <table>
+          <caption class="sr-only">Languages web apps are written in, and their frameworks, by rough figures</caption>
+          <thead><tr><th scope="col">Language · framework</th><th scope="col">Speed</th><th scope="col">RAM, idle</th><th scope="col">Image</th><th scope="col">Cold start</th><th scope="col">Deploying</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Rust <span>Axum, Actix</span></th><td>Top</td><td>2–20 MB</td><td>5–20 MB</td><td>ms</td><td>Easy: one binary, but slow compiles</td></tr>
+            <tr class="is-go"><th scope="row">Go <span>net/http, Gin</span></th><td>High</td><td>10–40 MB</td><td>10–30 MB</td><td>ms</td><td>Easiest: one static binary</td></tr>
+            <tr><th scope="row">C# <span>ASP.NET Core</span></th><td>Top</td><td>40–100 MB</td><td>100–200 MB</td><td>~0.2 s</td><td>Easy: <code>dotnet publish</code> builds the container</td></tr>
+            <tr><th scope="row">Java/Kotlin <span>Spring Boot</span></th><td>High, after warm-up</td><td>150–500 MB</td><td>150–300 MB</td><td>1–10 s</td><td>OK: a heavy JVM that needs tuning</td></tr>
+            <tr><th scope="row">JS/TS <span>Node, Bun</span></th><td>Medium</td><td>50–150 MB</td><td>150–400 MB</td><td>0.1–0.5 s</td><td>Easy: every host and serverless platform runs it</td></tr>
+            <tr><th scope="row">Elixir <span>Phoenix</span></th><td>Medium</td><td>50–100 MB</td><td>30–100 MB</td><td>~1 s</td><td>OK: releases work, in a smaller ecosystem</td></tr>
+            <tr><th scope="row">PHP <span>Laravel</span></th><td>Medium-low</td><td>20–50 MB a worker</td><td>100–300 MB</td><td>~instant</td><td>Easy: the cheapest hosting runs it</td></tr>
+            <tr><th scope="row">Python <span>FastAPI, Django</span></th><td>Low</td><td>50–150 MB a worker</td><td>150–500 MB</td><td>0.5–2 s</td><td>OK: needs an app server, and its workers tuned</td></tr>
+            <tr><th scope="row">Ruby <span>Rails</span></th><td>Low</td><td>150–400 MB a worker</td><td>200–500 MB</td><td>1–5 s</td><td>Easy with Kamal</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="langs-foot">Rough figures, for a small JSON API in a Linux container, and a real app's grow with its dependencies. PHP, Python and Ruby use more than one core with a process for each worker, so their RAM is a worker's times the workers. C#'s Native AOT and Java's GraalVM native images bring theirs down to about 20–80 MB, and start in tens of milliseconds, for slower builds and some libraries that won't work. <a href="{{href "docs/benchmarks/#why-go"}}">Why Go, and tug, in the guide{{template "i-arrow"}}</a></p>
+    </div>
+  </section>
+
   {{with .Bench}}
-  <section class="section" aria-labelledby="bench-title">
+  <section class="section section-alt" aria-labelledby="bench-title">
     <div class="wrap">
       <div class="section-head">
         <p class="eyebrow">How fast</p>
@@ -111,7 +145,7 @@
   </section>
   {{end}}
 
-  <section class="section{{if .Bench}} section-alt{{end}}" aria-labelledby="guide-title">
+  <section class="section{{if not .Bench}} section-alt{{end}}" aria-labelledby="guide-title">
     <div class="wrap">
       <div class="section-head">
         <p class="eyebrow">The guide</p>

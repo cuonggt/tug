@@ -278,4 +278,16 @@ func TestTheHomePageShowsTheBenchmarksResults(t *testing.T) {
 	if got := home(without); strings.Contains(got, "bench-title") {
 		t.Error("a checkout with no results has a section of them")
 	}
+
+	// Why Go is there either way, its table's Go row marked, and the
+	// sections' backgrounds still alternate.
+	for _, got := range []string{got, home(without)} {
+		if !strings.Contains(got, `<h2 id="why-title">`) || !strings.Contains(got, `<tr class="is-go"><th scope="row">Go <span>net/http, Gin</span></th>`) {
+			t.Error("the home page has no Why Go, or no Go row in its table")
+		}
+	}
+	if !strings.Contains(got, `<section class="section" aria-labelledby="guide-title">`) ||
+		!strings.Contains(home(without), `<section class="section section-alt" aria-labelledby="guide-title">`) {
+		t.Error("the guide's section doesn't take the background the section before it leaves")
+	}
 }

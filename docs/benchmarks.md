@@ -1,14 +1,57 @@
 # Benchmarks
 
-tug is measured two ways, each beside other frameworks. Over HTTP, an app
-of each framework serves the same Inertia page under load: tug's, and
-Laravel's, Rails', Django's and AdonisJS's. In one process, Go's own
-benchmarks show what tug adds to a request beside ServeMux, Gin, Echo and
-Chi, and its Inertia beside gonertia's. The code is in
-[bench/](../bench), a module of its own, so tug's `go.mod` needs none of
+First, why Go: the language beside the others web apps are written in, by
+rough figures. Then tug itself, measured two ways, each beside other
+frameworks. Over HTTP, an app of each framework serves the same Inertia
+page under load: tug's, and Laravel's, Rails', Django's and AdonisJS's. In
+one process, Go's own benchmarks show what tug adds to a request beside
+ServeMux, Gin, Echo and Chi, and its Inertia beside gonertia's. The code is
+in [bench/](../bench), a module of its own, so tug's `go.mod` needs none of
 theirs. The last run's numbers are in
 [bench/results.json](../bench/results.json), which the tables here are
 written from, and the website's home page shows.
+
+## Why Go
+
+Go is the best all-round choice for a web app's speed, size, memory and
+deploying. Rust does better on raw numbers, but takes much longer to
+write.
+
+| Language · framework | Speed | RAM, idle | Image | Cold start | Deploying |
+|---|---|---|---|---|---|
+| **Rust** · Axum, Actix | Top | 2–20 MB | 5–20 MB | ms | Easy: one binary, but slow compiles |
+| **Go** · net/http, Gin | High | 10–40 MB | 10–30 MB | ms | Easiest: one static binary |
+| **C#** · ASP.NET Core | Top | 40–100 MB | 100–200 MB | ~0.2 s | Easy: `dotnet publish` builds the container |
+| **Java/Kotlin** · Spring Boot | High, after warm-up | 150–500 MB | 150–300 MB | 1–10 s | OK: a heavy JVM that needs tuning |
+| **JS/TS** · Node, Bun | Medium | 50–150 MB | 150–400 MB | 0.1–0.5 s | Easy: every host and serverless platform runs it |
+| **Elixir** · Phoenix | Medium | 50–100 MB | 30–100 MB | ~1 s | OK: releases work, in a smaller ecosystem |
+| **PHP** · Laravel | Medium-low | 20–50 MB a worker | 100–300 MB | ~instant | Easy: the cheapest hosting runs it |
+| **Python** · FastAPI, Django | Low | 50–150 MB a worker | 150–500 MB | 0.5–2 s | OK: needs an app server, and its workers tuned |
+| **Ruby** · Rails | Low | 150–400 MB a worker | 200–500 MB | 1–5 s | Easy with Kamal |
+
+These are rough figures, for a small JSON API in a Linux container, and a
+real app's grow with its dependencies. PHP, Python and Ruby use more than
+one core with a process for each worker, so their RAM is a worker's times
+the workers. C#'s Native AOT and Java's GraalVM native images bring theirs
+down to about 20–80 MB, and start in tens of milliseconds, for slower
+builds and some libraries that won't work.
+
+- **Performance:** close to the fastest, in a container of about 15 MB,
+  in tens of MB of RAM.
+- **Startup:** in milliseconds, which keeps the cost down on a platform
+  that scales to zero.
+- **Deploying:** one file to copy, with no runtime or dependencies to
+  install, and one command on a Mac builds it for Linux or ARM.
+- **Development:** a small language that compiles fast, with an HTTP
+  server in its standard library that's good enough for production.
+
+tug keeps each of them for an Inertia app. The app is one static binary,
+its frontend's build inside it, served by net/http. `tug build` makes it
+for the machine it runs on, and with its frontend built, `go build` makes
+it again for Linux or ARM, as [Deployment](deployment.md#tug-build) shows.
+What tug adds to Go is what the rest of this page measures: what a
+request costs, beside frameworks in four of the table's other languages,
+and beside Go's other routers and Inertia adapter.
 
 ## Over HTTP
 

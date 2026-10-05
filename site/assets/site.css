@@ -1010,6 +1010,39 @@ a { color: var(--accent); }
 
 .home .parts { margin: 0; }
 
+/* Why Go: its four strengths, then the languages web apps are written in,
+   Go's row marked as the one the table is about. */
+.points {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 2rem;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--border);
+}
+
+.point { padding: 1.5rem 1.5rem 1.75rem; background: var(--surface); }
+.point > .i { display: block; width: 1.5rem; height: 1.5rem; margin-bottom: 1rem; color: var(--accent); }
+.point h3 { margin: 0 0 0.4rem; color: var(--text); font-size: 1rem; font-weight: 600; }
+.point p { margin: 0; color: var(--text-muted); font-size: 0.9375rem; line-height: 1.6; }
+
+.langs { background: var(--surface); }
+.langs th[scope="row"] { color: var(--text); font-weight: 600; white-space: nowrap; }
+.langs th[scope="row"] span { display: block; color: var(--text-faint); font: 500 0.75rem/1.4 var(--font-mono); }
+.langs td { color: var(--text-body); }
+.langs td:nth-child(2), .langs td:nth-child(3), .langs td:nth-child(4), .langs td:nth-child(5) { white-space: nowrap; }
+/* Wide enough on a phone to wrap once at most, as the box scrolls sideways. */
+.langs td:last-child { min-width: 15rem; }
+.langs .is-go th[scope="row"], .langs .is-go td { background: var(--accent-soft); }
+.langs .is-go th[scope="row"] { box-shadow: inset 3px 0 0 var(--accent); }
+.langs-foot { max-width: 52rem; margin: 1rem 0 0; color: var(--text-muted); font-size: 0.875rem; line-height: 1.6; }
+.langs-foot a { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--accent); font-weight: 500; text-underline-offset: 3px; white-space: nowrap; }
+.langs-foot .i { width: 1rem; height: 1rem; }
+
 /* How fast: two charts over HTTP, then two in Go, each a table of bars,
    tug's in the accent and the rest in a gray, each value at its bar's
    end. A bar's length is its share of the longest, --w, from the build;
@@ -1295,6 +1328,7 @@ a { color: var(--accent); }
   .term { max-width: 40rem; }
   .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bench { grid-template-columns: minmax(0, 1fr); }
+  .points { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 639px) {
@@ -1315,6 +1349,8 @@ a { color: var(--accent); }
   .feature { padding: 1.5rem 1.25rem; }
   .bench-chart { padding: 1.25rem 1rem 1rem; }
   .bars th { width: 6.5rem; padding-right: 0.75rem; }
+  .points { grid-template-columns: minmax(0, 1fr); }
+  .point { padding: 1.25rem 1.25rem 1.5rem; }
   .bar { width: calc(var(--w) * 0.6); }
   .pager { grid-template-columns: minmax(0, 1fr); }
   .pager-next { grid-column: 1; }

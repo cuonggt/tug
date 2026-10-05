@@ -346,9 +346,10 @@ Measured 2026-10-05 on Apple M1 Max, 10 cores, 32 GB, macOS 27.0.1.
 
 <!-- /bench:http-machine -->
 
-[docs/benchmarks.md](docs/benchmarks.md) has how they were measured, what
-tug adds to a request beside ServeMux, Gin, Echo and Chi, its Inertia
-beside gonertia's, and how to run them.
+[docs/benchmarks.md](docs/benchmarks.md) has why Go, beside the other
+languages web apps are written in, how these were measured, what tug adds
+to a request beside ServeMux, Gin, Echo and Chi, its Inertia beside
+gonertia's, and how to run them.
 
 ## Development
 
