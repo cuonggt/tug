@@ -228,7 +228,10 @@ func TestTheHomePageShowsTheBenchmarksResults(t *testing.T) {
 	}
 	without := guide(t, pages)
 	pages["bench/results.json"] = `{
-		"go": {"visit": [{"name": "tug, App", "ns_op": 8300}, {"name": "gonertia, ServeMux", "ns_op": 10100}]},
+		"go": {
+			"router": [{"name": "tug", "ns_op": 233.1}, {"name": "Gin", "ns_op": 93.2}],
+			"visit": [{"name": "tug, App", "ns_op": 8300}, {"name": "gonertia, ServeMux", "ns_op": 10100}]
+		},
 		"http": {"date": "2026-10-05", "machine": {"cpu": "Apple M1 Max", "cores": 10, "os": "macOS 27.0"}, "apps": [
 			{"name": "tug", "language": "Go", "visit": {"per_second": 60000, "p99_ms": 2.1}, "first_visit": {"per_second": 50000}},
 			{"name": "Rails", "language": "Ruby", "visit": {"per_second": 3000, "p99_ms": 48}, "first_visit": {"per_second": 2500}},
@@ -256,9 +259,10 @@ func TestTheHomePageShowsTheBenchmarksResults(t *testing.T) {
 		"tug answers 8.0 times as many visits a second as Laravel, the fastest of the others, and 20 times as many as Rails.",
 		"served by tug and by Laravel and Rails,",
 		// tug's bar is the longest, and the others are their share of it.
-		`<tr class="is-tug">`, `style="--w: 100.0%"`, `style="--w: 12.5%"`, "60,000", "p99 2.10 ms",
-		// The adapters, by time, tug's App with its note.
+		`<tr class="is-tug">`, `style="--w: 100.0%"`, `style="--w: 12.5%"`, "60,000",
+		// The adapters, by time, tug's App with its note, and the routers.
 		`<span class="bar-name">tug</span><span class="bar-note">App</span>`, "8.3 µs", "10.1 µs",
+		"What a router adds", "93 ns", "233 ns",
 		`Measured <time datetime="2026-10-05">2026-10-05</time> on Apple M1 Max, 10 cores, macOS 27.0.`,
 	} {
 		if !strings.Contains(got, want) {
@@ -267,6 +271,9 @@ func TestTheHomePageShowsTheBenchmarksResults(t *testing.T) {
 	}
 	if strings.Index(got, "Laravel</span>") > strings.Index(got, "Rails</span>") {
 		t.Error("the apps aren't in the order of their visits a second")
+	}
+	if strings.Index(got, "93 ns") > strings.Index(got, "233 ns") {
+		t.Error("the routers aren't the fastest first")
 	}
 	if got := home(without); strings.Contains(got, "bench-title") {
 		t.Error("a checkout with no results has a section of them")

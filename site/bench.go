@@ -18,7 +18,8 @@ import (
 // bench/'s runner writes it.
 type benchResults struct {
 	Go *struct {
-		Visit []benchRender `json:"visit"`
+		Router []benchRender `json:"router"`
+		Visit  []benchRender `json:"visit"`
 	} `json:"go"`
 	HTTP *struct {
 		Date    string       `json:"date"`
@@ -42,7 +43,6 @@ type benchApp struct {
 
 type benchLoad struct {
 	PerSecond float64 `json:"per_second"`
-	P99       float64 `json:"p99_ms"`
 }
 
 type benchRender struct {
@@ -52,7 +52,8 @@ type benchRender struct {
 
 // A bench is what the home page shows of the benchmarks: each app's
 // visits and first visits a second, tug's beside the other frameworks',
-// and the time the Go adapters take to render the page, in one process.
+// and, in one process, the time the Go adapters take to render the page,
+// and the Go routers to route a request.
 type bench struct {
 	Charts []chart
 	// Lead is how many times as many visits tug answered as Next, the
@@ -63,7 +64,7 @@ type bench struct {
 	Machine, Date string
 }
 
-// A chart is a table of bars, the first chart across the section's width.
+// A chart is a table of bars.
 type chart struct {
 	ID, Title, About string
 	Column           string // what its values are, for a screen reader's table
@@ -73,12 +74,11 @@ type chart struct {
 // A bar is one row of a chart: its name, its value as it's shown, and
 // its length, as a share of the longest.
 type bar struct {
-	Name   string
-	Note   string // what it's written in, or on
-	Value  string
-	Detail string
-	Width  template.CSS
-	Tug    bool
+	Name  string
+	Note  string // what it's written in, or on
+	Value string
+	Width template.CSS
+	Tug   bool
 }
 
 // loadBench reads bench/results.json; without one, or without both its
@@ -99,7 +99,7 @@ func loadBench(root string) (*bench, error) {
 		return nil, nil
 	}
 	v := &bench{Machine: r.HTTP.Machine.String(), Date: r.HTTP.Date}
-	var visits, firstVisits, render []bar
+	var visits, firstVisits []bar
 
 	apps := slices.Clone(r.HTTP.Apps)
 	byVisits := func(a, b benchApp) int { return cmp.Compare(b.Visit.PerSecond, a.Visit.PerSecond) }
@@ -113,7 +113,7 @@ func loadBench(root string) (*bench, error) {
 	var others []string
 	for _, a := range apps {
 		visits = append(visits, bar{Name: a.Name, Note: a.Language, Value: thousands(a.Visit.PerSecond),
-			Detail: "p99 " + millis(a.Visit.P99), Width: share(a.Visit.PerSecond, apps[0].Visit.PerSecond), Tug: a.Name == "tug"})
+			Width: share(a.Visit.PerSecond, apps[0].Visit.PerSecond), Tug: a.Name == "tug"})
 		if a.Name != "tug" && a.Visit.PerSecond > 0 {
 			others = append(others, a.Name)
 			if v.Next == "" {
@@ -130,25 +130,34 @@ func loadBench(root string) (*bench, error) {
 			Width: share(a.FirstVisit.PerSecond, apps[0].FirstVisit.PerSecond), Tug: a.Name == "tug"})
 	}
 
-	adapters := slices.Clone(r.Go.Visit)
-	slices.SortStableFunc(adapters, func(a, b benchRender) int { return cmp.Compare(a.Ns, b.Ns) })
-	var longest float64
-	for _, a := range adapters {
-		longest = max(longest, a.Ns)
-	}
-	for _, a := range adapters {
-		// "gonertia, ServeMux": the adapter, then what it's on.
-		name, note, _ := strings.Cut(a.Name, ", ")
-		render = append(render, bar{Name: name, Note: note, Value: strconv.FormatFloat(a.Ns/1000, 'f', 1, 64) + " µs",
-			Width: share(a.Ns, longest), Tug: strings.HasPrefix(a.Name, "tug")})
-	}
+	render := timeBars(r.Go.Visit, func(ns float64) string { return strconv.FormatFloat(ns/1000, 'f', 1, 64) + " µs" })
+	router := timeBars(r.Go.Router, func(ns float64) string { return strconv.FormatFloat(ns, 'f', 0, 64) + " ns" })
 
 	v.Charts = []chart{
 		{ID: "bench-visits", Title: "Visits a second", About: "Inertia's client asking for the page, answered as JSON. More is better.", Column: "Visits a second", Bars: visits},
-		{ID: "bench-first-visits", Title: "First visits a second", About: "A browser asking for the page's HTML.", Column: "First visits a second", Bars: firstVisits},
+		{ID: "bench-first-visits", Title: "First visits a second", About: "A browser asking for the page, answered with its HTML. More is better.", Column: "First visits a second", Bars: firstVisits},
 		{ID: "bench-render", Title: "A visit, rendered in Go", About: "The page through each Go adapter, in one process. Less is better.", Column: "Time", Bars: render},
+		{ID: "bench-router", Title: "What a router adds", About: "One route through ServeMux alone and each Go router, in one process. Less is better.", Column: "Time", Bars: router},
 	}
 	return v, nil
+}
+
+// timeBars are the bars of times, the least first, each as value says it.
+// A name such as "gonertia, ServeMux" is the bar's name, then its note,
+// what it's on.
+func timeBars(times []benchRender, value func(ns float64) string) []bar {
+	times = slices.Clone(times)
+	slices.SortStableFunc(times, func(a, b benchRender) int { return cmp.Compare(a.Ns, b.Ns) })
+	var longest float64
+	for _, t := range times {
+		longest = max(longest, t.Ns)
+	}
+	var bars []bar
+	for _, t := range times {
+		name, note, _ := strings.Cut(t.Name, ", ")
+		bars = append(bars, bar{Name: name, Note: note, Value: value(t.Ns), Width: share(t.Ns, longest), Tug: strings.HasPrefix(t.Name, "tug")})
+	}
+	return bars
 }
 
 func (m benchMachine) String() string {
@@ -179,17 +188,6 @@ func thousands(n float64) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
-}
-
-func millis(ms float64) string {
-	switch {
-	case ms >= 100:
-		return fmt.Sprintf("%.0f ms", ms)
-	case ms >= 10:
-		return fmt.Sprintf("%.1f ms", ms)
-	default:
-		return fmt.Sprintf("%.2f ms", ms)
-	}
 }
 
 // sentence is names as a sentence lists them: "a, b and c".

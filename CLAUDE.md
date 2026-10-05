@@ -1146,10 +1146,11 @@ dev server that isn't there: delete it.
   light and dark; `site.js`, search, the drawer, copying, and the heading
   the reader is at) and `snippets/`, the home page's code, are read from
   the directory it runs in. `bench.go`: `loadBench` reads
-  `bench/results.json` for the home page's charts, each a table of bars
-  (`chart`, `bar`, each bar's length a share of the longest, `--w`), and
-  its headline's numbers, tug's visits a second over the others'; with no
-  results, the page has no section of them. `benchmarks` is a page the
+  `bench/results.json` for the home page's charts, two over HTTP and two
+  in Go, the adapters' and the routers' times (`timeBars`), each a table
+  of bars (`chart`, `bar`, each bar's length a share of the longest,
+  `--w`), and its headline's numbers, tug's visits a second over the
+  others'; with no results, the page has no section of them. `benchmarks` is a page the
   index needn't list as a part, as the roadmap is.
 - `bench/`: tug beside other frameworks, a module of its own, for Gin,
   Echo, Chi and gonertia, which tug has no need of. `page/`: the page

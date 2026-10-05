@@ -1010,12 +1010,19 @@ a { color: var(--accent); }
 
 .home .parts { margin: 0; }
 
-/* How fast: each chart a table of bars, tug's in the accent and the rest
-   in a gray, each value at its bar's end. A bar's length is its share of
-   the longest, --w, from the build; the track keeps room for the value. */
+/* How fast: two charts over HTTP, then two in Go, each a table of bars,
+   tug's in the accent and the rest in a gray, each value at its bar's
+   end. A bar's length is its share of the longest, --w, from the build;
+   the track keeps room for the value. Each chart's caption and table are
+   rows of the grid's, so two charts side by side start their bars level,
+   however their captions wrap. */
 .bench { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
 
 .bench-chart {
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  row-gap: 1rem;
   min-width: 0;
   margin: 0;
   padding: 1.5rem 1.5rem 1.25rem;
@@ -1024,12 +1031,11 @@ a { color: var(--accent); }
   background: var(--surface);
 }
 
-.bench-wide { grid-column: 1 / -1; }
-.bench-cap { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; margin-bottom: 1rem; }
+.bench-cap { display: flex; flex-direction: column; gap: 0.25rem; }
 .bench-title { color: var(--text); font-weight: 600; }
 .bench-about { color: var(--text-muted); font-size: 0.875rem; }
 
-.bars { width: 100%; border-collapse: collapse; }
+.bars { align-self: start; width: 100%; border-collapse: collapse; }
 .bars th, .bars td { padding: 0.45rem 0; vertical-align: middle; }
 .bars th { width: 8.5rem; padding-right: 1rem; font-weight: 400; text-align: left; white-space: nowrap; }
 .bar-name { display: block; color: var(--text); font-size: 0.9375rem; line-height: 1.3; }
@@ -1051,19 +1057,7 @@ a { color: var(--accent); }
 .bars tbody tr:hover .bar { background: var(--text-faint); }
 .bars tbody tr.is-tug:hover .bar { background: var(--accent-hover); }
 
-.bar-value {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 0.5rem;
-  color: var(--text);
-  font-size: 0.875rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.bar-detail { color: var(--text-faint); font-size: 0.75rem; font-weight: 400; }
+.bar-value { color: var(--text); font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bench-foot { margin: 1.25rem 0 0; color: var(--text-muted); font-size: 0.875rem; }
 .bench-foot time { white-space: nowrap; }
 .bench-foot a { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--accent); font-weight: 500; text-underline-offset: 3px; }
