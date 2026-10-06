@@ -1,5 +1,5 @@
 {{define "layout"}}<!doctype html>
-<html lang="en" data-base="{{href ""}}">
+<html lang="{{.Lang.Tag}}" data-base="{{href ""}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,6 +7,7 @@
 <meta name="description" content="{{.Description}}">
 {{with .Canonical}}<link rel="canonical" href="{{.}}">
 <meta property="og:url" content="{{.}}">
+{{end}}{{range .Alternates}}<link rel="alternate" hreflang="{{.Tag}}" href="{{.URL}}">
 {{end}}<meta property="og:type" content="website">
 <meta property="og:site_name" content="tug">
 <meta property="og:title" content="{{.Title}}">
@@ -23,60 +24,62 @@
 // none, the system's, by site.css's media query.
 try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t } catch (e) {}
 </script>
-<script src="{{asset "site.js"}}" defer></script>
+{{with .Words}}<script type="application/json" id="words">{{.}}</script>
+{{end}}<script src="{{asset "site.js"}}" defer></script>
 </head>
 <body class="kind-{{.Kind}}">
-<a class="skip" href="#content">Skip to content</a>
+<a class="skip" href="#content">{{t "Skip to content"}}</a>
 <header class="topbar">
   <div class="topbar-in">
-    <button type="button" class="icon-btn nav-open" data-nav-open aria-label="Open the guide's pages" aria-controls="nav-drawer" aria-expanded="false">{{template "i-menu"}}</button>
-    <a class="brand" href="{{href ""}}" aria-label="tug, home">{{template "logo"}}<span class="brand-name">tug</span></a>
-    {{with .Version}}<a class="version" href="{{$.Repo}}/releases/tag/{{.}}" aria-label="Version {{.}}, on GitHub">{{.}}</a>{{end}}
-    <nav class="topnav" aria-label="Site">
-      <a href="{{href "docs/"}}"{{if eq .Kind "guide"}} aria-current="page"{{end}}{{if and (eq .Kind "doc") .Part}} class="is-in"{{end}}>Guide</a>
-      <a href="{{href "docs/roadmap/"}}"{{if eq .Path "docs/roadmap/"}} aria-current="page"{{end}}>Roadmap</a>
-      <a href="{{href "docs/benchmarks/"}}"{{if eq .Path "docs/benchmarks/"}} aria-current="page"{{end}}>Benchmarks</a>
-      <a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference{{template "i-out"}}</a>
+    <button type="button" class="icon-btn nav-open" data-nav-open aria-label="{{t "Open the guide's pages"}}" aria-controls="nav-drawer" aria-expanded="false">{{template "i-menu"}}</button>
+    <a class="brand" href="{{href ""}}" aria-label="{{t "tug, home"}}">{{template "logo"}}<span class="brand-name">tug</span></a>
+    {{with .Version}}<a class="version" href="{{$.Repo}}/releases/tag/{{.}}" aria-label="{{t "Version :version, on GitHub" "version" .}}">{{.}}</a>{{end}}
+    <nav class="topnav" aria-label="{{t "Site"}}">
+      <a href="{{href "docs/"}}"{{if eq .Kind "guide"}} aria-current="page"{{end}}{{if and (eq .Kind "doc") .Part}} class="is-in"{{end}}>{{t "Guide"}}</a>
+      <a href="{{href "docs/roadmap/"}}"{{if eq .Path "docs/roadmap/"}} aria-current="page"{{end}}>{{t "Roadmap"}}</a>
+      <a href="{{href "docs/benchmarks/"}}"{{if eq .Path "docs/benchmarks/"}} aria-current="page"{{end}}>{{t "Benchmarks"}}</a>
+      <a href="https://pkg.go.dev/github.com/cuonggt/tug">{{t "API reference"}}{{template "i-out"}}</a>
     </nav>
     <div class="topbar-tools">
-      <button type="button" class="search-btn" data-search-open aria-label="Search the guide" aria-keyshortcuts="Control+K Meta+K /">{{template "i-search"}}<span class="search-btn-label">Search</span><kbd class="kbd" data-kbd>Ctrl K</kbd></button>
-      <button type="button" class="icon-btn" data-theme-toggle aria-pressed="false" aria-label="Dark theme">{{template "i-moon"}}{{template "i-sun"}}</button>
-      <a class="icon-btn" href="{{.Repo}}" aria-label="tug on GitHub">{{template "i-github"}}</a>
+      <button type="button" class="search-btn" data-search-open aria-label="{{t "Search the guide"}}" aria-keyshortcuts="Control+K Meta+K /">{{template "i-search"}}<span class="search-btn-label">{{t "Search"}}</span><kbd class="kbd" data-kbd>Ctrl K</kbd></button>
+      {{template "lang-menu" .}}
+      <button type="button" class="icon-btn" data-theme-toggle aria-pressed="false" aria-label="{{t "Dark theme"}}">{{template "i-moon"}}{{template "i-sun"}}</button>
+      <a class="icon-btn" href="{{.Repo}}" aria-label="{{t "tug on GitHub"}}">{{template "i-github"}}</a>
     </div>
   </div>
 </header>
 {{template "main" .}}
 <footer class="footer">
   <div class="footer-in">
-    <div class="footer-brand">{{template "logo"}}<p><strong>tug</strong> A tugboat is small, and moves ships many times its size.</p></div>
-    <nav class="footer-nav" aria-label="Footer">
-      <a href="{{href "docs/"}}">Guide</a>
-      <a href="{{href "docs/roadmap/"}}">Roadmap</a>
-      <a href="{{href "docs/benchmarks/"}}">Benchmarks</a>
-      <a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference</a>
+    <div class="footer-brand">{{template "logo"}}<p><strong>tug</strong> {{t "A tugboat is small, and moves ships many times its size."}}</p></div>
+    <nav class="footer-nav" aria-label="{{t "Footer"}}">
+      <a href="{{href "docs/"}}">{{t "Guide"}}</a>
+      <a href="{{href "docs/roadmap/"}}">{{t "Roadmap"}}</a>
+      <a href="{{href "docs/benchmarks/"}}">{{t "Benchmarks"}}</a>
+      <a href="https://pkg.go.dev/github.com/cuonggt/tug">{{t "API reference"}}</a>
       <a href="{{.Repo}}">GitHub</a>
     </nav>
-    <p class="footer-fine">Released under the MIT License. These pages are the guide in <a href="{{.Repo}}/tree/main/docs">docs/</a>, made into a site by a Go program in <a href="{{.Repo}}/tree/main/site">site/</a>.</p>
+    <p class="footer-fine">{{tHTML `Released under the MIT License. These pages are the guide in <a href=":repo/tree/main/docs">docs/</a>, made into a site by a Go program in <a href=":repo/tree/main/site">site/</a>.` "repo" .Repo}}</p>
   </div>
 </footer>
 
-<dialog class="drawer" id="nav-drawer" aria-label="The guide's pages">
+<dialog class="drawer" id="nav-drawer" aria-label="{{t "The guide's pages"}}">
   <div class="drawer-head">
-    <a class="brand" href="{{href ""}}" aria-label="tug, home">{{template "logo"}}<span class="brand-name">tug</span></a>
-    <button type="button" class="icon-btn" data-nav-close aria-label="Close">{{template "i-x"}}</button>
+    <a class="brand" href="{{href ""}}" aria-label="{{t "tug, home"}}">{{template "logo"}}<span class="brand-name">tug</span></a>
+    <button type="button" class="icon-btn" data-nav-close aria-label="{{t "Close"}}">{{template "i-x"}}</button>
   </div>
   {{template "sidenav" .}}
 </dialog>
 
-<dialog class="search" id="search" aria-label="Search the guide">
+<dialog class="search" id="search" aria-label="{{t "Search the guide"}}">
   <div class="search-head">
     {{template "i-search"}}
-    <input class="search-input" id="search-input" type="text" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search the guide" aria-label="Search the guide">
-    <button type="button" class="search-close" data-search-close><span aria-hidden="true">Esc</span><span class="sr-only">Close search</span></button>
+    <input class="search-input" id="search-input" type="text" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="{{t "Search the guide"}}" aria-label="{{t "Search the guide"}}">
+    <button type="button" class="search-close" data-search-close><span aria-hidden="true">Esc</span><span class="sr-only">{{t "Close search"}}</span></button>
   </div>
-  <div id="search-results" class="search-results" role="listbox" aria-label="Results"></div>
+  <div id="search-results" class="search-results" role="listbox" aria-label="{{t "Results"}}"></div>
   <p class="search-note" data-search-note></p>
-  <div class="search-foot" aria-hidden="true"><span><kbd class="kbd">↑</kbd><kbd class="kbd">↓</kbd> to move</span><span><kbd class="kbd">↵</kbd> to open</span><span><kbd class="kbd">Esc</kbd> to close</span></div>
+  <div class="search-foot" aria-hidden="true"><span><kbd class="kbd">↑</kbd><kbd class="kbd">↓</kbd> {{t "to move"}}</span><span><kbd class="kbd">↵</kbd> {{t "to open"}}</span><span><kbd class="kbd">Esc</kbd> {{t "to close"}}</span></div>
   <p class="sr-only" role="status" aria-live="polite" data-search-status></p>
 </dialog>
 <p class="sr-only" role="status" aria-live="polite" data-announce></p>
@@ -84,18 +87,30 @@ try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') 
 </html>
 {{end}}
 
+{{/* The menu of the site's languages, each a link to the page in it: a
+details, which opens and closes without a script. */}}
+{{define "lang-menu"}}
+<details class="lang-menu" data-lang-menu>
+  <summary class="lang-menu-btn" aria-label="{{t "Language: :language" "language" .Lang.Name}}">{{template "i-globe"}}<span class="lang-menu-tag" aria-hidden="true">{{.Lang.Short}}</span></summary>
+  <ul class="lang-menu-list">
+    {{range .Langs}}<li><a href="{{.URL}}" hreflang="{{.Tag}}" lang="{{.Tag}}"{{if .Current}} aria-current="page"{{end}}>{{.Name}}</a></li>
+    {{end}}
+  </ul>
+</details>
+{{end}}
+
 {{define "sidenav"}}
-<nav class="sidenav" aria-label="Guide">
-  <p class="sidenav-title"><a href="{{href "docs/"}}"{{if eq $.Path "docs/"}} aria-current="page"{{end}}>The guide</a></p>
+<nav class="sidenav" aria-label="{{t "Guide"}}">
+  <p class="sidenav-title"><a href="{{href "docs/"}}"{{if eq $.Path "docs/"}} aria-current="page"{{end}}>{{t "The guide"}}</a></p>
   <ol class="sidenav-list">
     {{range .Parts}}<li><a href="{{href .Path}}"{{if eq $.Path .Path}} aria-current="page"{{end}}><span class="num" aria-hidden="true">{{num .Num}}</span>{{.Title}}</a></li>
     {{end}}
   </ol>
-  <p class="sidenav-title">Project</p>
+  <p class="sidenav-title">{{t "Project"}}</p>
   <ul class="sidenav-list">
-    <li><a href="{{href "docs/roadmap/"}}"{{if eq $.Path "docs/roadmap/"}} aria-current="page"{{end}}>Roadmap</a></li>
-    <li><a href="{{href "docs/benchmarks/"}}"{{if eq $.Path "docs/benchmarks/"}} aria-current="page"{{end}}>Benchmarks</a></li>
-    <li><a href="https://pkg.go.dev/github.com/cuonggt/tug">API reference{{template "i-out"}}</a></li>
+    <li><a href="{{href "docs/roadmap/"}}"{{if eq $.Path "docs/roadmap/"}} aria-current="page"{{end}}>{{t "Roadmap"}}</a></li>
+    <li><a href="{{href "docs/benchmarks/"}}"{{if eq $.Path "docs/benchmarks/"}} aria-current="page"{{end}}>{{t "Benchmarks"}}</a></li>
+    <li><a href="https://pkg.go.dev/github.com/cuonggt/tug">{{t "API reference"}}{{template "i-out"}}</a></li>
     <li><a href="{{.Repo}}">GitHub{{template "i-out"}}</a></li>
   </ul>
 </nav>
@@ -109,3 +124,15 @@ card's link is its title, stretched over the card by site.css. */}}
   {{end}}
 </ol>
 {{end}}
+
+{{/* What a page of the guide says of itself in another language than
+English: that it's the English, as it isn't translated yet, or that its
+English has changed since it was translated. */}}
+{{define "notes"}}
+{{if .Fallback}}<p class="note">{{template "i-globe"}}<span>{{t "This page hasn't been translated yet, so it's in English."}} <a href="{{.Source}}">{{t "Translate it on GitHub"}}</a></span></p>
+{{else if .Page.Behind}}<p class="note">{{template "i-clock"}}<span>{{t "The English of this page has changed since it was translated, so this may be out of date."}} <a href="{{.English}}" hreflang="en">{{t "Read it in English"}}</a></span></p>
+{{end}}
+{{end}}
+
+{{/* Where a page of the guide is edited on GitHub, or translated. */}}
+{{define "source"}}<a class="edit" href="{{.Source}}">{{template "i-edit"}}{{if .Fallback}}{{t "Translate this page on GitHub"}}{{else}}{{t "Edit this page on GitHub"}}{{end}}</a>{{end}}

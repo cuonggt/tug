@@ -1,8 +1,13 @@
 # The website: the guide in docs/, made into pages by the Go program in
 # site/, with the benchmarks' last results, bench/results.json, on its
-# home page. Every push and pull request that changes the guide checks its
-# links, to pages and to the headings in them, as the site's tests and its
-# -check do, so a link a change breaks fails here rather than on the site.
+# home page, in English and each language the site has words for, in
+# site/lang/, with the guide's pages translated into it, in docs/<tag>/.
+# Every push and pull request that changes the guide checks its links, to
+# pages and to the headings in them, its translations', and that each
+# language has words for all the site says, as the site's tests and its
+# -check do, so what a change breaks fails here rather than on the site.
+# The site says its words through tug's own package lang, from the
+# checkout, so a change to it, or to tug's go.mod, builds the site too.
 # A push to main also publishes it on GitHub Pages, under the path and the
 # address Pages gives the repository, which configure-pages says.
 #
@@ -12,9 +17,9 @@ name: site
 
 on:
   push:
-    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', '.github/workflows/site.yml']
+    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', 'lang/**', 'go.mod', '.github/workflows/site.yml']
   pull_request:
-    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', '.github/workflows/site.yml']
+    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', 'lang/**', 'go.mod', '.github/workflows/site.yml']
   workflow_dispatch:
 
 concurrency:

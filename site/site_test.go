@@ -63,16 +63,17 @@ func TestLinksBetweenPagesAreLinksBetweenTheSitesPages(t *testing.T) {
 		"examples/api/main.go": "package main\n",
 		"README.md":            "v0.39.0 is the latest release.\n",
 	})
-	c := newConverter(root, "/tug/", map[string]bool{"forms": true, "cli": true})
+	c := newConverter(root, "docs", map[string]bool{"forms": true, "cli": true}, english())
 	p, err := c.convert("forms", []byte("# Forms\n\n"+
 		"[a](cli.md) [b](cli.md#tug-dev) [c](#here) [d](https://inertiajs.com) "+
 		"[e](../examples/api/main.go) [f](../examples/api) [g](../nowhere.go)\n\n## Here\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Relative, so the English is the same page under each language's path.
 	for _, want := range []string{
-		`href="/tug/docs/cli/"`,
-		`href="/tug/docs/cli/#tug-dev"`,
+		`href="../cli/"`,
+		`href="../cli/#tug-dev"`,
 		`href="#here"`,
 		`href="https://inertiajs.com"`,
 		`href="https://github.com/cuonggt/tug/blob/main/examples/api/main.go"`,
@@ -88,7 +89,7 @@ func TestLinksBetweenPagesAreLinksBetweenTheSitesPages(t *testing.T) {
 }
 
 func TestTheIndexListsTheGuidesPartsInItsOrder(t *testing.T) {
-	c := newConverter(".", "/", map[string]bool{"README": true, "getting-started": true, "forms": true, "cli": true, "roadmap": true})
+	c := newConverter(".", "docs", map[string]bool{"README": true, "getting-started": true, "forms": true, "cli": true, "roadmap": true}, english())
 	p, err := c.convert("README", []byte(index))
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +108,7 @@ func TestTheIndexListsTheGuidesPartsInItsOrder(t *testing.T) {
 	if strings.Contains(string(second.About), "<a ") || !strings.Contains(string(second.About), "a link") {
 		t.Errorf("the second part's about is %q, its link's text without the link", second.About)
 	}
-	if strings.Contains(string(p.Body), "Getting started") || !strings.Contains(string(p.After), "/docs/roadmap/") {
+	if strings.Contains(string(p.Body), "Getting started") || !strings.Contains(string(p.After), `href="roadmap/"`) {
 		t.Errorf("the list isn't between the index's body and what's after it:\n%s\n---\n%s", p.Body, p.After)
 	}
 }
@@ -126,7 +127,8 @@ func TestALinkToAHeadingThatIsntThereIsAProblem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Join(s.check(), "\n")
+	problems, _ := s.check()
+	got := strings.Join(problems, "\n")
 	for _, want := range []string{
 		"docs/getting-started.md: a link to forms.md#nope, a heading that isn't there",
 		"docs/stray.md isn't one of the parts docs/README.md lists",
@@ -145,36 +147,40 @@ func TestEveryLinkInTheGuideLeadsSomewhere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range s.check() {
+	problems, _ := s.check()
+	for _, p := range problems {
 		t.Error(p)
 	}
-	if len(s.Parts) == 0 || s.Version == "" {
-		t.Errorf("the guide has %d parts and the version %q", len(s.Parts), s.Version)
+	if len(s.en.Parts) == 0 || s.Version == "" {
+		t.Errorf("the guide has %d parts and the version %q", len(s.en.Parts), s.Version)
 	}
 }
 
 func TestCodeIsColoredAndEscaped(t *testing.T) {
-	got := codeBlock("Go", "go", "if a < b {\n\treturn \"<b>\"\n}\n")
+	got := codeBlock("Go", "go", "if a < b {\n\treturn \"<b>\"\n}\n", english())
 	for _, want := range []string{`<span class="k">if</span>`, `&lt;`, `&#34;&lt;b&gt;&#34;`, `<span class="code-label">Go</span>`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no %s in\n%s", want, got)
 		}
 	}
-	if plain := codeBlock("", "", "<script>"); !strings.Contains(plain, "&lt;script&gt;") {
+	if plain := codeBlock("", "", "<script>", english()); !strings.Contains(plain, "&lt;script&gt;") {
 		t.Errorf("code in no language isn't escaped:\n%s", plain)
 	}
 }
 
 func TestTheSiteIsWrittenAndFindable(t *testing.T) {
 	out := t.TempDir()
-	problems, err := build(config{Root: "..", Out: out, Base: "/tug/", URL: "https://cuonggt.github.io/tug"})
+	problems, _, err := build(config{Root: "..", Out: out, Base: "/tug/", URL: "https://cuonggt.github.io/tug"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(problems) > 0 {
 		t.Errorf("problems: %q", problems)
 	}
-	for _, file := range []string{"index.html", "docs/index.html", "docs/forms/index.html", "docs/roadmap/index.html", "404.html", "sitemap.xml", "robots.txt", "assets/site.css"} {
+	for _, file := range []string{
+		"index.html", "docs/index.html", "docs/forms/index.html", "docs/roadmap/index.html", "404.html", "sitemap.xml", "robots.txt", "assets/site.css",
+		"vi/index.html", "vi/docs/index.html", "vi/docs/forms/index.html", "vi/search.json", "zh-cn/docs/getting-started/index.html", "es/index.html", "ja/index.html",
+	} {
 		if _, err := os.Stat(filepath.Join(out, file)); err != nil {
 			t.Errorf("no %s: %v", file, err)
 		}
@@ -209,7 +215,7 @@ func TestAnotherDirectoryIsntEmptiedForTheSite(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(out, "notes.txt"), []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := build(config{Root: "..", Out: out, Base: "/"}); err == nil {
+	if _, _, err := build(config{Root: "..", Out: out, Base: "/"}); err == nil {
 		t.Fatal("the site was written over a directory of someone else's files")
 	}
 	if _, err := os.Stat(filepath.Join(out, "notes.txt")); err != nil {
@@ -262,7 +268,7 @@ func TestTheHomePageShowsTugsOwnNumbers(t *testing.T) {
 	home := func(root string) string {
 		t.Helper()
 		out := t.TempDir()
-		if _, err := build(config{Root: root, Out: out, Base: "/"}); err != nil {
+		if _, _, err := build(config{Root: root, Out: out, Base: "/"}); err != nil {
 			t.Fatal(err)
 		}
 		b, err := os.ReadFile(filepath.Join(out, "index.html"))

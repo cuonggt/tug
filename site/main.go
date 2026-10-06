@@ -1,10 +1,26 @@
 // Command site makes tug's website of its guide: each page of docs/, in
 // the order docs/README.md lists them, a home page, and an index search
-// reads, as static files, for GitHub Pages. Run it in site/:
+// reads, as static files, for GitHub Pages, in English and in each of the
+// site's other languages, under a path of its own, as /vi/. Run it in
+// site/:
 //
 //	go run .                          # writes the site to dist/
 //	go run . -serve 127.0.0.1:8090    # serves it, made again as docs/ or the site changes
 //	go run . -check                   # fails on a link to a page or heading that isn't there
+//
+// A language's words, the site's own, are in lang/<tag>.json, under the
+// English, as an app's are, and -check fails on one the site says that a
+// file has no words for. A page of the guide translated into it is
+// docs/<tag>/<name>.md, which starts with the comment that says which
+// English it was made from, by git's ID of its blob, as -check says it:
+//
+//	<!-- translated from docs/forms.md at 1f2e3d4c5b6a -->
+//
+// Its links to the pages translated with it are to their names, as
+// forms.md, and to the rest, the English, as ../forms.md. A page that
+// isn't translated is the English, which says so, and one whose English
+// has changed since it was made says it may be out of date, and -check
+// notes it, with the git diff of what changed.
 package main
 
 import (
@@ -43,7 +59,10 @@ func main() {
 	if *serve != "" {
 		log.Fatal(serveSite(*serve, cfg))
 	}
-	problems, err := build(cfg)
+	problems, notes, err := build(cfg)
+	for _, n := range notes {
+		log.Print(n)
+	}
 	for _, p := range problems {
 		log.Print(p)
 	}
@@ -51,7 +70,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if *check && len(problems) > 0 {
-		log.Fatalf("%d problems with the guide's links", len(problems))
+		log.Fatalf("%d problems with the guide's links, its translations or the site's words", len(problems))
 	}
 	log.Printf("wrote %s", cfg.Out)
 }
@@ -78,7 +97,10 @@ func serveSite(addr string, cfg config) error {
 			return err
 		}
 		began := time.Now()
-		problems, err := build(cfg)
+		problems, notes, err := build(cfg)
+		for _, n := range notes {
+			log.Print(n)
+		}
 		for _, p := range problems {
 			log.Print(p)
 		}
@@ -129,7 +151,8 @@ func serveSite(addr string, cfg config) error {
 }
 
 // fingerprint is the names, sizes and times of the site's sources: the
-// guide, the README and the benchmarks' results, and the site's own files.
+// guide and its translations, the README and the benchmarks' results, and
+// the site's own files and words.
 func fingerprint(root string) (string, error) {
 	var b strings.Builder
 	add := func(dir string) error {
@@ -148,7 +171,7 @@ func fingerprint(root string) (string, error) {
 			return nil
 		})
 	}
-	for _, dir := range []string{filepath.Join(root, "docs"), filepath.Join(root, "README.md"), filepath.Join(root, "bench", "results.json"), "templates", "assets", "snippets"} {
+	for _, dir := range []string{filepath.Join(root, "docs"), filepath.Join(root, "README.md"), filepath.Join(root, "bench", "results.json"), "templates", "assets", "snippets", "lang"} {
 		if err := add(dir); err != nil {
 			return "", err
 		}

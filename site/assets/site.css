@@ -1,5 +1,6 @@
 /* tug's site. One accent, a tugboat's red, on slate; IBM Plex Sans for
-   reading and JetBrains Mono for code and labels. Every color is a token
+   reading and JetBrains Mono for code and labels, and the system's fonts
+   for Chinese and Japanese, which they haven't. Every color is a token
    here, given again for the dark theme, which follows the system's unless
    the reader picked one (data-theme, by site.js). */
 
@@ -331,6 +332,7 @@ a { color: var(--accent); }
   font-size: 0.9375rem;
   font-weight: 500;
   text-decoration: none;
+  white-space: nowrap;
   transition: color 0.15s, background-color 0.15s;
 }
 
@@ -379,6 +381,58 @@ a { color: var(--accent); }
 .icon-btn:hover { background: var(--bg-muted); color: var(--text); }
 .icon-btn .i { width: 1.25rem; height: 1.25rem; }
 .nav-open { display: none; margin-left: -0.5rem; }
+
+/* The menu of languages: a globe and the page's language, which opens a
+   list of the others. */
+.lang-menu { position: relative; }
+
+.lang-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2.5rem;
+  padding: 0 0.6rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font: 500 0.75rem/1 var(--font-mono);
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.lang-menu-btn::-webkit-details-marker { display: none; }
+.lang-menu-btn:hover, .lang-menu[open] .lang-menu-btn { background: var(--bg-muted); color: var(--text); }
+.lang-menu-btn .i { width: 1.25rem; height: 1.25rem; }
+
+.lang-menu-list {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 50;
+  min-width: 11rem;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: var(--shadow-md);
+}
+
+.lang-menu-list a {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.lang-menu-list a:hover { background: var(--bg-muted); color: var(--text); }
+.lang-menu-list a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
 /* The toggle shows the theme it would switch to. */
 .i-sun { display: none; }
@@ -534,6 +588,26 @@ a { color: var(--accent); }
 }
 
 .doc-head h1 code { font: 0.9em var(--font-mono); }
+
+/* What a page in another language says of itself: that it's the English,
+   not translated yet, or that its English has changed since. */
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin: 0 0 2rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--text-body);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.note .i { width: 1.15rem; height: 1.15rem; margin-top: 0.17rem; color: var(--accent); }
+.note a { color: var(--accent); font-weight: 500; text-underline-offset: 3px; }
+.note a:hover { color: var(--accent-hover); }
 
 /* The guide's text */
 
@@ -1255,9 +1329,32 @@ a { color: var(--accent); }
 
 .search-foot .kbd { margin-right: 0.2rem; padding: 0.15rem 0.35rem; }
 
+/* Chinese, Japanese and Vietnamese. The system's fonts for Chinese and
+   Japanese, after Plex and JetBrains Mono for the Latin among them;
+   headings without the tight tracking Latin capitals take; and a taller
+   line for big headings, whose characters fill the em, or stack marks
+   over a capital. A heading's own language counts, not the page's: one in
+   English on a page that isn't translated keeps the English's. */
+
+:root:lang(zh-CN) {
+  --font-sans: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", monospace;
+}
+
+:root:lang(ja) {
+  --font-sans: "IBM Plex Sans", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP", "Noto Sans CJK JP", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Hiragino Sans", "Yu Gothic", Meiryo, "Noto Sans JP", monospace;
+}
+
+:is(h1, h2, h3):is(:lang(zh-CN), :lang(ja)) { letter-spacing: 0; }
+:is(h1, h2):is(:lang(zh-CN), :lang(ja), :lang(vi)) { line-height: 1.3; }
+:is(h1, h2, h3):lang(ja) { word-break: auto-phrase; }
+
 /* Wide screens to phones */
 
 @media (max-width: 1279px) {
+  /* Room for the bar's links in a language whose words are longer. */
+  .search-btn { min-width: 0; }
   .docs { grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
   .toc-side { display: none; }
   .toc-inline { display: block; }
@@ -1290,6 +1387,8 @@ a { color: var(--accent); }
 @media (max-width: 639px) {
   .topbar-in { gap: 0.5rem; padding: 0 0.75rem; }
   .version { display: none; }
+  .lang-menu-tag { display: none; }
+  .lang-menu-btn { padding: 0; justify-content: center; width: 2.5rem; }
   .search-btn { justify-content: center; width: 2.5rem; min-width: 0; height: 2.5rem; margin: 0; padding: 0; border-color: transparent; background: transparent; color: var(--text-muted); }
   .search-btn .i { width: 1.25rem; height: 1.25rem; }
   .search-btn-label, .search-btn .kbd { display: none; }

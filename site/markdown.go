@@ -22,16 +22,22 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-// A page is one of docs/, made into HTML.
+// A page is one of docs/, or a translation of one, made into HTML.
 type page struct {
 	Name        string        // the file's name without .md, as "forms", and "README" for the guide's index
-	Path        string        // where it's served, under the site's base, as "docs/forms/"
+	File        string        // the file, in the checkout, as docs/forms.md or docs/vi/forms.md
+	Lang        *language     // what it's written in
+	Path        string        // where it's served, under its language's path, as "docs/forms/"
 	Title       string        // its first heading's text
 	TitleHTML   template.HTML // and its HTML, code and all
 	Description string        // its first paragraph's text, shortened, for search engines and previews
 	Body        template.HTML // all after its first heading; for the index, up to its list of parts
 	After       template.HTML // the index's, after its list of parts
 	TOC         []heading     // its h2s and h3s
+
+	Blob   string // the English's blob ID, which its translations name
+	From   string // a translation's: the ID of the English's blob it was made from
+	Behind bool   // a translation's English has changed since it was made
 
 	ids      map[string]bool // its headings', for links to them
 	sections []section       // what search finds in it
@@ -61,6 +67,7 @@ type link struct {
 	Dest string // as the page has it
 	Page string // the page it's to, by name
 	ID   string // and the heading, if it names one
+	Own  bool   // to a page of its own directory: from a translation, another translation, not the English
 }
 
 // A part is one of the guide's, as its index lists them.
@@ -72,8 +79,8 @@ type part struct {
 	About template.HTML // what the index says it covers
 }
 
-// pagePath is where the page of docs/ named name is served, under the
-// site's base: docs/forms.md at docs/forms/, and the index at docs/.
+// pagePath is where the page of docs/ named name is served, under its
+// language's path: docs/forms.md at docs/forms/, and the index at docs/.
 func pagePath(name string) string {
 	if name == "README" {
 		return "docs/"
@@ -81,33 +88,52 @@ func pagePath(name string) string {
 	return "docs/" + name + "/"
 }
 
-// A converter makes the guide's pages HTML.
+// relative is the link from the page at the path from to the one at to,
+// both under docs/, as "../forms/": a page links to the pages of the
+// language it's shown in, whatever path that language's pages are under,
+// so the English is the same page in each language that hasn't
+// translated it.
+func relative(from, to string) string {
+	rel := strings.TrimPrefix(to, "docs/")
+	if from != "docs/" {
+		rel = "../" + rel
+	}
+	if rel == "" {
+		return "./"
+	}
+	return rel
+}
+
+// A converter makes the guide's pages HTML, or a language's translations
+// of them.
 type converter struct {
 	root  string          // the checkout, for the files the guide links to
-	base  string          // the path the site's served under
-	names map[string]bool // the pages of docs/
+	dir   string          // the pages' directory in it: docs, or docs/<tag> for a language's
+	names map[string]bool // the guide's pages, the English
+	lang  *language       // what the pages are written in
 	md    goldmark.Markdown
 }
 
-func newConverter(root, base string, names map[string]bool) *converter {
+func newConverter(root, dir string, names map[string]bool, l *language) *converter {
 	return &converter{
 		root:  root,
-		base:  base,
+		dir:   dir,
 		names: names,
+		lang:  l,
 		md: goldmark.New(
 			// GitHub's Markdown, as the guide is written to be read there.
 			goldmark.WithExtensions(extension.GFM),
 			goldmark.WithRendererOptions(
 				gmhtml.WithUnsafe(),
-				renderer.WithNodeRenderers(util.Prioritized(blocks{}, 100)),
+				renderer.WithNodeRenderers(util.Prioritized(blocks{l}, 100)),
 			),
 		),
 	}
 }
 
-// convert makes a page of the Markdown of docs/<name>.md.
+// convert makes a page of the Markdown of the converter's <name>.md.
 func (c *converter) convert(name string, src []byte) (*page, error) {
-	p := &page{Name: name, Path: pagePath(name), ids: map[string]bool{}}
+	p := &page{Name: name, File: c.dir + "/" + name + ".md", Lang: c.lang, Path: pagePath(name), ids: map[string]bool{}}
 	doc := c.md.Parser().Parse(text.NewReader(src))
 
 	// The index's list of parts, taken out before its links are the
@@ -147,7 +173,7 @@ func (c *converter) convert(name string, src []byte) (*page, error) {
 		}
 	}
 	if p.Title == "" {
-		return nil, fmt.Errorf("docs/%s.md has no heading to be its title", name)
+		return nil, fmt.Errorf("%s has no heading to be its title", p.File)
 	}
 	for n := doc.FirstChild(); n != nil; n = n.NextSibling() {
 		if _, ok := n.(*ast.Paragraph); ok {
@@ -202,7 +228,7 @@ func (c *converter) partsOf(p *page, doc ast.Node, src []byte) ast.Node {
 		}
 	}
 	if list == nil {
-		p.problems = append(p.problems, "docs/README.md: no numbered list of the guide's parts")
+		p.problems = append(p.problems, p.File+": no numbered list of the guide's parts")
 		return nil
 	}
 	for item := list.FirstChild(); item != nil; item = item.NextSibling() {
@@ -215,13 +241,13 @@ func (c *converter) partsOf(p *page, doc ast.Node, src []byte) ast.Node {
 			return ast.WalkContinue, nil
 		})
 		if first == nil {
-			p.problems = append(p.problems, "docs/README.md: a part of the guide that isn't a link to its page")
+			p.problems = append(p.problems, p.File+": a part of the guide that isn't a link to its page")
 			continue
 		}
 		dest, _, _ := strings.Cut(string(first.Destination), "#")
 		name := strings.TrimSuffix(path.Base(dest), ".md")
 		if !c.names[name] || path.Ext(dest) != ".md" {
-			p.problems = append(p.problems, fmt.Sprintf("docs/README.md: the part %q links to %s, which isn't a page of docs/", squash(plainText(first, src)), dest))
+			p.problems = append(p.problems, fmt.Sprintf("%s: the part %q links to %s, which isn't a page of docs/", p.File, squash(plainText(first, src)), dest))
 			continue
 		}
 
@@ -232,9 +258,10 @@ func (c *converter) partsOf(p *page, doc ast.Node, src []byte) ast.Node {
 			about.AppendChild(about, n)
 			n = next
 		}
+		// Chinese and Japanese write the colon full width.
 		if t, ok := about.FirstChild().(*ast.Text); ok {
 			v := t.Value(src)
-			trimmed := bytes.TrimLeft(v, ": ")
+			trimmed := bytes.TrimLeft(v, ": ：")
 			t.Segment = t.Segment.WithStart(t.Segment.Start + len(v) - len(trimmed))
 		}
 		unlink(about)
@@ -280,36 +307,43 @@ func (c *converter) inline(n ast.Node, src []byte) template.HTML {
 }
 
 // rewrite makes a link of the guide's one of the site's: a page of docs/
-// links to its page, and a file of the checkout's, as an example's code,
-// to it on GitHub.
+// links to its page in the language the page is shown in, and a file of
+// the checkout's, as an example's code, to it on GitHub. A translation
+// links to another as docs/<tag>/ has it, and to a page it hasn't
+// translated as the English, ../forms.md, so that its links lead to the
+// same pages on GitHub.
 func (c *converter) rewrite(p *page, dest string) string {
 	if strings.HasPrefix(dest, "#") {
-		p.links = append(p.links, link{Dest: dest, Page: p.Name, ID: dest[1:]})
+		p.links = append(p.links, link{Dest: dest, Page: p.Name, ID: dest[1:], Own: true})
 		return dest
 	}
 	if u, err := url.Parse(dest); dest == "" || err != nil || u.Scheme != "" || u.Host != "" {
 		return dest
 	}
 	file, frag, _ := strings.Cut(dest, "#")
-	target := path.Clean(path.Join("docs", file))
-	if name, ok := strings.CutPrefix(target, "docs/"); ok && path.Ext(name) == ".md" && !strings.Contains(name, "/") {
+	target := path.Clean(path.Join(c.dir, file))
+	for _, dir := range []string{c.dir, "docs"} {
+		name, ok := strings.CutPrefix(target, dir+"/")
+		if !ok || path.Ext(name) != ".md" || strings.Contains(name, "/") {
+			continue
+		}
 		name = strings.TrimSuffix(name, ".md")
-		p.links = append(p.links, link{Dest: dest, Page: name, ID: frag})
-		href := c.base + pagePath(name)
+		p.links = append(p.links, link{Dest: dest, Page: name, ID: frag, Own: dir == c.dir})
+		href := relative(p.Path, pagePath(name))
 		if frag != "" {
 			href += "#" + frag
 		}
 		return href
 	}
-	if strings.HasPrefix(target, "../") {
-		p.problems = append(p.problems, fmt.Sprintf("docs/%s.md: a link to %s, outside the checkout", p.Name, dest))
+	if target == ".." || strings.HasPrefix(target, "../") {
+		p.problems = append(p.problems, fmt.Sprintf("%s: a link to %s, outside the checkout", p.File, dest))
 		return dest
 	}
 	kind := "blob"
 	fi, err := os.Stat(filepath.Join(c.root, filepath.FromSlash(target)))
 	switch {
 	case err != nil:
-		p.problems = append(p.problems, fmt.Sprintf("docs/%s.md: a link to %s, a file that isn't there", p.Name, dest))
+		p.problems = append(p.problems, fmt.Sprintf("%s: a link to %s, a file that isn't there", p.File, dest))
 	case fi.IsDir():
 		kind = "tree"
 	}
@@ -419,32 +453,32 @@ func shorten(s string, n int) string {
 }
 
 // blocks writes the guide's headings, code and tables as the site styles
-// them.
-type blocks struct{}
+// them, saying what they say in the language the page is written in.
+type blocks struct{ lang *language }
 
-func (blocks) RegisterFuncs(r renderer.NodeRendererFuncRegisterer) {
-	r.Register(ast.KindHeading, renderHeading)
-	r.Register(ast.KindFencedCodeBlock, renderCode)
-	r.Register(ast.KindCodeBlock, renderCode)
+func (b blocks) RegisterFuncs(r renderer.NodeRendererFuncRegisterer) {
+	r.Register(ast.KindHeading, b.renderHeading)
+	r.Register(ast.KindFencedCodeBlock, b.renderCode)
+	r.Register(ast.KindCodeBlock, b.renderCode)
 	r.Register(extast.KindTable, renderTable)
 }
 
 // renderHeading writes a heading with a link to it beside it, outside it,
 // as GitHub does, so a screen reader's list of headings has the headings'
 // own words.
-func renderHeading(w util.BufWriter, src []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (b blocks) renderHeading(w util.BufWriter, src []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	h := node.(*ast.Heading)
 	id := html.EscapeString(headingID(h))
 	if entering {
 		fmt.Fprintf(w, `<div class="heading heading-%d"><h%d id="%s">`, h.Level, h.Level, id)
 		return ast.WalkContinue, nil
 	}
-	fmt.Fprintf(w, "</h%d><a class=\"anchor\" href=\"#%s\" aria-label=\"Link to the section %s\"></a></div>\n",
-		h.Level, id, html.EscapeString(squash(plainText(h, src))))
+	label := b.lang.t("Link to the section :heading", "heading", squash(plainText(h, src)))
+	fmt.Fprintf(w, "</h%d><a class=\"anchor\" href=\"#%s\" aria-label=\"%s\"></a></div>\n", h.Level, id, html.EscapeString(label))
 	return ast.WalkContinue, nil
 }
 
-func renderCode(w util.BufWriter, src []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (b blocks) renderCode(w util.BufWriter, src []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
@@ -458,7 +492,7 @@ func renderCode(w util.BufWriter, src []byte, node ast.Node, entering bool) (ast
 		seg := lines.At(i)
 		code.Write(seg.Value(src))
 	}
-	_, _ = w.WriteString(codeBlock(langName(lang), lang, code.String()))
+	_, _ = w.WriteString(codeBlock(langName(lang), lang, code.String(), b.lang))
 	return ast.WalkSkipChildren, nil
 }
 

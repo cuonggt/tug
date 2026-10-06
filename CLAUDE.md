@@ -124,7 +124,13 @@ security page, logs one out from another, and tells of a login from a
 browser the account hasn't logged in from before.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
-pages by `site/`, which GitHub Pages serves, and `bench/` measures tug,
+pages by `site/`, which GitHub Pages serves, in English and in Spanish,
+Japanese, Vietnamese and Simplified Chinese, whose translations of the
+guide's pages are in `docs/<tag>/`: a translation says which English it
+was made from, and the site says when that English has changed since, so
+a change to a page needn't change its translations with it, though a
+change to what the site itself says needs each language's words, in
+`site/lang/`. And `bench/` measures tug,
 over HTTP and beside ServeMux, for `docs/benchmarks.md`, the README and the
 website's home page.
 
@@ -189,7 +195,7 @@ main, publishes:
 
 ```bash
 go run . -serve 127.0.0.1:8090            # made again as docs/ or the site changes
-go test ./... && go run . -check          # every link of the guide's, to a page or a heading, is there
+go test ./... && go run . -check          # every link is there, translations' too, and each language's words
 ```
 
 The benchmarks, in `bench/`, a module of its own, whose numbers are
@@ -1128,26 +1134,68 @@ dev server that isn't there: delete it.
   `resources/js/tug` is written by tug gen and committed (CI checks it's
   current); its flash key, `Success`, is declared with `tug.Flash`.
 - `site/`: the website, a module of its own, for goldmark and chroma,
-  which tug has no need of; `.github/workflows/site.yml` builds it on a
-  change to the guide, and publishes it on GitHub Pages from main.
-  `build.go`: `load` reads `docs/*.md` and the README's latest release,
-  `check` finds a link to a page or a heading that isn't there, and a page
-  the index doesn't list, and `write` puts each page at `docs/<name>/`,
-  the index at `docs/`, the home page, `404.html`, `search.json` (each
-  page's sections, the roadmap's cut short, so search finds the guide
-  first) and, with `-url`, the sitemap, in a directory it empties only
-  when it wrote it (`marker`). `markdown.go`: `convert` gives a heading
-  the ID GitHub gives it (`githubSlug`, `uniqueSlug`), so the guide's links
-  to headings work on both, and makes a link to a page of `docs/` the
-  site's, and to a file of the checkout's GitHub's (`rewrite`); the index's
-  numbered list is the guide's parts (`partsOf`), the sidebar's and the
-  cards'. `highlight.go`: code as chroma's tokens, in a few classes
+  which tug has no need of, and tug's own package `lang`, from the
+  checkout (`replace ../`), for the site's words;
+  `.github/workflows/site.yml` builds it on a change to the guide or to
+  `lang/`, and publishes it on GitHub Pages from main. It's in English, at
+  the root, and in each of `siteLanguages`' others, under its tag in lower
+  case (`Path`, as `zh-cn/`). `languages.go`: a `language` says the site's
+  words from `lang/<tag>.json`, under the English, as an app's are (`t`,
+  and `tHTML` for a text with markup, the values that fill it escaped),
+  writes numbers its way (`thousands`, `decimal`: Vietnamese's and
+  Spanish's 60.000 and 19,9), and has the guide's pages translated into it
+  in `docs/<tag>/`, each in its English's place, and the English where
+  there's none (`pages`, `translated`). `build.go`: `load` reads
+  `docs/*.md`, with each page's git blob ID (`blobID`), the README's
+  latest release, and each language's translations (`loadTranslations`),
+  each starting with the comment that names the English it was made from,
+  by its file and its blob's ID (`translatedFrom`, `fromComment`), and
+  `Behind` once that English has changed; `check` finds a link to a page
+  or a heading that isn't there, a page the index doesn't list, a
+  translation that doesn't say its English, a link of a translation's to
+  a page by its name that isn't translated, or to one that is as the
+  English, `../forms.md` (`linkProblems`: a translation's links lead where
+  they do on GitHub), and a translated index whose parts aren't the
+  English's, in its order, and notes a translation that's behind, with
+  the `git diff` of what changed; once the site is written,
+  `wordProblems` finds a text a language's file has no words for, of what
+  the site said in it (`said`: as it wrote it, and each literal a template
+  hands `t` or `tHTML`, `templateTexts`, as a note that shows only once a
+  translation is behind), and notes the words a file has that the site
+  doesn't say. `-check` fails on problems, not notes. `write` puts each
+  language's pages under its path: each page at `docs/<name>/`, the index
+  at `docs/`, the home page, and `search.json` (each page's sections, the
+  roadmap's cut short, so search finds the guide first, and its paths
+  under the language's), and once `404.html`, English, as GitHub Pages
+  has one, whose menu leads to each language's home, and, with `-url`, the
+  sitemap, each language's home and its translations, in a directory it
+  empties only when it wrote it (`marker`). `place` gives a page its link
+  in each language, for the menu of languages, where it's edited on
+  GitHub, or for a page that isn't translated, GitHub's page for a new
+  file of its translation, started with its comment, and, with `-url`,
+  its canonical address, the English's for a page that isn't translated,
+  and its `hreflang` alternates, the languages it's translated into. A
+  page that isn't translated is the English, `lang="en"`, with a note
+  that says so (`Fallback`), and one whose English has changed says it
+  may be out of date. `markdown.go`: `convert` gives a heading the ID
+  GitHub gives it (`githubSlug`, `uniqueSlug`), so the guide's links to
+  headings work on both, and makes a link to a page of `docs/` a relative
+  one (`relative`), to the page in the language it's shown in, so the
+  English is one page in every language, and to a file of the checkout's
+  GitHub's (`rewrite`); the index's numbered list is the guide's parts
+  (`partsOf`), the sidebar's and the cards'; a heading's link and a code
+  block's button say their words in the page's language (`blocks`).
+  `highlight.go`: code as chroma's tokens, in a few classes
   (`tokenClass`). `templates/`, `assets/` (`site.css`, its colors tokens,
-  light and dark; `site.js`, search, the drawer, copying, and the heading
-  the reader is at) and `snippets/`, the home page's code, are read from
-  the directory it runs in. `bench.go`: `readBenchResults` reads
+  light and dark, and the system's fonts for Chinese and Japanese, and a
+  taller line for big headings in them and Vietnamese; `site.js`, the menu
+  of languages, search, the drawer, copying, and the heading the reader
+  is at, which says its words, `t('...')`, in those the page hands it, as
+  JSON, `scriptTexts`) and `snippets/`, the home page's code, are read
+  from the directory it runs in. `bench.go`: `readBenchResults` reads
   `bench/results.json` for the home page's How fast, tug's own numbers
-  and no other framework's (`benchOf`): its visits a second and its
+  and no other framework's, said in each language (`benchOf`): its
+  visits a second and its
   memory under load in the headline, and a `stat` each of its visits and
   first visits a second, its memory, startup and size, and what its App
   adds to a request over ServeMux (`addedToRequest`); with no results,

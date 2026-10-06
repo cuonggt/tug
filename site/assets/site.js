@@ -1,6 +1,6 @@
-// tug's site: the theme, the drawer of the guide's pages on a phone,
-// search, copying code, and where the reader is on a page. Every page reads
-// and works without it.
+// tug's site: the theme, the drawer of the guide's pages on a phone, the
+// menu of languages, search, copying code, and where the reader is on a
+// page. Every page reads and works without it.
 (() => {
   'use strict'
 
@@ -8,6 +8,14 @@
   const base = root.dataset.base || '/'
   const $ = (selector, from = document) => from.querySelector(selector)
   const $$ = (selector, from = document) => [...from.querySelectorAll(selector)]
+
+  // What the script says, in the page's language: the page hands it its
+  // words, under their English, as the site's templates have theirs, and
+  // an English page none. :name is a value's place.
+  let words = {}
+  try { words = JSON.parse($('#words')?.textContent || '{}') } catch {}
+  const t = (text, values = {}) =>
+    (words[text] || text).replace(/:([A-Za-z]\w*)/g, (m, name) => (name in values ? values[name] : m))
 
   // A screen reader hears what changed without its focus moving.
   const announce = (text) => {
@@ -52,6 +60,25 @@
   // Shortcuts are ⌘K on a Mac.
   if (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) {
     for (const kbd of $$('[data-kbd]')) kbd.textContent = '⌘K'
+  }
+
+  // The menu of languages, a details, closes as the reader leaves it: a
+  // click elsewhere, Escape, or the focus going on.
+
+  for (const menu of $$('[data-lang-menu]')) {
+    const close = () => { menu.open = false }
+    document.addEventListener('click', (event) => {
+      if (menu.open && !menu.contains(event.target)) close()
+    })
+    menu.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || !menu.open) return
+      event.stopPropagation()
+      close()
+      $('summary', menu).focus()
+    })
+    menu.addEventListener('focusout', (event) => {
+      if (menu.open && event.relatedTarget && !menu.contains(event.relatedTarget)) close()
+    })
   }
 
   // The drawer of the guide's pages, below the width the sidebar needs.
@@ -116,7 +143,7 @@
             history: path === 'docs/roadmap/',
           }
         })
-        starts = index.pages.map(([title, path]) => ({ page: -1, title: 'Pages', heading: title, text: '', url: base + path }))
+        starts = index.pages.map(([title, path]) => ({ page: -1, title: t('Pages'), heading: title, text: '', url: base + path }))
       })
     loading.catch(() => { loading = null })
     return loading
@@ -258,7 +285,7 @@
   const failed = () => {
     results.textContent = ''
     hits = []
-    note.textContent = "The search index didn't load. Try again in a moment, or browse the guide's parts."
+    note.textContent = t("The search index didn't load. Try again in a moment, or browse the guide's parts.")
   }
 
   const run = () => {
@@ -267,7 +294,7 @@
       // The index comes the first time search is used: say so while it does.
       results.textContent = ''
       hits = []
-      note.textContent = 'Loading the index…'
+      note.textContent = t('Loading the index…')
       load().then(run, failed)
       return
     }
@@ -296,13 +323,14 @@
     render(groups, terms)
     if (hits.length) {
       note.textContent = ''
-      status.textContent = `${hits.length} result${hits.length === 1 ? '' : 's'}`
+      status.textContent = hits.length === 1 ? t('1 result') : t(':count results', { count: hits.length })
     } else {
       note.textContent = ''
       const strong = document.createElement('strong')
       strong.textContent = input.value.trim()
-      note.append('Nothing in the guide for “', strong, '”. Try fewer words, or a package’s name, as queue or broadcast.')
-      status.textContent = 'No results'
+      const [before, after = ''] = t('Nothing in the guide for “:query”. Try fewer words, or a package’s name, as queue or broadcast.').split(':query')
+      note.append(before, strong, after)
+      status.textContent = t('No results')
     }
   }
 
@@ -370,7 +398,9 @@
     })
   }
 
-  // Copying code: a block's, or a button's own text.
+  // Copying code: a block's, or a button's own text. The button says it
+  // has in its own data-copied, in the language of what it's in, which can
+  // be the English on a page that isn't translated.
 
   const copyText = async (text) => {
     try {
@@ -396,17 +426,21 @@
     const block = button.closest('.code')
     const text = button.dataset.copyText ?? (block ? $('pre', block).textContent : '')
     if (!(await copyText(text))) {
-      announce("Couldn't copy: select the code and copy it")
+      announce(t("Couldn't copy: select the code and copy it"))
       return
     }
     const label = $('[data-copy-label]', button)
+    const copied = button.dataset.copied || t('Copied')
     button.classList.add('is-copied')
-    if (label) label.textContent = 'Copied'
-    announce('Copied')
-    clearTimeout(button.copied)
-    button.copied = setTimeout(() => {
+    if (label) {
+      label.dataset.label ??= label.textContent
+      label.textContent = copied
+    }
+    announce(copied)
+    clearTimeout(button.copyTimer)
+    button.copyTimer = setTimeout(() => {
       button.classList.remove('is-copied')
-      if (label) label.textContent = 'Copy'
+      if (label) label.textContent = label.dataset.label
     }, 1600)
   })
 
@@ -468,7 +502,7 @@
       if (el.scrollWidth > el.clientWidth + 1) {
         el.tabIndex = 0
         el.setAttribute('role', 'region')
-        el.setAttribute('aria-label', el.classList.contains('table') ? 'Table, scrolls sideways' : 'Code, scrolls sideways')
+        el.setAttribute('aria-label', el.classList.contains('table') ? t('Table, scrolls sideways') : t('Code, scrolls sideways'))
       } else if (el.hasAttribute('tabindex')) {
         el.removeAttribute('tabindex')
         el.removeAttribute('role')

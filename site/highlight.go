@@ -33,18 +33,20 @@ func langName(lang string) string {
 	return lang
 }
 
-// copyButton copies the code of the block it's in, by site.js.
-const copyButton = `<button type="button" class="copy" data-copy>` +
+// copyButton copies the code of the block it's in, by site.js, which
+// shows its data-copied once it has.
+const copyButton = `<button type="button" class="copy" data-copy data-copied="%s">` +
 	`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>` +
-	`<span data-copy-label>Copy</span></button>`
+	`<span data-copy-label>%s</span></button>`
 
 // codeBlock writes a block of code in its language's colors, under a bar
-// with its label, a language or a file's name, and a button to copy it.
-func codeBlock(label, lang, code string) string {
+// with its label, a language or a file's name, and a button to copy it,
+// which says what it does in l.
+func codeBlock(label, lang, code string, l *language) string {
 	var b strings.Builder
 	b.WriteString(`<div class="code"><div class="code-bar">`)
 	fmt.Fprintf(&b, `<span class="code-label">%s</span>`, html.EscapeString(label))
-	b.WriteString(copyButton)
+	fmt.Fprintf(&b, copyButton, html.EscapeString(l.t("Copied")), html.EscapeString(l.t("Copy")))
 	b.WriteString(`</div><pre><code>`)
 	writeTokens(&b, lang, strings.TrimRight(code, "\n"))
 	b.WriteString("</code></pre></div>\n")

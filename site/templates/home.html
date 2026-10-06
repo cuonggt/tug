@@ -4,18 +4,18 @@
     <div class="wrap hero-in">
       <div class="hero-text">
         <p class="eyebrow">Go + Inertia.js v3</p>
-        <h1 id="hero-title">React pages straight from Go handlers, with no API in between.</h1>
-        <p class="lead">tug is a web framework for Go apps whose frontend is Inertia.js. Handlers render React, Vue or Svelte pages with typed props, and the whole app ships as one binary.</p>
+        <h1 id="hero-title">{{t "React pages straight from Go handlers, with no API in between."}}</h1>
+        <p class="lead">{{t "tug is a web framework for Go apps whose frontend is Inertia.js. Handlers render React, Vue or Svelte pages with typed props, and the whole app ships as one binary."}}</p>
         <div class="hero-actions">
-          <a class="btn btn-primary" href="{{href "docs/getting-started/"}}">Get started{{template "i-arrow"}}</a>
-          <a class="btn btn-secondary" href="{{href "docs/"}}">Read the guide</a>
+          <a class="btn btn-primary" href="{{href "docs/getting-started/"}}">{{t "Get started"}}{{template "i-arrow"}}</a>
+          <a class="btn btn-secondary" href="{{href "docs/"}}">{{t "Read the guide"}}</a>
         </div>
-        <button type="button" class="hero-search" data-search-open aria-label="Search the guide" aria-keyshortcuts="Control+K Meta+K /">{{template "i-search"}}<span>Search the guide</span><kbd class="kbd" data-kbd>Ctrl K</kbd></button>
+        <button type="button" class="hero-search" data-search-open aria-label="{{t "Search the guide"}}" aria-keyshortcuts="Control+K Meta+K /">{{template "i-search"}}<span>{{t "Search the guide"}}</span><kbd class="kbd" data-kbd>Ctrl K</kbd></button>
       </div>
       <figure class="term" aria-labelledby="term-caption">
         <div class="term-bar">
-          <figcaption id="term-caption" class="term-title">From nothing to one binary</figcaption>
-          <button type="button" class="copy" aria-label="Copy the commands" data-copy data-copy-text="go install github.com/cuonggt/tug/cmd/tug@latest&#10;tug new blog&#10;cd blog&#10;tug dev"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span data-copy-label>Copy</span></button>
+          <figcaption id="term-caption" class="term-title">{{t "From nothing to one binary"}}</figcaption>
+          <button type="button" class="copy" aria-label="{{t "Copy the commands"}}" data-copy data-copied="{{t "Copied"}}" data-copy-text="go install github.com/cuonggt/tug/cmd/tug@latest&#10;tug new blog&#10;cd blog&#10;tug dev"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span data-copy-label>{{t "Copy"}}</span></button>
         </div>
 <pre class="term-body"><code><span class="p">$ </span>go install github.com/cuonggt/tug/cmd/tug@latest
 <span class="p">$ </span>tug new blog          <span class="c"># -auth for accounts</span>
@@ -32,9 +32,9 @@
   <section class="section" aria-labelledby="flow-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow">How it fits together</p>
-        <h2 id="flow-title">A Go struct is the page's props, and its types.</h2>
-        <p>A handler renders a page with a struct, which the page's component gets as its props. <code>tug gen</code> writes the struct's TypeScript, so the component is checked against the Go, and <code>tug dev</code> writes it again as the Go changes.</p>
+        <p class="eyebrow">{{t "How it fits together"}}</p>
+        <h2 id="flow-title">{{t "A Go struct is the page's props, and its types."}}</h2>
+        <p>{{tHTML "A handler renders a page with a struct, which the page's component gets as its props. <code>tug gen</code> writes the struct's TypeScript, so the component is checked against the Go, and <code>tug dev</code> writes it again as the Go changes."}}</p>
       </div>
       <div class="flow">
         <div class="flow-go">{{snippet "main.go" "main.go"}}</div>
@@ -50,33 +50,33 @@
   <section class="section section-alt" aria-labelledby="features-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow">What's in it</p>
-        <h2 id="features-title">The parts an app needs, already working with Inertia.</h2>
-        <p>Sessions, flash messages, validation errors and CSRF work with Inertia without setup, on the standard library underneath.</p>
+        <p class="eyebrow">{{t "What's in it"}}</p>
+        <h2 id="features-title">{{t "The parts an app needs, already working with Inertia."}}</h2>
+        <p>{{t "Sessions, flash messages, validation errors and CSRF work with Inertia without setup, on the standard library underneath."}}</p>
       </div>
       <ul class="features">
-        <li class="feature">{{template "i-page"}}<h3><a href="{{href "docs/pages/"}}">Inertia v3, whole</a></h3><p>Deferred, merged, once and optional props, partial reloads by path, infinite scroll, and a page's title and description from Go.</p></li>
-        <li class="feature">{{template "i-braces"}}<h3><a href="{{href "docs/typescript/"}}">Types from Go</a></h3><p><code>tug gen</code> writes the TypeScript of each page's props, the named routes, what each form sends and the flash data's keys.</p></li>
-        <li class="feature">{{template "i-form"}}<h3><a href="{{href "docs/forms/"}}">Forms that check themselves</a></h3><p><code>c.BindValid</code> binds a request and checks it by its struct tags. A form that doesn't validate goes back with its errors, and each field is checked as it's left.</p></li>
-        <li class="feature">{{template "i-key"}}<h3><a href="{{href "docs/auth/"}}">Accounts, from one flag</a></h3><p><code>tug new -auth</code>: registering, verified email, two-factor codes, passkeys, API tokens and notifications, in SQLite, Postgres or MySQL.</p></li>
-        <li class="feature">{{template "i-clock"}}<h3><a href="{{href "docs/jobs/"}}">Background jobs</a></h3><p>Jobs that run again when they fail, on a schedule in any time zone, once however often they're pushed, and in the app's own transaction.</p></li>
-        <li class="feature">{{template "i-box"}}<h3><a href="{{href "docs/deployment/"}}">One binary</a></h3><p><code>tug build</code> makes one static binary with the frontend in it, sent gzipped by the app itself, and the app comes with a Dockerfile.</p></li>
-        <li class="feature">{{template "i-server"}}<h3><a href="{{href "docs/ssr/"}}">Rendered on the server, if you like</a></h3><p><code>tug new -ssr</code> renders a first visit's page with Inertia's own SSR, in Node beside the app. Without Node, pages render in the browser.</p></li>
-        <li class="feature">{{template "i-check"}}<h3><a href="{{href "docs/testing/"}}">Tests without a browser</a></h3><p>Package <code>tugtest</code> is Inertia's client for Go's tests: visits, forms, uploads and logins, with a page's props read into its Go struct.</p></li>
-        <li class="feature">{{template "i-waves"}}<h3><a href="{{href "docs/broadcasting/"}}">Events on every instance</a></h3><p>Package <code>broadcast</code> carries events on channels through the app's database, to the pages open on every instance, which reload what changed.</p></li>
+        <li class="feature">{{template "i-page"}}<h3><a href="{{href "docs/pages/"}}">{{t "Inertia v3, whole"}}</a></h3><p>{{t "Deferred, merged, once and optional props, partial reloads by path, infinite scroll, and a page's title and description from Go."}}</p></li>
+        <li class="feature">{{template "i-braces"}}<h3><a href="{{href "docs/typescript/"}}">{{t "Types from Go"}}</a></h3><p>{{tHTML "<code>tug gen</code> writes the TypeScript of each page's props, the named routes, what each form sends and the flash data's keys."}}</p></li>
+        <li class="feature">{{template "i-form"}}<h3><a href="{{href "docs/forms/"}}">{{t "Forms that check themselves"}}</a></h3><p>{{tHTML "<code>c.BindValid</code> binds a request and checks it by its struct tags. A form that doesn't validate goes back with its errors, and each field is checked as it's left."}}</p></li>
+        <li class="feature">{{template "i-key"}}<h3><a href="{{href "docs/auth/"}}">{{t "Accounts, from one flag"}}</a></h3><p>{{tHTML "<code>tug new -auth</code>: registering, verified email, two-factor codes, passkeys, API tokens and notifications, in SQLite, Postgres or MySQL."}}</p></li>
+        <li class="feature">{{template "i-clock"}}<h3><a href="{{href "docs/jobs/"}}">{{t "Background jobs"}}</a></h3><p>{{t "Jobs that run again when they fail, on a schedule in any time zone, once however often they're pushed, and in the app's own transaction."}}</p></li>
+        <li class="feature">{{template "i-box"}}<h3><a href="{{href "docs/deployment/"}}">{{t "One binary"}}</a></h3><p>{{tHTML "<code>tug build</code> makes one static binary with the frontend in it, sent gzipped by the app itself, and the app comes with a Dockerfile."}}</p></li>
+        <li class="feature">{{template "i-server"}}<h3><a href="{{href "docs/ssr/"}}">{{t "Rendered on the server, if you like"}}</a></h3><p>{{tHTML "<code>tug new -ssr</code> renders a first visit's page with Inertia's own SSR, in Node beside the app. Without Node, pages render in the browser."}}</p></li>
+        <li class="feature">{{template "i-check"}}<h3><a href="{{href "docs/testing/"}}">{{t "Tests without a browser"}}</a></h3><p>{{tHTML "Package <code>tugtest</code> is Inertia's client for Go's tests: visits, forms, uploads and logins, with a page's props read into its Go struct."}}</p></li>
+        <li class="feature">{{template "i-waves"}}<h3><a href="{{href "docs/broadcasting/"}}">{{t "Events on every instance"}}</a></h3><p>{{tHTML "Package <code>broadcast</code> carries events on channels through the app's database, to the pages open on every instance, which reload what changed."}}</p></li>
       </ul>
       <div class="also">
-        <h3 class="also-title">And</h3>
+        <h3 class="also-title">{{t "And"}}</h3>
         <ul class="also-list">
-          <li><a href="{{href "docs/files/"}}">Uploads, on disk or S3</a></li>
-          <li><a href="{{href "docs/migrations/"}}">Migrations</a></li>
-          <li><a href="{{href "docs/cache/"}}">Cache and locks</a></li>
-          <li><a href="{{href "docs/languages/"}}">Languages</a></li>
-          <li><a href="{{href "docs/authorization/"}}">Authorization</a></li>
-          <li><a href="{{href "docs/encryption/"}}">Encryption</a></li>
-          <li><a href="{{href "docs/auth/#package-mail"}}">Mail</a></li>
-          <li><a href="{{href "docs/deployment/#security-headers"}}">Security headers</a></li>
-          <li><a href="{{href "docs/cli/"}}">The CLI</a></li>
+          <li><a href="{{href "docs/files/"}}">{{t "Uploads, on disk or S3"}}</a></li>
+          <li><a href="{{href "docs/migrations/"}}">{{t "Migrations"}}</a></li>
+          <li><a href="{{href "docs/cache/"}}">{{t "Cache and locks"}}</a></li>
+          <li><a href="{{href "docs/languages/"}}">{{t "Languages"}}</a></li>
+          <li><a href="{{href "docs/authorization/"}}">{{t "Authorization"}}</a></li>
+          <li><a href="{{href "docs/encryption/"}}">{{t "Encryption"}}</a></li>
+          <li><a href="{{href "docs/auth/#package-mail"}}">{{t "Mail"}}</a></li>
+          <li><a href="{{href "docs/deployment/#security-headers"}}">{{t "Security headers"}}</a></li>
+          <li><a href="{{href "docs/cli/"}}">{{t "The CLI"}}</a></li>
         </ul>
       </div>
     </div>
@@ -85,15 +85,15 @@
   <section class="section" aria-labelledby="why-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow">Why Go</p>
-        <h2 id="why-title">One small binary, on every core, that starts in milliseconds.</h2>
-        <p>Go makes a web app one static binary, which uses every core in one process, starts in milliseconds, and runs in tens of MB of memory. tug keeps all of it for an Inertia app: one static binary, its frontend's build inside it, served by Go's own HTTP server.</p>
+        <p class="eyebrow">{{t "Why Go"}}</p>
+        <h2 id="why-title">{{t "One small binary, on every core, that starts in milliseconds."}}</h2>
+        <p>{{t "Go makes a web app one static binary, which uses every core in one process, starts in milliseconds, and runs in tens of MB of memory. tug keeps all of it for an Inertia app: one static binary, its frontend's build inside it, served by Go's own HTTP server."}}</p>
       </div>
       <ul class="points">
-        <li class="point">{{template "i-gauge"}}<h3>Performance</h3><p>Tens of thousands of requests a second on a laptop, in one process that uses every core, in tens of MB of RAM.</p></li>
-        <li class="point">{{template "i-bolt"}}<h3>Startup</h3><p>In milliseconds, which keeps the cost down on a platform that scales to zero.</p></li>
-        <li class="point">{{template "i-file"}}<h3>Deploying</h3><p>One file to copy, with no runtime or dependencies to install, built for Linux or ARM from a Mac.</p></li>
-        <li class="point">{{template "i-term"}}<h3>Development</h3><p>A small language that compiles fast, with an HTTP server in its standard library that's good enough for production.</p></li>
+        <li class="point">{{template "i-gauge"}}<h3>{{t "Performance"}}</h3><p>{{t "Tens of thousands of requests a second on a laptop, in one process that uses every core, in tens of MB of RAM."}}</p></li>
+        <li class="point">{{template "i-bolt"}}<h3>{{t "Startup"}}</h3><p>{{t "In milliseconds, which keeps the cost down on a platform that scales to zero."}}</p></li>
+        <li class="point">{{template "i-file"}}<h3>{{t "Deploying"}}</h3><p>{{t "One file to copy, with no runtime or dependencies to install, built for Linux or ARM from a Mac."}}</p></li>
+        <li class="point">{{template "i-term"}}<h3>{{t "Development"}}</h3><p>{{t "A small language that compiles fast, with an HTTP server in its standard library that's good enough for production."}}</p></li>
       </ul>
     </div>
   </section>
@@ -102,9 +102,9 @@
   <section class="section section-alt" aria-labelledby="bench-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow">How fast</p>
-        <h2 id="bench-title">{{.Visits}} visits a second{{with .Memory}}, in {{.}} of memory{{end}}.</h2>
-        <p>One Inertia page, a post and its comments, served by an app as <code>tug new</code> makes one, with its session, CSRF and Content-Security-Policy, in one process that uses every core.</p>
+        <p class="eyebrow">{{t "How fast"}}</p>
+        <h2 id="bench-title">{{.Headline}}</h2>
+        <p>{{tHTML "One Inertia page, a post and its comments, served by an app as <code>tug new</code> makes one, with its session, CSRF and Content-Security-Policy, in one process that uses every core."}}</p>
       </div>
       <ul class="stats">
         {{range .Stats}}<li class="stat">
@@ -113,7 +113,7 @@
         </li>
         {{end}}
       </ul>
-      <p class="bench-foot">Measured <time datetime="{{.Date}}">{{.Date}}</time> on {{.Machine}}. <a href="{{href "docs/benchmarks/"}}">Every number, and how they were measured{{template "i-arrow"}}</a></p>
+      <p class="bench-foot">{{.Measured}} <a href="{{href "docs/benchmarks/"}}">{{t "Every number, and how they were measured"}}{{template "i-arrow"}}</a></p>
     </div>
   </section>
   {{end}}
@@ -121,9 +121,9 @@
   <section class="section{{if not .Bench}} section-alt{{end}}" aria-labelledby="guide-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow">The guide</p>
-        <h2 id="guide-title">From a new app to a deployed one.</h2>
-        <p>{{len .Parts}} parts, in the order an app needs them. Each package's own documentation, on <a href="https://pkg.go.dev/github.com/cuonggt/tug">pkg.go.dev</a>, has the rest of the detail.</p>
+        <p class="eyebrow">{{t "The guide"}}</p>
+        <h2 id="guide-title">{{t "From a new app to a deployed one."}}</h2>
+        <p>{{tHTML `:count parts, in the order an app needs them. Each package's own documentation, on <a href="https://pkg.go.dev/github.com/cuonggt/tug">pkg.go.dev</a>, has the rest of the detail.` "count" (len .Parts)}}</p>
       </div>
       {{template "parts" .}}
     </div>
@@ -131,8 +131,8 @@
 
   <section class="closing" aria-labelledby="closing-title">
     <div class="wrap closing-in">
-      <h2 id="closing-title">A tugboat is small, and moves ships many times its size.</h2>
-      <a class="btn btn-primary" href="{{href "docs/getting-started/"}}">Make your first app{{template "i-arrow"}}</a>
+      <h2 id="closing-title">{{t "A tugboat is small, and moves ships many times its size."}}</h2>
+      <a class="btn btn-primary" href="{{href "docs/getting-started/"}}">{{t "Make your first app"}}{{template "i-arrow"}}</a>
     </div>
   </section>
 </main>

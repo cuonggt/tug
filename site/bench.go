@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
+	"html/template"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -58,15 +60,15 @@ type benchTime struct {
 	Ns   float64 `json:"ns_op"`
 }
 
-// A bench is what the home page shows of the benchmarks: tug's own
-// numbers, over HTTP and as it runs, and what it adds to a request over
-// Go's own router.
+// A bench is what the home page shows of the benchmarks, in one of the
+// site's languages: tug's own numbers, over HTTP and as it runs, and what
+// it adds to a request over Go's own router.
 type bench struct {
-	// Visits and Memory are the headline's: tug's visits a second, and its
-	// memory under load, when that was measured.
-	Visits, Memory string
-	Stats          []stat
-	Machine, Date  string
+	// Headline is tug's visits a second, and its memory under load, when
+	// that was measured.
+	Headline string
+	Stats    []stat
+	Measured template.HTML // when the numbers were measured, and on what
 }
 
 // A stat is one of tug's numbers: its value, what it counts, and how it
@@ -91,9 +93,9 @@ func readBenchResults(root string) (*benchResults, error) {
 	return &r, nil
 }
 
-// benchOf is what the home page shows of r; without tug's run over HTTP,
-// it shows no numbers.
-func benchOf(r *benchResults) *bench {
+// benchOf is what the home page shows of r, in l; without tug's run over
+// HTTP, it shows no numbers.
+func benchOf(r *benchResults, l *language) *bench {
 	if r == nil || r.HTTP == nil {
 		return nil
 	}
@@ -102,25 +104,34 @@ func benchOf(r *benchResults) *bench {
 		return nil
 	}
 	tug := r.HTTP.Apps[i]
-	v := &bench{Machine: r.HTTP.Machine.String(), Date: r.HTTP.Date, Visits: thousands(tug.Visit.PerSecond)}
+	visits := l.thousands(tug.Visit.PerSecond)
+	v := &bench{}
 	v.Stats = append(v.Stats,
-		stat{thousands(tug.Visit.PerSecond), "visits a second", "Inertia's client asking for the page, answered as JSON, 99 in 100 within " + millis(tug.Visit.P99) + "."},
-		stat{thousands(tug.FirstVisit.PerSecond), "first visits a second", "A browser asking for the page, answered with its HTML, 99 in 100 within " + millis(tug.FirstVisit.P99) + "."},
+		stat{visits, l.t("visits a second"), l.t("Inertia's client asking for the page, answered as JSON, 99 in 100 within :time.", "time", l.millis(tug.Visit.P99))},
+		stat{l.thousands(tug.FirstVisit.PerSecond), l.t("first visits a second"), l.t("A browser asking for the page, answered with its HTML, 99 in 100 within :time.", "time", l.millis(tug.FirstVisit.P99))},
 	)
+	// Both headlines are said, so that a language has words for either.
+	v.Headline = l.t(":visits visits a second.", "visits", visits)
 	if r.Footprint != nil {
 		if i := slices.IndexFunc(r.Footprint.Apps, func(a benchFootprint) bool { return a.Name == "tug" }); i >= 0 {
 			f := r.Footprint.Apps[i]
-			v.Memory = megabytes(f.MemoryPeak)
+			memory := l.megabytes(f.MemoryPeak)
+			v.Headline = l.t(":visits visits a second, in :memory of memory.", "visits", visits, "memory", memory)
 			v.Stats = append(v.Stats,
-				stat{megabytes(f.MemoryPeak), "of memory under load", megabytes(f.MemoryStart) + " once it has started, idle."},
-				stat{startup(f.Startup), "to start", "From starting the binary to its first answer to the page."},
-				stat{megabytes(f.Size), "to deploy", "One static binary, with nothing to install beside it."},
+				stat{memory, l.t("of memory under load"), l.t(":memory once it has started, idle.", "memory", l.megabytes(f.MemoryStart))},
+				stat{l.startup(f.Startup), l.t("to start"), l.t("From starting the binary to its first answer to the page.")},
+				stat{l.megabytes(f.Size), l.t("to deploy"), l.t("One static binary, with nothing to install beside it.")},
 			)
 		}
 	}
 	if added, ok := addedToRequest(r); ok {
-		v.Stats = append(v.Stats, stat{added, "added to a request", "What tug's App adds to ServeMux, Go's own router, in one process."})
+		v.Stats = append(v.Stats, stat{added, l.t("added to a request"), l.t("What tug's App adds to ServeMux, Go's own router, in one process.")})
 	}
+	m := r.HTTP.Machine
+	date := html.EscapeString(r.HTTP.Date)
+	v.Measured = l.tHTML("Measured :date on :machine.",
+		"date", template.HTML(`<time datetime="`+date+`">`+date+`</time>`),
+		"machine", l.t(":cpu, :cores cores, :os", "cpu", m.CPU, "cores", m.Cores, "os", m.OS))
 	return v
 }
 
@@ -145,44 +156,32 @@ func addedToRequest(r *benchResults) (string, bool) {
 	return strconv.FormatFloat(tug-mux, 'f', 0, 64) + " ns", true
 }
 
-func (m benchMachine) String() string {
-	return fmt.Sprintf("%s, %d cores, %s", m.CPU, m.Cores, m.OS)
-}
-
-// megabytes is mib, as bench/'s runner says it in the guide.
-func megabytes(mib float64) string {
+// megabytes is mib, as bench/'s runner says it in the guide, in l's
+// numbers.
+func (l *language) megabytes(mib float64) string {
 	if mib >= 100 {
-		return thousands(mib) + " MB"
+		return l.thousands(mib) + " MB"
 	}
-	return strconv.FormatFloat(mib, 'f', 1, 64) + " MB"
+	return l.decimal(mib, 1) + " MB"
 }
 
 // startup is ms milliseconds, in seconds from a second up, as bench/'s
 // runner says it.
-func startup(ms float64) string {
+func (l *language) startup(ms float64) string {
 	if ms >= 1000 {
-		return strconv.FormatFloat(ms/1000, 'f', 1, 64) + " s"
+		return l.decimal(ms/1000, 1) + " s"
 	}
-	return strconv.FormatFloat(ms, 'f', 0, 64) + " ms"
+	return l.decimal(ms, 0) + " ms"
 }
 
 // millis is ms milliseconds, as bench/'s runner says a percentile.
-func millis(ms float64) string {
+func (l *language) millis(ms float64) string {
 	switch {
 	case ms >= 100:
-		return strconv.FormatFloat(ms, 'f', 0, 64) + " ms"
+		return l.decimal(ms, 0) + " ms"
 	case ms >= 10:
-		return strconv.FormatFloat(ms, 'f', 1, 64) + " ms"
+		return l.decimal(ms, 1) + " ms"
 	default:
-		return strconv.FormatFloat(ms, 'f', 2, 64) + " ms"
+		return l.decimal(ms, 2) + " ms"
 	}
-}
-
-// thousands is n rounded, with commas between its thousands.
-func thousands(n float64) string {
-	s := strconv.FormatInt(int64(n+0.5), 10)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
 }
