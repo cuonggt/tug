@@ -127,12 +127,11 @@ there, and writes the types.
 
 With `-auth`, the Go files for accounts are added, `auth.go`,
 `verify.go`, `twofactor.go`, `passkeys.go`, `settings.go`, `photos.go`,
-`tokens.go`, `broadcasts.go`, `abilities.go`, `admin.go`,
-`notifications.go`, `mail.go`, `users.go` and `jobs.go`, with their
-tests, and the database's: `db.go`, `users_db.go`,
-`passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,
-`tokens_db.go`, `broadcasts_db.go`, `notifications_db.go` and
-`db_test.go`, the SQL, and on Postgres or MySQL, `compose.yaml`. So is a frontend of Tailwind and shadcn's components:
+`tokens.go`, `broadcasts.go`, `notifications.go`, `mail.go`, `users.go`
+and `jobs.go`, with their tests, and the database's: `db.go`,
+`users_db.go`, `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`,
+`cache_db.go`, `tokens_db.go`, `broadcasts_db.go`, `notifications_db.go`
+and `db_test.go`, the SQL, and on Postgres or MySQL, `compose.yaml`. So is a frontend of Tailwind and shadcn's components:
 its layouts, components and hooks, the pages in `resources/js/pages/Auth`
 and `resources/js/pages/Settings`, and shadcn's `components.json`. The
 plain starter's `Layout.tsx` (`Layout.vue`, `Layout.svelte`) is left out,

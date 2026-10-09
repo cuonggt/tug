@@ -58,8 +58,6 @@ pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
 | `GET /verify-email/{id}/{token}`          | `verification.verify`                         | anyone with the link |
 | `GET /broadcasts`                         | `broadcasts`                                  | users, their own events |
 | `GET /notifications`                      | `notifications.index`                         | users |
-| `GET /admin/failed-jobs`                  | `failed-jobs.index`                           | admins |
-| `POST /admin/failed-jobs/{id}/retry`, `/admin/failed-jobs/retry` | `failed-jobs.retry`, `failed-jobs.retry-all` | admins |
 | `GET /settings`                           | `settings`                                    | goes to the profile |
 | `GET`, `PATCH`, `DELETE /settings/profile` | `profile.edit`, `profile.update`, `profile.destroy` | users, password confirmed |
 | `POST`, `DELETE /settings/profile/photo`  | `profile.photo.update`, `profile.photo.destroy` | users, password confirmed |
@@ -90,10 +88,9 @@ them.
   `passkeys.go`: passkeys. `settings.go`: the settings pages.
   `photos.go`: a user's photo, on the app's disk. `tokens.go`: API
   tokens. `broadcasts.go`: the events a user's pages follow.
-  `abilities.go`: what users may do, and `admin.go`, the admins' page and
-  the `admins` command. `notifications.go`: what happened to an account,
-  in the app and by mail. `logins.go`: the browsers a user is logged in
-  from, and logging one out. `mail.go`: the mail the app sends.
+  `notifications.go`: what happened to an account, in the app and by
+  mail. `logins.go`: the browsers a user is logged in from, and logging
+  one out. `mail.go`: the mail the app sends.
 - `jobs.go`: the background jobs, in tables of their own, for package
   `queue`, which runs them beside the server, and the `jobs` command,
   which lists the ones that failed for good and runs them again. The mail
@@ -113,15 +110,15 @@ them.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
   `passkeys_test.go`, `photos_test.go`, `jobs_test.go`,
   `throttles_test.go`, `cache_test.go`, `tokens_test.go`,
-  `broadcasts_test.go`, `admin_test.go`, `notifications_test.go`,
-  `logins_test.go`, `migrations_test.go`: a test of each flow, in browsers of package `tugtest`, with the mail kept in
-  memory, the photos in a temporary directory, and a database of each
-  test's own.
+  `broadcasts_test.go`, `notifications_test.go`, `logins_test.go`,
+  `migrations_test.go`: a test of each flow, in browsers of package
+  `tugtest`, with the mail kept in memory, the photos in a temporary
+  directory, and a database of each test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
   page's layout; `layouts/`, the app's, the login card's, and the
   settings'; `components/`, the app's own and shadcn's in
   `components/ui`; and the pages, `Home`, `Dashboard` and `Error`, and
-  those in `Auth/`, `Settings/` and `Admin/`.
+  those in `Auth/` and `Settings/`.
 - `.env.example`: `APP_KEY`, `APP_URL`, `TRUSTED_PROXIES`, the
   database's `DB_PATH`, or `DB_URL`, `QUEUE_WORKERS`, the photos'
   `FILESYSTEM_DISK`, `FILES_PATH` and S3's variables, and the mail's,
@@ -185,10 +182,6 @@ Between them, a `userHandler` can be wrapped in more:
   password; the password; two-factor logins; and deleting the account.
   Logging in counts as typing it, so right after, the settings open
   straight away.
-
-- `only(ability, h)` lets in the users an ability of no thing lets in,
-  and answers anyone else with the ability's no, a 403: the admins' page
-  has it, with `seeFailedJobs` ([Admins](#admins), below).
 
 `guestsOnly` wraps the pages for guests, and sends someone who's logged in
 to the dashboard instead, even from a reset link.
@@ -256,10 +249,9 @@ component, as in `layouts/app-layout.tsx`.
 `User` has `emailVerifiedAt`, null until the email is verified, and
 `twoFactor`, whether logging in takes a code. Its password hash, two-factor
 secret and recovery codes are tagged `json:"-"`, so they never reach a
-page, and so is `Admin`: a page asks `can`, what its user may do, which
-`shareAuth` shares beside `auth`, from `abilities.go`, as
-`usePage().props.can.seeFailedJobs` ([Authorization](authorization.md#on-the-page)),
-and `bell`, the notifications they haven't read ([Notifications](#notifications)). [Pages](pages.md#shared-props) has more on shared props, and
+page. `shareAuth` shares `bell` beside `auth`, the notifications the
+user hasn't read ([Notifications](#notifications)).
+[Pages](pages.md#shared-props) has more on shared props, and
 [TypeScript](typescript.md) on the types.
 
 ### Registering
@@ -629,40 +621,6 @@ curl -H "Authorization: Bearer blog_…" -H "Accept: application/json" https://e
   new password leaves the tokens be, as GitHub's are: they're the user's
   to revoke. Deleting the account deletes them.
 
-### Admins
-
-```
-$ ./blog admins add ann@example.com
-ann@example.com is an admin.
-$ ./blog admins
-1 admin:
-
-  ann@example.com  Ann Lee
-
-./blog admins add <email> makes someone an admin, and ./blog admins remove <email> a user again.
-```
-
-An admin may do anything the app's abilities name, as the gate in
-`abilities.go` lets them ([Authorization](authorization.md)). The
-starter's one ability is seeing the jobs that failed for good, on a page
-of the admins', `/admin/failed-jobs`, in the header's nav for them, which
-lists the jobs, the latest first, with the value each was pushed with,
-its error, and the ID of the request that pushed it, which the queue's
-log lines of the job have too
-([Background jobs](jobs.md#what-a-job-carries)), and runs one, or all,
-again from their first attempt, as the `jobs` command does, and wakes the
-queue. A user who isn't an admin gets a 403, the error page, "you may not
-see the jobs that failed".
-
-- A user is an admin by the users table's `admin` column, which the
-  binary's `admins` command sets, with `add` and `remove`, where it runs,
-  on its database, as the first admin has no one to ask: in the
-  starter's image, `docker exec <container> /server admins add
-  ann@example.com`. The command runs in the app as `main` makes it, so it
-  needs what the server needs, `APP_KEY` and `APP_URL` among it.
-- The handlers are in `admin.go`, and the page is
-  `resources/js/pages/Admin/FailedJobs.tsx` (`.vue`, `.svelte`).
-
 ### A forgotten password
 
 ```go
@@ -801,14 +759,14 @@ A passkey's mail, which was a job of its own, is now its notification's.
 
 `db.go` opens the database the environment names, `DB_PATH` for SQLite
 and `DB_URL` for the others, and `migrations/` makes its tables, a file of
-SQL each, named for when it was made, run once, in order, as the app
-starts ([Migrations](migrations.md)):
+SQL for each, with all its columns, named for when it was made, run once,
+in order, as the app starts ([Migrations](migrations.md)):
 
 ```
 migrations/20260925171438_create_users.sql
 migrations/20260926042744_create_jobs.sql
 ...
-migrations/20261002053504_create_logins.sql
+migrations/20261002053505_create_browsers.sql
 ```
 
 To change the tables, add a migration, `tug migrate new add_bio_to_users`,
@@ -832,13 +790,6 @@ starting at once take turns, each database in its own way:
   failed, stops the next start, saying which, for someone to see what
   ran, rather than guess. Laravel's migrations have the same gap on MySQL.
   An instance holds `GET_LOCK` on one connection while it runs them.
-
-An app made before its migrations were files counted the steps it had run
-in SQLite's `user_version`, or a `schema_version` table: the starter's
-files are those steps, in their order, and the first start takes the
-count over, recording that many as run.
-[Migrations](migrations.md#apps-made-before) has what an app checks
-before that start, and how it rolls back after.
 
 The SQL of each table is in a file of its own, `users_db.go`,
 `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,

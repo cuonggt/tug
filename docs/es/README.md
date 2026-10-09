@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at ba93a85f29e8 -->
+<!-- translated from docs/README.md at 3597b0d23d5b -->
 
 # La guía de tug
 
@@ -34,9 +34,9 @@ los detalles.
    y por lo que son, guardados en el disco de la aplicación o en S3 con el
    paquete `storage`, y los enlaces a ellos, públicos o firmados.
 8. [Cuentas](../auth.md): el kit de inicio de autenticación, en SQLite,
-   Postgres o MySQL, sus tokens de API, administradores y notificaciones, y
-   los paquetes `auth` y `mail`, con copias, archivos adjuntos y un enlace
-   para darse de baja con un clic.
+   Postgres o MySQL, sus tokens de API y notificaciones, y los paquetes
+   `auth` y `mail`, con copias, archivos adjuntos y un enlace para darse
+   de baja con un clic.
 9. [Migraciones](../migrations.md): las tablas de la base de datos, creadas
    y modificadas por archivos SQL que se ejecutan una vez cada uno, en
    orden, al arrancar la aplicación y con su comando `migrate`, con

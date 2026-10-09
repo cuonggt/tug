@@ -117,30 +117,8 @@ func failedDaysAgo(t *testing.T, db *sql.DB, id string, days int) {
 	}
 }
 
-// oldCount counts n steps as having run, as an app made before its
-// migrations were files did, in the schema_version table.
-func oldCount(t *testing.T, db *sql.DB, n int) {
-	t.Helper()
-	if _, err := db.Exec("CREATE TABLE schema_version (version INT NOT NULL, running INT)"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO schema_version (version) VALUES (?)", n); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// oldCountGone reports whether db has no count of steps left.
-func oldCountGone(t *testing.T, db *sql.DB) bool {
-	t.Helper()
-	var n int
-	if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'schema_version'").Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n == 0
-}
-
-// execSQL runs a migration's SQL on db, a statement at a time, as a step
-// of an app made before ran, with no record of it.
+// execSQL runs sql on db, a statement at a time, for a test to change a
+// table behind the app's back, as to have a row's time pass.
 func execSQL(t *testing.T, db *sql.DB, sql string) {
 	t.Helper()
 	for _, stmt := range statements(sql) {
@@ -177,16 +155,5 @@ func TestAMigrationTheAppStoppedInIsNamedNotGuessed(t *testing.T) {
 	want := fmt.Sprintf("undoing migrations/%s.sql stopped at the statement 2 of its down part", ms[len(ms)-1].Name)
 	if err := upToDate(t.Context(), db); err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("starting again: %v, want %q", err, want)
-	}
-}
-
-func TestAStepUnderWayInAnAppMadeBeforeIsNamedNotGuessed(t *testing.T) {
-	db := newDB(t)()
-	oldCount(t, db, 3)
-	if _, err := db.Exec("UPDATE schema_version SET running = 4"); err != nil {
-		t.Fatal(err)
-	}
-	if err := upToDate(t.Context(), db); err == nil || !strings.HasPrefix(err.Error(), "migration 4 was under way when the app stopped") {
-		t.Errorf("starting: %v", err)
 	}
 }

@@ -28,11 +28,6 @@ type User struct {
 	Photo    *string `json:"photo"`
 	PhotoKey string  `json:"-"`
 
-	// Admin is whether the user may do what the app's abilities name, as
-	// see the jobs that failed: abilities.go. A page asks the shared can,
-	// not this.
-	Admin bool `json:"-"`
-
 	PasswordHash string `json:"-"`
 
 	// The two-factor secret and recovery codes, sealed by auth.TwoFactor,
@@ -76,13 +71,13 @@ type dbtx interface {
 }
 
 // userColumns are a user's columns, in the order scanUser reads them.
-const userColumns = "id, name, email, email_verified_at, password_hash, two_factor_secret, recovery_codes, two_factor_step, photo_key, created_at, admin"
+const userColumns = "id, name, email, email_verified_at, password_hash, two_factor_secret, recovery_codes, two_factor_step, photo_key, created_at"
 
 func scanUser(row *sql.Row) (*User, error) {
 	u := &User{}
 	var verified sql.NullTime
 	var secret, codes, photo sql.NullString
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &verified, &u.PasswordHash, &secret, &codes, &u.TwoFactorStep, &photo, &u.CreatedAt, &u.Admin)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &verified, &u.PasswordHash, &secret, &codes, &u.TwoFactorStep, &photo, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errNoUser
 	}

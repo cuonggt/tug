@@ -112,30 +112,8 @@ func failedDaysAgo(t *testing.T, db *sql.DB, id string, days int) {
 	}
 }
 
-// oldCount counts n steps as having run, as an app made before its
-// migrations were files did, in the schema_version table.
-func oldCount(t *testing.T, db *sql.DB, n int) {
-	t.Helper()
-	_, err := db.Exec(fmt.Sprintf(`
-		CREATE TABLE schema_version (id integer PRIMARY KEY CHECK (id = 1), version integer NOT NULL);
-		INSERT INTO schema_version (id, version) VALUES (1, %d)`, n))
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-// oldCountGone reports whether db has no count of steps left.
-func oldCountGone(t *testing.T, db *sql.DB) bool {
-	t.Helper()
-	var gone bool
-	if err := db.QueryRow("SELECT to_regclass('schema_version') IS NULL").Scan(&gone); err != nil {
-		t.Fatal(err)
-	}
-	return gone
-}
-
-// execSQL runs a migration's SQL on db, as a step of an app made before
-// ran, with no record of it.
+// execSQL runs sql on db, for a test to change a table behind the app's
+// back, as to have a row's time pass.
 func execSQL(t *testing.T, db *sql.DB, sql string) {
 	t.Helper()
 	if _, err := db.Exec(sql); err != nil {

@@ -32,8 +32,8 @@ whole numbers past JavaScript's safe range sent as BigInts, the mail an
 app sends under `tug dev` kept in a mailbox it shows as a mail program
 would, and starters in React, Vue or Svelte, one with accounts, from
 registering to two-factor logins, passkeys, a profile photo, API tokens,
-admins, notifications in the app and by mail, and the browsers an account
-is logged in from, each to log out, in SQLite, Postgres or MySQL.
+notifications in the app and by mail, and the browsers an account is
+logged in from, each to log out, in SQLite, Postgres or MySQL.
 [The guide](docs/README.md) covers all of it, and
 [docs/roadmap.md](docs/roadmap.md) has what's next.
 
@@ -202,11 +202,10 @@ func showPost(c *tug.Ctx) error {
   log one out, and make API tokens, for a script or another service to
   call the app's API with, hear of each change to their account that
   could hand it to someone else, a login from a new browser too, at once
-  in the app, by its bell, and by mail, the old email too, and where
-  admins, whom a command makes, have a page of the jobs that failed, with
-  the users in SQLite, or with `-postgres` or `-mysql`, in Postgres or
-  MySQL, and a frontend of Tailwind and shadcn's components, as Laravel's
-  starter kits have, in React, Vue or Svelte. Its handlers are the app's own code, on package
+  in the app, by its bell, and by mail, the old email too, with the users
+  in SQLite, or with `-postgres` or `-mysql`, in Postgres or MySQL, and a
+  frontend of Tailwind and shadcn's components, as Laravel's starter kits
+  have, in React, Vue or Svelte. Its handlers are the app's own code, on package
   `auth`, which has the parts where a slip is a security hole: argon2id
   password hashes, logins that end when the password changes, each with
   an ID of its own, by which the app ends one from another browser, signed
@@ -222,7 +221,8 @@ func showPost(c *tug.Ctx) error {
   its binary's `migrate` command, which lists them and undoes the last.
   What ran is kept with a hash of its SQL, so a file changed after it ran
   is caught, and instances starting at once take turns. The auth
-  starter's tables are its migrations, in SQLite, Postgres or MySQL.
+  starter's tables are its migrations, one for each, in SQLite, Postgres
+  or MySQL.
 - **Mail** (package `mail`): through an SMTP server, or under `tug dev`
   kept in a mailbox the app shows at `/_tug/mail`, each mail as a mail
   program would show it, with copies, a `Bcc` no one sees, replies to

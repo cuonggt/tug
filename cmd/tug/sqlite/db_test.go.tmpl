@@ -50,27 +50,8 @@ func TestInstancesOpeningANewDatabaseAtOnceEachOpenIt(t *testing.T) {
 	wg.Wait()
 }
 
-// oldCount counts n steps as having run, as an app made before its
-// migrations were files did, in SQLite's user_version.
-func oldCount(t *testing.T, db *sql.DB, n int) {
-	t.Helper()
-	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", n)); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// oldCountGone reports whether db has no count of steps left.
-func oldCountGone(t *testing.T, db *sql.DB) bool {
-	t.Helper()
-	var n int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n == 0
-}
-
-// execSQL runs a migration's SQL on db, as a step of an app made before
-// ran, with no record of it.
+// execSQL runs sql on db, for a test to change a table behind the app's
+// back, as to have a row's time pass.
 func execSQL(t *testing.T, db *sql.DB, sql string) {
 	t.Helper()
 	if _, err := db.Exec(sql); err != nil {

@@ -19,10 +19,10 @@ type Gate[U any] struct {
 }
 
 // An Ability is something a user may do with a thing of type T, or not,
-// as edit a post, or see the jobs that failed: NewAbility makes one. Can
-// asks it, as for a page to show a button, and Check says no with an
-// error for the handler to return, which tug answers with a 403 and why.
-// An ability with no thing, as seeing an admin's page, takes a None.
+// as edit a post: NewAbility makes one. Can asks it, as for a page to show
+// a button, and Check says no with an error for the handler to return,
+// which tug answers with a 403 and why. An ability with no thing, as
+// writing a post, takes a None.
 //
 // A guest, the zero user, as a nil *User, may do nothing an ability
 // names: neither the gate nor the check is asked.
@@ -32,8 +32,7 @@ type Ability[U, T any] struct {
 	check func(ctx context.Context, user U, thing T) (bool, error)
 }
 
-// None is the thing of an ability that has none, as seeing an admin's
-// page.
+// None is the thing of an ability that has none, as writing a post.
 type None struct{}
 
 // NewAbility makes the ability what, as "edit this post", which its no

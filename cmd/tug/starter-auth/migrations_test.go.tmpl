@@ -85,38 +85,6 @@ func TestInstancesStartingAtOnceTakeTurnsAtTheMigrations(t *testing.T) {
 	}
 }
 
-func TestAnAppMadeBeforeCarriesOnFromTheCountOfItsSteps(t *testing.T) {
-	ms, err := migrations()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Made at this version, or three steps before it.
-	for _, count := range []int{len(ms), len(ms) - 3} {
-		db := newDB(t)()
-		for _, m := range ms[:count] {
-			execSQL(t, db, m.Up)
-		}
-		oldCount(t, db, count)
-		// A step run again would fail, as its tables are there.
-		if err := upToDate(t.Context(), db); err != nil {
-			t.Fatalf("made %d steps before: %v", len(ms)-count, err)
-		}
-		if ran := ranOn(t, db); !slices.Equal(ran, names(ms)) {
-			t.Errorf("made %d steps before, ran %v", len(ms)-count, ran)
-		}
-		if !oldCountGone(t, db) {
-			t.Errorf("made %d steps before, the count is still there", len(ms)-count)
-		}
-	}
-
-	// Its own steps, after the starter's, weren't made files.
-	db := newDB(t)()
-	oldCount(t, db, len(ms)+1)
-	if err := upToDate(t.Context(), db); err == nil || !strings.Contains(err.Error(), "go in files of their own") {
-		t.Errorf("more steps counted than there are files: %v", err)
-	}
-}
-
 func TestTheMigrateCommandRunsListsAndUndoesTheMigrations(t *testing.T) {
 	ms, err := migrations()
 	if err != nil {

@@ -63,12 +63,11 @@ a kind's jobs so many at once, `queue.AtOnce`, or so many a time,
 together, and `queue.OnFail`, when a job has failed for good, and
 authorization (v0.25.0): `auth.NewAbility`, what a user may do with a
 thing, whose no, an `auth.Denial`, tug answers with a 403 by its
-`StatusCode`, and an `auth.Gate` asked first, and in the auth starter,
-admins, whom the `admins` command makes, and their page of the jobs that
-failed, and notifications (v0.26.0): in the auth starter, each change to
-an account that could hand it to someone else kept in its transaction,
-heard on the user's channel by the header's bell, listed, and mailed, the
-old email told of a new one, and `mailtest.Outbox`'s `NextTo`, and
+`StatusCode`, and an `auth.Gate` asked first, and notifications
+(v0.26.0): in the auth starter, each change to an account that could
+hand it to someone else kept in its transaction, heard on the user's
+channel by the header's bell, listed, and mailed, the old email told of a
+new one, and `mailtest.Outbox`'s `NextTo`, and
 security headers (v0.27.0): `middleware.Headers`, and `middleware.CSP`,
 a Content-Security-Policy that runs the scripts with a nonce made for the
 response, which inertia hands the root template as `.Nonce`, and Vite's
@@ -100,7 +99,7 @@ and request IDs in jobs (v0.34.0): `queue.Carrier`, what a job takes from
 the context it's pushed from and gives back to its run's, kept by a
 `CarryStore`, and `middleware.CarryRequestID`, so the queue's lines of a
 job have the ID of the request that pushed it, as the auth starter's
-failed jobs, in its command and on its page, do, and a debug error page
+failed jobs, in its command, do, and a debug error page
 (v0.35.0): with `APP_DEBUG` on, a server error as a page of the error and
 what it wraps, a panic's stack, the app's frames open, with their source
 around them, the rest folded, the route that answered and the lines that
@@ -679,10 +678,8 @@ dev server that isn't there: delete it.
   can't resolve `PageProps<'Name'>`. `e2e/` is one Playwright suite for
   the auth starter in every frontend (`setup.ts` makes the apps with tug
   new and runs them, their mail in `app.log`; `apps.ts` has the ports and
-  `dotEnv`; `tests/helpers.ts`'s `command` runs an app's command, as
-  `admins add`):
-  the three are one app, word for word, so a change to one frontend is
-  made to all three. The starters declare their flash keys in
+  `dotEnv`): the three are one app, word for word, so a change to one
+  frontend is made to all three. The starters declare their flash keys in
   `flash.go`, the auth starter's `Success`, `Failure` (`error`),
   `RecoveryCodes` and `NewToken` (`token`), and set them through it, with
   no `types.ts` of their own. Each route of the starters' that binds input `Takes`
@@ -716,15 +713,14 @@ dev server that isn't there: delete it.
   lock for writing and looks again, Postgres's under an advisory lock
   held on one connection, and MySQL's under `GET_LOCK`, a statement at a
   time, `statements`, with `running` for the one under way, which
-  `stopped` names; and `adopt`, which records the files an app made before
-  counted in `user_version` or `schema_version` as run, and drops the
-  count), the layer's `migrations/`, the SQL of its steps from before, a
-  file each named for the commit that added it,
+  `stopped` names), the layer's `migrations/`, a file for each table,
+  with all its columns, named for the commit that made the table,
   `users_db.go.tmpl`, `passkeys_db.go.tmpl`, `jobs_db.go.tmpl`,
   `db_test.go.tmpl` (`testDB`, on a server a database per test, made on
   `DB_URL`'s or compose's and dropped, `newDB`, an empty one to open as
-  often as a test likes, `jobsDown`, `failedDaysAgo`, and `oldCount`,
-  `oldCountGone` and `execSQL`, for a database an app made before left), and on a server, `compose.yaml.tmpl`. The jobs
+  often as a test likes, `jobsDown`, `failedDaysAgo`, and `execSQL`, for
+  a test to change a table behind the app's back), and on a server,
+  `compose.yaml.tmpl`. The jobs
   are in the same database: `jobs_db.go.tmpl` is a `queue.ScheduleStore`
   and a `queue.UniqueStore`, which `jobs_test.go.tmpl` runs
   `queuetest.TestStore` on, with a `schedules` table whose upsert only
@@ -746,24 +742,23 @@ dev server that isn't there: delete it.
   key back, unless another job has it (SQLite's one statement, or the
   others' `taken` fallback). MySQL's `claimable` counts the held kinds, as
   a `NOT EXISTS` there becomes a join whose sort locks every job it reads.
-  And a `CarryStore` (`KeepsCarried`): a `carried` column, by the
-  `add_carried_to_jobs` migration, of what a job carried as JSON
-  (`carriedOf`, `carriedFrom`, in `jobs.go.tmpl`), which the inserts
-  write, an upsert's leaving the waiting job's, and the claims and
-  `Failed` read; `main`'s queue, and the tests', carry
-  `middleware.CarryRequestID`, which the `jobs` command (`fromRequest`)
-  and `FailedJob.Request` show.
+  And a `CarryStore` (`KeepsCarried`): a `carried` column, of what a job
+  carried as JSON (`carriedOf`, `carriedFrom`, in `jobs.go.tmpl`), which
+  the inserts write, an upsert's leaving the waiting job's, and the claims
+  and `Failed` read; `main`'s queue, and the tests', carry
+  `middleware.CarryRequestID`, which the `jobs` command shows
+  (`fromRequest`).
   `prune` deletes the held kinds whose time has passed. `jobs.in(tx)` is the Store that pushes in
   a handler's transaction, and `jobsCommand` the `jobs` command, which
   `newApp` adds with `app.Command`, for `Run` to run in place of the
   server.
   `migrations.go.tmpl` embeds `migrations/` (`migrations`, through
   `migrate.Load`), and has `upToDate`, which `main` runs as the app
-  starts, `adopt` first, unless `migrating`, the binary run as the
-  `migrate` command, which `newApp` adds, `migrate.Command`'s; the tests'
-  `testDB` runs it, and `migrations_test.go` runs `migratetest.TestStore`
-  on each database's table, and tests instances at once, a newer
-  version's migration left alone, an app made before, and the command.
+  starts, unless `migrating`, the binary run as the `migrate` command,
+  which `newApp` adds, `migrate.Command`'s; the tests' `testDB` runs it,
+  and `migrations_test.go` runs `migratetest.TestStore` on each
+  database's table, and tests instances at once, a newer version's
+  migration left alone, and the command.
   Under tug gen, `main` opens no database, and `env.DB` is nil. `a.inTx` runs a handler's writes in one
   transaction, through the stores' `in(tx)` (the tables' methods go
   through `dbtx`, the database or a transaction), and wakes the queue
@@ -794,16 +789,6 @@ dev server that isn't there: delete it.
   `starterData.TokenPrefix`, the app's name in letters and digits, and
   `abilities` lists what the page offers, `user:read`, which `/api/user`
   asks for. `tokens_test.go` and `e2e/tests/tokens.spec.ts` test it.
-  `abilities.go.tmpl` has the app's `gate`, which lets a user whose
-  `admin` column is set do anything, `seeFailedJobs`, `Can`, which
-  `shareAuth` shares as `can` beside `auth` (`can`), and `only`, the
-  wrapper of a route by an ability of no thing; `admin.go.tmpl` has
-  `Admin/FailedJobs` (`failedJobsPage`, `retryFailedJob`,
-  `retryFailedJobs`, through the `jobs` FailedStore, waking the queue) at
-  `/admin/failed-jobs`, in each frontend's nav for an admin, and
-  `adminsCommand`, the `admins` command (`users.setAdmin`, `admins`, in
-  each layer's `users_db.go`); `admin_test.go` and
-  `e2e/tests/admin.spec.ts` test them.
   `notifications.go.tmpl` has the `notifications` table's Go (each
   layer's `notifications_db.go`: a user's notifications, their kind,
   `noticeData` as JSON, and times in Unix milliseconds): `notices`, each

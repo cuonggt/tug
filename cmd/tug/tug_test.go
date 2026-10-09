@@ -319,7 +319,7 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 			if main := read("main.go"); !strings.Contains(main, "usersOnly") || !strings.Contains(main, `const appName = "blog"`) {
 				t.Errorf("main.go isn't the auth starter's:\n%s", main)
 			}
-			for _, f := range []string{"auth.go", "users.go", "jobs.go", "db.go", "users_db.go", "throttles_db.go", "cache_db.go", "tokens_db.go", "broadcasts.go", "broadcasts_db.go", "abilities.go", "admin.go", "notifications.go", "notifications_db.go", "migrations.go", "migrations_db.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
+			for _, f := range []string{"auth.go", "users.go", "jobs.go", "db.go", "users_db.go", "throttles_db.go", "cache_db.go", "tokens_db.go", "broadcasts.go", "broadcasts_db.go", "notifications.go", "notifications_db.go", "migrations.go", "migrations_db.go", "resources/js/pages/Auth/Login." + data.Component(), "resources/js/pages/Dashboard." + data.Component(), "resources/js/app." + data.Script()} {
 				if strings.Contains(read(f), "[[ ") {
 					t.Errorf("%s has a placeholder left", f)
 				}

@@ -47,14 +47,9 @@ go test ./...
   their own channel, through tug's package `broadcast`, which the database
   carries to every instance of the app: the page that asks to verify the
   email moves on as the link is followed, in another tab or on a phone.
-  `abilities.go`: what users may do, through tug's package `auth`, which
-  a handler checks, and a no is a 403; admins may do anything. `admin.go`:
-  the admins' page of the jobs that failed, `/admin/failed-jobs`, which
-  runs them again, and the `admins` command, which makes someone one:
-  `./[[ .Name ]] admins add ann@example.com`. `notifications.go`: what
-  happened to an account, a new password or email, a passkey or a token,
-  which its owner hears of by the header's bell, at once, a page of them,
-  and a mail.
+  `notifications.go`: what happened to an account, a new password or
+  email, a passkey or a token, which its owner hears of by the header's
+  bell, at once, a page of them, and a mail.
 - `users.go`: the users. `jobs.go`: the background jobs, in the same
   database, for tug's package `queue`, which runs them beside the server.
   The mail goes by jobs, so a mail server that's down, or a restart,

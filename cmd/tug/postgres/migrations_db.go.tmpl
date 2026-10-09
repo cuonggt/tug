@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/cuonggt/tug/migrate"
@@ -102,45 +101,4 @@ func (t *migrationsTable) inTx(ctx context.Context, fn func(tx *sql.Tx) error) e
 		return err
 	}
 	return tx.Commit()
-}
-
-// adopt takes over the count of an app made before its migrations were
-// files: the schema_version table, of the number of the steps in db.go
-// that had run. The starter's files are those steps, in their order, so
-// the first it counts are recorded as run, and the table goes, in one
-// transaction.
-func (t *migrationsTable) adopt(ctx context.Context, ms []migrate.Migration) error {
-	unlock, err := t.Lock(ctx)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	return t.inTx(ctx, func(tx *sql.Tx) error {
-		var old bool
-		if err := tx.QueryRowContext(ctx, "SELECT to_regclass('schema_version') IS NOT NULL").Scan(&old); err != nil || !old {
-			return err
-		}
-		var count int
-		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(max(version), 0) FROM schema_version").Scan(&count); err != nil {
-			return err
-		}
-		if count > len(ms) {
-			return fmt.Errorf("schema_version says %d steps have run, and migrations/ has %d files: the steps an app added after the starter's go in files of their own, named after the starter's, in their order", count, len(ms))
-		}
-		// With files recorded as run already, the count is a leftover, and
-		// goes alone.
-		var ran int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM migrations").Scan(&ran); err != nil {
-			return err
-		}
-		if ran == 0 {
-			for _, m := range ms[:count] {
-				if _, err := tx.ExecContext(ctx, "INSERT INTO migrations (name, hash, ran_at) VALUES ($1, $2, $3)", m.Name, m.Hash(), time.Now().UnixMilli()); err != nil {
-					return err
-				}
-			}
-		}
-		_, err := tx.ExecContext(ctx, "DROP TABLE schema_version")
-		return err
-	})
 }

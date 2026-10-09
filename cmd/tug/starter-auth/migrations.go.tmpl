@@ -13,12 +13,13 @@ import (
 
 // The database's tables are made and changed by the migrations in
 // migrations/, a file of SQL each, named for when it was made, as
-// 20261001093000_create_posts.sql, which tug migrate new writes. Each runs
-// once, in the order of their names: as the app starts, and by its migrate
-// command, which also lists them, and undoes the last while it's new:
-// ./blog migrate, ./blog migrate status and ./blog migrate down. A
-// migration that has run stays as it is: the next one changes what it did.
-// Which have run, the migrations table keeps: migrations_db.go.
+// 20261001093000_create_posts.sql, which tug migrate new writes; the
+// starter's own make a table each. Each runs once, in the order of their
+// names: as the app starts, and by its migrate command, which also lists
+// them, and undoes the last while it's new: ./blog migrate, ./blog migrate
+// status and ./blog migrate down. A migration that has run stays as it is:
+// the next one changes what it did. Which have run, the migrations table
+// keeps: migrations_db.go.
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
@@ -32,19 +33,13 @@ func migrations() ([]migrate.Migration, error) {
 	return migrate.Load(files)
 }
 
-// upToDate runs the migrations that haven't run on db, as the app starts,
-// once an app made before its migrations were files has had the count of
-// its steps taken over: adopt, in migrations_db.go.
+// upToDate runs the migrations that haven't run on db, as the app starts.
 func upToDate(ctx context.Context, db *sql.DB) error {
 	ms, err := migrations()
 	if err != nil {
 		return err
 	}
-	t := &migrationsTable{db: db}
-	if err := t.adopt(ctx, ms); err != nil {
-		return err
-	}
-	ran, err := migrate.Up(ctx, t, ms)
+	ran, err := migrate.Up(ctx, &migrationsTable{db: db}, ms)
 	for _, name := range ran {
 		slog.InfoContext(ctx, "ran a migration", "name", name)
 	}

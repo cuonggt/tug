@@ -2,13 +2,13 @@
 
 tug knows who's logged in ([Accounts](auth.md)). What they may do is
 package `auth`'s abilities: an ability is something a user may do with a
-thing, or not, as edit a post, or see the jobs that failed. A handler
-checks it, and a no is a 403 that says why, on the error page or as
-JSON; a page gets what its user may do as props, to show the buttons
-they may press. Laravel has gates and policies for it.
+thing, or not, as edit a post. A handler checks it, and a no is a 403
+that says why, on the error page or as JSON; a page gets what its user
+may do as props, to show the buttons they may press. Laravel has gates
+and policies for it.
 
-The auth starter has admins, whom its gate lets do anything, and a page
-of the jobs that failed for good, which only they may see.
+The auth starter's users are all alike, so it has no abilities of its
+own: an app adds them as it grows, editing a post of theirs, say.
 
 ## Abilities
 
@@ -46,8 +46,7 @@ query that fails.
   a page's props, with a failure as its error.
 - The user and the thing are the app's own types: an ability is generic
   over both, as the check says them, `*auth.Ability[*User, *Post]`.
-- An ability of no thing, as seeing an admin's page, takes an
-  `auth.None`.
+- An ability of no thing, as writing a post, takes an `auth.None`.
 - A guest, the zero user, as a nil `*User`, may do nothing an ability
   names: neither the gate nor the check is asked, so a check reads its
   user's fields without looking for nil, and the no is the ability's own.
@@ -114,39 +113,13 @@ types, and the handler checks again when one is: a page's props are what
 it shows, and a request can come from anywhere.
 
 What's the app's as a whole, rather than one thing's, every page can
-have, shared: the auth starter shares `can`, as it shares `auth`, with
-`can.seeFailedJobs`, which shows an admin the page of the jobs that
-failed in the header.
+have, shared, as `auth` is: a `can` of the app's own, for the header's
+links, say, which the auth starter's `shareAuth` can share beside `auth`.
 
 ```go
 pages.Share("can", Can{})     // for tug gen, the type
 pages.ShareFunc(a.shareAuth)  // auth, and can, as each page is rendered
 ```
-
-## The auth starter's
-
-`abilities.go` has the starter's gate, which lets admins do anything,
-and its one ability, `seeFailedJobs`, which no one else has; `can`, which
-every page shares; and `only`, which makes a route of an ability of no
-thing:
-
-```go
-app.Get("/admin/failed-jobs", a.usersOnly(verified(only(seeFailedJobs, a.failedJobsPage)))).Name("failed-jobs.index")
-```
-
-A user is an admin by a column of the users table, `admin`, which the
-binary's `admins` command sets, as there's no admin to ask before the
-first ([Accounts](auth.md#admins)):
-
-```
-$ ./blog admins add ann@example.com
-ann@example.com is an admin.
-```
-
-An admin's page, `/admin/failed-jobs`, lists the jobs that failed for
-good, and runs one, or all, again ([Background jobs](jobs.md#the-jobs-that-failed)).
-Add the app's own abilities to `abilities.go`, as it grows: editing a
-post of theirs, say.
 
 ## Testing
 
@@ -166,20 +139,21 @@ func TestAnAuthorMayEditTheirPostAlone(t *testing.T) {
 }
 ```
 
-Through the app, a no is the error page with a 403, which the starter's
-`admin_test.go` checks as a user asks for an admin's page:
+Through the app, a no is the error page with a 403, which a test checks
+in a browser of package `tugtest`, as Bob asks to edit Ann's post:
 
 ```go
-r := c.Get("/admin/failed-jobs")
-if r.Code != 403 || r.Page.Component != "Error" || tugtest.Prop[string](r, "message") != "you may not see the jobs that failed" {
-	t.Errorf("a user: %v", r)
+r := bob.Get("/posts/1/edit")
+if r.Code != 403 || r.Page.Component != "Error" || tugtest.Prop[string](r, "message") != "you may not edit this post" {
+	t.Errorf("Bob: %v", r)
 }
 ```
 
 ## What's not here yet
 
+- **Admins in the auth starter:** its users are all alike. An app with
+  admins adds them, a column of its users, say, which its gate asks.
 - **Roles and permissions in tables**, as a package of Laravel's has
-  them: the starter's admins are a column, and an app with roles checks
-  them in its abilities.
+  them: an app with roles checks them in its abilities.
 - **Abilities by name**, for a request that names the ability it wants
   checked: they're values.

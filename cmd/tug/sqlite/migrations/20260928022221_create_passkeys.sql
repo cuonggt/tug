@@ -1,7 +1,4 @@
--- Each user's passkeys, and the random handle they name the user by,
--- made with their first: passkeys.go.
-ALTER TABLE users ADD COLUMN passkey_handle BLOB;
-CREATE UNIQUE INDEX users_passkey_handle ON users (passkey_handle) WHERE passkey_handle IS NOT NULL;
+-- Each user's passkeys: passkeys.go.
 CREATE TABLE passkeys (
 	id            INTEGER PRIMARY KEY,
 	user_id       INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,

@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at ba93a85f29e8 -->
+<!-- translated from docs/README.md at 3597b0d23d5b -->
 
 # Hướng dẫn sử dụng tug
 
@@ -32,9 +32,8 @@ tiết còn lại.
    thực sự của chúng, lưu trên đĩa của ứng dụng hoặc trong S3 bằng gói
    `storage`, và liên kết đến chúng, công khai hoặc có chữ ký.
 8. [Tài khoản](../auth.md): starter auth, trên SQLite, Postgres hoặc MySQL,
-   với API token, quản trị viên và thông báo của nó, cùng các gói `auth` và
-   `mail`, có bản sao, tệp đính kèm và liên kết hủy đăng ký chỉ bằng một
-   cú nhấp.
+   với API token và thông báo của nó, cùng các gói `auth` và `mail`, có bản
+   sao, tệp đính kèm và liên kết hủy đăng ký chỉ bằng một cú nhấp.
 9. [Migration](../migrations.md): các bảng của cơ sở dữ liệu, được tạo và
    thay đổi bằng các tệp SQL, mỗi tệp chạy một lần, theo thứ tự, khi ứng
    dụng khởi động và qua lệnh `migrate` của ứng dụng, với

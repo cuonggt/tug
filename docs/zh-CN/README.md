@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at ba93a85f29e8 -->
+<!-- translated from docs/README.md at 3597b0d23d5b -->
 
 # tug 指南
 
@@ -11,7 +11,7 @@ tug 是一个 Web 框架，面向前端使用 [Inertia.js](https://inertiajs.com
 5. [表单与会话](../forms.md)：验证、应用自己的规则、离开字段时就检查该字段的表单、flash 消息、会话，以及 CSRF。
 6. [多语言](../languages.md)：用请求的语言显示 tug 和应用的文字，每种语言一个文件；`lang` 包，以及 `tug lang`。
 7. [文件](../files.md)：上传的文件，按大小和实际类型检查，用 `storage` 包保存在应用的磁盘或 S3 上，以及指向它们的公开链接或签名链接。
-8. [账户](../auth.md)：认证脚手架，可用 SQLite、Postgres 或 MySQL，及其 API 令牌、管理员和通知；`auth` 和 `mail` 包，后者支持抄送、附件和一键退订链接。
+8. [账户](../auth.md)：认证脚手架，可用 SQLite、Postgres 或 MySQL，及其 API 令牌和通知；`auth` 和 `mail` 包，后者支持抄送、附件和一键退订链接。
 9. [数据库迁移](../migrations.md)：数据库的表由 SQL 文件创建和修改，每个文件只运行一次，在应用启动时按顺序运行，也可以通过应用的 `migrate` 命令运行；用 `tug migrate new` 创建下一个迁移；以及 `migrate` 包。
 10. [授权](../authorization.md)：用户可以对某个对象做什么，`auth` 包的权限（ability），拒绝时返回说明原因的 403，以及在页面的 props 中给出当前用户可以做什么。
 11. [加密](../encryption.md)：应用的密钥，tug 用它加密和签名的内容，用来加密应用自身数据的 `crypt` 包，以及密钥轮换。

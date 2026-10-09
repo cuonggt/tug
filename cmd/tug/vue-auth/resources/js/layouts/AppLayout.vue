@@ -10,15 +10,13 @@ import { cn } from '@/lib/utils'
 import { route } from '@/tug/routes'
 
 // nav is the app's own pages, for users who've logged in: add each page to
-// it as the app grows. An admin has theirs too, as the shared can says.
+// it as the app grows.
 const nav = [{ title: 'Dashboard', href: route('dashboard') }]
-const adminNav = [{ title: 'Failed jobs', href: route('failed-jobs.index') }]
 
 // AppLayout is around the app's pages: its name, where to go, and who's
 // logged in, or the way in for a guest, as on an error page.
 const page = usePage()
 const user = computed(() => page.props.auth.user)
-const items = computed(() => [...nav, ...(page.props.can.seeFailedJobs ? adminNav : [])])
 const unread = computed(() => page.props.bell.unread)
 
 // A notification made in another tab, or on another device, is counted
@@ -44,7 +42,7 @@ onUnmounted(() => stop?.())
         </Link>
         <nav v-if="user" aria-label="Main" class="flex items-center gap-1 text-sm">
           <Link
-            v-for="item in items"
+            v-for="item in nav"
             :key="item.href"
             :href="item.href"
             :class="

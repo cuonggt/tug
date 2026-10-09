@@ -212,11 +212,7 @@ command is the app's own, added in its `newApp`, and written in `jobs.go`,
 rather than tug's: a deployed app runs as its binary, where tug isn't.
 
 A job a request pushed says which, by the request's ID, which the job's
-log lines have too ([What a job carries](#what-a-job-carries)). The
-starter's admins have a page of them too, `/admin/failed-jobs`, which
-lists them, with their values and errors, and the request each came
-from, and runs one, or all, again, as the command does, and wakes the
-queue, so they run at once ([Accounts](auth.md#admins)).
+log lines have too ([What a job carries](#what-a-job-carries)).
 
 ## Jobs on a schedule
 
@@ -556,8 +552,8 @@ func (t traces) Restore(ctx context.Context, from map[string]string) context.Con
 ```
 
 The auth starter's queue carries the request's ID, in a `carried` column
-of its jobs table, and its `jobs` command, and its admins' page of the
-jobs that failed, say which request pushed each.
+of its jobs table, and its `jobs` command says which request pushed each
+job that failed.
 
 ## Stores
 
@@ -955,6 +951,9 @@ anywhere that reaches the database.
 
 ## What's not here yet
 
+- **A page for the jobs that failed**: the auth starter has a command,
+  `./blog jobs`, as a page needs someone who may see every user's jobs, and
+  the starter's users are users.
 - **Chains and batches**, as Laravel's `Bus` has: a job that pushes the
   next as it's done is a chain, and a batch needs a table of its own,
   with nothing yet asking for one.

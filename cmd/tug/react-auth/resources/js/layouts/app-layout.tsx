@@ -9,9 +9,8 @@ import { cn } from '@/lib/utils'
 import { route } from '@/tug/routes'
 
 // nav is the app's own pages, for users who've logged in: add each page to
-// it as the app grows. An admin has theirs too, as the shared can says.
+// it as the app grows.
 const nav = [{ title: 'Dashboard', href: route('dashboard') }]
-const adminNav = [{ title: 'Failed jobs', href: route('failed-jobs.index') }]
 
 // AppLayout is around the app's pages: its name, where to go, and who's
 // logged in, or the way in for a guest, as on an error page.
@@ -34,7 +33,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </Link>
           {user && (
             <nav aria-label="Main" className="flex items-center gap-1 text-sm">
-              {[...nav, ...(props.can.seeFailedJobs ? adminNav : [])].map((item) => (
+              {nav.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
