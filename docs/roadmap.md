@@ -2534,7 +2534,7 @@ v0.25.0.
   command sets, `./blog admins add ann@example.com`, and a page for them,
   `/admin/failed-jobs`, of the jobs that failed for good, with their
   errors, which runs them again, as the `jobs` command does. They were
-  taken out later, at the owner's ask ([Decisions](#decisions)).
+  taken out in v0.39.1, at the owner's ask ([Decisions](#decisions)).
 - **The guide:** a page, Authorization; Accounts, the admins; Routing,
   the errors that say their status; and Background jobs, the page.
 
@@ -2822,7 +2822,7 @@ v0.28.0.
   now, in the order they have them; and each layer has a Store, in its
   database's SQL. An app made before carries on: the steps its
   `user_version` or `schema_version` counts are the files it has run.
-  Later, a file for each table, and no count taken over
+  Since v0.39.1, a file for each table, and no count taken over
   ([Decisions](#decisions)).
 - **Still as the app starts,** as now, and by the command for a deploy
   that runs them first, and for a person to see where a database is.
@@ -4222,16 +4222,16 @@ Choices, to settle before any code:
   `account-administration`.
 - No admins in the auth starter either, for now: M30's, an `admin`
   column that the `admins` command set, and their page of the jobs that
-  failed, went at the owner's ask, as a core framework's starter needn't
-  carry them, and the starter's users are all alike again. The `jobs`
-  command lists the jobs that failed, and runs them again; package
-  `auth`'s abilities and gate stay, for an app's own.
+  failed, went in v0.39.1, at the owner's ask, as a core framework's
+  starter needn't carry them, and the starter's users are all alike
+  again. The `jobs` command lists the jobs that failed, and runs them
+  again; package `auth`'s abilities and gate stay, for an app's own.
 - The auth starter's migrations are a file for each table, with all its
-  columns, named for the commit that made the table, at the owner's ask:
-  no app made with it runs in production yet, so each of M33's steps
-  that added a column went into its table's file, and the starter no
-  longer takes over the count of an app made before its migrations were
-  files.
+  columns, named for the commit that made the table, since v0.39.1, at
+  the owner's ask: no app made with it runs in production yet, so each of
+  M33's steps that added a column went into its table's file, and the
+  starter no longer takes over the count of an app made before its
+  migrations were files.
 - No feature flags: which users get a feature is the app's to decide, and
   needs nothing of tug's internals, as a page gets flags as it gets `can`,
   a shared prop, and a share of the users is a hash of the flag's name and
