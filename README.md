@@ -6,7 +6,7 @@ between, and the whole app shipped as one binary.
 
 The name: a tugboat is small, and moves ships many times its size.
 
-**Status: early.** v0.39.1 is the latest release: the framework, its CLI,
+**Status: early.** v0.40.0 is the latest release: the framework, its CLI,
 background jobs, on a schedule in any time zone too, pushed in the app's
 own transactions, and so many at once or a second across the instances,
 server-side rendering, tests of an app's pages, uploads kept on the app's
@@ -30,7 +30,8 @@ app's routes listed, each with the line that added it, a page's title
 and description given from Go, which a first visit's HTML has too,
 whole numbers past JavaScript's safe range sent as BigInts, the mail an
 app sends under `tug dev` kept in a mailbox it shows as a mail program
-would, and starters in React, Vue or Svelte, one with accounts, from
+would, HTTPS served by the app itself, with its certificates from Let's
+Encrypt, and starters in React, Vue or Svelte, one with accounts, from
 registering to two-factor logins, passkeys, a profile photo, API tokens,
 notifications in the app and by mail, and the browsers an account is
 logged in from, each to log out, in SQLite, Postgres or MySQL.

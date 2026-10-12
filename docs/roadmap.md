@@ -4065,7 +4065,7 @@ tug has for argon2id. Over HTTPS, Go's server speaks HTTP/2 too, which
 lifts the six connections a browser opens to a site over HTTP/1.1, of
 which each page's event stream, as the auth starter's bell, holds one.
 tug had `Run` and `Serve`, its `Config` from the environment, `APP_URL`,
-and the session cookie's `Secure` and HSTS from it. To be released as
+and the session cookie's `Secure` and HSTS from it. Released as
 v0.40.0.
 
 - **Certificates from Let's Encrypt:** package `letsencrypt`, whose
