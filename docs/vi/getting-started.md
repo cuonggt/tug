@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 877e0ddeb4f5 -->
+<!-- translated from docs/getting-started.md at 2806f8cf8c7b -->
 
 # Bắt đầu
 
@@ -140,6 +140,8 @@ blog/
 ├── .env                 do các lệnh tug đọc, không phải ứng dụng; không commit
 ├── .env.example         như trên nhưng không có khóa, để commit
 ├── Dockerfile           ứng dụng dưới dạng một binary trên image distroless
+├── AGENTS.md            cách thay đổi ứng dụng, cho một agent lập trình
+├── CLAUDE.md            AGENTS.md, cho Claude Code
 └── README.md
 ```
 
@@ -150,6 +152,14 @@ trường, `APP_KEY` bằng `session.KeysFromEnv`, còn `ADDR`, `PORT` và
 `app.html` bao quanh, session, trang lỗi, middleware, route phục vụ bản
 build của frontend dưới `/build/`, và các route riêng của ứng dụng. Các
 test gọi `newApp` với cấu hình riêng của chúng.
+
+`AGENTS.md` dành cho agent lập trình, thứ mà hầu hết các agent đọc khi bắt
+đầu làm việc: cách thêm một trang, một form và một test, như phần tiếp theo
+của hướng dẫn này làm, những quy tắc mà code không cho thấy, như không bao
+giờ sửa `resources/js/tug`, và các lệnh kiểm tra một thay đổi. `CLAUDE.md`
+import nó, vì Claude Code chỉ tự đọc `AGENTS.md` khi chưa có `CLAUDE.md`.
+Chúng là của ứng dụng, để thay đổi khi ứng dụng lớn lên: tug không viết lại
+chúng.
 
 ## Thêm một trang
 

@@ -131,6 +131,8 @@ blog/
 ├── .env                 read by the tug commands, not the app; not committed
 ├── .env.example         the same without the key, to commit
 ├── Dockerfile           the app as one binary on a distroless image
+├── AGENTS.md            how to change the app, for a coding agent
+├── CLAUDE.md            AGENTS.md, for Claude Code
 └── README.md
 ```
 
@@ -141,6 +143,13 @@ app together from them: Vite's tags, the Inertia pages with `app.html`
 around them, the sessions, the error page, the middleware, the route that
 serves the frontend's build under `/build/`, and the app's own routes. The
 tests call `newApp` with settings of their own.
+
+`AGENTS.md` is for a coding agent, which most read as they start: how to
+add a page, a form and a test, as this guide goes on to, the rules the
+code doesn't show, as never editing `resources/js/tug`, and the commands
+that check a change. `CLAUDE.md` imports it, as Claude Code reads
+`AGENTS.md` itself only while there's no `CLAUDE.md`. They're the app's,
+to change as it grows: tug doesn't write them again.
 
 ## Add a page
 

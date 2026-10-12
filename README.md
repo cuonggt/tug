@@ -126,7 +126,10 @@ func showPost(c *tug.Ctx) error {
   `tug routes` lists the app's routes, each with the line that added it,
   and its handler as that line has it. `tug build` makes one static
   binary with the frontend in it, which sends its scripts and styles
-  gzipped, and the app comes with a Dockerfile for a distroless image.
+  gzipped, and the app comes with a Dockerfile for a distroless image, and
+  an `AGENTS.md`, for a coding agent: how to add a page, a form, a table or
+  a test as tug has it done, the rules the code doesn't show, and the
+  commands that check a change.
 - **Inertia pages** (package `inertia`), to the whole v3 protocol: a first
   visit gets HTML with the page object, later visits get JSON.
   `tug.Page[Props]` ties a component to the props it takes, and props nest

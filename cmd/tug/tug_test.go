@@ -553,6 +553,9 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 					t.Errorf("%s: %v\n%s", strings.Join(c, " "), err, out)
 				}
 			}
+			// What the app's AGENTS.md gives is the app's, the types tug gen
+			// wrote among it.
+			notesHold(t, dir, reader(t, dir)("AGENTS.md"))
 			// Where the Go server looks for the build.
 			if _, err := os.Stat(filepath.Join(dir, "public/build/.vite/manifest.json")); err != nil {
 				t.Errorf("the build has no manifest where the server reads it: %v", err)

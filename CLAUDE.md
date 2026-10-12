@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M47 are done, which is
+the decisions behind it and where it stands: M1 to M48 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -136,7 +136,11 @@ and security headers further (v0.42.0): a `Permissions-Policy`, from
 app allows, and `CSPConfig.StyleNonce`, a `<style>` by the response's
 nonce, as a script, with style attributes as they were, the nonce handed
 to Vite's client and Inertia's by `<meta property="csp-nonce">`, which
-the starters turn on; and Trusted Types left for Inertia's client.
+the starters turn on; and Trusted Types left for Inertia's client, and
+notes for coding agents (v0.43.0): an `AGENTS.md` in every app tug new
+makes, how to change it as tug has it done, the rules the code doesn't
+show, and the commands that check a change, with a `CLAUDE.md` that
+imports it, each path, script and name it gives checked to be the app's.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -695,7 +699,15 @@ dev server that isn't there: delete it.
   with `-ssr` has, by the frontend's extensions (`Script`, `Component`).
   `-ssr` is `[[ if .SSR ]]` in the templates, and a frontend
   `[[ if .Vue ]]`, written `[[- if ]]` before an indented line, as `-]]`
-  would eat its indent. A shared file that differs between frontends by a
+  would eat its indent. Each starter has an `AGENTS.md.tmpl`, for a coding
+  agent, the auth starter's replacing the plain one's, and the plain
+  starter a `CLAUDE.md`, `@AGENTS.md`, which the auth starter keeps;
+  `Guide`, the guide's link at the tug the app requires, a release's tag,
+  a pseudo-version's commit or main, `DatabaseName` and `AppLayoutFile`
+  fill it in, and `agents_test.go`'s `notesProblems` finds a path, an
+  `npm run` script, or a name of the app's own in backticks by itself,
+  that the app hasn't, in every kind `writeStarter` makes, and in each app
+  `tug_test.go` makes with tug new. A shared file that differs between frontends by a
   line takes a condition, as `app.html` (`viteReactRefresh` is React's
   alone) and `vite.config.ts` do; one that's a frontend's own is in its
   layer.

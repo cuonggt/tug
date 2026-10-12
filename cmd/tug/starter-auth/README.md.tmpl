@@ -106,6 +106,8 @@ go test ./...
   none of them.
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
+- `AGENTS.md`: how to change the app, for a coding agent, its rules, and
+  the commands that check a change, which `CLAUDE.md` hands Claude Code.
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions and two-factor
   secrets and signs the links in mail and to photos, and a deployed app
   needs one of its own, set in its environment, with `APP_URL`, its own

@@ -105,6 +105,11 @@ func (d starterData) DevURL() string {
 	return "postgres://postgres:secret@127.0.0.1:5432/" + d.DBName() + "?sslmode=disable"
 }
 
+// DatabaseName is the database's name, as a sentence has it.
+func (d starterData) DatabaseName() string {
+	return map[string]string{"sqlite": "SQLite", "postgres": "Postgres", "mysql": "MySQL"}[d.Database]
+}
+
 // Framework is the frontend's name, as a sentence has it.
 func (d starterData) Framework() string {
 	return map[string]string{"react": "React", "vue": "Vue", "svelte": "Svelte"}[d.Frontend]
@@ -142,6 +147,30 @@ func (d starterData) AppearanceFile() string {
 		"vue":    "resources/js/composables/useAppearance.ts",
 		"svelte": "resources/js/lib/appearance.svelte.ts",
 	}[d.Frontend]
+}
+
+// AppLayoutFile is the auth starter's layout around the app's own pages,
+// whose nav lists them, which AGENTS.md points to.
+func (d starterData) AppLayoutFile() string {
+	return map[string]string{
+		"react":  "resources/js/layouts/app-layout.tsx",
+		"vue":    "resources/js/layouts/AppLayout.vue",
+		"svelte": "resources/js/layouts/AppLayout.svelte",
+	}[d.Frontend]
+}
+
+// Guide is tug's guide at the version the app requires, for AGENTS.md, so
+// an agent reads the API the app has: a release's tag, the commit of a
+// pseudo-version, and main for an app of a checkout's.
+func (d starterData) Guide() string {
+	ref := "main"
+	switch {
+	case pseudoVersion.MatchString(d.TugVersion):
+		ref = d.TugVersion[len(d.TugVersion)-12:]
+	case d.TugDir == "" && release(d.TugVersion):
+		ref = d.TugVersion
+	}
+	return "https://github.com/cuonggt/tug/tree/" + ref + "/docs"
 }
 
 func runNew(args []string) error {

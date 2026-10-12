@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 877e0ddeb4f5 -->
+<!-- translated from docs/getting-started.md at 2806f8cf8c7b -->
 
 # はじめに
 
@@ -92,10 +92,14 @@ blog/
 ├── .env                 アプリではなく tug のコマンドが読む。コミットしない
 ├── .env.example         キーを除いた同じもの。こちらをコミットする
 ├── Dockerfile           distroless イメージ上の、バイナリ 1 つのアプリ
+├── AGENTS.md            コーディングエージェント向けの、アプリの変更方法
+├── CLAUDE.md            Claude Code 向けの AGENTS.md
 └── README.md
 ```
 
 `main.go` は 2 つの部分からなります。`main` は、アプリの設定を環境変数から読み込み（`APP_KEY` は `session.KeysFromEnv` で、`ADDR`、`PORT`、`APP_DEBUG` は `tug.ConfigFromEnv` で）、アプリを実行します。`newApp` は、その設定からアプリを組み立てます。組み立てるのは、Vite のタグ、`app.html` で囲まれた Inertia のページ、セッション、エラーページ、ミドルウェア、`/build/` の下でフロントエンドのビルドを配信するルート、そしてアプリ自身のルートです。テストは独自の設定で `newApp` を呼び出します。
+
+`AGENTS.md` はコーディングエージェント向けのファイルで、多くのエージェントは作業を始めるときに読み込みます。このガイドでこのあと行うように、ページ、フォーム、テストを追加する方法、`resources/js/tug` を決して編集しないことなど、コードからはわからないルール、そして変更を確認するコマンドが書かれています。`CLAUDE.md` はこれを読み込みます。Claude Code は、`CLAUDE.md` がないときにしか `AGENTS.md` を自分では読まないからです。どちらもアプリのファイルで、アプリの成長に合わせて変えていくものです。tug が書き直すことはありません。
 
 ## ページを追加する
 

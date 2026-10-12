@@ -122,6 +122,15 @@ is `tug new -auth blog`.
    `npm install`, then builds the app and writes its types, as `tug gen`
    does, which needs no database running.
 
+Each starter has an `AGENTS.md`, for a coding agent: how to change the
+app as tug has it done, its rules, and the commands that check a change,
+with the app's frontend, database and `-ssr` in it, and a link to this
+guide at the tug the app requires: a release's tag, the commit of a
+pseudo-version, or `main` for a checkout's. Its `CLAUDE.md` is
+`@AGENTS.md`, which has Claude Code read it once the app has a
+`CLAUDE.md` of its own, as Claude Code reads `AGENTS.md` itself only
+while there's none.
+
 After `-no-install`, run `go mod tidy` before `tug dev`, as `tug new` says:
 the app doesn't build until that has filled in its `go.mod` and `go.sum`.
 `tug dev` installs the npm packages itself when `node_modules` isn't
@@ -140,8 +149,8 @@ plain starter's `Layout.tsx` (`Layout.vue`, `Layout.svelte`) is left out,
 and most of its other files are the auth starter's own: `main.go`,
 `main_test.go`, `app.html`, `package.json`, `vite.config.ts`,
 `tsconfig.json`, `app.tsx` (`app.ts`), `app.css`, the pages it has,
-`Dockerfile`, `.env.example`, `.gitignore`, `.dockerignore` and
-`README.md`. [Accounts](auth.md) goes through them.
+`Dockerfile`, `.env.example`, `.gitignore`, `.dockerignore`, `README.md`
+and `AGENTS.md`. [Accounts](auth.md) goes through them.
 
 With `-ssr`, either starter gets `resources/js/ssr.tsx` (`ssr.ts` in Vue
 and Svelte) and `ssr/.gitkeep`,

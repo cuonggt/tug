@@ -1,0 +1,223 @@
+# [[ .Name ]]
+
+A [tug](https://github.com/cuonggt/tug) app: Go handlers render [[ .Framework ]] pages
+through Inertia, with no API in between, and people have accounts, kept
+in [[ .DatabaseName ]]. `README.md` says what each file is. This says how to
+change the app as tug has it done, what not to do, and how to check a
+change. tug's guide, at the version `go.mod` requires, is at
+[[ .Guide ]].
+
+## Check a change
+
+Before saying a change is done:
+
+```sh
+[[ if .SQLite -]]
+tug gen            # the TypeScript of the Go's pages and routes, which tug dev writes too
+npm run typecheck  # the pages against the Go's props, routes and forms
+go vet ./...
+go test ./...
+[[- else -]]
+docker compose up -d   # the database, which tug dev and the tests use
+tug gen                # the TypeScript of the Go's pages and routes, which tug dev writes too
+npm run typecheck      # the pages against the Go's props, routes and forms
+go vet ./...
+go test ./...
+[[- end ]]
+```
+
+`tug routes` lists the routes, each with the line that added it, and its
+handler, with the guards around it. `tug build` builds the frontend into
+one binary, as a deploy does. The tests visit the pages as Inertia's
+client does, with `tugtest`, with no browser or build, each on a database
+of its own.
+
+## Rules
+
+- `resources/js/tug` is tug gen's, from the Go: never edit it. A type
+  there that's wrong is changed in the Go, then written again by tug gen.
+- The pages run under a Content-Security-Policy, which runs a script or a
+  `<style>` only with the page's nonce, as `app.html`'s carry
+  `{{ .Nonce }}`. Don't write an inline script, an `on...` attribute, or a
+  `<style>` without it, or add `'unsafe-inline'` to the policy in
+  `main.go`. A library that injects a style is handed the nonce, from the
+  page's `<meta property="csp-nonce">`
+[[- if .React ]], as `resources/js/inertia.tsx`
+  hands it to Radix's dialogs, by `setNonce`
+[[- end ]]. What's blocked, the browser's
+  console says, and the app's log.
+- A route whose handler binds input says which, with `Takes`, and its
+  form's action is `form()`'s, typed by that input.
+- A flash key is declared in `flash.go`, with `tug.Flash`, and set through
+  it.
+- A route for users is behind `usersOnly`, whose handler is handed the
+  user, and `verified`, for an email they've shown is theirs; what could
+  hand the account to someone else, as changing its email, behind
+  `passwordConfirmed` too. A guest's page is behind `guestsOnly`.
+- A page's props never have a password's hash or a secret: `User`'s json
+  tags leave them out, and a new field that's a secret has `json:"-"`.
+- A handler's writes are in one transaction, `a.inTx`'s, and so are the
+  jobs it pushes about them, as mail, so they're kept together, or not at
+  all. No slow work in it, as hashing a password, which holds up the
+  other writes.
+- Mail goes by a job, never in the request: a mail server that's down
+  then holds nothing up, and the job runs again later.
+- A migration that has run is never changed: the app stops as it starts
+  at one whose SQL has. A change is a new one.
+- An error says what's wrong to the person who gets it, as "title is
+  required": no Go types, and no raw errors. What the app says to a person
+  goes through `c.T`, for `tug lang` to find, to translate.
+[[- if .SSR ]]
+- A page renders on the server too, in Node: no `window` or `document` at
+  a module's top, or before it's mounted.
+[[- end ]]
+
+## Add a page
+
+1. In Go, its props, each named by its json tag, its declaration, and its
+   handler, as the dashboard's in `main.go`:
+
+   ```go
+   type PostsIndexProps struct {
+   	Posts []Post `json:"posts"`
+   }
+
+   var PostsIndex = tug.Page[PostsIndexProps]("Posts/Index")
+
+   func (a *app) postsIndex(c *tug.Ctx, user *User) error {
+   	posts, err := a.posts.byUser(c.Context(), user.ID)
+   	if err != nil {
+   		return err
+   	}
+   	return PostsIndex.Render(c, PostsIndexProps{Posts: posts})
+   }
+   ```
+
+2. Its route, in `newApp`, named, as the frontend links to it by its name:
+
+   ```go
+   app.Get("/posts", a.usersOnly(verified(a.postsIndex))).Name("posts.index")
+   ```
+
+3. Its component, `resources/js/pages/<Name>.[[ .Component ]]`, here
+   `Posts/Index`.
+[[- if .Vue ]]
+   Its props are `defineProps<Pages['Posts/Index'] & SharedProps>()`,
+   from `@/tug/pages`, as Vue can't work out `PageProps<'Posts/Index'>`,
+   and its title is Inertia's `<Head title="Posts" />`.
+[[- else if .Svelte ]]
+   Its props are `PageProps<'Posts/Index'>`, from `@/tug/pages`, and its
+   title is `<Head title="Posts" />`, from `@/Head.svelte`.
+[[- else ]]
+   Its props are `PageProps<'Posts/Index'>`, from `@/tug/pages`, and its
+   title is Inertia's `<Head title="Posts" />`.
+[[- end ]]
+   It has no layout of its own: `resources/js/inertia.[[ .Script ]]` gives each
+   page one by its name, the app's for `Posts/Index`, the settings' inside
+   it for `Settings/*`, and the card's for `Auth/*`. It's made of the
+   components in `resources/js/components/ui`, as the other pages are, and
+   the README says how to add more. A page for the header's links is added
+   to `nav` in `[[ .AppLayoutFile ]]`.
+4. A link to it is `route('posts.index')`, from `@/tug/routes`, which
+   knows each named route, and the values of its wildcards, by name.
+
+## Add a form
+
+1. Its input, with validate's tags, and a handler that binds it:
+
+   ```go
+   type PostInput struct {
+   	Title string `json:"title" validate:"required,max=100"`
+   }
+
+   func (a *app) storePost(c *tug.Ctx, user *User) error {
+   	var in PostInput
+   	if err := c.BindValid(&in); err != nil {
+   		return err // back to the form, with what to fix
+   	}
+   	if err := a.posts.add(c.Context(), user.ID, in.Title); err != nil {
+   		return err
+   	}
+   	Success.Set(c, c.T("Saved."))
+   	return c.RedirectRoute("posts.index")
+   }
+   ```
+
+2. Its route, which takes it:
+
+   ```go
+   app.Post("/posts", a.usersOnly(verified(a.storePost))).Name("posts.store").Takes(PostInput{})
+   ```
+
+[[ if .React -]]
+3. The form is `<Form<Inputs['posts.store']> action={form('posts.store')}>`,
+   whose errors are its input's fields, as
+   `resources/js/pages/Auth/ForgotPassword.tsx`'s is.
+[[- else -]]
+3. The form is a `<Form>` of `createForm<Inputs['posts.store']>()`, with
+   `form('posts.store')` as its action, whose errors are its input's
+   fields, as `resources/js/pages/Auth/ForgotPassword.[[ .Component ]]`'s is.
+[[- end ]]
+   Its `validate('title')`, as a field is left, has the server check it,
+   by the same `BindValid`.
+
+## Add a table
+
+1. `tug migrate new create_posts` writes
+   `migrations/<when>_create_posts.sql`: the table in [[ .DatabaseName ]]'s SQL,
+   and after its `-- down` line, what undoes it. The app runs it as it
+   starts, and under tug dev as it's written.
+2. Its Go, as the users': the row's type, and the table's, with its
+   queries in `<table>_db.go`, as `users.go` and `users_db.go` are, in
+   [[ .DatabaseName ]]'s SQL, with [[ if .Postgres ]]`$1`[[ else ]]`?`[[ end ]] for each value, through its `db`, a `dbtx`,
+   so they run in a transaction too:
+
+   ```go
+   type posts struct {
+   	db dbtx
+   }
+
+   func (ps *posts) in(tx *sql.Tx) *posts {
+   	return &posts{db: tx}
+   }
+   ```
+
+3. A field of `app`'s, `posts *posts`, made in `newApp` with the others,
+   `posts: &posts{db: e.DB}`.
+4. Writes that go together, in `a.inTx`, through `a.posts.in(tx)`, with
+   the jobs about them, as `register` in `auth.go` has the mail that
+   verifies an email.
+
+## Add a job
+
+A job's kind is made in `newApp` with `queue.Handle`, as `verify-mail`
+is, and pushed, in a handler's transaction, through `a.jobs.in(tx)`. It
+carries what it needs to find its work, as IDs, and does it as it runs,
+as `VerifyMail` makes its mail, link and all. A job on a schedule is
+`Schedule`'s, as `prune-jobs`. The mail itself is in `mail.go`, in plain
+text and HTML.
+
+## Test it
+
+The tests are Go's, beside the files they test, as `auth_test.go`. Each
+makes the app on a database of its own, with `newTestApp`, and a user
+logged in with `verifiedUser`:
+
+```go
+func TestAUserSeesTheirPosts(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "a long password")
+	posts := tugtest.Props(c.Get("/posts"), PostsIndex)
+	// ...
+	r := c.Post("/posts", map[string]any{"title": ""})
+	if errs := r.Follow().Errors(); errs["title"] != "title is required" {
+		t.Fatalf("errors %v", errs)
+	}
+}
+```
+
+`tugtest.Props` fails the test for another page. A redirect's next page
+is `r.Follow()`, its flash `r.Page.Flash`, and a guest is `app.client()`.
+The mail a test's app sends is `app.outbox`'s, and
+`app.outbox.NextTo(t, "ann@example.com")` waits for the next to an
+address.

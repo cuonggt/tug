@@ -128,6 +128,11 @@ them.
   `FILESYSTEM_DISK`, `FILES_PATH` and S3's variables, and the mail's,
   with what each is for. The `Dockerfile` keeps the photos in a `/data`
   volume, and SQLite's database with them.
+- `AGENTS.md`, for a coding agent, which `CLAUDE.md` hands Claude Code:
+  the plain starter's, with what an app with accounts adds to it, a route
+  for users behind `usersOnly`, a table, its migration and its SQL, a
+  handler's writes and their jobs in one transaction, and a test as a
+  verified user.
 
 ### Trying it
 

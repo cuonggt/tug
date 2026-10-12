@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 877e0ddeb4f5 -->
+<!-- translated from docs/getting-started.md at 2806f8cf8c7b -->
 
 # Primeros pasos
 
@@ -143,6 +143,8 @@ blog/
 ├── .env                 lo leen los comandos de tug, no la aplicación; no va al repositorio
 ├── .env.example         lo mismo sin la clave, para el repositorio
 ├── Dockerfile           la aplicación como un único binario en una imagen distroless
+├── AGENTS.md            cómo cambiar la aplicación, para un agente de código
+├── CLAUDE.md            AGENTS.md, para Claude Code
 └── README.md
 ```
 
@@ -154,6 +156,14 @@ Inertia con `app.html` alrededor, las sesiones, la página de error, el
 middleware, la ruta que sirve la compilación del frontend bajo `/build/` y
 las rutas propias de la aplicación. Las pruebas llaman a `newApp` con una
 configuración propia.
+
+`AGENTS.md` es para un agente de código, que la mayoría de ellos lee al
+empezar: cómo añadir una página, un formulario y una prueba, como hace esta
+guía a continuación, las reglas que el código no muestra, como no editar
+nunca `resources/js/tug`, y los comandos que comprueban un cambio.
+`CLAUDE.md` lo importa, ya que Claude Code lee `AGENTS.md` por sí mismo solo
+mientras no hay un `CLAUDE.md`. Son de la aplicación, para cambiarlos a
+medida que crece: tug no vuelve a escribirlos.
 
 ## Añadir una página
 
