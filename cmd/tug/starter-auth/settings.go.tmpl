@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -84,21 +85,35 @@ func (a *app) updateProfile(c *tug.Ctx, user *User) error {
 }
 
 // DeleteAccountInput is what the form that deletes an account sends: the
-// password once more, as it can't be undone.
+// password once more, as it can't be undone, or for an account with none,
+// a passkey's answer, to the options confirmPasskeyOptions made.
 type DeleteAccountInput struct {
-	Password string `json:"password" validate:"required"`
+	Password   string          `json:"password"`
+	Credential json.RawMessage `json:"credential"`
 }
 
 func (a *app) deleteAccount(c *tug.Ctx, user *User) error {
 	var in DeleteAccountInput
-	if err := c.BindValid(&in); err != nil {
+	err := c.BindValid(&in, func(errs validate.Errors) {
+		if user.Password && in.Password == "" {
+			errs.Add("password", "password is required")
+		} else if !user.Password && len(in.Credential) == 0 {
+			errs.Add("passkey", "confirm it's you with your passkey")
+		}
+	})
+	if err != nil {
 		return err
 	}
-	if err := a.checkPassword(c.Context(), user, "password", in.Password); err != nil {
+	if user.Password {
+		err = a.checkPassword(c.Context(), user, "password", in.Password)
+	} else {
+		err = a.checkPasskey(c, user, in.Credential)
+	}
+	if err != nil {
 		return err
 	}
 	// The account, and the job that deletes its photo, go together.
-	err := a.inTx(c.Context(), func(tx *sql.Tx) error {
+	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
 		photo, err := a.users.in(tx).remove(c.Context(), user.ID)
 		if err != nil || photo == "" {
 			return err
@@ -168,22 +183,67 @@ func (a *app) securityPage(c *tug.Ctx, user *User) error {
 	return Security.Render(c, props)
 }
 
-// PasswordInput is what the form that changes the password sends.
+// PasswordInput is what the form that changes the password sends: the
+// current one too, but for a first password, of an account made with a
+// passkey.
 type PasswordInput struct {
-	CurrentPassword      string `json:"current_password" validate:"required"`
+	CurrentPassword      string `json:"current_password"`
 	Password             string `json:"password" validate:"required,min=8,max=200"`
 	PasswordConfirmation string `json:"password_confirmation"`
 }
 
 func (a *app) updatePassword(c *tug.Ctx, user *User) error {
 	var in PasswordInput
-	if err := c.BindValid(&in, confirmed(&in.Password, &in.PasswordConfirmation)); err != nil {
+	err := c.BindValid(&in, confirmed(&in.Password, &in.PasswordConfirmation), func(errs validate.Errors) {
+		if user.Password && in.CurrentPassword == "" {
+			errs.Add("current_password", "current password is required")
+		}
+	})
+	if err != nil {
 		return err
 	}
-	if err := a.checkPassword(c.Context(), user, "current_password", in.CurrentPassword); err != nil {
+	first := !user.Password
+	if !first {
+		if err := a.checkPassword(c.Context(), user, "current_password", in.CurrentPassword); err != nil {
+			return err
+		}
+	}
+	kind, said := "password-changed", "Password changed. You've been logged out everywhere else."
+	if first {
+		kind, said = "password-set", "Password set: it logs you in too. You've been logged out everywhere else."
+	}
+	if err := a.newPassword(c, user, auth.HashPassword(in.Password), kind); err != nil {
 		return err
 	}
-	hash := auth.HashPassword(in.Password)
+	Success.Set(c, said)
+	return c.RedirectRoute("security.edit")
+}
+
+// removePassword removes the password of a user with a passkey, which logs
+// them in from then on. Without a passkey, the password is their way in.
+func (a *app) removePassword(c *tug.Ctx, user *User) error {
+	if !user.Password {
+		return c.RedirectRoute("security.edit")
+	}
+	listed, _, err := a.passkeys.of(c.Context(), user.ID)
+	if err != nil {
+		return err
+	}
+	if len(listed) == 0 {
+		Failure.Set(c, "Add a passkey first: an account needs a way in.")
+		return c.RedirectRoute("security.edit")
+	}
+	if err := a.newPassword(c, user, "", "password-removed"); err != nil {
+		return err
+	}
+	Success.Set(c, "Password removed: your passkeys log you in. You've been logged out everywhere else.")
+	return c.RedirectRoute("security.edit")
+}
+
+// newPassword stores the user's new password hash, or "" for none, and
+// tells them of it, as notice kind. The new hash ends every login made
+// with the old one, rows and all; this browser logs in with the new.
+func (a *app) newPassword(c *tug.Ctx, user *User, hash, kind string) error {
 	err := a.inTx(c.Context(), func(tx *sql.Tx) error {
 		if err := a.users.in(tx).setPassword(c.Context(), user.ID, hash); err != nil {
 			return err
@@ -191,20 +251,17 @@ func (a *app) updatePassword(c *tug.Ctx, user *User) error {
 		if err := a.browsers.in(tx).endAll(c.Context(), user.ID); err != nil {
 			return err
 		}
-		return a.notify(c.Context(), tx, user.ID, "password-changed", noticeData{})
+		return a.notify(c.Context(), tx, user.ID, kind, noticeData{})
 	})
 	if err != nil {
 		return err
 	}
-	// The new hash ends every login made with the old one, rows and all;
-	// this browser logs in with the new.
-	user.PasswordHash = hash
+	user.PasswordHash, user.Password = hash, hash != ""
 	if err := a.logIn(c, user, false); err != nil {
 		return err
 	}
 	auth.SetPasswordConfirmed(c.Session())
-	Success.Set(c, "Password changed. You've been logged out everywhere else.")
-	return c.RedirectRoute("security.edit")
+	return nil
 }
 
 // appearancePage is where a user picks light, dark, or what their system

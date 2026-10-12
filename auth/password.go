@@ -47,7 +47,9 @@ func HashPassword(password string) string {
 //
 // When no user has the email that was tried, check the password against
 // an empty hash all the same: it takes as long as a real check, and fails,
-// so a login form's speed doesn't tell which emails have accounts.
+// so a login form's speed doesn't tell which emails have accounts. A user
+// with no password, who logs in with a passkey, has an empty hash too, so
+// no password logs them in, and nothing tells them from a wrong password.
 func CheckPassword(hash, password string) bool {
 	p, ok := parseHash(hash)
 	if !ok {

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { FormComponentRef } from '@inertiajs/core'
 import { createForm, Head } from '@inertiajs/vue3'
-import { LoaderCircle } from '@lucide/vue'
-import { onBeforeUnmount, useTemplateRef } from 'vue'
+import { KeyRound, LoaderCircle, LockKeyhole } from '@lucide/vue'
+import { onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
 import InputError from '@/components/InputError.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
 import TextLink from '@/components/TextLink.vue'
@@ -10,13 +10,22 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
+import { passkeysWork } from '@/lib/passkeys'
 import { form, route, type Inputs } from '@/tug/routes'
 
 // Register checks each field with the server as it's left, as BindValid in
-// auth.go answers: a taken email shows before the form is sent.
+// auth.go answers: a taken email shows before the form is sent. Where the
+// browser makes passkeys, the account can have one in place of a password:
+// the form sends the name and the email alone, and registerWithPasskey in
+// passkeys.go mails a link, whose page makes the passkey and the account.
 defineOptions({
-  layout: { title: 'Make an account', description: 'Your name, your email, and a password of 8 characters or more.' },
+  layout: { title: 'Make an account', description: 'Your name, your email, and a password of 8 characters or more, or a passkey.' },
 })
+
+// Known once the page is in the browser, so the server's HTML is the same.
+const works = ref(false)
+const withPasskey = ref(false)
+onMounted(() => (works.value = passkeysWork()))
 
 // A field's check can be waiting out its 300ms as the form is sent, and
 // Inertia's Vue Form throws when it runs: after registering has logged the
@@ -40,7 +49,7 @@ const RegisterForm = createForm<Inputs['register.store']>()
   <RegisterForm
     ref="registration"
     v-slot="{ errors, processing, validate, invalid }"
-    :action="form('register.store')"
+    :action="withPasskey ? form('register.passkey') : form('register.store')"
     :reset-on-error="['password', 'password_confirmation']"
     :validation-timeout="300"
     class="flex flex-col gap-6"
@@ -73,31 +82,41 @@ const RegisterForm = createForm<Inputs['register.store']>()
       />
       <InputError :message="errors.email" />
     </div>
-    <div class="grid gap-2">
-      <Label for="password">Password</Label>
-      <PasswordInput
-        id="password"
-        name="password"
-        autocomplete="new-password"
-        required
-        :aria-invalid="invalid('password')"
-        @blur="validate('password')"
-      />
-      <InputError :message="errors.password" />
-    </div>
-    <div class="grid gap-2">
-      <Label for="password_confirmation">Password again</Label>
-      <PasswordInput
-        id="password_confirmation"
-        name="password_confirmation"
-        autocomplete="new-password"
-        required
-        :aria-invalid="invalid('password_confirmation')"
-        @blur="validate('password_confirmation')"
-      />
-      <InputError :message="errors.password_confirmation" />
-    </div>
-    <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Register</Button>
+    <p v-if="withPasskey" class="text-sm text-muted-foreground">
+      We'll mail you a link: it makes your passkey, and your account with it, with no password.
+    </p>
+    <template v-else>
+      <div class="grid gap-2">
+        <Label for="password">Password</Label>
+        <PasswordInput
+          id="password"
+          name="password"
+          autocomplete="new-password"
+          required
+          :aria-invalid="invalid('password')"
+          @blur="validate('password')"
+        />
+        <InputError :message="errors.password" />
+      </div>
+      <div class="grid gap-2">
+        <Label for="password_confirmation">Password again</Label>
+        <PasswordInput
+          id="password_confirmation"
+          name="password_confirmation"
+          autocomplete="new-password"
+          required
+          :aria-invalid="invalid('password_confirmation')"
+          @blur="validate('password_confirmation')"
+        />
+        <InputError :message="errors.password_confirmation" />
+      </div>
+    </template>
+    <Button type="submit" class="w-full" :disabled="processing">
+      <LoaderCircle v-if="processing" class="animate-spin" />{{ withPasskey ? 'Mail me a link' : 'Register' }}
+    </Button>
   </RegisterForm>
+  <Button v-if="works" type="button" variant="outline" class="mt-4 w-full" @click="withPasskey = !withPasskey">
+    <LockKeyhole v-if="withPasskey" /><KeyRound v-else />{{ withPasskey ? 'Use a password instead' : 'Use a passkey instead' }}
+  </Button>
   <p class="mt-6 text-center text-sm text-muted-foreground">Have an account? <TextLink :href="route('login')">Log in</TextLink></p>
 </template>

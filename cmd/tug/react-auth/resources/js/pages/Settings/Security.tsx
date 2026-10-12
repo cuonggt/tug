@@ -1,4 +1,4 @@
-import { Form, Head } from '@inertiajs/react'
+import { Form, Head, router } from '@inertiajs/react'
 import Heading from '@/components/heading'
 import InputError from '@/components/input-error'
 import LoginSettings from '@/components/login-settings'
@@ -8,17 +8,28 @@ import TwoFactorSettings from '@/components/two-factor-settings'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import type { PageProps } from '@/tug/pages'
-import { form, type Inputs } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // Security changes the user's password, which logs them out everywhere
-// else, turns two-factor logins on and off, keeps their passkeys, and
-// lists the browsers they're logged in from.
+// else, or sets one, for an account made with a passkey, or removes it,
+// for one with a passkey to log in with; turns two-factor logins on and
+// off, keeps their passkeys, and lists the browsers they're logged in
+// from.
 export default function Security(props: PageProps<'Settings/Security'>) {
+  const { user, passkeys } = props
   return (
     <>
       <Head title="Security" />
       <section className="space-y-6">
-        <Heading small title="Password" description="A new one logs you out everywhere else, such as a lost laptop." />
+        <Heading
+          small
+          title="Password"
+          description={
+            user.password
+              ? 'A new one logs you out everywhere else, such as a lost laptop.'
+              : 'Your account logs in with its passkeys alone. A password logs in too, and logs you out everywhere else.'
+          }
+        />
         <Form<Inputs['user-password.update']>
           action={form('user-password.update')}
           options={{ preserveScroll: true }}
@@ -28,11 +39,13 @@ export default function Security(props: PageProps<'Settings/Security'>) {
         >
           {({ errors, processing }) => (
             <>
-              <div className="grid gap-2">
-                <Label htmlFor="current_password">Current password</Label>
-                <PasswordInput id="current_password" name="current_password" autoComplete="current-password" required />
-                <InputError message={errors.current_password} />
-              </div>
+              {user.password && (
+                <div className="grid gap-2">
+                  <Label htmlFor="current_password">Current password</Label>
+                  <PasswordInput id="current_password" name="current_password" autoComplete="current-password" required />
+                  <InputError message={errors.current_password} />
+                </div>
+              )}
               <div className="grid gap-2">
                 <Label htmlFor="password">New password</Label>
                 <PasswordInput id="password" name="password" autoComplete="new-password" required />
@@ -44,11 +57,19 @@ export default function Security(props: PageProps<'Settings/Security'>) {
                 <InputError message={errors.password_confirmation} />
               </div>
               <Button type="submit" disabled={processing}>
-                Change the password
+                {user.password ? 'Change the password' : 'Set a password'}
               </Button>
             </>
           )}
         </Form>
+        {user.password && passkeys.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Your passkeys log you in without it.</p>
+            <Button variant="outline" onClick={() => router.delete(route('user-password.destroy'), { preserveScroll: true })}>
+              Remove the password
+            </Button>
+          </div>
+        )}
       </section>
       <PasskeySettings {...props} />
       <TwoFactorSettings {...props} />

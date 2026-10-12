@@ -38,6 +38,27 @@ func (us *users) add(ctx context.Context, name, email, passwordHash string) (*Us
 	return us.byID(ctx, id)
 }
 
+// addWithPasskey adds a user who registers with a passkey, or returns
+// errEmailTaken when the email has an account: with no password, the email
+// verified by the link that made the passkey, and the handle the passkey
+// names them by.
+func (us *users) addWithPasskey(ctx context.Context, name, email string, handle []byte) (*User, error) {
+	res, err := us.db.ExecContext(ctx, `
+		INSERT INTO users (name, email, password_hash, email_verified_at, passkey_handle) VALUES (?, ?, '', CURRENT_TIMESTAMP(6), ?)`,
+		name, email, handle)
+	if taken(err) {
+		return nil, errEmailTaken
+	}
+	if err != nil {
+		return nil, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return us.byID(ctx, id)
+}
+
 // setProfile stores a user's name and email, or returns errEmailTaken when
 // another account has the email. A new email isn't verified, whoever
 // verified the old one; the same email in another case is still the same.

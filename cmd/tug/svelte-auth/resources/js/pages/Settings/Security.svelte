@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createForm } from '@inertiajs/svelte'
+  import { createForm, router } from '@inertiajs/svelte'
   import Head from '@/Head.svelte'
   import Heading from '@/components/Heading.svelte'
   import InputError from '@/components/InputError.svelte'
@@ -10,11 +10,13 @@
   import { Button } from '@/components/ui/button'
   import { Label } from '@/components/ui/label'
   import type { PageProps } from '@/tug/pages'
-  import { form, type Inputs } from '@/tug/routes'
+  import { form, route, type Inputs } from '@/tug/routes'
 
   // Security changes the user's password, which logs them out everywhere
-  // else, turns two-factor logins on and off, keeps their passkeys, and
-  // lists the browsers they're logged in from.
+  // else, or sets one, for an account made with a passkey, or removes it,
+  // for one with a passkey to log in with; turns two-factor logins on and
+  // off, keeps their passkeys, and lists the browsers they're logged in
+  // from.
   let props: PageProps<'Settings/Security'> = $props()
 
   // The form, typed by its route's input, as tug gen writes it from the
@@ -24,7 +26,13 @@
 
 <Head title="Security" />
 <section class="space-y-6">
-  <Heading small title="Password" description="A new one logs you out everywhere else, such as a lost laptop." />
+  <Heading
+    small
+    title="Password"
+    description={props.user.password
+      ? 'A new one logs you out everywhere else, such as a lost laptop.'
+      : 'Your account logs in with its passkeys alone. A password logs in too, and logs you out everywhere else.'}
+  />
   <PasswordForm
     action={form('user-password.update')}
     options={{ preserveScroll: true }}
@@ -33,11 +41,13 @@
     class="space-y-6"
   >
     {#snippet children({ errors, processing })}
-      <div class="grid gap-2">
-        <Label for="current_password">Current password</Label>
-        <PasswordInput id="current_password" name="current_password" autocomplete="current-password" required />
-        <InputError message={errors.current_password} />
-      </div>
+      {#if props.user.password}
+        <div class="grid gap-2">
+          <Label for="current_password">Current password</Label>
+          <PasswordInput id="current_password" name="current_password" autocomplete="current-password" required />
+          <InputError message={errors.current_password} />
+        </div>
+      {/if}
       <div class="grid gap-2">
         <Label for="password">New password</Label>
         <PasswordInput id="password" name="password" autocomplete="new-password" required />
@@ -48,9 +58,17 @@
         <PasswordInput id="password_confirmation" name="password_confirmation" autocomplete="new-password" required />
         <InputError message={errors.password_confirmation} />
       </div>
-      <Button type="submit" disabled={processing}>Change the password</Button>
+      <Button type="submit" disabled={processing}>{props.user.password ? 'Change the password' : 'Set a password'}</Button>
     {/snippet}
   </PasswordForm>
+  {#if props.user.password && props.passkeys.length > 0}
+    <div class="space-y-2">
+      <p class="text-sm text-muted-foreground">Your passkeys log you in without it.</p>
+      <Button variant="outline" onclick={() => router.delete(route('user-password.destroy'), { preserveScroll: true })}>
+        Remove the password
+      </Button>
+    </div>
+  {/if}
 </section>
 <PasskeySettings {...props} />
 <TwoFactorSettings {...props} />

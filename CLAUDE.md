@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M45 are done, which is
+the decisions behind it and where it stands: M1 to M46 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -125,7 +125,12 @@ browser the account hasn't logged in from before, and built-in HTTPS
 on :443, and HTTP on :80, which sends each request there, with a
 certificate's files, read again as they change, or package
 `letsencrypt`'s, from Let's Encrypt, by autocert, each asked for as the
-app starts, which the starters take from `TLS_DOMAINS`.
+app starts, which the starters take from `TLS_DOMAINS`, and passkey-only
+accounts (v0.41.0): in the auth starter, registering with a passkey from
+a link mailed to the email first, by `auth.Registrations`' tokens, into
+an account verified, with no password, an empty hash, the password set
+with no current one, or removed, an account keeping a way in, and a lost
+passkey's account back in by a reset link, which sets a first password.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -734,10 +739,22 @@ dev server that isn't there: delete it.
   (who's logged in, and the wrappers `usersOnly`, `verified`,
   `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
   `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the
-  handlers of adding them, logging in and confirming with them, on
-  `auth.Passkeys`, whose site is `APP_URL`'s (`passkeySite`), as mail's
-  links are; the browser's side is `resources/js/lib/passkeys.ts`),
-  `settings.go.tmpl` and `photos.go.tmpl` (a user's photo, on the disk
+  handlers of adding them, but the last of an account with no password,
+  logging in and confirming with them, `checkPasskey`, which deleting an
+  account with no password shares too, on `auth.Passkeys`, whose site is
+  `APP_URL`'s (`passkeySite`), as mail's links are; and registering with
+  one: `registerWithPasskey`, which mails the link by the
+  `registration-mail` job, `registration`, which checks a link, its
+  `Auth/RegisterPasskey` page, its options, which read the email and the
+  name from the query, and `registerPasskey`, which makes the account,
+  verified, with no password, by each layer's `users.addWithPasskey`, and
+  its passkey, named `capitalized(browserName(...))`; the browser's side is
+  `resources/js/lib/passkeys.ts`), `passwordless_test.go.tmpl` and
+  `e2e/tests/passwordless.spec.ts` testing those of an account with no
+  password, whose `User.Password` is false, its `PasswordHash` `''`,
+  `settings.go.tmpl` (`newPassword`, a new password's hash, a first's or
+  `''`, which `updatePassword` and `removePassword` share, ending the other
+  logins), and `photos.go.tmpl` (a user's photo, on the disk
   `main` makes with `storage.FromEnv`: `files/`, or `FILES_PATH`, served
   at `/files` by its own route, or S3; `updatePhoto` puts the file before
   the transaction that names it, and deletes it when that fails, and the
@@ -810,7 +827,7 @@ dev server that isn't there: delete it.
   after the commit: registering, adding a passkey and a new email push
   their mail in the transaction that writes what it's about;
   `prune-jobs` runs every night and deletes jobs that failed a month ago.
-  Its five `auth.Throttle`s, each named, count in the database: every
+  Its six `auth.Throttle`s, each named, count in the database: every
   layer's `throttles_db.go` is `throttles`, an `auth.ThrottleStore` (an
   upsert with `RETURNING`, or in MySQL a transaction that reads back),
   whose `prune` runs every hour as `prune-throttles`; `throttles_test.go`
@@ -974,7 +991,10 @@ dev server that isn't there: delete it.
   back for its second factor (`tug.auth.pending`), which `Login` drops.
   `tokens.go`: tokens for links in mail, signed with an HKDF key for their
   purpose alone, over the expiry and their parts; `reset.go` (the ID and
-  the password hash) and `verify.go` (the ID and the email) use it.
+  the password hash, `''` for a user with none), `verify.go` (the ID and
+  the email) and `register.go` (`Registrations`: the email and the name,
+  for a link that finishes a registration before the account is made)
+  use it.
   `twofactor.go`: TOTP (RFC 6238, the last step used kept by the app),
   secrets and recovery codes sealed by `internal/seal` (`box`, with the
   info `tug two-factor`, as before it, so what it sealed opens), and

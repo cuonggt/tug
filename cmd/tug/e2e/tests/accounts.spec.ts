@@ -57,7 +57,7 @@ test('a forgotten password is set again by the link mailed to the user', async (
   await page.goto('/login')
   await page.getByRole('link', { name: 'Forgotten it?' }).click()
   // The login page has an Email too, until the visit swaps it out.
-  await expect(page.getByRole('heading', { name: 'Forgotten your password?' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Forgotten your password, or lost your passkey?' })).toBeVisible()
   await page.getByLabel('Email').fill(user.email)
   await page.getByRole('button', { name: 'Mail me a link' }).click()
   await expect(page.getByText('If that email has an account, a link to reset its password is on its way.')).toBeVisible()

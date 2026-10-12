@@ -56,6 +56,32 @@ var notices = map[string]notice{
 			}
 		},
 	},
+	"password-set": {
+		line: func(c *tug.Ctx, _ noticeData) string { return c.T("A password was set on your account.") },
+		link: "security.edit", mailLink: "security.edit",
+		mail: func(u *User, _ noticeData, link string) message {
+			return message{
+				To: u, Subject: "A password was set on your " + appName + " account",
+				Intro:  "Your account, which logged in with a passkey alone, has a password now, which logs in too, and every other login ended.",
+				Action: "See your security settings", URL: link,
+				Outro: "If that wasn't you, someone else has been in your account: log in with your passkey, and remove the password there.",
+			}
+		},
+	},
+	"password-removed": {
+		line: func(c *tug.Ctx, _ noticeData) string {
+			return c.T("Your password was removed: your passkeys log you in.")
+		},
+		link: "security.edit", mailLink: "password.request",
+		mail: func(u *User, _ noticeData, link string) message {
+			return message{
+				To: u, Subject: "Your " + appName + " password was removed",
+				Intro:  "The password of your account was removed, and every other login ended: your passkeys log you in.",
+				Action: "Set a password", URL: link,
+				Outro: "If that wasn't you, someone else has been in your account: the link mails you another, which sets a password again.",
+			}
+		},
+	},
 	"email-changed": {
 		line: func(c *tug.Ctx, d noticeData) string {
 			return c.T("Your email was changed to :email.", "email", d.NewEmail)

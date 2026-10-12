@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,18 +12,20 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/validate"
 )
 
-// Passkeys: a user adds them in their security settings, and logs in with
-// one, with no email or password, or confirms it's them with one. A
-// passkey is two factors on its own, the device and the PIN, fingerprint
-// or face that unlocks it, so its login asks for no code from the phone.
-// Package auth checks what the browser answers; this file keeps the
-// passkeys, in the passkeys table, and says whose each is.
+// Passkeys: a user adds them in their security settings, or registers with
+// one, and logs in with one, with no email or password, or confirms it's
+// them with one. A passkey is two factors on its own, the device and the
+// PIN, fingerprint or face that unlocks it, so its login asks for no code
+// from the phone. Package auth checks what the browser answers; this file
+// keeps the passkeys, in the passkeys table, and says whose each is.
 
 // Passkey is one of a user's passkeys, as their security page lists it.
 type Passkey struct {
@@ -131,11 +134,22 @@ func (a *app) addPasskey(c *tug.Ctx, user *User) error {
 	return c.RedirectRoute("security.edit")
 }
 
-// removePasskey removes one of the user's passkeys.
+// removePasskey removes one of the user's passkeys, but the last of a user
+// with no password, which is their way in.
 func (a *app) removePasskey(c *tug.Ctx, user *User) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		return tug.NewHTTPError(http.StatusNotFound, "passkey not found")
+	}
+	if !user.Password {
+		listed, _, err := a.passkeys.of(c.Context(), user.ID)
+		if err != nil {
+			return err
+		}
+		if len(listed) == 1 && listed[0].ID == id {
+			Failure.Set(c, "Add a password or another passkey first: an account needs a way in.")
+			return c.RedirectRoute("security.edit")
+		}
 	}
 	removed, err := a.passkeys.remove(c.Context(), user.ID, id)
 	if err != nil {
@@ -241,6 +255,19 @@ func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
 	if err := c.BindValid(&in); err != nil {
 		return err
 	}
+	if err := a.checkPasskey(c, user, in.Credential); err != nil {
+		return err
+	}
+	auth.SetPasswordConfirmed(c.Session())
+	return toIntended(c)
+}
+
+// checkPasskey checks the answer of one of the user's passkeys, to the
+// options confirmPasskeyOptions made, as they confirm it's them, or
+// delete an account with no password, and returns the error for the
+// passkey when it's no good. It counts as a try at the password does:
+// whoever has their browser can try no faster.
+func (a *app) checkPasskey(c *tug.Ctx, user *User, credential json.RawMessage) error {
 	key := user.authID()
 	wait, err := a.passwords.Try(c.Context(), key)
 	if err != nil {
@@ -249,7 +276,7 @@ func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
 	if wait > 0 {
 		return validate.Errors{"passkey": tooMany(wait)}
 	}
-	pk, err := a.site.FinishLogin(c.Session(), in.Credential, func(id []byte) (auth.Passkey, error) {
+	pk, err := a.site.FinishLogin(c.Session(), credential, func(id []byte) (auth.Passkey, error) {
 		owner, pk, err := a.passkeys.byID(c.Context(), id)
 		if err == nil && owner != user.ID {
 			err = errNoPasskey
@@ -258,16 +285,207 @@ func (a *app) confirmWithPasskey(c *tug.Ctx, user *User) error {
 	})
 	if err != nil {
 		slog.WarnContext(c.Context(), "a confirmation with a passkey didn't work", "user", user.ID, "err", err)
+		if !user.Password {
+			return validate.Errors{"passkey": "That passkey didn't confirm it's you: try again."}
+		}
 		return validate.Errors{"passkey": "That passkey didn't confirm it's you: try again, or type your password."}
 	}
 	if err := a.passkeys.used(c.Context(), pk); err != nil {
 		return err
 	}
-	if err := a.passwords.Clear(c.Context(), key); err != nil {
+	return a.passwords.Clear(c.Context(), key)
+}
+
+// Registering with a passkey: the register form sends the name and the
+// email, and a link mailed to the email opens the page that makes the
+// passkey, and the account with it, its email verified. An account made
+// with a passkey before its email was shown to be the registrant's would
+// let someone register another's email, and keep a way into it, their
+// passkey, that the owner's reset wouldn't end, as a new password ends a
+// registrant's old one.
+
+// PasskeyRegistrationInput is what the register form sends to register
+// with a passkey.
+type PasskeyRegistrationInput struct {
+	Name  string `json:"name" validate:"required,max=100"`
+	Email string `json:"email" validate:"required,email,max=254"`
+}
+
+// registerWithPasskey mails the link that finishes registering, to the
+// email. An address has five a minute, and an email gets one mail a
+// minute at most, as with a reset link.
+func (a *app) registerWithPasskey(c *tug.Ctx) error {
+	var in PasskeyRegistrationInput
+	err := c.BindValid(&in, func(errs validate.Errors) {
+		if _, bad := errs["email"]; bad {
+			return
+		}
+		// Checked as the field is left, as well as when the form is sent.
+		if _, err := a.users.byEmail(c.Context(), in.Email); err == nil {
+			errs.Add("email", "email has an account already: log in to it")
+		}
+	})
+	if err != nil {
+		return err
+	}
+	wait, err := a.registrationAsks.Try(c.Context(), c.IP())
+	if err == nil && wait == 0 {
+		wait, err = a.mails.Try(c.Context(), "register|"+strings.ToLower(in.Email))
+	}
+	if err != nil {
+		return err
+	}
+	if wait > 0 {
+		return validate.Errors{"email": tooMany(wait)}
+	}
+	if err := a.registrationMail.Push(c.Context(), RegistrationMail{Name: in.Name, Email: in.Email}); err != nil {
+		return err
+	}
+	Success.Set(c, "We've mailed a link to "+in.Email+": follow it to make your passkey, and your account with it.")
+	return c.RedirectRoute("register")
+}
+
+// RegistrationMail is the job that mails the link that finishes
+// registering Email with a passkey. The link is made as the mail goes, and
+// signed, so nothing waits in the database.
+type RegistrationMail struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// mailRegistration runs RegistrationMail jobs. An email that has an
+// account by now, as one registered with a password since, gets none.
+func (a *app) mailRegistration(ctx context.Context, job RegistrationMail) error {
+	if _, err := a.users.byEmail(ctx, job.Email); err == nil {
+		return nil
+	} else if !errors.Is(err, errNoUser) {
+		return err
+	}
+	link, err := a.routes.AbsoluteURL("register.passkey.create", a.registrations.Token(job.Email, job.Name))
+	if err != nil {
+		return err
+	}
+	return a.mailer.Send(ctx, message{
+		To:      &User{Name: job.Name, Email: job.Email},
+		Subject: "Make your " + appName + " passkey",
+		Intro:   "Someone, hopefully you, asked to make a " + appName + " account with this email, and a passkey. Follow this link to make the passkey, and your account with it.",
+		Action:  "Make your passkey",
+		URL:     link + "?" + url.Values{"email": {job.Email}, "name": {job.Name}}.Encode(),
+		Outro:   "The link works for a day. If you didn't ask, there's nothing to do: no account is made without it.",
+	}.mail())
+}
+
+// RegisterPasskeyProps are the props of the page a registration's link
+// opens, which makes the passkey: the link's token, email and name.
+type RegisterPasskeyProps struct {
+	Token string `json:"token"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+}
+
+var RegisterPasskey = tug.Page[RegisterPasskeyProps]("Auth/RegisterPasskey")
+
+// registerPasskeyPage is the page a registration's link opens. A link
+// that's no good goes back to register, and one for an email that has an
+// account by now, to log in.
+func (a *app) registerPasskeyPage(c *tug.Ctx) error {
+	props := RegisterPasskeyProps{Token: c.Param("token"), Email: c.Query("email"), Name: c.Query("name")}
+	if bad := a.registration(c.Context(), props.Token, props.Email, props.Name); bad != nil {
+		Failure.Set(c, bad.message)
+		return c.RedirectRoute(bad.to)
+	}
+	return RegisterPasskey.Render(c, props)
+}
+
+// badRegistration is why a registration's link can't make an account, and
+// where it goes instead.
+type badRegistration struct {
+	message, to string
+}
+
+// registration checks a registration's link: that it's one the app made,
+// for the email and the name, and not expired, and that the email has no
+// account yet, so what a link makes, it makes once.
+func (a *app) registration(ctx context.Context, token, email, name string) *badRegistration {
+	if !a.registrations.Check(token, email, name) {
+		return &badRegistration{"That link has expired, or isn't whole: ask for another.", "register"}
+	}
+	if _, err := a.users.byEmail(ctx, email); err == nil {
+		return &badRegistration{"That email has an account already: log in to it.", "login"}
+	}
+	return nil
+}
+
+// registerPasskeyOptions starts the passkey of a registration's link, for
+// the email and the name in its query: the options, as JSON, with a new
+// handle, which the session's ceremony keeps for the account it makes.
+func (a *app) registerPasskeyOptions(c *tug.Ctx) error {
+	email, name := c.Query("email"), c.Query("name")
+	if bad := a.registration(c.Context(), c.Param("token"), email, name); bad != nil {
+		return tug.NewHTTPError(http.StatusUnprocessableEntity, bad.message)
+	}
+	options, err := a.site.StartRegistration(c.Session(), auth.PasskeyUser{Handle: auth.NewPasskeyHandle(), Name: email, DisplayName: name}, nil)
+	if err != nil {
+		return err
+	}
+	return c.Blob(http.StatusOK, "application/json", options)
+}
+
+// RegisterPasskeyInput is what the page of a registration's link sends:
+// its email and name, and the browser's answer, the passkey it made.
+type RegisterPasskeyInput struct {
+	Email      string          `json:"email" validate:"required"`
+	Name       string          `json:"name" validate:"required"`
+	Credential json.RawMessage `json:"credential" validate:"required"`
+}
+
+// registerPasskey makes the account of a registration's link, with no
+// password, its email verified, and the passkey the browser made, named
+// for the browser, and logs in. Registering tells of nothing, as the
+// account's own mail has just come.
+func (a *app) registerPasskey(c *tug.Ctx) error {
+	var in RegisterPasskeyInput
+	if err := c.BindValid(&in); err != nil {
+		return err
+	}
+	if bad := a.registration(c.Context(), c.Param("token"), in.Email, in.Name); bad != nil {
+		return validate.Errors{"passkey": bad.message}
+	}
+	pk, err := a.site.FinishRegistration(c.Session(), in.Credential)
+	if err != nil {
+		slog.WarnContext(c.Context(), "a passkey to register with wasn't made", "err", err)
+		return validate.Errors{"passkey": "The passkey wasn't made: try again."}
+	}
+	var u *User
+	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
+		var err error
+		if u, err = a.users.in(tx).addWithPasskey(c.Context(), in.Name, in.Email, pk.UserHandle); err != nil {
+			return err
+		}
+		return a.passkeys.in(tx).add(c.Context(), u.ID, capitalized(browserName(c.Request().UserAgent())), pk)
+	})
+	if errors.Is(err, errEmailTaken) {
+		return validate.Errors{"passkey": "That email has an account already: log in to it."}
+	}
+	if errors.Is(err, errPasskeyTaken) {
+		return validate.Errors{"passkey": "That passkey is on an account already."}
+	}
+	if err != nil {
+		return err
+	}
+	if err := a.logIn(c, u, false); err != nil {
 		return err
 	}
 	auth.SetPasswordConfirmed(c.Session())
-	return toIntended(c)
+	Success.Set(c, "Welcome, "+u.Name+"!")
+	return c.RedirectRoute("dashboard")
+}
+
+// capitalized is s with a capital first letter, as a passkey's name is
+// shown, from browserName's, which says one it doesn't know in lower case.
+func capitalized(s string) string {
+	r, size := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(r)) + s[size:]
 }
 
 var (

@@ -372,12 +372,25 @@ func (a *app) mailReset(ctx context.Context, job ResetMail) error {
 	if err != nil {
 		return err
 	}
+	link += "?email=" + url.QueryEscape(u.Email)
+	if !u.Password {
+		// An account made with a passkey, whose owner may have lost it: the
+		// link sets a first password, which they go on with.
+		return a.mailer.Send(ctx, message{
+			To:      u,
+			Subject: "Set a password for your " + appName + " account",
+			Intro:   "Someone, hopefully you, asked to get into your " + appName + " account, which logs in with a passkey and has no password. Follow this link to set one.",
+			Action:  "Set a password",
+			URL:     link,
+			Outro:   "The link works once, for an hour. If you didn't ask, there's nothing to do: your account stays as it is.",
+		}.mail())
+	}
 	return a.mailer.Send(ctx, message{
 		To:      u,
 		Subject: "Reset your " + appName + " password",
 		Intro:   "Someone, hopefully you, asked to reset the password of your " + appName + " account. Follow this link to choose a new one.",
 		Action:  "Choose a new password",
-		URL:     link + "?email=" + url.QueryEscape(u.Email),
+		URL:     link,
 		Outro:   "The link works once, for an hour. If you didn't ask, there's nothing to do: your password stays as it is.",
 	}.mail())
 }
@@ -412,7 +425,13 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 	if u == nil || !a.resets.Check(in.Token, u.authID(), u.PasswordHash) {
 		return validate.Errors{"email": "this link has expired, or been used"}
 	}
-	u.PasswordHash = auth.HashPassword(in.Password)
+	// A first password, of an account made with a passkey, is set as a new
+	// one is: its passkeys stay, as they're still the owner's.
+	kind, said := "password-changed", "Your password is reset."
+	if !u.Password {
+		kind, said = "password-set", "Your password is set."
+	}
+	u.PasswordHash, u.Password = auth.HashPassword(in.Password), true
 	// The link came to the email, which it shows is theirs; and the owner
 	// is told, as for any new password.
 	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
@@ -425,7 +444,7 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 		if err := a.browsers.in(tx).endAll(c.Context(), u.ID); err != nil {
 			return err
 		}
-		return a.notify(c.Context(), tx, u.ID, "password-changed", noticeData{})
+		return a.notify(c.Context(), tx, u.ID, kind, noticeData{})
 	})
 	if err != nil {
 		return err
@@ -435,7 +454,7 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 	// user with two-factor logins on, goes on to give a code: a link in
 	// their mail is one factor, not two.
 	s := c.Session()
-	Success.Set(c, "Your password is reset.")
+	Success.Set(c, said)
 	if u.TwoFactor {
 		auth.StartTwoFactor(s, u.authID())
 		s.Set(resetLoginKey, true)
@@ -449,9 +468,11 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 }
 
 // ConfirmPasswordProps are the props of the page that asks for the
-// password again: whether the user has passkeys, which confirm it's them
-// too.
+// password again: whether the user has one, and whether they have
+// passkeys, which confirm it's them too, and alone for a user with no
+// password.
 type ConfirmPasswordProps struct {
+	Password bool `json:"password"`
 	Passkeys bool `json:"passkeys"`
 }
 
@@ -460,7 +481,7 @@ func (a *app) confirmPasswordPage(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
-	return ConfirmPassword.Render(c, ConfirmPasswordProps{Passkeys: len(listed) > 0})
+	return ConfirmPassword.Render(c, ConfirmPasswordProps{Password: user.Password, Passkeys: len(listed) > 0})
 }
 
 // ConfirmPasswordInput is what the page that asks for the password again

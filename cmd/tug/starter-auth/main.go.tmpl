@@ -1,7 +1,8 @@
 // Command [[ .Name ]] is a tug app: Go handlers, [[ .Framework ]] pages, and Inertia in
-// between, with accounts. People register and verify their email, log in,
-// with a code from their phone too once they turn that on, and change
-// their profile and photo, password and appearance in their settings.
+// between, with accounts. People register and verify their email, or
+// register with a passkey and no password, log in, with a code from their
+// phone too once they turn that on, and change their profile and photo,
+// password and appearance in their settings.
 //
 //	tug dev      run it, rebuilt and reloaded as it changes
 //	tug build    build it into one binary, frontend and all
@@ -194,6 +195,11 @@ type app struct {
 	verifications *auth.Verifications
 	twoFactor     *auth.TwoFactor
 
+	// Registering with a passkey: the links mailed to finish it, by a job,
+	// whose page makes the passkey and the account: passkeys.go.
+	registrations    *auth.Registrations
+	registrationMail *queue.Kind[RegistrationMail]
+
 	// cache keeps what's slow to work out for a while, in the database,
 	// where every instance of the app finds it, and has locks for what
 	// mustn't run twice at once, on any of them: cache_db.go. The starter
@@ -227,14 +233,15 @@ type app struct {
 	// by email and address; the password of someone logged in, and the
 	// codes of a login waiting for its second factor, by user; and mail,
 	// by what it's for and to whom, so that no one's inbox can be flooded,
-	// and the asks for a reset link, which are jobs, by address. They're
-	// counted in the database, where every instance of the app counts:
-	// throttles_db.go.
-	logins    *auth.Throttle
-	passwords *auth.Throttle
-	codes     *auth.Throttle
-	mails     *auth.Throttle
-	resetAsks *auth.Throttle
+	// and the asks for a reset link, and for a link to register with a
+	// passkey, which are jobs, by address. They're counted in the database,
+	// where every instance of the app counts: throttles_db.go.
+	logins           *auth.Throttle
+	passwords        *auth.Throttle
+	codes            *auth.Throttle
+	mails            *auth.Throttle
+	resetAsks        *auth.Throttle
+	registrationAsks *auth.Throttle
 }
 
 // inTx runs fn in one transaction, which it commits, and then wakes the
@@ -320,6 +327,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		site:          passkeySite(cfg.URL),
 		resets:        &auth.Resets{Keys: e.Keys},
 		verifications: &auth.Verifications{Keys: e.Keys},
+		registrations: &auth.Registrations{Keys: e.Keys},
 		twoFactor:     &auth.TwoFactor{Keys: e.Keys, Issuer: appName},
 		cache:         &cache.Cache{Store: cached},
 		hub:           e.Hub,
@@ -335,9 +343,11 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		codes:         &auth.Throttle{Name: "codes", Max: 5, Window: time.Minute, Store: counts},
 		mails:         &auth.Throttle{Name: "mails", Max: 1, Window: time.Minute, Store: counts},
 		resetAsks:     &auth.Throttle{Name: "reset-asks", Max: 5, Window: time.Minute, Store: counts},
+
+		registrationAsks: &auth.Throttle{Name: "registration-asks", Max: 5, Window: time.Minute, Store: counts},
 	}
 	// The mail goes by jobs, which make each mail as it goes: in verify.go,
-	// auth.go and notifications.go. So do the files that nothing names any
+	// auth.go, passkeys.go and notifications.go. So do the files that nothing names any
 	// more, such as a replaced photo: photos.go. Every night, a job deletes
 	// the jobs that failed for good over a month ago: prune, in jobs_db.go,
 	// and another the notifications read three months ago; and every hour,
@@ -345,6 +355,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// kept that has expired, and the logins that have ended.
 	a.verifyMail = queue.Handle(e.Queue, "verify-mail", a.mailVerification)
 	a.resetMail = queue.Handle(e.Queue, "reset-mail", a.mailReset)
+	a.registrationMail = queue.Handle(e.Queue, "registration-mail", a.mailRegistration)
 	a.notificationMail = queue.Handle(e.Queue, "notification-mail", a.mailNotification)
 	a.deleteFile = queue.Handle(e.Queue, "delete-file", a.deleteStoredFile)
 	queue.Handle(e.Queue, "prune-jobs", a.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
@@ -449,9 +460,14 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Get("/", home).Name("home")
 	app.Get("/dashboard", a.usersOnly(verified(dashboard))).Name("dashboard")
 
-	// Registering, logging in and out, and a forgotten password: auth.go.
+	// Registering, logging in and out, and a forgotten password: auth.go,
+	// with registering with a passkey in passkeys.go.
 	app.Get("/register", a.guestsOnly(registerPage)).Name("register")
 	app.Post("/register", a.guestsOnly(a.register)).Name("register.store").Takes(RegisterInput{})
+	app.Post("/register/passkey", a.guestsOnly(a.registerWithPasskey)).Name("register.passkey").Takes(PasskeyRegistrationInput{})
+	app.Get("/register/passkey/{token}", a.guestsOnly(a.registerPasskeyPage)).Name("register.passkey.create")
+	app.Post("/register/passkey/{token}/options", a.guestsOnly(a.registerPasskeyOptions)).Name("register.passkey.options")
+	app.Post("/register/passkey/{token}", a.guestsOnly(a.registerPasskey)).Name("register.passkey.store").Takes(RegisterPasskeyInput{})
 	app.Get("/login", a.guestsOnly(loginPage)).Name("login")
 	app.Post("/login", a.guestsOnly(a.login)).Name("login.store").Takes(LoginInput{})
 	app.Post("/login/passkey/options", a.guestsOnly(a.passkeyLoginOptions)).Name("login.passkey.options")
@@ -488,6 +504,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	app.Delete("/settings/profile/photo", a.usersOnly(passwordConfirmed(a.removePhoto))).Name("profile.photo.destroy")
 	app.Get("/settings/security", a.usersOnly(verified(passwordConfirmed(a.securityPage)))).Name("security.edit")
 	app.Put("/settings/password", a.usersOnly(verified(passwordConfirmed(a.updatePassword)))).Name("user-password.update").Takes(PasswordInput{})
+	app.Delete("/settings/password", a.usersOnly(verified(passwordConfirmed(a.removePassword)))).Name("user-password.destroy")
 	app.Post("/settings/two-factor", a.usersOnly(verified(passwordConfirmed(a.startTwoFactor)))).Name("two-factor.enable")
 	app.Post("/settings/two-factor/confirm", a.usersOnly(verified(passwordConfirmed(a.confirmTwoFactor)))).Name("two-factor.confirm").Takes(ConfirmTwoFactorInput{})
 	app.Delete("/settings/two-factor", a.usersOnly(verified(passwordConfirmed(a.stopTwoFactor)))).Name("two-factor.disable")

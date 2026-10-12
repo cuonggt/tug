@@ -13,7 +13,8 @@
 //   - SetIntended and Intended send someone who was asked to log in back
 //     to the page they were on their way to.
 //   - Verifications makes and checks the tokens that email verification
-//     links carry.
+//     links carry, and Registrations those of the links that finish a
+//     registration, before the account is made.
 //   - SetPasswordConfirmed and PasswordConfirmed ask for the password again
 //     before somewhere sensitive, such as a user's security settings.
 //   - TwoFactor has two-factor logins: the codes of authenticator apps,
@@ -70,9 +71,10 @@ const pendingFor = 10 * time.Minute
 var now = time.Now
 
 // Login logs the user with this ID in to the session s. passwordHash is
-// the user's password hash, as stored: the login lasts only while the
-// user has it (see Current), so setting a new password, as a reset does,
-// logs out every session that logged in with the old one.
+// the user's password hash, as stored, or "" for a user with no password,
+// who logs in with a passkey: the login lasts only while the user has it
+// (see Current), so setting a new password, as a reset does, or a first,
+// or removing it, logs out every session that logged in before.
 //
 // A login starts afresh: a password confirmed before it (see
 // PasswordConfirmed), a login waiting for its second factor (see

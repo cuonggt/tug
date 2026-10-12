@@ -35,6 +35,25 @@ func (us *users) add(ctx context.Context, name, email, passwordHash string) (*Us
 	return u, err
 }
 
+// addWithPasskey adds a user who registers with a passkey, or returns
+// errEmailTaken when the email has an account: with no password, the email
+// verified by the link that made the passkey, and the handle the passkey
+// names them by.
+func (us *users) addWithPasskey(ctx context.Context, name, email string, handle []byte) (*User, error) {
+	var id int64
+	err := us.db.QueryRowContext(ctx, `
+		INSERT INTO users (name, email, password_hash, email_verified_at, passkey_handle) VALUES ($1, $2, '', now(), $3)
+		ON CONFLICT DO NOTHING
+		RETURNING id`, name, email, handle).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errEmailTaken
+	}
+	if err != nil {
+		return nil, err
+	}
+	return us.byID(ctx, id)
+}
+
 // setProfile stores a user's name and email, or returns errEmailTaken when
 // another account has the email. A new email isn't verified, whoever
 // verified the old one; the same email in another case is still the same.

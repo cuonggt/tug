@@ -47,6 +47,9 @@ pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
 | `GET /files/{key...}`                     |                                               | anyone with a signed link |
 | `GET /dashboard`                          | `dashboard`                                   | verified users |
 | `GET`, `POST /register`                   | `register`, `register.store`                  | guests |
+| `POST /register/passkey`                  | `register.passkey`                            | guests |
+| `GET`, `POST /register/passkey/{token}`   | `register.passkey.create`, `register.passkey.store` | guests with the link |
+| `POST /register/passkey/{token}/options`  | `register.passkey.options`                    | guests with the link |
 | `GET`, `POST /login`                      | `login`, `login.store`                        | guests |
 | `GET`, `POST /two-factor-challenge`       | `two-factor.login`, `two-factor.login.store`  | a login waiting for its code |
 | `POST /logout`                            | `logout`                                      | users |
@@ -62,7 +65,7 @@ pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
 | `GET`, `PATCH`, `DELETE /settings/profile` | `profile.edit`, `profile.update`, `profile.destroy` | users, password confirmed |
 | `POST`, `DELETE /settings/profile/photo`  | `profile.photo.update`, `profile.photo.destroy` | users, password confirmed |
 | `GET /settings/security`                  | `security.edit`                               | verified users, password confirmed |
-| `PUT /settings/password`                  | `user-password.update`                        | verified users, password confirmed |
+| `PUT`, `DELETE /settings/password`        | `user-password.update`, `user-password.destroy` | verified users, password confirmed |
 | `POST`, `DELETE /settings/two-factor`     | `two-factor.enable`, `two-factor.disable`     | verified users, password confirmed |
 | `POST /settings/two-factor/confirm`       | `two-factor.confirm`                          | verified users, password confirmed |
 | `POST /settings/two-factor/recovery-codes` | `two-factor.recovery-codes`                  | verified users, password confirmed |
@@ -85,7 +88,8 @@ them.
   logging in and out, a forgotten password, and asking for the password
   again.
 - `verify.go`: verifying an email. `twofactor.go`: two-factor logins.
-  `passkeys.go`: passkeys. `settings.go`: the settings pages.
+  `passkeys.go`: passkeys, and registering with one.
+  `settings.go`: the settings pages.
   `photos.go`: a user's photo, on the app's disk. `tokens.go`: API
   tokens. `broadcasts.go`: the events a user's pages follow.
   `notifications.go`: what happened to an account, in the app and by
@@ -108,7 +112,7 @@ them.
   `db_test.go`, the tests' databases; and on Postgres or MySQL,
   `compose.yaml`, which runs the database in development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
-  `passkeys_test.go`, `photos_test.go`, `jobs_test.go`,
+  `passkeys_test.go`, `passwordless_test.go`, `photos_test.go`, `jobs_test.go`,
   `throttles_test.go`, `cache_test.go`, `tokens_test.go`,
   `broadcasts_test.go`, `notifications_test.go`, `logins_test.go`,
   `migrations_test.go`: a test of each flow, in browsers of package
@@ -272,6 +276,39 @@ password, so `auth.SetPasswordConfirmed` records that. A link to verify
 the email is mailed to them, and they go to the dashboard, which, for a
 user whose email isn't verified, is the page that asks them to follow the
 link.
+
+#### With a passkey
+
+Where the browser makes passkeys, the register page has "Use a passkey
+instead": the form sends the name and the email alone, with no password,
+to `POST /register/passkey`, `registerWithPasskey` in `passkeys.go`,
+which checks them as `register` does, the email as it's left too, and
+mails a link to the email, by a job, `registration-mail`. The account is
+made from the link, not as the form is sent: one made with a passkey
+before its email was shown to be the registrant's would let someone
+register another's email, and keep a way into it, their passkey, that the
+owner's reset wouldn't end, as a new password ends a registrant's old
+one. An email gets one such mail a minute, and an address five asks a
+minute, by the `registration-asks` throttle.
+
+The link, `/register/passkey/{token}?email=…&name=…`, carries a token
+`auth.Registrations` makes, signed over the email and the name, for a
+day, and kept nowhere ([Registration tokens](#registration-tokens)). Its
+page, `Auth/RegisterPasskey`, has "Make your passkey": the options, `POST
+/register/passkey/{token}/options`, with a new handle, then the browser's
+passkey, to `POST /register/passkey/{token}`, which makes the account,
+its email verified by the link, with no password, keeps the passkey,
+named for the browser, as "Chrome on macOS", and logs in. A link once its
+email has an account says so, and goes to log in, so what a link makes,
+it makes once; one changed, or expired, goes back to register.
+
+An account with no password has an empty password hash, which no password
+matches: a password login fails for it as for a wrong password, as
+slowly, and says nothing of it. Its passkeys log it in, and confirm it's
+the user; its security page sets a password, and its owner, having lost
+their passkeys, gets back in by a reset link, which sets one too ([A
+forgotten password, or a lost passkey](#a-forgotten-password-or-a-lost-passkey)). `auth.user`'s `password`
+says whether the account has one.
 
 ### Verifying an email
 
@@ -450,9 +487,13 @@ on `auth.Passkeys`, which checks what the browser answers.
   login it is. Five tries a minute from an address, as with passwords;
   "Remember me" counts too.
 - **Confirming it's them** takes a passkey as well as the password: the
-  page that asks has "Use a passkey", for a user who has one.
-- **Removing one** is its bin on the security page. Deleting the account
-  deletes its passkeys.
+  page that asks has "Use a passkey", for a user who has one, and nothing
+  else for one with no password.
+- **Registering with one**, in place of a password, starts on the register
+  page: [With a passkey](#with-a-passkey).
+- **Removing one** is its bin on the security page, but the last of an
+  account with no password: "Add a password or another passkey first: an
+  account needs a way in." Deleting the account deletes its passkeys.
 
 The browser's side is `resources/js/lib/passkeys.ts`: the options, as
 JSON, into what `navigator.credentials` takes, and its answer back into
@@ -466,7 +507,8 @@ than `confirmFor`, three hours, ago: at logging in, registering, a reset,
 a change of password, or on the page that asks for it,
 `Auth/ConfirmPassword`. That page's form checks the password, five tries a
 minute, with `auth.SetPasswordConfirmed` after the right one, and goes back
-to the page the user was on their way to. A form sent after the three
+to the page the user was on their way to. For an account with no password,
+the page asks for a passkey alone. A form sent after the three
 hours ran out, such as the profile's left open all afternoon, can't be
 sent again for them: they go back to the page it was on, which
 `auth.SetIntended` keeps from the form's `Referer`, and send it again.
@@ -486,12 +528,16 @@ sent again for them: they go back to the page it was on, which
   the file that nothing names any more is deleted by a job, `delete-file`,
   pushed in the transaction that drops it. See [Files](files.md).
 - **Delete your account**: a dialog that takes the password once more,
-  since it can't be undone. The row goes, and its photo with it, this
+  since it can't be undone, or for an account with no password, a passkey,
+  whose answer the form sends, checked as confirming with one is. The row goes, and its photo with it, this
   browser is logged out and its history cleared, and the user's other
   sessions end at their next request, which finds no user.
-- **Security**: a new password, which takes the current one. The new hash
+- **Security**: a new password, which takes the current one, or for an
+  account made with a passkey, a first one, which takes none. The new hash
   ends every login made with the old one, and this browser logs in again
-  with it. Then passkeys and two-factor logins, above, and the browsers
+  with it. An account with a passkey removes its password, `DELETE
+  /settings/password`, which ends the other logins as a new one does;
+  without a passkey, the password is its way in, and stays. Then passkeys and two-factor logins, above, and the browsers
   the account is logged in from, each to log out, as one left on a lost
   laptop: [Browsers](#browsers).
 - **API tokens**: tokens for a script, the user's phone's app or another
@@ -621,7 +667,7 @@ curl -H "Authorization: Bearer blog_…" -H "Accept: application/json" https://e
   new password leaves the tokens be, as GitHub's are: they're the user's
   to revoke. Deleting the account deletes them.
 
-### A forgotten password
+### A forgotten password, or a lost passkey
 
 ```go
 wait, err := a.resetAsks.Try(c.Context(), c.IP())
@@ -667,6 +713,14 @@ with the old password. The email is verified, as the link came to it, and
 this browser logs in with the new password, or, with two-factor logins on,
 goes on to give a code.
 
+The page, "Forgotten your password, or lost your passkey?", is for an
+account with no password too, whose owner has lost their passkeys. Its
+mail says "Set a password", and the link, made from the empty hash, sets
+a first one, which the account goes on with, its passkeys kept, and which
+ends the link as a new password does. Two-factor logins ask for their
+code after it, as after any reset: for an account with no password, they
+guard the link that would set one.
+
 ### Mail
 
 `mail.go` has the app's mail: a `message` with a greeting, what it's
@@ -709,7 +763,8 @@ commands, for an app that adds more.
 
 What happens to an account, of the kind that could hand it to someone
 else, its owner hears of, in the app and by mail: a new password, set in
-the settings or by a reset link; a new email, told at the old one, the
+the settings or by a reset link, a first one, of an account made with a
+passkey, and a password removed; a new email, told at the old one, the
 address its owner may still read, as the new one gets its link to
 verify; two-factor logins turned off; a passkey added; an API token
 made; and a login from a browser the account hasn't logged in from before
@@ -829,7 +884,7 @@ itself.
 
 ### Throttles
 
-The starter's five throttles count in the database, in a `throttles`
+The starter's six throttles count in the database, in a `throttles`
 table, whose SQL is in `throttles_db.go`: every instance of the app
 counts the tries made at any of them, and a restart, as each deploy is,
 forgets none.
@@ -845,10 +900,11 @@ a := &app{
 | Throttle     | Counts                                                                    | By |
 |--------------|---------------------------------------------------------------------------|----|
 | `logins`     | logins with a password, and with a passkey, five a minute                 | the email and the address, or the address |
-| `passwords`  | the password of someone logged in, as they confirm, change it or delete their account, five a minute | the user |
+| `passwords`  | the password, or a passkey, of someone logged in, as they confirm it's them, change it or delete their account, five a minute | the user |
 | `codes`      | the codes of a login waiting for its second factor, five a minute         | the user |
-| `mails`      | reset links and verification links, one a minute                          | the email, or the user |
+| `mails`      | reset links, links to register with a passkey, and verification links, one a minute | the email, or the user |
 | `reset-asks` | asks for a reset link, five a minute                                      | the address |
+| `registration-asks` | asks for a link to register with a passkey, five a minute          | the address |
 
 A row is a key's tries, and when their window ends. The key is the
 SHA-256 package `auth` makes of the throttle's name and what it counts
@@ -1111,6 +1167,22 @@ good as a verification token, nor the other way round. A token stops
 working once the email changes, and after `Lifetime`, a day by default. It
 can be used again until then, which does no harm: the email is verified
 already.
+
+### Registration tokens
+
+```go
+registrations := &auth.Registrations{Keys: keys}
+
+token := registrations.Token(email, name)     // for the link
+ok := registrations.Check(token, email, name) // false: expired, for another email or name, or not one of ours
+```
+
+`Registrations` makes the tokens of the links that finish a registration
+before the account is made, as the starter's with a passkey: signed for
+the email and the name, with a key for registration alone, so a
+verification token is no good here, nor a registration token there. A
+token works for `Lifetime`, a day by default, and can be used again
+until then: once the email has an account, the app makes no other.
 
 ### Two-factor logins
 
@@ -1580,8 +1652,6 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
 
 - **Which make of authenticator** a passkey is on, which checking its
   attestation would say, for a site that takes only some.
-- **Accounts with a passkey and no password**: registering takes one, and
-  passkeys come after.
 - **Where a browser is**, as a place: the security page says the
   address it logged in from, and a place takes a database of where
   addresses are, such as MaxMind's.

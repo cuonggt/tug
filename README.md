@@ -32,7 +32,8 @@ whole numbers past JavaScript's safe range sent as BigInts, the mail an
 app sends under `tug dev` kept in a mailbox it shows as a mail program
 would, HTTPS served by the app itself, with its certificates from Let's
 Encrypt, and starters in React, Vue or Svelte, one with accounts, from
-registering to two-factor logins, passkeys, a profile photo, API tokens,
+registering to two-factor logins, passkeys, in place of a password too,
+a profile photo, API tokens,
 notifications in the app and by mail, and the browsers an account is
 logged in from, each to log out, in SQLite, Postgres or MySQL.
 [The guide](docs/README.md) covers all of it, and
@@ -196,10 +197,12 @@ func showPost(c *tug.Ctx) error {
   can't run as the app: its type is its bytes', and anything but an image
   is a download.
 - **Accounts**: `tug new -auth` makes an app where people register and
-  verify their email, log in, with a code from an authenticator app too
-  once they turn that on, or with a passkey and no password at all, reset
-  a forgotten password by email, change their profile and photo, password
-  and appearance in settings, see the browsers they're logged in from and
+  verify their email, or register with a passkey from a link mailed to
+  them, with no password at all, log in, with a code from an
+  authenticator app too once they turn that on, or with a passkey, reset
+  a forgotten password, or get back in having lost their passkey, by
+  email, change their profile and photo, password, set or removed, and
+  appearance in settings, see the browsers they're logged in from and
   log one out, and make API tokens, for a script or another service to
   call the app's API with, hear of each change to their account that
   could hand it to someone else, a login from a new browser too, at once
@@ -210,8 +213,8 @@ func showPost(c *tug.Ctx) error {
   `auth`, which has the parts where a slip is a security hole: argon2id
   password hashes, logins that end when the password changes, each with
   an ID of its own, by which the app ends one from another browser, signed
-  tokens for reset and verification links, two-factor codes and recovery
-  codes kept encrypted, passkeys, WebAuthn's checks on the standard
+  tokens for reset, verification and registration links, two-factor codes
+  and recovery codes kept encrypted, passkeys, WebAuthn's checks on the standard
   library, asking for the password again, API tokens kept as their hashes,
   throttles on guessing, whose counts every instance of the app shares,
   and abilities, what a user may do with a thing, whose no is a 403 that

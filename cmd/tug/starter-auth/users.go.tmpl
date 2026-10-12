@@ -20,6 +20,7 @@ type User struct {
 	Email           string     `json:"email"`
 	EmailVerifiedAt *time.Time `json:"emailVerifiedAt"` // null until they follow the link mailed to them
 	TwoFactor       bool       `json:"twoFactor"`       // whether logging in takes a code from their phone too
+	Password        bool       `json:"password"`        // whether they have one: an account made with a passkey has none
 	CreatedAt       time.Time  `json:"createdAt"`
 
 	// Photo is a link to the user's photo, signed for a page to show it, or
@@ -28,6 +29,8 @@ type User struct {
 	Photo    *string `json:"photo"`
 	PhotoKey string  `json:"-"`
 
+	// PasswordHash is "" for a user with no password, who logs in with a
+	// passkey: no password matches it, as auth.CheckPassword has it.
 	PasswordHash string `json:"-"`
 
 	// The two-factor secret and recovery codes, sealed by auth.TwoFactor,
@@ -89,6 +92,7 @@ func scanUser(row *sql.Row) (*User, error) {
 	}
 	u.TwoFactorSecret, u.RecoveryCodes, u.PhotoKey = secret.String, codes.String, photo.String
 	u.TwoFactor = u.TwoFactorSecret != ""
+	u.Password = u.PasswordHash != ""
 	return u, nil
 }
 

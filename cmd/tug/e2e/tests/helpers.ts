@@ -56,6 +56,23 @@ export async function registered(page: Page, info: TestInfo): Promise<User> {
   return user
 }
 
+// registeredWithPasskey is a new user who has registered with a passkey,
+// from the link mailed to them, which the page's authenticator keeps, on
+// their dashboard, with no password.
+export async function registeredWithPasskey(page: Page, info: TestInfo): Promise<User> {
+  const user = newUser()
+  await page.goto('/register')
+  await page.getByRole('button', { name: 'Use a passkey instead' }).click()
+  await page.getByLabel('Name').fill(user.name)
+  await page.getByLabel('Email').fill(user.email)
+  await page.getByRole('button', { name: 'Mail me a link' }).click()
+  await expect(page.getByText(`We've mailed a link to ${user.email}`)).toBeVisible()
+  await page.goto(await mailedLink(info, user.email, '/register/passkey/'))
+  await page.getByRole('button', { name: 'Make your passkey' }).click()
+  await expect(dashboard(page, user)).toBeVisible()
+  return user
+}
+
 // dashboard is the heading that greets the user on their dashboard.
 export function dashboard(page: Page, user: User) {
   return page.getByRole('heading', { name: `Hello, ${user.name}` })

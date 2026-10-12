@@ -13,8 +13,8 @@ import { form, route, type Inputs } from '@/tug/routes'
 // without MAIL_HOST in .env, the mail is written to tug dev's terminal.
 defineOptions({
   layout: {
-    title: 'Forgotten your password?',
-    description: "Say the email of your account, and we'll mail you a link to choose a new one.",
+    title: 'Forgotten your password, or lost your passkey?',
+    description: "Say the email of your account, and we'll mail you a link to choose a new password.",
   },
 })
 
