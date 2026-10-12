@@ -57,8 +57,10 @@ the detail.
     tests of an app's pages, forms, uploads and logins, `mailtest`, for
     its mail, and its events.
 17. [Deployment](deployment.md): one binary, the Dockerfile, the
-    environment, the headers that say what a browser may do with the app's
-    pages, a Content-Security-Policy among them, the logs, and metrics.
+    environment, HTTPS served by the app itself, with certificates from
+    Let's Encrypt, the headers that say what a browser may do with the
+    app's pages, a Content-Security-Policy among them, the logs, and
+    metrics.
 18. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
     `tug migrate`, `tug build` and `tug key`, in full.
 

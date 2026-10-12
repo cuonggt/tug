@@ -7,6 +7,13 @@
 [[ end -]]
 #
 #   docker build -t app . && docker run -p 8080:8080 -e APP_KEY=... app
+#
+# Or serving HTTPS itself, on a machine of its own, with a certificate from
+# Let's Encrypt for each of TLS_DOMAINS, kept on /data, a volume, so a new
+# container doesn't ask again:
+#
+#   docker run -p 443:443 -p 80:80 -v app-data:/data -e APP_KEY=... \
+#     -e APP_URL=https://example.com -e TLS_DOMAINS=example.com app
 
 FROM node:24-alpine AS frontend
 WORKDIR /app
@@ -24,7 +31,7 @@ COPY --from=frontend /app/public/build public/build
 [[ if .SSR -]]
 COPY --from=frontend /app/ssr/build ssr/build
 [[ end -]]
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data
 
 [[ if .SSR -]]
 FROM gcr.io/distroless/nodejs24-debian12
@@ -33,7 +40,13 @@ ENV SSR_NODE=/nodejs/bin/node
 FROM gcr.io/distroless/static-debian12
 [[ end -]]
 COPY --from=server /server /server
-# The app listens on :8080, or on the PORT a platform sets.
-EXPOSE 8080
+# 65532 is the image's nonroot user, who has to be able to write the
+# certificates.
+COPY --from=server --chown=65532:65532 /data /data
+ENV CERTS_PATH=/data/certs
+# The app listens on :8080, or on the PORT a platform sets; or with
+# TLS_DOMAINS, or TLS_CERT and TLS_KEY, on :443 and :80.
+EXPOSE 8080 443 80
+VOLUME /data
 USER nonroot:nonroot
 ENTRYPOINT ["/server"]

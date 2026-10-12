@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"reflect"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,8 +35,16 @@ import (
 // Config is how an App behaves. Every field has a default, so the zero
 // value works.
 type Config struct {
-	// Addr is where Run listens. Default ":8080".
+	// Addr is where Run listens. Default ":8080", or with TLS, where it
+	// serves HTTPS, ":443".
 	Addr string
+
+	// TLS has Run serve HTTPS itself, on Addr, with certificates from files
+	// or from Let's Encrypt, by package letsencrypt, and plain HTTP beside
+	// it, which sends each request to HTTPS. Its zero value serves plain
+	// HTTP alone, for TLS ended in front of the app, at a proxy, a load
+	// balancer or the platform.
+	TLS TLS
 
 	// Debug shows a server error with its details: a page of the error,
 	// a panic's stack, with the lines of the app's source around its
@@ -120,6 +130,7 @@ type Config struct {
 
 // ConfigFromEnv reads the settings a deployment sets: ADDR, or PORT as
 // platforms such as Cloud Run and Fly.io set it, APP_DEBUG, and APP_URL;
+// TLS_CERT, TLS_KEY and HTTP_ADDR, for a certificate of the app's own;
 // APP_EDITOR, for Debug's page; and DevTools, from TUG_DEV, which tug dev
 // sets.
 func ConfigFromEnv() Config {
@@ -132,6 +143,9 @@ func ConfigFromEnv() Config {
 	c.Debug, _ = strconv.ParseBool(os.Getenv("APP_DEBUG"))
 	c.Editor = os.Getenv("APP_EDITOR")
 	c.URL = os.Getenv("APP_URL")
+	c.TLS.CertFile = os.Getenv("TLS_CERT")
+	c.TLS.KeyFile = os.Getenv("TLS_KEY")
+	c.TLS.HTTPAddr = os.Getenv("HTTP_ADDR")
 	c.DevTools = os.Getenv("TUG_DEV") != ""
 	return c
 }
@@ -195,6 +209,12 @@ func New(config ...Config) *App {
 	}
 	if cfg.Addr == "" {
 		cfg.Addr = ":8080"
+		if cfg.TLS.on() {
+			cfg.Addr = ":443"
+		}
+	}
+	if cfg.TLS.HTTPAddr == "" {
+		cfg.TLS.HTTPAddr = ":80"
 	}
 	if cfg.ErrorHandler == nil {
 		cfg.ErrorHandler = DefaultErrorHandler
@@ -395,7 +415,8 @@ func (a *App) Go(fn func(ctx context.Context) error) {
 // Run serves on Config.Addr until SIGINT or SIGTERM, then shuts down
 // gracefully: it stops taking connections, waits up to
 // Config.ShutdownTimeout for the requests in flight to finish, and waits
-// for what Go runs to return.
+// for what Go runs to return. With Config.TLS, it serves HTTPS there, and
+// HTTP on TLS.HTTPAddr, and shuts both down together.
 //
 // Run is also where tug gen learns about the app: started by it, with
 // TUG_GEN set to a file, Run writes the TypeScript for the app's pages and
@@ -409,6 +430,9 @@ func (a *App) Run() error {
 	defer stop()
 	if len(a.commands) > 0 && len(os.Args) > 1 {
 		return a.runCommand(ctx, os.Args[0], os.Args[1:], os.Stdout)
+	}
+	if a.config.TLS.on() {
+		return a.runTLS(ctx)
 	}
 	ln, err := net.Listen("tcp", a.config.Addr)
 	if err != nil {
@@ -506,30 +530,56 @@ func (a *App) listed() []listedRoute {
 }
 
 // Serve serves on ln until ctx is done, then shuts down as Run does. It
-// closes ln.
+// closes ln. A listener of TLS's serves HTTPS, and HTTP/2 when its
+// tls.Config offers h2 in NextProtos, which http.Server adds for ServeTLS
+// alone: Run's own HTTPS, with Config.TLS, offers it.
 func (a *App) Serve(ctx context.Context, ln net.Listener) error {
-	a.start.Do(a.freeze)
-	srv := &http.Server{
-		Handler: a,
+	return a.serveAll(ctx, nil, listening{server: a.server(a), ln: ln})
+}
+
+// server is an http.Server for h, as Serve's and Run's are.
+func (a *App) server(h http.Handler) *http.Server {
+	return &http.Server{
+		Handler: h,
 		// Without it, a client that sends its headers a byte at a time
 		// holds a connection for as long as it likes.
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
-		ErrorLog:          slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
+		ErrorLog:          log.New(serverLog{slog.Default().Handler()}, "", 0),
+	}
+}
+
+// listening is a server, and the listener it serves.
+type listening struct {
+	server *http.Server
+	ln     net.Listener
+	scheme string // for the log, when there's more than one
+}
+
+// serveAll serves each of servers until ctx is done, with what Go runs, and
+// more work, beside them, then shuts them all down together, as Serve
+// does. It closes their listeners.
+func (a *App) serveAll(ctx context.Context, more []func(context.Context) error, servers ...listening) error {
+	a.start.Do(a.freeze)
+	served := make(chan error, len(servers))
+	for _, s := range servers {
+		go func() { served <- s.server.Serve(s.ln) }()
+		if s.scheme != "" {
+			slog.Info("listening", "addr", s.ln.Addr().String(), "scheme", s.scheme)
+		} else {
+			slog.Info("listening", "addr", s.ln.Addr().String())
+		}
 	}
 
-	served := make(chan error, 1)
-	go func() { served <- srv.Serve(ln) }()
-	slog.Info("listening", "addr", ln.Addr().String())
-
-	// What Go runs is told to stop as the server shuts down, and stops
-	// the server when it fails first.
+	// What Go runs is told to stop as the servers shut down, and stops
+	// them when it fails first.
 	work, stopWork := context.WithCancel(ctx)
 	defer stopWork()
-	errs := make([]error, len(a.background))
-	failed := make(chan struct{}, len(a.background))
+	fns := append(slices.Clip(a.background), more...)
+	errs := make([]error, len(fns))
+	failed := make(chan struct{}, len(fns))
 	var working sync.WaitGroup
-	for i, fn := range a.background {
+	for i, fn := range fns {
 		working.Go(func() {
 			if errs[i] = fn(work); errs[i] != nil {
 				failed <- struct{}{}
@@ -537,11 +587,12 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 		})
 	}
 
+	var serveErrs []error
+	waiting := len(servers)
 	select {
-	case err := <-served:
-		stopWork()
-		working.Wait()
-		return errors.Join(err, stopped(errs))
+	case err := <-served: // a server whose listener failed under it
+		waiting--
+		serveErrs = append(serveErrs, err)
 	case <-ctx.Done():
 	case <-failed:
 	}
@@ -551,15 +602,30 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	slog.Info("shutting down", "timeout", a.config.ShutdownTimeout)
 	sctx, cancel := context.WithTimeout(context.Background(), a.config.ShutdownTimeout)
 	defer cancel()
-	var err error
-	if serr := srv.Shutdown(sctx); serr != nil {
-		srv.Close()
-		err = fmt.Errorf("tug: requests still running after %v: %w", a.config.ShutdownTimeout, serr)
-	} else if serr := <-served; !errors.Is(serr, http.ErrServerClosed) {
-		err = serr
+	late := make([]error, len(servers))
+	var shutting sync.WaitGroup
+	for i, s := range servers {
+		shutting.Go(func() {
+			if err := s.server.Shutdown(sctx); err != nil {
+				s.server.Close()
+				late[i] = err
+			}
+		})
+	}
+	shutting.Wait()
+	for _, err := range late {
+		if err != nil {
+			serveErrs = append(serveErrs, fmt.Errorf("tug: requests still running after %v: %w", a.config.ShutdownTimeout, err))
+			break
+		}
+	}
+	for ; waiting > 0; waiting-- {
+		if err := <-served; !errors.Is(err, http.ErrServerClosed) {
+			serveErrs = append(serveErrs, err)
+		}
 	}
 	working.Wait()
-	return errors.Join(err, stopped(errs))
+	return errors.Join(errors.Join(serveErrs...), stopped(errs))
 }
 
 // stopped is what the work Go runs returned, but for its being canceled,

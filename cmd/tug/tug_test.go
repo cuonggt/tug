@@ -126,6 +126,28 @@ func TestDevGivesTheAppTheAddressItShowsUnlessItHasOne(t *testing.T) {
 	}
 }
 
+func TestDevLeavesADeploysHTTPSOutOfTheAppsEnvironment(t *testing.T) {
+	env := []string{"TLS_DOMAINS=example.com", "TLS_CERT=/etc/certs/a.pem", "TLS_KEY=/etc/certs/a.key", "HTTP_ADDR=:80", "TLS_DOMAINSX=kept", "APP_KEY=base64:x"}
+	if got := setDeployVars(env); !slices.Equal(got, []string{"TLS_DOMAINS", "TLS_CERT", "TLS_KEY", "HTTP_ADDR"}) {
+		t.Errorf("said it leaves out %q", got)
+	}
+	got := devEnv(env, "127.0.0.1:8080")
+	for _, k := range []string{"TLS_DOMAINS", "TLS_CERT", "TLS_KEY", "HTTP_ADDR"} {
+		if v := envValue(got, k); v != "" {
+			t.Errorf("the app has %s=%s, which would have it serve HTTPS", k, v)
+		}
+	}
+	if envValue(got, "TLS_DOMAINSX") != "kept" || envValue(got, "APP_KEY") != "base64:x" {
+		t.Errorf("the rest of the environment went too: %q", got)
+	}
+	if envValue(env, "TLS_DOMAINS") != "example.com" {
+		t.Error("devEnv changed the environment it was given, which Vite has")
+	}
+	if got := setDeployVars([]string{"TLS_DOMAINS="}); len(got) != 0 {
+		t.Errorf("an empty TLS_DOMAINS, as .env.example's, is said to be left out: %q", got)
+	}
+}
+
 func TestDevShowsTheAppAtLocalhost(t *testing.T) {
 	for addr, want := range map[string]string{
 		"127.0.0.1:8080": "localhost:8080",

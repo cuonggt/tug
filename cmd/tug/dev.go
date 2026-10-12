@@ -75,6 +75,9 @@ with, unless .env names another.
 	if err != nil {
 		return err
 	}
+	if vars := setDeployVars(env); len(vars) > 0 {
+		say("leaving out %s, which are for a deploy: the app serves HTTP", strings.Join(vars, ", "))
+	}
 	env = devEnv(env, addr)
 	changes := watch(ctx, ".", 300*time.Millisecond)
 	var app *proc
@@ -155,17 +158,39 @@ func devAddr(env []string, say func(string, ...any)) (string, error) {
 	return "", errors.New("ports 8080 to 8099 are all taken: set ADDR to one that isn't")
 }
 
-// devEnv is the app's environment under tug dev: env, and where it listens,
-// addr; TUG_DEV, which tells it that Vite's dev server is its, and renders
-// its pages on the server too, so it needs no Node process of its own; and
-// APP_URL, the address tug dev shows, unless env has one, so that the
-// links the app makes, as in its mail, lead where the browser has it open.
+// devEnv is the app's environment under tug dev: env, but for deployVars,
+// and where it listens, addr; TUG_DEV, which tells it that Vite's dev
+// server is its, and renders its pages on the server too, so it needs no
+// Node process of its own; and APP_URL, the address tug dev shows, unless
+// env has one, so that the links the app makes, as in its mail, lead where
+// the browser has it open.
 func devEnv(env []string, addr string) []string {
+	env = slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return slices.Contains(deployVars, k)
+	})
 	env = append(env, "ADDR="+addr, "TUG_DEV=1")
 	if envValue(env, "APP_URL") == "" {
 		env = append(env, "APP_URL=http://"+shown(addr))
 	}
 	return env
+}
+
+// deployVars are the variables of the app's own HTTPS, which tug dev
+// leaves out of its environment: a .env copied from a deploy would have a
+// laptop ask Let's Encrypt for the deploy's certificates, and listen on
+// :443 and :80.
+var deployVars = []string{"TLS_DOMAINS", "TLS_CERT", "TLS_KEY", "HTTP_ADDR"}
+
+// setDeployVars lists the deployVars that env gives a value.
+func setDeployVars(env []string) []string {
+	var set []string
+	for _, k := range deployVars {
+		if envValue(env, k) != "" {
+			set = append(set, k)
+		}
+	}
+	return set
 }
 
 // envValue is key's value in env, the last one, as a process started with

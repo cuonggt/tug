@@ -26,6 +26,10 @@
 #     -e APP_KEY=... -e APP_URL=https://example.com -e DB_URL=... \
 [[ end -]]
 #     -e MAIL_HOST=... -e MAIL_FROM_ADDRESS=... app
+#
+# Or serving HTTPS itself, on a machine of its own, with a certificate from
+# Let's Encrypt for each of TLS_DOMAINS, kept on the volume too, so a new
+# container doesn't ask again: -p 443:443 -p 80:80 -e TLS_DOMAINS=example.com.
 
 FROM node:24-alpine AS frontend
 WORKDIR /app
@@ -55,14 +59,15 @@ COPY --from=server /server /server
 [[ if .SQLite -]]
 # 65532 is the image's nonroot user, who has to be able to write the database.
 COPY --from=server --chown=65532:65532 /data /data
-ENV DB_PATH=/data/app.db FILES_PATH=/data/files
+ENV DB_PATH=/data/app.db FILES_PATH=/data/files CERTS_PATH=/data/certs
 [[ else -]]
 # 65532 is the image's nonroot user, who has to be able to write the files.
 COPY --from=server --chown=65532:65532 /data /data
-ENV FILES_PATH=/data/files
+ENV FILES_PATH=/data/files CERTS_PATH=/data/certs
 [[ end -]]
-# The app listens on :8080, or on the PORT a platform sets.
-EXPOSE 8080
+# The app listens on :8080, or on the PORT a platform sets; or with
+# TLS_DOMAINS, or TLS_CERT and TLS_KEY, on :443 and :80.
+EXPOSE 8080 443 80
 VOLUME /data
 USER nonroot:nonroot
 ENTRYPOINT ["/server"]

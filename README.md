@@ -314,13 +314,19 @@ func showPost(c *tug.Ctx) error {
   made for the response, which the root template gives Vite's tags and its
   own, and logs what browsers report it blocked.
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking
-  connections and lets the requests in flight finish. Given one of the
+  connections and lets the requests in flight finish. With `TLS_DOMAINS`,
+  on a machine of its own, it serves HTTPS itself, and HTTP/2, on `:443`,
+  with a certificate for each domain from Let's Encrypt (package
+  `letsencrypt`), asked for as it starts, kept, and renewed, and `:80`
+  sends each request to HTTPS; or with `TLS_CERT` and `TLS_KEY`, a
+  certificate of the app's own, read again as it's renewed. Given one of the
   app's commands, as `./blog jobs`, which `app.Command` adds, it runs
   that in place of serving, in the app as `main` made it.
 
 tug needs Go 1.26. Its dependencies are go-playground/validator, for
-package `validate`, and golang.org/x/crypto, for argon2id in package `auth`;
-the rest is the standard library.
+package `validate`, and golang.org/x/crypto, for argon2id in package `auth`
+and autocert in package `letsencrypt`, with golang.org/x/net, for the
+domain names autocert reads; the rest is the standard library.
 
 ## Benchmarks
 

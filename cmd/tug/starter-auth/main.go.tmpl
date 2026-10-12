@@ -27,6 +27,7 @@ import (
 	"github.com/cuonggt/tug/cache"
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/lang"
+	"github.com/cuonggt/tug/letsencrypt"
 	"github.com/cuonggt/tug/mail"
 	"github.com/cuonggt/tug/middleware"
 	"github.com/cuonggt/tug/migrate"
@@ -119,7 +120,17 @@ func main() {
 	// Events, to the pages open on any instance, which the database carries
 	// between them: broadcasts.go.
 	hub := &broadcast.Hub{Store: &broadcasts{db: db}}
-	app, err := newApp(tug.ConfigFromEnv(), env{
+	// With TLS_DOMAINS, as example.com, the app serves HTTPS itself, on
+	// :443, with a certificate for each domain from Let's Encrypt, kept in
+	// CERTS_PATH, and HTTP on :80, which sends every request to HTTPS; with
+	// TLS_CERT and TLS_KEY, a certificate of its own. Without them, TLS
+	// ends in front of it, at a proxy or the platform, and it serves HTTP
+	// on :8080.
+	cfg := tug.ConfigFromEnv()
+	if cfg.TLS.Certificates, err = letsencrypt.FromEnv(); err != nil {
+		log.Fatal(err)
+	}
+	app, err := newApp(cfg, env{
 		Build: build, Keys: keys, DB: db, Disk: disk, Mailer: mailer, Queue: q, Hub: hub,
 [[- if .SSR ]]
 		SSR: bundle,

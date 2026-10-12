@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M44 are done, which is
+the decisions behind it and where it stands: M1 to M45 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -120,7 +120,12 @@ and browser sessions (v0.39.0): `auth.LoginID`, a login's own ID, by
 which the auth starter keeps a row of each login, which its session needs
 at every request, lists the browsers an account is logged in from on its
 security page, logs one out from another, and tells of a login from a
-browser the account hasn't logged in from before.
+browser the account hasn't logged in from before, and built-in HTTPS
+(v0.40.0): `Config.TLS`, which has `Run` serve HTTPS itself, and HTTP/2,
+on :443, and HTTP on :80, which sends each request there, with a
+certificate's files, read again as they change, or package
+`letsencrypt`'s, from Let's Encrypt, by autocert, each asked for as the
+app starts, which the starters take from `TLS_DOMAINS`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -152,6 +157,20 @@ gone from Docker Hub, and Bitnami's last is kept:
 docker run -d --rm --name tug-minio -p 127.0.0.1:9000:9000 -e MINIO_ROOT_USER=tug \
   -e MINIO_ROOT_PASSWORD=tug-secret-key bitnamilegacy/minio:2025.7.23-debian-12-r5
 TUG_TEST_S3=http://tug:tug-secret-key@127.0.0.1:9000 go test ./storage
+```
+
+Package letsencrypt's tests get certificates from a Pebble, Let's
+Encrypt's CA for tests, when `TUG_TEST_ACME` names one, as CI's does, and
+skip them otherwise. Pebble checks the challenges on 127.0.0.1's ports
+5001 and 5002, which the tests listen on, and pebble-challtestsrv is its
+DNS, with every name at 127.0.0.1:
+
+```bash
+go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.10.1 github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@v2.10.1
+pebble-challtestsrv -defaultIPv6 "" -http01 "" -https01 "" -tlsalpn01 "" -doh "" &
+(cd "$(go mod download -json github.com/letsencrypt/pebble/v2@v2.10.1 | jq -r .Dir)" && PEBBLE_VA_NOSLEEP=1 \
+  PEBBLE_AUTHZREUSE=0 pebble -config test/config/pebble-config.json -dnsserver 127.0.0.1:8053 &)
+TUG_TEST_ACME=https://127.0.0.1:14000/dir go test ./letsencrypt
 ```
 
 The CLI's tests make the auth starter on Postgres and on MySQL, and run
@@ -218,8 +237,11 @@ dev server that isn't there: delete it.
 
 - `tug`, the root package:
   - `app.go`: `Config` (`ConfigFromEnv` reads ADDR, PORT, APP_DEBUG,
-    APP_URL, APP_EDITOR, for `Editor`, and TUG_DEV, for `DevTools`; `New` panics on a `URL` that
-    `appURL`, in links.go, doesn't take), `App`, `Run` and `Serve` with graceful shutdown, and misses. At
+    APP_URL, TLS_CERT, TLS_KEY and HTTP_ADDR, for `TLS`, APP_EDITOR, for
+    `Editor`, and TUG_DEV, for `DevTools`; `New` panics on a `URL` that
+    `appURL`, in links.go, doesn't take), `App`, `Run` and `Serve` with
+    graceful shutdown, through `serveAll`, which serves more than one
+    `listening` server and shuts them down together, and misses. At
     the first request, `freeze` adds `/` as a catch-all, unless a route
     already takes every path under every method. The catch-all answers
     trailing-slash redirects itself, with a 307, and 405s (probing the mux
@@ -244,6 +266,25 @@ dev server that isn't there: delete it.
     request is recorded as it went out; `adapt` records where it starts
     (`Handling`, `devtools.Here`), whose frame bounds the handler's on the
     stack. Off, each hook of it is a nil check.
+  - `tls.go`: `TLS`, `Config.TLS`, which has `Run` serve HTTPS itself
+    (`runTLS`, `serveTLS`): HTTPS on `Addr`, `:443` by default, offering
+    `h2`, `http/1.1` and what a source's `TLSConfig` adds, as `acme-tls/1`,
+    and HTTP on `HTTPAddr`, `:80`, `toHTTPS`, a 308 to the request's own
+    host when it's the certificates' (`ours`), and else to `home`,
+    `Config.URL`'s, or the certificates' first name, through a source's
+    `HTTPHandler`, both through `serveAll`, with a source's `Run` beside
+    them once both listen. A nil source is none (`source`), as
+    `letsencrypt.FromEnv`'s nil Manager. `certificates` checks it as
+    `Run` starts, `APP_URL`'s host among a source's `Hosts`, and makes
+    `certFiles`, a certificate's files, read again at a handshake a minute
+    after they were last looked at, when their times have changed
+    (`reload`).
+    `Certificates` is a source, `GetCertificate`, with `Hosts`,
+    `HTTPHandler`, `TLSConfig` and `Run` looked for, the middle two
+    autocert's own; `getCertificate` logs a failure for one of its own
+    hosts; `serverLog` is an `http.Server`'s log, a failed handshake at
+    Debug. Package tug doesn't import autocert, which a test checks by
+    `go list -deps`.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -623,8 +664,9 @@ dev server that isn't there: delete it.
   changes (`watch`, `snapshot`), touches `.tug/reload` for the starter's
   Vite plugin to reload the browser, and shows 127.0.0.1 as localhost
   (`shown`), where browsers make passkeys, which is the app's `APP_URL`
-  unless it has one (`devEnv`), and rebuilds on `lang/*.json` and
-  `migrations/*.sql` too (`watched`); `build.go`; `new.go`
+  unless it has one (`devEnv`), leaves a deploy's HTTPS out of the app's
+  environment (`deployVars`, which it says, `setDeployVars`), and
+  rebuilds on `lang/*.json` and `migrations/*.sql` too (`watched`); `build.go`; `new.go`
   (`writeStarter`) lays directories over each other, a later one's files
   replacing an earlier one's of the same name: `starter/`, the Go and what
   every frontend uses, then the frontend's own, `react/`, `vue/` or
@@ -865,7 +907,13 @@ dev server that isn't there: delete it.
   `.Nonce`. `e2e/tests/headers.spec.ts` checks the headers, and a script
   the page didn't bring blocked, and reported to the app's log, and the
   build's scripts and styles gzipped in the browser, and
-  `tug_test.go`'s `rendersOnTheServer` a served page's scripts' nonce;
+  `tug_test.go`'s `rendersOnTheServer` a served page's scripts' nonce.
+  Both starters' `main` gives `Config.TLS` the `Certificates`
+  `letsencrypt.FromEnv` makes, nil without `TLS_DOMAINS`, which
+  `TLS.source` takes as none, and
+  their images keep `CERTS_PATH`, `/data/certs`, on `/data`, a volume,
+  the plain starter's too, with `certs` out of `.gitignore` and
+  `.dockerignore`;
   `e2e/tests/head.spec.ts` checks the home page's title and description
   from Go, once, and the login page's own after a visit, and back.
   Both starters embed `lang/` (a
@@ -982,6 +1030,19 @@ dev server that isn't there: delete it.
   starts it again with a growing wait, and stops it with the app;
   `proc_linux.go` has Linux stop it if the app dies. Its tests run a fake
   bundle in real Node.
+- `letsencrypt`: certificates from Let's Encrypt, for
+  `Config.TLS.Certificates`, with no import of tug: `Manager`, over an
+  `autocert.Manager` (`AcceptTOS`, `HostWhitelist` of the domains, a
+  `DirCache`, `certs` by default, and an `acme.Client` of `Config.CA`,
+  Let's Encrypt's or `StagingURL`), `New` (`domain`: lower case, by idna,
+  and no address, wildcard or name without a dot), `FromEnv`
+  (`TLS_DOMAINS`, `CERTS_PATH`, `ACME_URL`; nil without the first),
+  `Hosts`, `GetCertificate`, `TLSConfig`, `HTTPHandler`, and `Run`, which
+  asks for each domain's certificate by a hello that offers ECDSA, as a
+  browser's does (`ask`), logs how each went, and returns as its context
+  is done. Its tests get certificates from a Pebble when `TUG_TEST_ACME`
+  names one (`pebble`), whose answer to a finalize `asLetsEncrypt` gives
+  the Location Let's Encrypt's has.
 - `queue`: background jobs, with no import of tug and no idea where jobs
   are kept. `store.go`: `Job` and `Store`, whose Done, Retry and Fail act
   only for the claim that holds a job, told apart by its `Attempts`. A
@@ -1234,8 +1295,9 @@ tug logs through `slog.Default()` and never sets it; that's the app's call.
   details that aren't theirs go to the log.
 - **tug stays on the standard library.** A dependency needs a reason; the
   ones so far are go-playground/validator, behind package `validate`,
-  which is also why Go 1.26 is the minimum, and golang.org/x/crypto, for
-  argon2id. The starters' apps can have their own, as the auth starter's
+  which is also why Go 1.26 is the minimum, golang.org/x/crypto, for
+  argon2id, and in package `letsencrypt`, autocert, with
+  golang.org/x/net's idna, which package tug doesn't import. The starters' apps can have their own, as the auth starter's
   database drivers and its npm packages (Tailwind, shadcn/ui's Radix,
   lucide, sonner, qrcode.react) are.
 - **The decisions in `docs/roadmap.md` are settled.** Ask before reopening

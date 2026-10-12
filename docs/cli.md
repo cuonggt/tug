@@ -52,6 +52,8 @@ The variables tug itself uses:
 - `ADDR` and `PORT`: where `tug dev` runs the app.
 - `APP_URL`: the app's address, which `tug dev` sets to where it shows
   the app, unless `.env` or the environment has one.
+- `TLS_DOMAINS`, `TLS_CERT`, `TLS_KEY` and `HTTP_ADDR`: a deploy's HTTPS,
+  which `tug dev` leaves out of the app's environment.
 - `TUG_GEN`: set by tug when it runs the app for its types; see
   [`tug gen`](#tug-gen).
 - `NO_COLOR`: when it's set, `tug dev`'s labels aren't colored. They're
@@ -197,7 +199,12 @@ Runs the app for development. It has no flags.
    its mailbox, at `/_tug/mail`, where `mail.FromEnv` keeps the mail the
    app sends with no `MAIL_HOST` ([Accounts](auth.md#package-mail)), and
    tells an app with server-side rendering that the dev server renders
-   its pages, so it runs no Node of its own.
+   its pages, so it runs no Node of its own. It leaves `TLS_DOMAINS`,
+   `TLS_CERT`, `TLS_KEY` and `HTTP_ADDR` out, and says so, as a `.env`
+   copied from a deploy would have a laptop serve HTTPS on `:443`, with
+   the deploy's certificates from Let's Encrypt
+   ([Deployment](deployment.md#https-on-its-own)): under `tug dev`, the app
+   serves HTTP.
 4. It builds the app into `.tug/app`, writes its types as `tug gen` does,
    starts it, and waits for it to take connections. Then it says where the
    app is, and reloads the browser:

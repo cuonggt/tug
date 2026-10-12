@@ -37,7 +37,8 @@ Every field has a default, so the zero `Config` works:
 
 | Field             | Default               | What it is |
 |-------------------|-----------------------|------------|
-| `Addr`            | `":8080"`             | Where `Run` listens. |
+| `Addr`            | `":8080"`, or with `TLS`, `":443"` | Where `Run` listens. |
+| `TLS`             | none: plain HTTP      | Has `Run` serve HTTPS itself, with certificates from files or Let's Encrypt, and plain HTTP beside it, which sends each request to HTTPS. See [HTTPS on its own](deployment.md#https-on-its-own). |
 | `Debug`           | `false`               | Shows a server error with its details: a page of the error, a panic's stack with the app's source around it, the route that answered and the request. It's for development: in production they belong in the log only. See [While debugging](#while-debugging). |
 | `Editor`          | none                  | The editor `Debug`'s page opens a frame's file in: `vscode`, `cursor`, `zed`, `goland` or `sublime`, or a link with `{file}` and `{line}` in it. |
 | `ErrorHandler`    | `DefaultErrorHandler` | Answers the errors handlers return, and the 404s and 405s of requests no route takes. See [Errors](#errors). |
@@ -55,8 +56,10 @@ Every field has a default, so the zero `Config` works:
 `ConfigFromEnv` reads `ADDR`, the address to listen on, such as
 `127.0.0.1:8080`; or else `PORT`, as platforms such as Cloud Run and Fly.io
 set it, so `PORT=3000` is `:3000`; `APP_DEBUG`, where `true` or `1` turns
-on `Debug`; `APP_URL`, the app's address; `APP_EDITOR`, the `Editor`; and
-`TUG_DEV`, which `tug dev` sets, and which turns on `DevTools`. The default address,
+on `Debug`; `APP_URL`, the app's address; `TLS_CERT` and `TLS_KEY`, a
+certificate's files, and `HTTP_ADDR`, for `TLS`; `APP_EDITOR`, the
+`Editor`; and `TUG_DEV`, which `tug dev` sets, and which turns on
+`DevTools`. The default address,
 `:8080`, listens on every interface. `tug.New` panics on a `URL` that isn't
 a scheme and a host, as a mistyped `APP_URL` should stop the app as it
 starts. [deployment.md](deployment.md) has more on the environment in
@@ -73,6 +76,14 @@ does the same on a listener of your own, until `ctx` is done, and closes
 the listener. The server either one starts has a `ReadHeaderTimeout` of 10
 seconds, so a client that sends its headers a byte at a time can't hold a
 connection for as long as it likes.
+
+With `Config.TLS`, `Run` serves HTTPS on `Addr`, and HTTP/2 with it, and
+plain HTTP on `TLS.HTTPAddr`, `:80`, which sends each request to HTTPS,
+and shuts both down together: [deployment.md](deployment.md#https-on-its-own)
+has how, with certificates from Let's Encrypt by package `letsencrypt`.
+`Serve` serves the listener it's given as it is: a TLS listener serves
+HTTPS, and HTTP/2 when its `tls.Config` offers `h2` in `NextProtos`, which
+`http.Server` adds for `ServeTLS` alone.
 
 Work that isn't a request, such as a job queue's workers, runs beside the
 server with `app.Go`:
@@ -918,7 +929,13 @@ slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 ```
 
 `Run` and `Serve` log "listening", with the address, and "shutting down",
-and send the `http.Server`'s own errors there at Warn. `DefaultErrorHandler`
+and send the `http.Server`'s own errors there at Warn, but a TLS
+handshake that failed, at Debug, as most are a client's doing, a
+scanner's or one that gave up; a certificate the app couldn't get for a
+handshake for one of its own domains is a warning, "no certificate for a
+handshake". Package `letsencrypt` logs each domain's certificate as the
+app starts, "a certificate is ready", or "couldn't get a certificate", at
+Error. `DefaultErrorHandler`
 logs "request failed" for server errors. In package `middleware`, `Logger`
 logs a "request" line for each request, and `Recover` logs "panic". A line
 about a request is logged with the request's context, so a `slog.Handler`

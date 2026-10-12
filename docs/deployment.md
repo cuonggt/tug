@@ -4,8 +4,8 @@ A tug app ships as one binary: the Go server, with the frontend's build
 inside it. `tug build` makes that binary, and every app that `tug new` makes
 has a Dockerfile that builds it into an image. The binary takes its
 settings from the environment. This page covers each of those, then
-running behind a proxy, shutting down, health checks, rotating the key,
-and logs.
+HTTPS served by the app itself, running behind a proxy, shutting down,
+health checks, rotating the key, and logs.
 
 ## `tug build`
 
@@ -107,11 +107,16 @@ behind: delete it.
 
 | Variable            | What it does | Default | Read by |
 |---------------------|--------------|---------|---------|
-| `ADDR`              | Where the app listens, as `host:port`. | `:8080`, every interface | `tug.ConfigFromEnv` |
+| `ADDR`              | Where the app listens, as `host:port`: with HTTPS of its own, where it serves HTTPS. | `:8080`, every interface, or with HTTPS of its own, `:443` | `tug.ConfigFromEnv` |
 | `PORT`              | The port, when `ADDR` isn't set, as Cloud Run and Fly.io set it. | none | `tug.ConfigFromEnv` |
 | `APP_DEBUG`         | `true` or `1` shows a server error with its details: the error, a panic's stack with the app's source around it, and the request ([While debugging](routing.md#while-debugging)). Leave it off in production. | off | `tug.ConfigFromEnv` |
 | `APP_EDITOR`        | For development: the editor `APP_DEBUG`'s page opens a frame's file in, as `vscode`. | none | `tug.ConfigFromEnv` |
 | `APP_URL`           | The app's address, such as `https://example.com`, which the links that leave it start with: `AbsoluteURL` and `SignedURL`'s, and the auth starter's mail, whose passkeys are for it too. With `https://`, the starters' session cookie is for HTTPS only, and their pages hold the browser to HTTPS ([Security headers](#security-headers)). `tug dev` sets it to the address it shows. | none: the auth starter stops without it | `tug.ConfigFromEnv` |
+| `TLS_DOMAINS`       | The domains the app serves HTTPS for itself, comma separated, as `example.com,www.example.com`, with a certificate for each from Let's Encrypt, whose terms setting it accepts: see [HTTPS on its own](#https-on-its-own). `APP_URL`'s host is one of them. | none: plain HTTP, for TLS ended in front of the app | `letsencrypt.FromEnv`, in the starters' `main.go` |
+| `CERTS_PATH`        | Where the certificates from Let's Encrypt, and the key of the app's account with it, are kept. | `certs`, and `/data/certs` in the images | `letsencrypt.FromEnv` |
+| `ACME_URL`          | A CA to get them from other than Let's Encrypt, as its staging, `https://acme-staging-v02.api.letsencrypt.org/directory`, to try a deploy without spending its limits. | Let's Encrypt | `letsencrypt.FromEnv` |
+| `TLS_CERT`, `TLS_KEY` | A certificate of the app's own, with its chain, and its key, PEM files, to serve HTTPS with in place of Let's Encrypt's, read again as they change. | none | `tug.ConfigFromEnv` |
+| `HTTP_ADDR`         | Where the app serves plain HTTP beside its HTTPS, which sends each request to HTTPS. | `:80` | `tug.ConfigFromEnv` |
 | `TUG_DEV`           | Set by `tug dev`, for development: the app keeps an entry of each request for Inertia's DevTools ([pages.md](pages.md#devtools)), and the mail it sends with no `MAIL_HOST` in its mailbox, at `/_tug/mail`, and an app with server-side rendering leaves it to Vite. Leave it unset in production. | unset | `tug.ConfigFromEnv`, and the starters' `main.go` with `-ssr` |
 | `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail and to its photos, as `SignedURL` signs. | none: the starters stop without it | `session.KeysFromEnv` |
 | `APP_PREVIOUS_KEYS` | Keys being rotated out, comma separated. They still decrypt sessions and check links. | none | `session.KeysFromEnv` |
@@ -149,7 +154,8 @@ app that runs: a session one copy writes, another reads.
 to rotate it.
 
 `ADDR` wins over `PORT`. The Dockerfiles set neither, so the app listens on
-`:8080`, or on the `PORT` that a platform such as Cloud Run sets.
+`:8080`, or on the `PORT` that a platform such as Cloud Run sets, or with
+`TLS_DOMAINS`, on `:443` and `:80`.
 
 An app with server-side rendering, `tug new -ssr`, reads these as well
 ([ssr.md](ssr.md)):
@@ -168,6 +174,13 @@ The plain starter's:
 # else in it.
 #
 #   docker build -t app . && docker run -p 8080:8080 -e APP_KEY=... app
+#
+# Or serving HTTPS itself, on a machine of its own, with a certificate from
+# Let's Encrypt for each of TLS_DOMAINS, kept on /data, a volume, so a new
+# container doesn't ask again:
+#
+#   docker run -p 443:443 -p 80:80 -v app-data:/data -e APP_KEY=... \
+#     -e APP_URL=https://example.com -e TLS_DOMAINS=example.com app
 
 FROM node:24-alpine AS frontend
 WORKDIR /app
@@ -182,12 +195,18 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/public/build public/build
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=server /server /server
-# The app listens on :8080, or on the PORT a platform sets.
-EXPOSE 8080
+# 65532 is the image's nonroot user, who has to be able to write the
+# certificates.
+COPY --from=server --chown=65532:65532 /data /data
+ENV CERTS_PATH=/data/certs
+# The app listens on :8080, or on the PORT a platform sets; or with
+# TLS_DOMAINS, or TLS_CERT and TLS_KEY, on :443 and :80.
+EXPOSE 8080 443 80
+VOLUME /data
 USER nonroot:nonroot
 ENTRYPOINT ["/server"]
 ```
@@ -203,15 +222,19 @@ ENTRYPOINT ["/server"]
 - The image the app runs in is distroless: the binary and not much else,
   with no shell and no package manager. It has CA certificates, which mail
   over TLS needs, and time zone data. The app runs as its `nonroot` user.
+- `/data` is a volume, which keeps the certificates of an app that serves
+  HTTPS itself, from Let's Encrypt, so that a new container doesn't ask for
+  them again: see [HTTPS on its own](#https-on-its-own).
 
 `.dockerignore` keeps `node_modules`, `public/build`, `public/hot`,
-`.tug`, `.env` and `.git` out of the build, and the auth starter's on
+`.tug`, `.env`, `certs` and `.git` out of the build, and the auth starter's on
 SQLite keeps a development `app.db` out too. So the frontend is built
 afresh, and the development `.env` never reaches the image: the
 variables come with `docker run -e`, as the Dockerfile's comment shows.
 
-The auth starter's image, on SQLite, keeps its database, and the photos
-people upload, in `/data`, a volume, so that they outlive the container:
+The auth starter's image, on SQLite, keeps its database, the photos
+people upload, and its certificates, in `/data`, a volume, so that they
+outlive the container:
 
 ```dockerfile
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data
@@ -220,9 +243,10 @@ FROM gcr.io/distroless/static-debian12
 COPY --from=server /server /server
 # 65532 is the image's nonroot user, who has to be able to write the database.
 COPY --from=server --chown=65532:65532 /data /data
-ENV DB_PATH=/data/app.db FILES_PATH=/data/files
-# The app listens on :8080, or on the PORT a platform sets.
-EXPOSE 8080
+ENV DB_PATH=/data/app.db FILES_PATH=/data/files CERTS_PATH=/data/certs
+# The app listens on :8080, or on the PORT a platform sets; or with
+# TLS_DOMAINS, or TLS_CERT and TLS_KEY, on :443 and :80.
+EXPOSE 8080 443 80
 VOLUME /data
 USER nonroot:nonroot
 ENTRYPOINT ["/server"]
@@ -233,7 +257,8 @@ The app runs as `nonroot`, whose ID is 65532, so `/data` has to belong to
 directory when it isn't there, and, with the write-ahead log the starter
 turns on, its `-wal` and `-shm` files beside it, and the app makes
 `/data/files` as the first photo goes in. With `FILESYSTEM_DISK=s3`, the
-photos are in the bucket instead, and the volume has the database alone.
+photos are in the bucket instead, and the volume has the database, and
+the certificates of an app that serves HTTPS itself.
 The distroless image has no shell to make the directory in, so the
 `server` stage makes it and the copy sets its owner. A new named volume
 starts with the image's `/data`, owner and all. A directory of the
@@ -246,7 +271,7 @@ still static.
 ### On Postgres or MySQL
 
 An app made with `-postgres` or `-mysql` has the same image, with `/data`
-for the photos alone: the database is wherever `DB_URL` says, with the
+for the photos and the certificates alone: the database is wherever `DB_URL` says, with the
 driver's settings in its query, such as Postgres's `sslmode`:
 
 ```sh
@@ -306,10 +331,188 @@ new API token, and only the app knows which do. A proxy or CDN in front,
 as Cloudflare or a load balancer, compresses them when the app chooses
 it; the build has nothing secret, and changes only with a deploy.
 
+## HTTPS on its own
+
+On a machine of its own, with no proxy in front to end TLS, the app
+serves HTTPS itself, with certificates from Let's Encrypt. Point each
+domain's DNS at the machine, and set `TLS_DOMAINS`:
+
+```sh
+TLS_DOMAINS=example.com,www.example.com APP_URL=https://example.com APP_KEY=base64:... ./blog
+```
+
+```
+2026/10/12 10:27:12 INFO listening addr=[::]:443 scheme=https
+2026/10/12 10:27:12 INFO listening addr=[::]:80 scheme=http
+2026/10/12 10:27:16 INFO a certificate is ready domain=example.com expires=2027-01-10T09:27:15.000Z
+2026/10/12 10:27:16 INFO a certificate is ready domain=www.example.com expires=2027-01-10T09:27:15.000Z
+```
+
+`Run` then serves HTTPS on `:443`, and HTTP/2 with it, and plain HTTP on
+`:80`:
+
+- Each domain's certificate is asked for as the app starts, once both
+  ports listen, rather than at the first visitor's handshake, so no one
+  waits the seconds it takes. A domain whose DNS doesn't reach the
+  machine shows in the log at once, as "couldn't get a certificate", and
+  is asked for again at its first handshake. Let's Encrypt checks that
+  the machine is the domain's with a challenge, on `:443` first,
+  TLS-ALPN-01, and else on `:80`, HTTP-01, so a host that closes `:80`
+  gets its certificates too.
+- The certificates, and the key of the app's account with Let's Encrypt,
+  are kept in `CERTS_PATH`, `certs/` beside the binary unless it says
+  another, readable by the app's user alone, and renewed by the app as it
+  runs, 30 days before they run out, or a third of their life before for
+  a shorter one. Keep the directory from one deploy
+  to the next, as the images' volume does: Let's Encrypt gives the same
+  names five certificates a week. The starters' `.gitignore` and
+  `.dockerignore` leave it out, as it holds private keys.
+- A certificate is asked for only for the domains named. A handshake for
+  any other name, as a scanner's by the machine's address, gets none,
+  rather than spend Let's Encrypt's limits on it. `APP_URL`'s host is one
+  of them, or the app doesn't start.
+- `:80` answers Let's Encrypt's challenges, and sends every other request
+  to its path and query over HTTPS, by a 308, which keeps its method: at
+  its own host when that's one of the domains, and otherwise, as a request
+  by the machine's address, at `APP_URL`'s. The starters' HSTS has a
+  browser go to HTTPS itself after its first visit.
+- A request over HTTPS reaches the app itself, so the session cookie is
+  for HTTPS only whatever `session.Config` says, and `c.IP()` is the
+  browser's, with no `TRUSTED_PROXIES`.
+- Over HTTP/2, a browser's requests to the app share one connection,
+  where over HTTP/1.1 it opens six at most, of which each page's event
+  stream, as the auth starter's bell, holds one. `c.Events` and
+  `c.Stream` send as they do over HTTP/1.1.
+- On SIGTERM, both ports stop taking connections together, and shut down
+  as [Shutting down](#shutting-down) has.
+
+Setting `TLS_DOMAINS` is accepting Let's Encrypt's terms, its
+[subscriber agreement](https://letsencrypt.org/repository/). It needs no
+email: Let's Encrypt sends no mail of a certificate running out. To try a
+deploy without spending its limits, get the certificates from its
+staging, whose certificates no browser trusts:
+
+```sh
+ACME_URL=https://acme-staging-v02.api.letsencrypt.org/directory
+```
+
+Then empty `CERTS_PATH` as `ACME_URL` goes, as a certificate kept from
+the staging would be served until it's renewed.
+
+`ADDR` and `HTTP_ADDR` move the ports, as to `:8443` and `:8080` for a
+try on a laptop; a redirect then has the HTTPS port in it.
+
+### Ports below 1024
+
+`:80` and `:443` take the right to listen on a port below 1024. Docker
+gives it in a container, where the images' `nonroot` user listens on them
+as it is, unless the container shares the host's network, with
+`--network host`:
+
+```sh
+docker run -d -p 443:443 -p 80:80 -v blog-data:/data \
+  -e APP_KEY=base64:... -e APP_URL=https://example.com \
+  -e TLS_DOMAINS=example.com,www.example.com blog
+```
+
+The images keep the certificates in `/data/certs`, on their volume. On a
+machine of its own, under systemd, the app's unit gives it to the app's
+user:
+
+```ini
+[Service]
+User=blog
+WorkingDirectory=/srv/blog
+ExecStart=/srv/blog/blog
+EnvironmentFile=/srv/blog/env
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Restart=on-failure
+```
+
+with `TLS_DOMAINS`, `APP_URL` and `APP_KEY` in `/srv/blog/env`, and the
+certificates in `/srv/blog/certs`.
+
+### A certificate of the app's own
+
+`TLS_CERT` and `TLS_KEY`, a certificate with its chain after it, and its
+key, PEM files, are served in place of Let's Encrypt's, as an origin
+certificate of Cloudflare's, for a site behind its proxy, or a company's
+own CA's are:
+
+```sh
+TLS_CERT=/etc/ssl/blog/cert.pem TLS_KEY=/etc/ssl/blog/key.pem ./blog
+```
+
+They're read as the app starts, and again at a handshake, once a minute
+at most, when either file's time has changed, as certbot's renewal
+replaces them, so the app needn't start again. A pair that doesn't load,
+as one read between the new certificate and its key, leaves the one
+before in use, and the log says why. `:80` sends a request for one of the
+certificate's names to HTTPS at its own host, and any other to
+`APP_URL`'s, or the certificate's first name. Set both, and not with
+`TLS_DOMAINS`, or the app doesn't start.
+
+### In the app's code
+
+`ConfigFromEnv` reads `TLS_CERT`, `TLS_KEY` and `HTTP_ADDR` into
+`Config.TLS`, and `letsencrypt.FromEnv` reads `TLS_DOMAINS`, `CERTS_PATH`
+and `ACME_URL`, which the starters' `main` puts there:
+
+```go
+cfg := tug.ConfigFromEnv()
+if cfg.TLS.Certificates, err = letsencrypt.FromEnv(); err != nil {
+	log.Fatal(err)
+}
+```
+
+Without `TLS_DOMAINS`, `FromEnv` returns nil, which `Config.TLS` takes as
+no source of certificates.
+
+An app that makes its own `Config` sets the same:
+
+```go
+certs, err := letsencrypt.New(letsencrypt.Config{
+	Domains: []string{"example.com", "www.example.com"},
+	Cache:   autocert.DirCache("/var/lib/blog/certs"),
+})
+if err != nil {
+	log.Fatal(err)
+}
+app := tug.New(tug.Config{URL: "https://example.com", TLS: tug.TLS{Certificates: certs}})
+```
+
+`letsencrypt.Config`'s `Cache` takes any `autocert.Cache`, as a table of
+the app's, for instances on more than one machine to share their
+certificates, though behind a load balancer TLS ends there anyway.
+`TLS.Certificates` takes any source of certificates with a
+`GetCertificate`, as `tls.Config` has, and what more `Run` looks for,
+which `tug.Certificates` lists: an `autocert.Manager` of the app's own is
+one.
+
+Package `letsencrypt` is autocert, `golang.org/x/crypto/acme/autocert`,
+which the Go team keeps, and which adds about 1 MB to a binary. Package
+tug doesn't import it, so an app that doesn't import `letsencrypt`
+doesn't build it; the starters do, as one machine is where they're meant
+to run.
+
+### What it leaves to a proxy
+
+A certificate for a domain a customer points at the app, asked for at
+its first handshake, as Caddy's on-demand TLS is, a wildcard,
+`*.example.com`, which Let's Encrypt checks by DNS alone, through the DNS
+provider's API, and more than one app on one machine's ports are a
+proxy's, as Caddy's or kamal-proxy's: see [Behind a proxy](#behind-a-proxy).
+
+`tug dev` leaves `TLS_DOMAINS`, `TLS_CERT`, `TLS_KEY` and `HTTP_ADDR` out
+of the app's environment, and says so, as a `.env` copied from a deploy
+would have a laptop ask for the deploy's certificates: under it, the app
+serves HTTP.
+
 ## Behind a proxy
 
-`Run` serves plain HTTP. TLS ends in front of the app: at a proxy, a load
-balancer, or the platform.
+Without `TLS_DOMAINS`, or `TLS_CERT` and `TLS_KEY`, `Run` serves plain
+HTTP, and TLS ends in front of the app: at a proxy, a load balancer, or
+the platform.
 
 The session cookie is marked `Secure`, for HTTPS only, when the request
 came over TLS, and a request from a proxy that ended TLS didn't. Set
@@ -462,7 +665,7 @@ anything.
 ## Shutting down
 
 On SIGTERM or SIGINT, `Run` logs "shutting down" and stops taking
-connections. The requests in flight run to their end, for up to
+connections, on both ports of an app that serves HTTPS itself. The requests in flight run to their end, for up to
 `Config.ShutdownTimeout`, 10 seconds unless the app sets another. Then
 `Run` returns nil and the starters' `main` returns. Requests still running
 after the timeout have their connections closed, and `Run` returns an

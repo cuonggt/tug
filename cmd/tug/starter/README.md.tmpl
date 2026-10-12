@@ -31,10 +31,14 @@ go test ./...
   isn't edited by hand; tug dev and tug build write it again.
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions, and a deployed
   app needs one of its own, set in its environment, with `APP_URL`, its
-  own address, and `TRUSTED_PROXIES` behind a load balancer.
+  own address, and `TRUSTED_PROXIES` behind a load balancer; or, on a
+  machine of its own, `TLS_DOMAINS`, for the app to serve HTTPS itself,
+  with certificates from Let's Encrypt.
 [[ if .SSR -]]
 - `Dockerfile`: the app as one static binary on a distroless image with
-  Node, for the pages it renders on the server.
+  Node, for the pages it renders on the server, and the certificates of
+  `TLS_DOMAINS` on a volume.
 [[- else -]]
-- `Dockerfile`: the app as one static binary on a distroless image.
+- `Dockerfile`: the app as one static binary on a distroless image, with
+  the certificates of `TLS_DOMAINS` on a volume.
 [[- end ]]
