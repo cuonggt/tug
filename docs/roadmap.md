@@ -4515,7 +4515,7 @@ as the app stops at one whose SQL has, and that a handler's writes go in
 change: tug gen, `npm run typecheck` and `go test`. An app's README says
 what's where, for a person. Most coding agents read an `AGENTS.md` at the
 root of the repository they work in, as Claude Code does where there's no
-`CLAUDE.md`. To be released as v0.43.0.
+`CLAUDE.md`. Released as v0.43.0.
 
 - **`AGENTS.md`, in every app `tug new` makes:** how to change it, as tug
   has it done, in steps: a page, a form and a test, and in the auth
