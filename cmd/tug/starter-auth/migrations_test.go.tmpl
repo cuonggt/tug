@@ -105,8 +105,15 @@ func TestTheMigrateCommandRunsListsAndUndoesTheMigrations(t *testing.T) {
 	if out, err := command("status"); err != nil || !strings.HasPrefix(out, fmt.Sprintf("%d migrations, each of them run:\n", len(ms))) {
 		t.Errorf("status: %v\n%s", err, out)
 	}
-	// The starter's own are for good.
-	if _, err := command("down"); err == nil || !strings.Contains(err.Error(), "has no down part") {
-		t.Errorf("down: %v", err)
+	// The newest goes back by its down part: an app's own, as tug migrate
+	// new writes one, has one, and the starter's own, with none, are for
+	// good.
+	last := ms[len(ms)-1]
+	out, err := command("down")
+	switch {
+	case last.Down == "" && (err == nil || !strings.Contains(err.Error(), "has no down part")):
+		t.Errorf("down, of %s, with no down part: %v", last.Name, err)
+	case last.Down != "" && (err != nil || !strings.Contains(out, last.Name)):
+		t.Errorf("down, of %s: %v\n%s", last.Name, err, out)
 	}
 }

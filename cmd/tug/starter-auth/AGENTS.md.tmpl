@@ -15,12 +15,14 @@ Before saying a change is done:
 [[ if .SQLite -]]
 tug gen            # the TypeScript of the Go's pages and routes, which tug dev writes too
 npm run typecheck  # the pages against the Go's props, routes and forms
+go fmt ./...       # the Go as gofmt writes it
 go vet ./...
 go test ./...
 [[- else -]]
 docker compose up -d   # the database, which tug dev and the tests use
 tug gen                # the TypeScript of the Go's pages and routes, which tug dev writes too
 npm run typecheck      # the pages against the Go's props, routes and forms
+go fmt ./...           # the Go as gofmt writes it
 go vet ./...
 go test ./...
 [[- end ]]

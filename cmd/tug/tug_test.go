@@ -319,6 +319,10 @@ func TestNewFillsInTheStarter(t *testing.T) {
 			if strings.Contains(read("main.go"), "ssr") || strings.Contains(read("package.json"), "--ssr") {
 				t.Error("an app without -ssr renders on the server")
 			}
+			// The binary tug build writes, named for the app's directory.
+			if !strings.HasPrefix(read(".gitignore"), "/blog\n") || !strings.HasPrefix(read(".dockerignore"), "blog\n") {
+				t.Error("the binary tug build writes isn't ignored")
+			}
 			env := read(".env")
 			key, _, _ := strings.Cut(strings.SplitAfter(env, "APP_KEY=base64:")[1], "\n")
 			if k, err := base64.StdEncoding.DecodeString(key); err != nil || len(k) != 32 {
@@ -367,6 +371,9 @@ func TestNewWithAuthLaysTheAuthStarterOverThePlainOne(t *testing.T) {
 			}
 			if !strings.Contains(read(".gitignore"), "/app.db") {
 				t.Error("the database isn't ignored")
+			}
+			if !strings.HasPrefix(read(".gitignore"), "/blog\n") || !strings.HasPrefix(read(".dockerignore"), "blog\n") {
+				t.Error("the binary tug build writes isn't ignored")
 			}
 			if !strings.Contains(read("db.go"), `"modernc.org/sqlite"`) || strings.Contains(read(".env"), "DB_URL") {
 				t.Error("the app's database isn't SQLite")
@@ -578,8 +585,29 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 				migratesByItsCommand(t, dir)
 				answersTheDevTools(t, dir)
 				listsItsRoutes(t, dir)
+				growsAMigration(t, dir)
 			}
 		})
+	}
+}
+
+// growsAMigration writes the app in dir a migration of its own, as tug
+// migrate new does, with a down part, and runs the app's tests of its
+// migrations again, which mustn't take the starter's own for the newest,
+// as they did until a coding agent added a table by AGENTS.md.
+func growsAMigration(t *testing.T, dir string) {
+	t.Helper()
+	path, err := newMigration(filepath.Join(dir, "migrations"), "create_posts", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("CREATE TABLE posts (id INTEGER PRIMARY KEY, title TEXT NOT NULL);\n\n-- down\nDROP TABLE posts;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "test", "-run", "Migrat", "./...")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("the app's tests, with a migration of its own: %v\n%s", err, out)
 	}
 }
 

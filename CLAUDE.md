@@ -722,7 +722,8 @@ dev server that isn't there: delete it.
   description from Go, once each (`hasItsHead`), in the HTML tug writes
   (`showsItsHead`), or an SSR one's page rendered on the server
   (`rendersOnTheServer`), and the auth one's
-  `migrate` command on a new database (`migratesByItsCommand`), and reads
+  `migrate` command on a new database (`migratesByItsCommand`), and its
+tests again with a migration of its own (`growsAMigration`), and reads
   a page's entry for the DevTools from it under `TUG_DEV`
   (`answersTheDevTools`), and the mail registering sends from its mailbox, and checks that one, and each SSR one, sends the
   build's scripts gzipped (`sendsItsBuildGzipped`), and one on each of
