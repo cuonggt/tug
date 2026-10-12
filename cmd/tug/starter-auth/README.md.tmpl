@@ -116,16 +116,16 @@ go test ./...
   machine of its own, for the app to serve HTTPS itself, with certificates
   from Let's Encrypt, and `MAIL_HOST` and the rest of `.env.example` for
   its mail, and for the photos, a volume, or `FILESYSTEM_DISK=s3` and a
-  bucket. In development, tug dev sets
-  `APP_URL`, and mail is written out where it shows it, links and all.
+  bucket. In development, tug dev sets `APP_URL`, and mail is kept in the
+  app's mailbox, at `/_tug/mail`, which tug dev's terminal links to.
 [[- else ]]
   address, `DB_URL`, its database, `TRUSTED_PROXIES` behind a load
   balancer, or `TLS_DOMAINS` on a machine of its own, for the app to serve
   HTTPS itself, with certificates from Let's Encrypt, and `MAIL_HOST` and
   the rest of `.env.example` for its mail, and for the photos, a volume,
-  or `FILESYSTEM_DISK=s3` and a bucket. In
-  development, `DB_URL` is compose.yaml's database, tug dev sets
-  `APP_URL`, and mail is written out where it shows it, links and all.
+  or `FILESYSTEM_DISK=s3` and a bucket. In development, `DB_URL` is
+  compose.yaml's database, tug dev sets `APP_URL`, and mail is kept in the
+  app's mailbox, at `/_tug/mail`, which tug dev's terminal links to.
 [[- end ]]
 [[ if and .SSR .SQLite -]]
 - `Dockerfile`: the app as one static binary on a distroless image with

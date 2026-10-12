@@ -14,7 +14,8 @@
 
   // VerifyEmail is where the pages for verified users send someone who
   // hasn't followed the link mailed to them yet. In development, without
-  // MAIL_HOST in .env, the mail is written to tug dev's terminal.
+  // MAIL_HOST in .env, the mail is kept in the app's mailbox, at /_tug/mail,
+  // which tug dev's terminal links to.
 
   // Verified in another tab, or on the phone the mail went to, the email
   // moves this page on: the app says so on the user's own channel, and the

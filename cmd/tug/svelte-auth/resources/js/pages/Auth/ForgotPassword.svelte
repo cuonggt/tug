@@ -17,7 +17,8 @@
   import { form, route, type Inputs } from '@/tug/routes'
 
   // ForgotPassword mails a link that sets a new password. In development,
-  // without MAIL_HOST in .env, the mail is written to tug dev's terminal.
+  // without MAIL_HOST in .env, the mail is kept in the app's mailbox, at
+  // /_tug/mail, which tug dev's terminal links to.
 
   // The form, typed by its route's input, as tug gen writes it from the
   // Go: its errors are the fields it sends.

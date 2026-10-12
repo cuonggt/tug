@@ -9,7 +9,8 @@ import { form, route } from '@/tug/routes'
 
 // VerifyEmail is where the pages for verified users send someone who
 // hasn't followed the link mailed to them yet. In development, without
-// MAIL_HOST in .env, the mail is written to tug dev's terminal.
+// MAIL_HOST in .env, the mail is kept in the app's mailbox, at /_tug/mail,
+// which tug dev's terminal links to.
 defineOptions({
   layout: { title: 'Verify your email', description: 'One more step, and the app is yours to use.' },
 })
