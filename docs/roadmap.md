@@ -4617,8 +4617,8 @@ Choices made on the way:
   `.dockerignore`; and it left Go that gofmt would change, so the checks
   have `go fmt ./...`. shadcn's CLI, in its 4.x registry, now imports `cn`
   from shadcn's own `cn` package, where the starter's components take the
-  app's, from `@/lib/utils`, so the auth starter's notes say to change a
-  new component's import, and take the package out.
+  app's, from `@/lib/utils`, so the auth starter's notes say, since
+  v0.43.2, to change a new component's import, and take the package out.
 - **Tests:** `AGENTS.md` and `CLAUDE.md` in each kind of app, each
   frontend plain and with SSR, and with accounts on each database and with
   SSR, with no placeholder left, the guide linked at the version, the
