@@ -28,10 +28,19 @@ export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/build/' : '/',
   // public/ is the Go server's to serve; the build goes inside it.
   publicDir: false,
-[[- if .SSR ]]
+[[- if and .SSR .React ]]
+  plugins: [react(), tailwindcss(), inertia({ ssr: { sourcemap: false } }), tug(), sonnerStyles()],
+[[- else if .SSR ]]
   plugins: [ [[- .Frontend ]](), tailwindcss(), inertia({ ssr: { sourcemap: false } }), tug()],
+[[- else if .React ]]
+  plugins: [react(), tailwindcss(), tug(), sonnerStyles()],
 [[- else ]]
   plugins: [ [[- .Frontend ]](), tailwindcss(), tug()],
+[[- end ]]
+[[- if .React ]]
+  // sonner, as Vite reads it, for sonnerStyles: not one of the packages
+  // the dev server bundles first, which no plugin sees.
+  optimizeDeps: { exclude: ['sonner'] },
 [[- end ]]
 [[- if .React ]]
   // @/components/ui/button is resources/js/components/ui/button.tsx, as
@@ -78,6 +87,22 @@ export default defineConfig(({ command }) => ({
   },
 }))
 
+[[ if .React -]]
+// sonnerStyles takes out the <style> sonner injects as it's imported, with
+// no nonce, which the page's policy would block: the toasts are styled by
+// sonner's stylesheet, which components/ui/sonner.tsx imports.
+function sonnerStyles(): Plugin {
+  return {
+    name: 'sonner-styles',
+    transform(code, id) {
+      if (id.includes('/node_modules/sonner/dist/')) {
+        return code.replace(/^__insertCSS\(/m, 'void (')
+      }
+    },
+  }
+}
+
+[[ end -]]
 // tug tells the Go server where the dev server is, by writing its URL to
 // public/hot while it runs, and reloads the browser when tug dev has
 // restarted the Go server, which it says by touching .tug/reload.

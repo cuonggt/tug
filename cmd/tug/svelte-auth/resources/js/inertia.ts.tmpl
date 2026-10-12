@@ -8,12 +8,22 @@ import '../css/app.css'
 // root template loads the first page's alongside app.ts.
 const pages = import.meta.glob<ResolvedComponent>('./pages/**/*.svelte')
 
+// nonce is the page's, from the root template's meta, by which its policy
+// takes a <style>, for those the app injects, as Inertia's progress bar's:
+// none on the server.
+const nonce =
+  typeof document === 'undefined'
+    ? undefined
+    : (document.querySelector<HTMLMetaElement>('meta[property="csp-nonce"]')?.nonce ?? undefined)
+
 // createApp makes the app. In the browser, app.ts's call renders the page,
 // or takes over the HTML the server rendered of it; on the server, with
 // server-side rendering, ssr.ts's returns what renders a page to HTML. A
 // page's title is Head.svelte's.
 export function createApp() {
   return createInertiaApp({
+    // The nonce, for Inertia's own styles.
+    defaults: { nonce },
     // The head a page's handler gives it with c.Head, as the home page's
     // description: its head prop, but for its title, which a page has
     // from Head.svelte. Svelte puts the document's title in the first

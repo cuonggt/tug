@@ -17,7 +17,9 @@ test('a page, and an error page, say what a browser may do with them', async ({ 
     // The apps here are served over plain HTTP, with no HTTPS to hold to.
     expect(headers['strict-transport-security']).toBeUndefined()
     expect(headers['content-security-policy']).toMatch(/script-src 'nonce-[A-Z2-7]+' 'strict-dynamic'/)
+    expect(headers['content-security-policy']).toMatch(/style-src 'nonce-[A-Z2-7]+' 'self'; style-src-attr 'unsafe-inline'/)
     expect(headers['content-security-policy-report-only']).toBeUndefined()
+    expect(headers['permissions-policy']).toMatch(/^camera=\(\), microphone=\(\), geolocation=\(\), /)
   }
 })
 
@@ -56,4 +58,41 @@ test('a script the page did not bring is blocked, and the browser reports it to 
   const reported = async () =>
     (await readFile(log, 'utf8')).split('\n').some((line) => line.includes('blocked what it asked for') && line.includes(where))
   await expect.poll(reported).toBe(true)
+})
+
+test('a style the page did not bring is blocked, and the browser reports it to the app', async ({ context }, info) => {
+  const tab = await context.newPage()
+  const where = `/nowhere-${randomUUID()}`
+  await tab.goto(where)
+  const hidden = await tab.evaluate(() => {
+    const style = document.createElement('style')
+    style.textContent = 'body { display: none }'
+    document.head.append(style)
+    return getComputedStyle(document.body).display === 'none'
+  })
+  expect(hidden).toBe(false)
+
+  const log = path.join(appDir(info.project.name), 'app.log')
+  const reported = async () =>
+    (await readFile(log, 'utf8'))
+      .split('\n')
+      .some((line) => line.includes('blocked what it asked for') && line.includes(where) && line.includes('style-src'))
+  await expect.poll(reported).toBe(true)
+})
+
+test("a visit's progress bar, and a toast, are styled, as the page's nonce lets their styles in", async ({ page }) => {
+  await page.goto('/login')
+  // Inertia's progress bar puts its <style> in the head as the app starts,
+  // with the nonce it was handed: a style the policy blocked has no sheet.
+  const progress = await page.evaluate(() =>
+    [...document.querySelectorAll('style')].some((s) => s.textContent?.includes('#nprogress') && s.sheet !== null),
+  )
+  expect(progress).toBe(true)
+  await page.getByRole('link', { name: 'Forgotten it?' }).click()
+  await page.getByLabel('Email').fill('nobody@example.com')
+  await page.getByRole('button', { name: 'Mail me a link' }).click()
+  const toast = page.locator('[data-sonner-toast]').first()
+  await expect(toast).toBeVisible()
+  // sonner's stylesheet, by its own rules, in place of the <style> it injects.
+  expect(await toast.evaluate((el) => getComputedStyle(el).position)).toBe('absolute')
 })

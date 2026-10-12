@@ -398,7 +398,7 @@ app.Use(
 	middleware.TrustProxies(strings.Split(os.Getenv("TRUSTED_PROXIES"), ",")...),
 	middleware.RequestID(), middleware.Logger(), middleware.Recover(),
 	middleware.Headers(middleware.HeadersConfig{HSTS: strings.HasPrefix(cfg.URL, "https://")}),
-	middleware.CSP(middleware.CSPConfig{ReportPath: "/csp-reports", DevServer: assets.DevServer}),
+	middleware.CSP(middleware.CSPConfig{ReportPath: "/csp-reports", DevServer: assets.DevServer, StyleNonce: true}),
 	middleware.CSRF(),
 )
 ```
@@ -453,18 +453,21 @@ app.Use(
 - `Headers(cfg)` says what a browser may do with each response:
   `X-Content-Type-Options: nosniff`, `Referrer-Policy:
   strict-origin-when-cross-origin`, `Cross-Origin-Opener-Policy:
-  same-origin` and `X-Frame-Options: SAMEORIGIN`, and with `HSTS`,
-  `Strict-Transport-Security` for a year. A handler that needs another sets
-  its own.
+  same-origin` and `X-Frame-Options: SAMEORIGIN`, a `Permissions-Policy`
+  that turns off the powerful features, as the camera, but those
+  `Permissions` allows, and with `HSTS`, `Strict-Transport-Security` for a
+  year. A handler that needs another sets its own. It panics on a feature
+  or an allowlist it can't put in the header.
 - `CSP(cfg)` sends a Content-Security-Policy, which runs the scripts that
   carry a nonce made for the response, and what they load, and lets a
   page load the app's own alone. `middleware.NonceFrom(ctx)` reads the
   nonce, which package `inertia` hands the root template as `.Nonce`.
   `ReportOnly` sends it as `Content-Security-Policy-Report-Only`,
   `ReportPath` is where the browser reports what it blocks, which `CSP`
-  answers itself and logs, `Sources` adds to its directives, and
-  `DevServer` lets Vite's dev server in. It panics on a source or a path it
-  can't put in the header. See
+  answers itself and logs, `Sources` adds to its directives,
+  `DevServer` lets Vite's dev server in, and `StyleNonce` has a `<style>`
+  carry the nonce too. It panics on a source or a path it can't put in
+  the header. See
   [deployment.md](deployment.md#security-headers).
 
 ### The client's address

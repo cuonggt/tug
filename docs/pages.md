@@ -68,6 +68,7 @@ a redirect ([forms.md](forms.md)). The root template, `app.html`:
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta property="csp-nonce" nonce="{{ .Nonce }}">
     {{ .InertiaHead }}
     <title>blog</title>
     {{ viteReactRefresh .Nonce }}
@@ -100,6 +101,22 @@ run it. The scripts in `{{ .InertiaHead }}` carry it as well: in the
 browser, Inertia adds a `<Head>`'s script to the page itself, which the
 policy lets run, and rendered on the server, it's the nonce that does.
 Without `CSP`, `.Nonce` is `""`, and the tags have none.
+
+With `CSPConfig.StyleNonce`, a `<style>` takes the nonce too: a style of
+the template's own, `<style nonce="{{ .Nonce }}">`, and the styles in
+`{{ .InertiaHead }}`, as its scripts. `<meta property="csp-nonce">`
+hands it to what injects a style in the browser, by Vite's convention:
+Vite's client reads it for the styles it injects under `tug dev`, and the
+starters' `inertia.tsx` reads it for Inertia's client, for its progress
+bar's style:
+
+```ts
+const nonce = document.querySelector<HTMLMetaElement>('meta[property="csp-nonce"]')?.nonce
+createInertiaApp({ defaults: { nonce }, ... })
+```
+
+A script that got into the page could read it, but it would have run by
+the nonce already; markup that got in can't.
 
 ## Declaring and rendering pages
 

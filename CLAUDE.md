@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M46 are done, which is
+the decisions behind it and where it stands: M1 to M47 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -130,7 +130,13 @@ accounts (v0.41.0): in the auth starter, registering with a passkey from
 a link mailed to the email first, by `auth.Registrations`' tokens, into
 an account verified, with no password, an empty hash, the password set
 with no current one, or removed, an account keeping a way in, and a lost
-passkey's account back in by a reset link, which sets a first password.
+passkey's account back in by a reset link, which sets a first password,
+and security headers further (v0.42.0): a `Permissions-Policy`, from
+`middleware.Headers`, which turns off the powerful features but those an
+app allows, and `CSPConfig.StyleNonce`, a `<style>` by the response's
+nonce, as a script, with style attributes as they were, the nonce handed
+to Vite's client and Inertia's by `<meta property="csp-nonce">`, which
+the starters turn on; and Trusted Types left for Inertia's client.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -444,7 +450,7 @@ dev server that isn't there: delete it.
   for other statuses; a first visit asks `Config.SSR`, a `Renderer`, for
   the page's head and body, and keeps the browser's when it has none or
   fails, which it logs; `WithoutSSR` skips it; `TemplateData.Nonce` is
-  the context's nonce, `internal/nonce`'s, which `nonced` gives the scripts
+  the context's nonce, `internal/nonce`'s, which `nonced` gives the scripts and styles
   of the head from SSR; `encode` writes the page object, and again with
   `PreserveBigIntegers` when it has `bigIntMarker` in it), and holds the
   middleware (Vary, the 409 for another
@@ -923,12 +929,21 @@ dev server that isn't there: delete it.
   names, which both starters hand `TrustProxies`; the links in mail are
   `a.routes.AbsoluteURL`'s, and `newApp` stops without `APP_URL`, but
   under tug gen. Both starters send `middleware.Headers`, HSTS by an
-  https:// `APP_URL`, and `middleware.CSP`, enforced, reporting to
-  `/csp-reports`, with Vite's `DevServer`, and the auth starter's bucket's
-  `Origin` in `img-src`; their `app.html`'s scripts, and Vite's tags, carry
-  `.Nonce`. `e2e/tests/headers.spec.ts` checks the headers, and a script
-  the page didn't bring blocked, and reported to the app's log, and the
-  build's scripts and styles gzipped in the browser, and
+  https:// `APP_URL`, and `middleware.CSP`, enforced, `StyleNonce` on,
+  reporting to `/csp-reports`, with Vite's `DevServer`, and the auth
+  starter's bucket's `Origin` in `img-src`; their `app.html`'s scripts and
+  style, and Vite's tags, carry `.Nonce`, and its `<meta
+  property="csp-nonce">` hands it to Vite's client and, read by each
+  frontend's `inertia.tsx` (`.ts`), Inertia's, `defaults: { nonce }`. The
+  React auth starter hands it Radix's dialogs too, `get-nonce`'s
+  `setNonce`, for react-remove-scroll's `<style>`, and takes sonner's
+  styles from `sonner/dist/styles.css`, as its `vite.config.ts`'s
+  `sonnerStyles` takes out the `<style>` sonner injects with no nonce,
+  with sonner out of `optimizeDeps` for the dev server to run the plugin
+  on it. `e2e/tests/headers.spec.ts` checks the headers, a script and a
+  style the page didn't bring blocked, and reported to the app's log,
+  Inertia's progress bar's style and a toast styled, and the build's
+  scripts and styles gzipped in the browser, and
   `tug_test.go`'s `rendersOnTheServer` a served page's scripts' nonce.
   Both starters' `main` gives `Config.TLS` the `Certificates`
   `letsencrypt.FromEnv` makes, nil without `TLS_DOMAINS`, which
@@ -960,9 +975,14 @@ dev server that isn't there: delete it.
   loaded once the image is gone.
 - `middleware`: plain `func(http.Handler) http.Handler`, with no import of
   tug: `Headers` (`headers.go`: nosniff, `Referrer-Policy`,
-  `Cross-Origin-Opener-Policy`, `X-Frame-Options`, and HSTS when its config
-  says), `CSP` (`csp.go`: `policy`, the directives, which `Sources` adds
-  to, with a nonce, `rand.Text`, in script-src for each response, in its
+  `Cross-Origin-Opener-Policy`, `X-Frame-Options`, `Permissions-Policy`,
+  `permissionsPolicy`'s, `permissionsOff` each `=()` but as `Permissions`
+  allows, by an allowlist of `self`, `*` and `quotedOrigin`s, and the
+  features it adds, and HSTS when its config says), `CSP` (`csp.go`:
+  `policy`, the directives, which `Sources` adds to, each `directive`
+  saying whether it takes the nonce, script-src's, and with `StyleNonce`
+  style-src's, in place of `'unsafe-inline'`, which `style-src-attr` keeps
+  for attributes; a nonce, `rand.Text`, for each response, in its
   context through `internal/nonce`, which `NonceFrom` reads, the dev
   server's sources, `devSources`, from `DevServer` at each request, and
   `logReport`, which answers a POST to `ReportPath`, report-uri's, before

@@ -20,6 +20,21 @@ test('the list shows first, and its stats once counted', async ({ page, request 
   await expect(page.getByTestId('stats')).toContainText('25 posts, 160 words')
 })
 
+test("nothing the pages load or inject is blocked by their policy, Inertia's progress bar's style among it", async ({ page }) => {
+  const blocked: string[] = []
+  page.on('console', (m) => {
+    if (m.type() === 'error' && m.text().includes('Content Security Policy')) blocked.push(m.text())
+  })
+  await page.goto('/')
+  const progress = await page.evaluate(() =>
+    [...document.querySelectorAll('style')].some((s) => s.textContent?.includes('#nprogress') && s.sheet !== null),
+  )
+  expect(progress).toBe(true)
+  await page.getByRole('link', { name: 'Hello, tug' }).click()
+  await expect(page.getByRole('heading', { name: 'Hello, tug' })).toBeVisible()
+  expect(blocked).toEqual([])
+})
+
 test('a link changes the page without loading a new one', async ({ page }) => {
   await page.goto('/')
   await page.evaluate(() => Object.assign(window, { stillHere: true }))

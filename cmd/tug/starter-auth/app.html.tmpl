@@ -3,6 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{/* The page's nonce, by which its policy takes a <style>, as a
+         script, for whatever injects one in the browser: Vite's client
+         reads it here, and inertia.[[ .Script ]] hands it Inertia's, for its progress
+         bar's. */}}
+    <meta property="csp-nonce" nonce="{{ .Nonce }}">
     {{/* The page's head: what it put there, rendered on the server, or
          else what its handler gave it with c.Head. Its own <title>
          comes first: the one after it is for a page without one, with no
@@ -15,7 +20,7 @@
          wrong one: the choice on the appearance page, kept in the browser,
          or else the system's. [[ .AppearanceFile ]] keeps
          it from then on. It carries the page's nonce, which its policy
-         runs scripts by. */}}
+         runs scripts by, as the style after it does. */}}
     <script nonce="{{ .Nonce }}">
       (function () {
         var appearance = localStorage.getItem('appearance')
@@ -24,7 +29,7 @@
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
       })()
     </script>
-    <style>
+    <style nonce="{{ .Nonce }}">
       html { background-color: oklch(1 0 0); }
       html.dark { background-color: oklch(0.145 0 0); }
     </style>

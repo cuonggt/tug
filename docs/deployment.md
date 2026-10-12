@@ -581,7 +581,7 @@ of package `middleware`'s, which `main.go` has:
 
 ```go
 middleware.Headers(middleware.HeadersConfig{HSTS: strings.HasPrefix(cfg.URL, "https://")}),
-middleware.CSP(middleware.CSPConfig{ReportPath: "/csp-reports", DevServer: assets.DevServer}),
+middleware.CSP(middleware.CSPConfig{ReportPath: "/csp-reports", DevServer: assets.DevServer, StyleNonce: true}),
 ```
 
 `Headers` sends `X-Content-Type-Options: nosniff`, so a file is only ever
@@ -599,14 +599,36 @@ it a page over plain HTTP. It's for the app's host alone, with no
 app, and are slow to take back. A handler whose response needs one of them
 otherwise sets its own, as a page another site frames.
 
+`Headers` sends a `Permissions-Policy` too, which turns off the powerful
+features no page of the app's uses, as a script that got into one would:
+
+```
+camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(),
+bluetooth=(), midi=(), display-capture=(), browsing-topics=()
+```
+
+They're the features Chrome knows by those names, as it logs an error
+for one it doesn't. Passkeys keep theirs, as do `fullscreen` and
+`autoplay`, which a video needs, each the app's own pages. An app whose
+page uses one allows it in `Permissions`, by its allowlist, `self`, `*`,
+or origins in quotes, which adds a feature too:
+
+```go
+middleware.Headers(middleware.HeadersConfig{Permissions: map[string]string{
+	"camera":  "self",
+	"payment": `self "https://pay.example.com"`,
+}})
+```
+
 `CSP` sends a Content-Security-Policy, which says what a page may run and
 load, so a script that got into it some way but the app's own, as in a
 person's text that an escape missed, doesn't run:
 
 ```
-default-src 'self'; script-src 'nonce-…' 'strict-dynamic'; style-src 'self' 'unsafe-inline';
-img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none';
-base-uri 'none'; form-action 'self'; frame-ancestors 'self'; report-uri /csp-reports
+default-src 'self'; script-src 'nonce-…' 'strict-dynamic'; style-src 'nonce-…' 'self';
+style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:;
+connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self';
+frame-ancestors 'self'; report-uri /csp-reports
 ```
 
 - A script runs when it carries the response's nonce, a new random one
@@ -614,8 +636,23 @@ base-uri 'none'; form-action 'self'; frame-ancestors 'self'; report-uri /csp-rep
   and its own scripts ([Pages](pages.md#setting-up)), or when such a
   script loads it, as Vite's entry loads the app's modules:
   `'strict-dynamic'`, which every browser in use has.
-- Styles may be inline, as shadcn's components and Inertia's progress bar
-  set them, and a style that gets into a page does little a script can't.
+- With `StyleNonce`, which the starters set, a `<style>` is taken when it
+  carries the nonce too, so a `<style>` that got into a page can't restyle
+  it, as by hiding a warning; the build's stylesheets are the app's own.
+  Style attributes stay as they are, `style-src-attr 'unsafe-inline'`, as
+  a nonce can't go on one, and the component libraries set them, and an
+  SSR app's first visit has them. What injects a `<style>` in the browser
+  takes the nonce from the root template's `<meta property="csp-nonce"
+  nonce="{{ .Nonce }}">` ([Pages](pages.md#setting-up)): Vite's client,
+  for the styles it injects under `tug dev`, and Inertia's, for its
+  progress bar's and its error dialog's, which the starters'
+  `inertia.tsx` hands it, `defaults: { nonce }`. The React starter hands
+  it Radix's dialogs too, which take theirs from `get-nonce`'s `setNonce`,
+  and takes sonner's styles from its stylesheet, as sonner injects a
+  `<style>` with no nonce, which a plugin in its `vite.config.ts` takes
+  out. Without `StyleNonce`, any inline style gets in, for an app with a
+  library that injects a `<style>` with no nonce, and a style that gets
+  into a page does little a script can't.
 - Images may be `data:` and `blob:` URLs, as the starters' favicon is, and
   fonts `data:`, as Vite writes small ones into the CSS.
 - Otherwise what a page loads and connects to is the app's own, a form
@@ -661,6 +698,14 @@ meanwhile.
 `storage.Local` sends a policy of its own with each file it serves,
 `sandbox`, in place of the app's, so a file that's a page can't run
 anything.
+
+Trusted Types, `require-trusted-types-for 'script'`, which has the
+browser refuse a string for `innerHTML` and the other places a script
+runs from unless a policy of the page's made it, aren't in the policy
+yet: Vue's runtime and Svelte's make policies of their own, but
+Inertia's client writes `innerHTML` with none, for each visit's head
+elements, its progress bar and its error dialog, so every visit with a
+head would fail. They wait for Inertia's client to make one.
 
 ## Shutting down
 

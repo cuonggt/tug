@@ -6,7 +6,12 @@ import '../css/app.css'
 // root template loads the first page's alongside this file.
 const pages = import.meta.glob<{ default: ResolvedComponent }>('./pages/**/*.tsx')
 
+// The page's nonce, from the root template's meta, by which its policy
+// takes a <style>, as Inertia's progress bar's.
+const nonce = document.querySelector<HTMLMetaElement>('meta[property="csp-nonce"]')?.nonce ?? undefined
+
 createInertiaApp({
+  defaults: { nonce },
   title: (title) => (title ? `${title} · tug` : 'tug'),
   // The head a page's handler gives it, as a post's title: its head prop.
   serverHead: true,

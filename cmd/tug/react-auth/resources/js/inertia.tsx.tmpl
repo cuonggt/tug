@@ -1,4 +1,5 @@
 import { createInertiaApp, type ResolvedComponent } from '@inertiajs/react'
+import { setNonce } from 'get-nonce'
 import { Toaster } from '@/components/ui/sonner'
 import AppLayout from '@/layouts/app-layout'
 import AuthLayout from '@/layouts/auth-layout'
@@ -9,11 +10,25 @@ import '../css/app.css'
 // root template loads the first page's alongside app.tsx.
 const pages = import.meta.glob<{ default: ResolvedComponent }>('./pages/**/*.tsx')
 
+// nonce is the page's, from the root template's meta, by which its policy
+// takes a <style>, for those the app injects, as Inertia's progress bar's:
+// none on the server.
+const nonce =
+  typeof document === 'undefined'
+    ? undefined
+    : (document.querySelector<HTMLMetaElement>('meta[property="csp-nonce"]')?.nonce ?? undefined)
+
+// Radix's dialogs keep the page from scrolling under them with a <style> of
+// react-remove-scroll's, which takes its nonce from get-nonce.
+if (nonce) setNonce(nonce)
+
 // createApp makes the app. In the browser, app.tsx's call renders the page,
 // or takes over the HTML the server rendered of it; on the server, with
 // server-side rendering, ssr.tsx's returns what renders a page to HTML.
 export function createApp() {
   return createInertiaApp({
+    // The nonce, for Inertia's own styles.
+    defaults: { nonce },
     // A page's title, with the app's name after it, which main.go's Title
     // says the same way in a first visit's HTML.
     title: (title) => (title ? `${title} · [[ .Name ]]` : '[[ .Name ]]'),

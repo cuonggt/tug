@@ -298,11 +298,12 @@ func encode(p *Page) ([]byte, error) {
 	return json.Marshal(p)
 }
 
-// nonced gives each script of head, the elements a page rendered on the
-// server puts in the head, the nonce n. In the browser, the page's <Head>
-// makes those scripts itself, which the policy lets run, as a script with
-// the nonce made them; in the page as it's parsed, the nonce alone lets
-// them run.
+// nonced gives each script and style of head, the elements a page
+// rendered on the server puts in the head, the nonce n. In the browser, the
+// page's <Head> makes those scripts itself, which the policy lets run, as a
+// script with the nonce made them; in the page as it's parsed, the nonce
+// alone lets them run, and a policy that takes a style by the nonce, as
+// middleware.CSP's with StyleNonce, a style.
 func nonced(head []string, n string) []string {
 	if n == "" {
 		return head
@@ -310,8 +311,10 @@ func nonced(head []string, n string) []string {
 	out := slices.Clone(head)
 	for i, el := range out {
 		tag := strings.TrimLeft(el, " \t\r\n")
-		if len(tag) > len("<script") && strings.EqualFold(tag[:len("<script")], "<script") && strings.ContainsRune(" \t\r\n>", rune(tag[len("<script")])) {
-			out[i] = el[:len(el)-len(tag)] + `<script nonce="` + template.HTMLEscapeString(n) + `"` + tag[len("<script"):]
+		for _, name := range []string{"<script", "<style"} {
+			if len(tag) > len(name) && strings.EqualFold(tag[:len(name)], name) && strings.ContainsRune(" \t\r\n>", rune(tag[len(name)])) {
+				out[i] = el[:len(el)-len(tag)] + name + ` nonce="` + template.HTMLEscapeString(n) + `"` + tag[len(name):]
+			}
 		}
 	}
 	return out

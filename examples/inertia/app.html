@@ -3,6 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{/* The page's nonce, by which its policy takes a <style>, for
+         whatever injects one: Vite's client reads it here, and app.tsx
+         hands it Inertia's, for its progress bar's. */}}
+    <meta property="csp-nonce" nonce="{{ .Nonce }}">
     {{/* The head a page's handler gave it, its title first: the one
          after it is for a page without one. */}}
     {{ .InertiaHead }}

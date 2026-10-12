@@ -439,6 +439,53 @@ func TestHeadersSayWhatABrowserMayDoWithEveryResponse(t *testing.T) {
 	}
 }
 
+func TestHeadersTurnOffThePowerfulFeaturesNoPageUses(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Headers(HeadersConfig{})(respond(200, "")).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	want := "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=(), display-capture=(), browsing-topics=()"
+	if got := rec.Header().Get("Permissions-Policy"); got != want {
+		t.Errorf("Permissions-Policy %q, want %q", got, want)
+	}
+}
+
+func TestHeadersAllowTheFeaturesTheAppUses(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Headers(HeadersConfig{Permissions: map[string]string{
+		"camera":  "self",
+		"payment": `self  "https://pay.example.com"`,
+		"gamepad": "*",
+	}})(respond(200, "")).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	got := rec.Header().Get("Permissions-Policy")
+	for _, want := range []string{"camera=(self), ", `payment=(self "https://pay.example.com"), `, ", gamepad=*"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Permissions-Policy %q, want %q in it", got, want)
+		}
+	}
+	if !strings.Contains(got, "microphone=()") || !strings.HasSuffix(got, "browsing-topics=(), gamepad=*") {
+		t.Errorf("Permissions-Policy %q: the rest off as before, and a feature added after them", got)
+	}
+}
+
+func TestHeadersPanicOnAPermissionTheyCantSend(t *testing.T) {
+	for _, permissions := range []map[string]string{
+		{"Camera": "self"},
+		{"camera; microphone": "self"},
+		{"camera": "https://pay.example.com"},
+		{"camera": `"https://pay.example.com`},
+		{"camera": `self), microphone=(*`},
+		{"camera": `"ftp://files.example.com"`},
+	} {
+		func() {
+			defer func() {
+				if msg, _ := recover().(string); !strings.HasPrefix(msg, "middleware: Headers: ") {
+					t.Errorf("%v: panicked with %q", permissions, msg)
+				}
+			}()
+			Headers(HeadersConfig{Permissions: permissions})
+		}()
+	}
+}
+
 func TestHeadersHoldTheBrowserToHTTPSForAYearWhenTheAppIsServedOverIt(t *testing.T) {
 	rec := httptest.NewRecorder()
 	Headers(HeadersConfig{HSTS: true})(respond(200, "")).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
@@ -520,6 +567,29 @@ func TestCSPLetsAPageLoadTheAppsOwnAlone(t *testing.T) {
 	}
 	if _, ok := policy["report-uri"]; ok {
 		t.Error("a report-uri with no ReportPath")
+	}
+}
+
+func TestCSPRunsAStyleByTheNonceWithStyleNonce(t *testing.T) {
+	dev := "http://localhost:5173"
+	policy, n := policyOf(t, CSPConfig{
+		StyleNonce: true,
+		Sources:    map[string][]string{"style-src": {"https://fonts.googleapis.com"}},
+		DevServer:  func() string { return dev },
+	})
+	if want := []string{"'nonce-" + n + "'", "'self'", "https://fonts.googleapis.com", dev}; !slices.Equal(policy["style-src"], want) {
+		t.Errorf("style-src %v, want %v: the nonce, and no 'unsafe-inline', which a browser ignores beside it", policy["style-src"], want)
+	}
+	if want := []string{"'unsafe-inline'"}; !slices.Equal(policy["style-src-attr"], want) {
+		t.Errorf("style-src-attr %v, want %v: style attributes as before", policy["style-src-attr"], want)
+	}
+	if want := []string{"'nonce-" + n + "'", "'strict-dynamic'"}; !slices.Equal(policy["script-src"], want) {
+		t.Errorf("script-src %v, want %v", policy["script-src"], want)
+	}
+	// Without it, styles get in as before, and the next CSP's policy is its
+	// own.
+	if policy, _ := policyOf(t, CSPConfig{}); !slices.Equal(policy["style-src"], []string{"'self'", "'unsafe-inline'"}) || policy["style-src-attr"] != nil {
+		t.Errorf("without StyleNonce: style-src %v, style-src-attr %v", policy["style-src"], policy["style-src-attr"])
 	}
 }
 

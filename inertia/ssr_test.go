@@ -103,7 +103,7 @@ func TestTheRootTemplateHasTheResponsesNonce(t *testing.T) {
 	}
 }
 
-func TestTheScriptsInTheHeadFromSSRCarryTheNonce(t *testing.T) {
+func TestTheScriptsAndStylesInTheHeadFromSSRCarryTheNonce(t *testing.T) {
 	body := `<script data-page="app" type="application/json">{"component":"Posts/Index"}</script><div data-server-rendered="true" id="app"></div>`
 	ssr := &renderer{rendered: Rendered{
 		Head: []string{
@@ -111,6 +111,8 @@ func TestTheScriptsInTheHeadFromSSRCarryTheNonce(t *testing.T) {
 			`<script data-inertia="analytics" src="/stats.js"></script>`,
 			` <script>track()</script>`,
 			`<noscript data-inertia="pixel"><img src="/pixel.gif"></noscript>`,
+			`<style data-inertia="print">@media print { nav { display: none } }</style>`,
+			`<stylesheet-of-the-app></stylesheet-of-the-app>`,
 		},
 		Body: body,
 	}}
@@ -120,7 +122,9 @@ func TestTheScriptsInTheHeadFromSSRCarryTheNonce(t *testing.T) {
 	want := `<head><title data-inertia="">Posts</title>` + "\n" +
 		`<script nonce="N0nce" data-inertia="analytics" src="/stats.js"></script>` + "\n" +
 		` <script nonce="N0nce">track()</script>` + "\n" +
-		`<noscript data-inertia="pixel"><img src="/pixel.gif"></noscript></head>` +
+		`<noscript data-inertia="pixel"><img src="/pixel.gif"></noscript>` + "\n" +
+		`<style nonce="N0nce" data-inertia="print">@media print { nav { display: none } }</style>` + "\n" +
+		`<stylesheet-of-the-app></stylesheet-of-the-app></head>` +
 		// The page object is data, which runs as no script.
 		`<body>` + body + `</body>`
 	if got := rec.Body.String(); !strings.Contains(got, want) {

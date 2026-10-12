@@ -313,10 +313,12 @@ func showPost(c *tug.Ctx) error {
   `TrustProxies`, which reads the client's address past the app's load
   balancers, from the end of `X-Forwarded-For`, for `c.IP()`, `Headers`,
   which says what a browser may do with a response, as be framed by
-  another site, and holds it to HTTPS, and `CSP`, a
+  another site, or use the camera, the microphone and the other powerful
+  features no page asks for, and holds it to HTTPS, and `CSP`, a
   Content-Security-Policy that runs only the scripts that carry a nonce
   made for the response, which the root template gives Vite's tags and its
-  own, and logs what browsers report it blocked.
+  own, and the styles too, with `StyleNonce`, and logs what browsers report
+  it blocked.
 - **`app.Run`** listens on `ADDR` or `PORT`, and on SIGTERM stops taking
   connections and lets the requests in flight finish. With `TLS_DOMAINS`,
   on a machine of its own, it serves HTTPS itself, and HTTP/2, on `:443`,

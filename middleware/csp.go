@@ -41,35 +41,51 @@ type CSPConfig struct {
 	// and its connection for hot reloading. Its scripts load as the app's
 	// own do, by the nonce.
 	DevServer func() string
+
+	// StyleNonce has a <style> element carry the response's nonce, as a
+	// script does, in place of any inline style getting in, so a <style>
+	// that got into a page can't restyle it. Style attributes, which a
+	// nonce can't go on, and which the component libraries set and an SSR
+	// app's first visit has, stay as they are, by style-src-attr. Whatever
+	// injects a <style> needs the nonce: the root template passes it in
+	// <meta property="csp-nonce" nonce="{{ .Nonce }}">, which Vite's client
+	// reads, and the app hands Inertia's client, for its progress bar's.
+	// Off, any inline style gets in, for an app with a library that
+	// injects a <style> with no nonce.
+	StyleNonce bool
 }
 
-// A directive of a policy: its name, and the sources it allows.
+// A directive of a policy: its name, the sources it allows, and whether
+// the response's nonce is one of them.
 type directive struct {
 	name    string
 	sources []string
+	nonce   bool
 }
 
 // policy is what the pages may run and load, before a CSPConfig adds to
-// it, with the nonce added to script-src for each response.
+// it, with the nonce added to script-src for each response, and with
+// StyleNonce to style-src.
 var policy = []directive{
-	{"default-src", []string{"'self'"}},
+	{"default-src", []string{"'self'"}, false},
 	// A script with the nonce runs, and what it loads, as Vite's entry
 	// loads the modules of the app, which can't carry the nonce.
-	{"script-src", []string{"'strict-dynamic'"}},
+	{"script-src", []string{"'strict-dynamic'"}, true},
 	// shadcn's components and Inertia's progress bar set styles inline,
-	// and a style that gets into a page does little a script can't.
-	{"style-src", []string{"'self'", "'unsafe-inline'"}},
+	// and a style that gets into a page does little a script can't: unless
+	// StyleNonce has a <style> carry the nonce.
+	{"style-src", []string{"'self'", "'unsafe-inline'"}, false},
 	// A favicon written into the page, and a photo shown before it's
 	// uploaded, from the file chosen.
-	{"img-src", []string{"'self'", "data:", "blob:"}},
-	{"font-src", []string{"'self'", "data:"}},
-	{"connect-src", []string{"'self'"}},
-	{"object-src", []string{"'none'"}},
+	{"img-src", []string{"'self'", "data:", "blob:"}, false},
+	{"font-src", []string{"'self'", "data:"}, false},
+	{"connect-src", []string{"'self'"}, false},
+	{"object-src", []string{"'none'"}, false},
 	// A <base> that got into a page would send the app's own scripts, which
 	// carry the nonce, to another site for their code.
-	{"base-uri", []string{"'none'"}},
-	{"form-action", []string{"'self'"}},
-	{"frame-ancestors", []string{"'self'"}},
+	{"base-uri", []string{"'none'"}, false},
+	{"form-action", []string{"'self'"}, false},
+	{"frame-ancestors", []string{"'self'"}, false},
 }
 
 // maxReport is the most of a report CSP reads.
@@ -85,7 +101,8 @@ const maxReport = 64 << 10
 // template as .Nonce, for Vite's tags and the template's own scripts to
 // carry, as <script nonce="{{ .Nonce }}">; or when a script that carries
 // it loads it ('strict-dynamic'), as Vite's entry loads the app's modules.
-// Styles may be inline too, and images and fonts data: URLs. Otherwise
+// Styles may be inline too, unless StyleNonce has a <style> carry the
+// nonce, and images and fonts data: URLs. Otherwise
 // what a page loads and connects to is the app's own; a form goes to the
 // app alone; nothing may be embedded as a plugin, or be a <base> for the
 // page's links; and only the app's own pages may put one in a frame.
@@ -95,6 +112,13 @@ const maxReport = 64 << 10
 // at startup.
 func CSP(cfg CSPConfig) func(http.Handler) http.Handler {
 	directives := slices.Clone(policy)
+	if cfg.StyleNonce {
+		// The nonce in place of 'unsafe-inline', which a browser ignores
+		// beside one: style attributes keep it in a directive of their own.
+		i := slices.IndexFunc(directives, func(d directive) bool { return d.name == "style-src" })
+		directives[i] = directive{name: "style-src", sources: []string{"'self'"}, nonce: true}
+		directives = slices.Insert(directives, i+1, directive{name: "style-src-attr", sources: []string{"'unsafe-inline'"}})
+	}
 	// In order, so the header comes out the same whatever order the map has.
 	for _, name := range slices.Sorted(maps.Keys(cfg.Sources)) {
 		if !directiveName(name) {
@@ -149,8 +173,9 @@ func NonceFrom(ctx context.Context) string {
 	return nonce.From(ctx)
 }
 
-// policyHeader is the policy, the directives with n in script-src, and
-// with dev's sources, the dev server's, in the directives they're for.
+// policyHeader is the policy, the directives with n in those that take the
+// nonce, and with dev's sources, the dev server's, in the directives
+// they're for.
 func policyHeader(directives []directive, n string, dev map[string][]string, reportPath string) string {
 	var b strings.Builder
 	for i, d := range directives {
@@ -158,7 +183,7 @@ func policyHeader(directives []directive, n string, dev map[string][]string, rep
 			b.WriteString("; ")
 		}
 		b.WriteString(d.name)
-		if d.name == "script-src" {
+		if d.nonce {
 			b.WriteString(" 'nonce-" + n + "'")
 		}
 		for _, s := range d.sources {

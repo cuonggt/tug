@@ -6,10 +6,12 @@ import {
   TriangleAlertIcon,
 } from "lucide-react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import "sonner/dist/styles.css"
 import { useAppearance } from "@/hooks/use-appearance"
 
 // Toaster is shadcn's, with the app's appearance where theirs has
-// next-themes'.
+// next-themes', and its styles from sonner's stylesheet, as sonner's own
+// <style>, with no nonce, is taken out: see vite.config.ts.
 const Toaster = ({ ...props }: ToasterProps) => {
   const { appearance } = useAppearance()
 
