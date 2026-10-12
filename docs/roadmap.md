@@ -54,6 +54,7 @@ to 3.8.0, October 2026), written against
 | M45 | Built-in HTTPS             | done   |
 | M46 | Passkey-only accounts      | done   |
 | M47 | Security headers, further  | done   |
+| M48 | Coding agents              | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4498,6 +4499,101 @@ Choices made on the way:
   log, as the script is, Inertia's progress bar's style loaded and a
   toast styled, and every other test's pages saying nothing in the
   console, the dialogs' among them.
+
+## M48 · Coding agents — later
+
+With no page generator, an app's pages, forms and tables are written by
+its people, or by their coding agents, which read the code around a change
+and write what it has. What the code doesn't show, they can't know: that
+`resources/js/tug` is tug gen's, written again from the Go; that a route
+that binds input `Takes` it, and a flash key is declared; that the app's
+policy blocks an inline script, an event handler's attribute, and a
+`<style>` without the response's nonce, as an agent's quick fix often is
+one; and in the auth starter, that a migration that has run isn't
+changed, as the app stops at one whose SQL has, and that a handler's
+writes go in `a.inTx`, and its mail by a job pushed in it. Nor which
+commands check a change: tug gen, `npm run typecheck` and `go test`. An
+app's README says what's where, for a person. Most coding agents read an
+`AGENTS.md` at the root of the repository they work in, as Claude Code
+does where there's no `CLAUDE.md`. To be released as v0.43.0.
+
+- **`AGENTS.md`, in every app `tug new` makes:** how to change it, as tug
+  has it done: a page, a form, a route for users, a table and its SQL, a
+  job, a flash, a text in the app's languages, and a test, each in steps;
+  the rules the code doesn't show; and the checks an agent runs before it
+  says a change is done.
+- **`CLAUDE.md`, `@AGENTS.md`:** Claude Code's import of it, as Claude
+  Code's documentation suggests for a file shared with other agents.
+- **Kept true:** the CLI's tests check that each file, command and name an
+  app's `AGENTS.md` gives is the app's.
+- **The guide:** Getting started, What's in the app; CLI, the files
+  `tug new` writes; and the README.
+
+Choices, to settle before any code:
+
+- **One file, for every agent:** `AGENTS.md`, which most coding agents
+  read, and a `CLAUDE.md` of `@AGENTS.md` alone. Claude Code reads
+  `AGENTS.md` itself only where there's no `CLAUDE.md`, so one added
+  later, as Claude Code's `/init` writes, would hide it; with the import,
+  Claude's own notes go under it. Not a symlink, which Claude Code's edits
+  won't write through, and a checkout on Windows can make a file of text.
+- **How to change the app, not what's where:** the README says what each
+  file is, for a person, and `AGENTS.md` points to it, and says how tug
+  has a thing done, in steps an agent follows, and what it mustn't do.
+  It's in an agent's context at every turn, so it's short, and leaves to
+  the code what the code shows by itself.
+- **The rules the code doesn't show:** `resources/js/tug` is never edited,
+  and a type that's wrong is changed in the Go, then written again by tug
+  gen, or tug dev; a route that binds input `Takes` it, and its form's
+  action is `form()`'s; a flash key is declared with `tug.Flash`; no
+  inline script, event handler's attribute, or `<style>` without the
+  page's nonce, and no `'unsafe-inline'` added to the policy, as a library
+  that injects a style is handed the nonce, as the React auth starter's
+  sonner and Radix are, and what's blocked, the browser's console says,
+  and the app's log; an error is said for the person who gets it, and a
+  text through `c.T`, for tug lang; with SSR, a component runs on the
+  server too, with no `window` at a module's top.
+- **And the auth starter's:** a migration that has run isn't changed, but
+  a new one written, by `tug migrate new`; a table's SQL is in its
+  `_db.go`, in its database's own, `?` or `$1`; a handler's writes are in
+  `a.inTx`, and its mail a job pushed in it; a user's route is behind
+  `usersOnly`, and what could hand the account to someone else behind
+  `passwordConfirmed` too; a page's props never have a password's hash or
+  a secret, as `User`'s json tags leave them out.
+- **The checks, the agent's own:** `tug gen`, `npm run typecheck`,
+  `go vet ./...` and `go test ./...`, with `docker compose up -d` first on
+  Postgres or MySQL, and `tug build` before a deploy, as it builds the
+  frontend into the binary; `tug routes`, to see the routes. Not a
+  browser: the app's tests visit its pages as Inertia's client does, by
+  `tugtest`, which the test recipe uses.
+- **By the app `tug new` made:** a template for each starter,
+  `starter/AGENTS.md.tmpl` and `starter-auth/`'s, which replaces it,
+  filled in by the frontend (its files' extension, Vue's props by
+  `Pages['Name'] & SharedProps`, Svelte's title by `Head.svelte`, the
+  forms by `createForm` in Vue and Svelte), by the database (its
+  placeholders, and compose's server) and by SSR. Once made, it's the
+  app's, for its people to change as it grows, and tug doesn't write it
+  again.
+- **The guide at the app's tug:** its links are to the guide at the
+  version the app's `go.mod` requires,
+  `https://github.com/cuonggt/tug/tree/v0.43.0/docs`, so an agent reads
+  the API the app has, and main's for an app of a checkout's.
+- **Kept true by tests:** in each kind of app the CLI's tests make, each
+  path `AGENTS.md` gives in backticks is a file or directory of the app's,
+  each `npm run` script is in its `package.json`, and each of the Go names
+  its recipes use, as `usersOnly`, `a.inTx` and `newTestApp`, is declared
+  in its package main: a file an agent trusts that has gone out of date is
+  worse than none.
+- **Not tug's own `CLAUDE.md`:** that one is for working on tug, and an
+  app's for working on the app.
+- **Not skills, or an MCP server:** more than an app's ways need, where
+  `AGENTS.md` is text every agent reads, and the commands are the CLI's,
+  which an agent runs as a person does.
+- **Tests:** in the CLI's, `AGENTS.md` and `CLAUDE.md` in each kind of
+  app, React's four and two each of Vue's and Svelte's, on each database
+  in the auth starter, with the frontend's and the database's words, the
+  guide linked at the version, and each path, script and name it gives the
+  app's.
 
 ## Decisions
 
