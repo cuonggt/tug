@@ -4358,7 +4358,7 @@ Choices made on the way:
   the forgotten password page. Registering with a passkey tells of
   nothing, and its passkey is no `passkey-added`. The other kinds' mails
   still said to change the password, which an account with no password
-  sets; later, they tell it to remove the passkeys it doesn't know
+  sets; in v0.42.0, they tell it to remove the passkeys it doesn't know
   (`secureIt`), and the mail of two-factor logins turned off, that a link
   to set a password takes no code.
 - **Tests:** in package auth, `Registrations`' tokens, made and checked,
@@ -4394,7 +4394,7 @@ carries it; what it loads is the app's own, by `img-src` and `font-src`.
 tug had `middleware.Headers`, `middleware.CSP`, a nonce for each response
 in its context, which the root template has as `.Nonce`, and the
 starters' browser suite, which fails a test whose page says anything in
-the console, as a blocked style does. To be released as v0.42.0.
+the console, as a blocked style does. Released as v0.42.0.
 
 - **A Permissions-Policy:** `middleware.Headers` sends one, which turns
   off the powerful features no page of the app's uses: the camera, the
