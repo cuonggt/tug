@@ -61,8 +61,8 @@ the detail.
     Let's Encrypt, the headers that say what a browser may do with the
     app's pages, a Content-Security-Policy among them, the logs, and
     metrics.
-18. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
-    `tug migrate`, `tug build` and `tug key`, in full.
+18. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug routes`,
+    `tug lang`, `tug migrate`, `tug build` and `tug key`, in full.
 
 [The roadmap](roadmap.md) has how tug was built, the decisions behind it,
 and what comes next, and [the benchmarks](benchmarks.md) what tug costs a

@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 3597b0d23d5b -->
+<!-- translated from docs/README.md at 4fc03d18536f -->
 
 # La guía de tug
 
@@ -69,11 +69,12 @@ los detalles.
     archivos y los inicios de sesión de una aplicación, `mailtest`, para su
     correo, y sus eventos.
 17. [Despliegue](../deployment.md): un único binario, el Dockerfile, el
-    entorno, las cabeceras que dicen qué puede hacer un navegador con las
-    páginas de la aplicación, entre ellas una Content-Security-Policy, los
-    logs y las métricas.
-18. [La CLI](../cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
-    `tug migrate`, `tug build` y `tug key`, en detalle.
+    entorno, HTTPS servido por la propia aplicación, con certificados de
+    Let's Encrypt, las cabeceras que dicen qué puede hacer un navegador con
+    las páginas de la aplicación, entre ellas una Content-Security-Policy,
+    los logs y las métricas.
+18. [La CLI](../cli.md): `tug new`, `tug dev`, `tug gen`, `tug routes`,
+    `tug lang`, `tug migrate`, `tug build` y `tug key`, en detalle.
 
 [La hoja de ruta](../roadmap.md) cuenta cómo se construyó tug, las
 decisiones que hay detrás y lo que viene después, y

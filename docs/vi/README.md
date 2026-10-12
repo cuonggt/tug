@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 3597b0d23d5b -->
+<!-- translated from docs/README.md at 4fc03d18536f -->
 
 # Hướng dẫn sử dụng tug
 
@@ -61,10 +61,11 @@ tiết còn lại.
     test Go kiểm tra trang, form, tệp tải lên và đăng nhập của ứng dụng,
     `mailtest` cho email của ứng dụng, và các sự kiện của nó.
 17. [Triển khai](../deployment.md): một binary, Dockerfile, biến môi
-    trường, các header cho trình duyệt biết được làm gì với các trang của
+    trường, HTTPS do chính ứng dụng phục vụ, với chứng chỉ từ Let's
+    Encrypt, các header cho trình duyệt biết được làm gì với các trang của
     ứng dụng, trong đó có Content-Security-Policy, log và metric.
-18. [CLI](../cli.md): `tug new`, `tug dev`, `tug gen`, `tug lang`,
-    `tug migrate`, `tug build` và `tug key`, đầy đủ chi tiết.
+18. [CLI](../cli.md): `tug new`, `tug dev`, `tug gen`, `tug routes`,
+    `tug lang`, `tug migrate`, `tug build` và `tug key`, đầy đủ chi tiết.
 
 [Lộ trình](../roadmap.md) kể lại tug đã được xây dựng ra sao, những quyết
 định đằng sau nó và những gì sắp tới, còn

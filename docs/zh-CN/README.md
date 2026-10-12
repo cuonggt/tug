@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 3597b0d23d5b -->
+<!-- translated from docs/README.md at 4fc03d18536f -->
 
 # tug 指南
 
@@ -20,7 +20,7 @@ tug 是一个 Web 框架，面向前端使用 [Inertia.js](https://inertiajs.com
 14. [广播](../broadcasting.md)：`broadcast` 包，频道上的事件，由应用的数据库送到每个实例上打开的页面，页面随即重新加载变化的部分。
 15. [TypeScript](../typescript.md)：`tug gen` 根据 Go 代码写出的类型。
 16. [测试](../testing.md)：`tugtest` 包，即供 Go 测试使用的 Inertia 客户端，用来测试应用的页面、表单、上传和登录；用来测试邮件的 `mailtest`；以及应用的事件。
-17. [部署](../deployment.md)：单个二进制文件、Dockerfile、环境变量，规定浏览器可以如何对待应用页面的响应头（其中包括 Content-Security-Policy），日志，以及指标。
-18. [命令行工具](../cli.md)：`tug new`、`tug dev`、`tug gen`、`tug lang`、`tug migrate`、`tug build` 和 `tug key` 的完整说明。
+17. [部署](../deployment.md)：单个二进制文件、Dockerfile、环境变量、由应用自身提供的 HTTPS 及来自 Let's Encrypt 的证书，规定浏览器可以如何对待应用页面的响应头（其中包括 Content-Security-Policy），日志，以及指标。
+18. [命令行工具](../cli.md)：`tug new`、`tug dev`、`tug gen`、`tug routes`、`tug lang`、`tug migrate`、`tug build` 和 `tug key` 的完整说明。
 
 [路线图](../roadmap.md)讲述了 tug 是如何构建的、背后的决策，以及接下来的计划；[基准测试](../benchmarks.md)则给出 tug 在每个请求上的开销、用它构建的应用运行起来需要多少资源，以及这些数据是如何测得的。

@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 3597b0d23d5b -->
+<!-- translated from docs/README.md at 4fc03d18536f -->
 
 # tug ガイド
 
@@ -20,7 +20,7 @@ tug は、フロントエンドに [Inertia.js](https://inertiajs.com) を使う
 14. [ブロードキャスト](../broadcasting.md)：チャンネル上のイベントを扱う `broadcast` パッケージ。イベントはアプリのデータベースを通じて、すべてのインスタンスで開かれているページに届き、ページは変わったものを再読み込みします。
 15. [TypeScript](../typescript.md)：`tug gen` が Go のコードから書き出す型。
 16. [テスト](../testing.md)：アプリのページ、フォーム、アップロード、ログインを Go でテストするための Inertia のクライアントである `tugtest` パッケージ、メールのための `mailtest`、イベントのテスト。
-17. [デプロイ](../deployment.md)：バイナリ 1 つ、Dockerfile、環境変数、ブラウザーがアプリのページで何をしてよいかを伝えるヘッダー（Content-Security-Policy もその 1 つ）、ログ、メトリクス。
-18. [CLI](../cli.md)：`tug new`、`tug dev`、`tug gen`、`tug lang`、`tug migrate`、`tug build`、`tug key` の詳細。
+17. [デプロイ](../deployment.md)：バイナリ 1 つ、Dockerfile、環境変数、アプリ自身が提供する HTTPS と Let's Encrypt の証明書、ブラウザーがアプリのページで何をしてよいかを伝えるヘッダー（Content-Security-Policy もその 1 つ）、ログ、メトリクス。
+18. [CLI](../cli.md)：`tug new`、`tug dev`、`tug gen`、`tug routes`、`tug lang`、`tug migrate`、`tug build`、`tug key` の詳細。
 
 [ロードマップ](../roadmap.md)には、tug がどのように作られてきたか、その背後にある判断、今後の予定があります。[ベンチマーク](../benchmarks.md)には、tug がリクエストごとにかけるコスト、tug で作ったアプリの実行に必要なもの、それらの計測方法があります。
