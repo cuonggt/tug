@@ -53,6 +53,7 @@ to 3.8.0, October 2026), written against
 | M44 | Browser sessions           | done   |
 | M45 | Built-in HTTPS             | done   |
 | M46 | Passkey-only accounts      | done   |
+| M47 | Security headers, further  | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4376,6 +4377,120 @@ Choices made on the way:
   frontend, with Chrome's virtual authenticator: registering with a
   passkey from the mailed link, logging out and in with it, the password
   set and removed, and an account back in by a reset link.
+
+## M47 · Security headers, further — later
+
+M32 had every response say what a browser may do with it, and a
+Content-Security-Policy that runs the scripts carrying the response's
+nonce alone, and left three things for later: a `Permissions-Policy`,
+Trusted Types, and styles by nonce. A page of the app's can still ask for
+the camera, the microphone or the browser's location, as a script that got
+into it would, and its policy lets any inline style in, as shadcn's
+components and Inertia's progress bar set them, so a `<style>` that got
+into a page, as in a person's text that an escape missed, restyles the
+page itself, by its selectors: it hides a warning, or shows what was
+hidden, where a style attribute styles only the markup that carries it;
+what it loads is the app's own, by `img-src` and `font-src`. tug has
+`middleware.Headers`, `middleware.CSP`, a nonce for each response in its
+context, which the root template has as `.Nonce`, and the starters'
+browser suite, which fails a test whose page says anything in the
+console, as a blocked style does. To be released as v0.42.0.
+
+- **A Permissions-Policy:** `middleware.Headers` sends one, which turns
+  off the powerful features no page of the app's uses: the camera, the
+  microphone, the browser's location, payments, USB, serial ports, HID,
+  Bluetooth, MIDI, capturing the screen, and the Topics API.
+  `HeadersConfig.Permissions` allows one, as `{"camera": "self"}`.
+- **Styles by nonce:** `CSPConfig.StyleNonce`: `style-src` takes the
+  response's nonce in place of `'unsafe-inline'`, for `<style>` elements,
+  and a `style-src-attr 'unsafe-inline'` keeps style attributes as they
+  are. The root template has `<meta property="csp-nonce" nonce="{{ .Nonce
+  }}">`, Vite's way of handing its client the nonce for the styles it
+  injects, and Inertia's client is given it, for its progress bar's style
+  and its error dialog's.
+- **The starters:** send both, styles by nonce in all three frontends,
+  and `examples/inertia` too.
+- **The guide:** Deployment, Security headers; Routing, the two
+  middlewares; and Pages, the root template's nonce, in its meta too.
+
+Choices, to settle before any code:
+
+- **The Permissions-Policy, in Headers, always:** as nosniff is: a page
+  that uses one of the features is the app's to allow, and every other
+  page is safer for it off. Off is `feature=()`. The features are those
+  Chrome knows, as it logs an error for a name it doesn't: `camera`,
+  `microphone`, `geolocation`,
+  `payment`, `usb`, `serial`, `hid`, `bluetooth`, `midi`,
+  `display-capture` and `browsing-topics`. Passkeys'
+  `publickey-credentials-get` and `-create` are left at their default, the
+  app's own pages, as are `fullscreen` and `autoplay`, which a video
+  needs. Firefox and Safari ignore the header, or the features they don't
+  have.
+- **A feature allowed, by its allowlist:** `Permissions` is a feature's
+  allowlist as the header writes it, `self`, `*`, or origins in quotes,
+  `"https://pay.example.com"`, in place of the default's `()`, or added
+  for a feature the default hasn't. A name or an allowlist the header
+  can't carry panics, as `CSP`'s sources do: a mistyped setting stops the
+  app as it starts.
+- **Style elements by nonce, attributes as before:** a nonce goes on a
+  `<style>`, which a style that got into a page as markup would be, not on
+  an attribute, which the component libraries set, and the server writes
+  into an SSR app's first visit; and a browser ignores `'unsafe-inline'`
+  beside a nonce in the same directive. So `style-src` has `'self'` and
+  the nonce, for the stylesheets and the `<style>` elements, and
+  `style-src-attr`, which every browser in use has, `'unsafe-inline'`. A
+  style set through the CSSOM, as React, Vue and Svelte set theirs, is no
+  attribute the policy sees.
+- **Opt-in, as `StyleNonce`:** a library of an app's that injects a
+  `<style>` with no nonce would lose its styles, so the default stays
+  `'unsafe-inline'`, and the starters turn it on, as they enforce the
+  policy where an app that has grown sends it report-only first.
+- **The nonce, to whoever injects a style:** Vite's client reads
+  `meta[property=csp-nonce]` for the CSS it injects under `tug dev` as the
+  files change, and its preload helper for the stylesheets it adds; the
+  build's CSS is files, which `'self'` lets in. Inertia's client reads its
+  `nonce` setting for its progress bar's `<style>` and its error dialog's:
+  the starters' `inertia.tsx` (`.ts`) passes it in `createInertiaApp`'s
+  `defaults`, read from the meta, as a module's script has no
+  `document.currentScript`. The meta's nonce is no secret from the page's
+  own scripts, which run by it already, and markup that got into the page
+  can't read it.
+- **The toasts:** vue-sonner's styles are a stylesheet the Vue starter
+  imports, and svelte-sonner's are compiled with its components. React's
+  sonner, 2.0.8, injects a `<style>` as it's imported, with no nonce and
+  no setting for one, so the React starter imports
+  `sonner/dist/styles.css`, and its `vite.config.ts` has a small plugin of
+  its own that takes sonner's injection out as Vite reads the package, so
+  the toasts are styled by the stylesheet and nothing is blocked. Not
+  sonner's style by its hash in `style-src`, which changes with each of
+  sonner's releases, and would fail silently.
+- **tug's own pages, as they are:** the debug page's style carries the
+  nonce already, and the mailbox's pages have a policy of their own.
+- **Trusted Types, not yet:** `require-trusted-types-for 'script'` has the
+  browser refuse a string for `innerHTML` and the other places a script
+  runs from, unless a policy of the page's made it, which stops markup
+  injected by the app's own scripts. Vue's runtime and Svelte's make
+  policies of their own, `vue` and `svelte-trusted-html`, but Inertia's
+  client writes `innerHTML` in three places, with none: each visit's head
+  elements (`Renderer.buildDOMElement`), its progress bar's template, and
+  its error dialog's page, and React DOM writes it for
+  `dangerouslySetInnerHTML`. Enforced, every visit with a head, as the
+  starters' home page has from Go, would fail, and a default policy that
+  let Inertia's strings through would let any through. So they wait for
+  Inertia's client to make a policy of its own, which `CSP` can then name
+  in `trusted-types`; the guide says so.
+- **Tests:** in package middleware, the Permissions-Policy, its features
+  off, one allowed, one added, and a bad name or allowlist panicking; with
+  `StyleNonce`, `style-src` with the response's nonce and no
+  `'unsafe-inline'`, `style-src-attr`, and the dev server's sources, and
+  without it, the policy as before; in the starters' tests, the
+  template's meta with the response's nonce; in the browser suite, in each
+  frontend, the header on a page, a `<style>` the page didn't bring
+  blocked and reported to the app's log, as the script is, a visit's
+  progress bar and a toast styled, and every other test's pages saying
+  nothing in the console, as a blocked style or a feature Chrome doesn't
+  know would; each SSR app `tug new` makes, its first visit styled; and
+  `examples/inertia`'s pages, in its own suite.
 
 ## Decisions
 
