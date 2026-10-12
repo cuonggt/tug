@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head, Link, router } from '@inertiajs/vue3'
+import { createForm, Head, Link, router } from '@inertiajs/vue3'
 import DeleteAccount from '@/components/DeleteAccount.vue'
 import Heading from '@/components/Heading.vue'
 import InputError from '@/components/InputError.vue'
@@ -9,20 +9,25 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { initials } from '@/lib/utils'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { form, route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // Profile changes the user's name and email, and their photo. A new email
 // is mailed a link, and isn't verified until it's followed: updateProfile
 // in settings.go. The photo goes up as the form's file, with its progress
 // shown, and replaces the one before: updatePhoto in photos.go.
 defineProps<Pages['Settings/Profile'] & SharedProps>()
+
+// The forms, typed by their routes' inputs, as tug gen writes them from
+// the Go: their errors are the fields they send.
+const ProfileForm = createForm<Inputs['profile.update']>()
+const PhotoForm = createForm<Inputs['profile.photo.update']>()
 </script>
 
 <template>
   <Head title="Profile" />
   <section class="space-y-6">
     <Heading small title="Profile" description="Your name, and the email we reach you at." />
-    <Form
+    <ProfileForm
       v-slot="{ errors, processing }"
       :action="form('profile.update')"
       :options="{ preserveScroll: true }"
@@ -62,7 +67,7 @@ defineProps<Pages['Settings/Profile'] & SharedProps>()
           >Send the link again</Link></p>
       </div>
       <Button type="submit" :disabled="processing">Save</Button>
-    </Form>
+    </ProfileForm>
   </section>
   <section class="space-y-6">
     <Heading small title="Photo" description="Shown in place of your initials: a PNG, JPEG or WebP, of 2 MB at most." />
@@ -71,7 +76,7 @@ defineProps<Pages['Settings/Profile'] & SharedProps>()
         <AvatarImage v-if="user.photo" :src="user.photo" alt="Your photo" />
         <AvatarFallback class="text-lg font-medium">{{ initials(user.name) }}</AvatarFallback>
       </Avatar>
-      <Form
+      <PhotoForm
         v-slot="{ errors, processing, progress }"
         :action="form('profile.photo.update')"
         :options="{ preserveScroll: true }"
@@ -104,7 +109,7 @@ defineProps<Pages['Settings/Profile'] & SharedProps>()
             @click="router.delete(route('profile.photo.destroy'), { preserveScroll: true })"
           >Remove</Button>
         </div>
-      </Form>
+      </PhotoForm>
     </div>
   </section>
   <DeleteAccount />

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3'
+import { createForm, Head } from '@inertiajs/vue3'
 import Heading from '@/components/Heading.vue'
 import InputError from '@/components/InputError.vue'
 import LoginSettings from '@/components/LoginSettings.vue'
@@ -9,19 +9,23 @@ import TwoFactorSettings from '@/components/TwoFactorSettings.vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { form } from '@/tug/routes'
+import { form, type Inputs } from '@/tug/routes'
 
 // Security changes the user's password, which logs them out everywhere
 // else, turns two-factor logins on and off, keeps their passkeys, and
 // lists the browsers they're logged in from.
 const props = defineProps<Pages['Settings/Security'] & SharedProps>()
+
+// The form, typed by its route's input, as tug gen writes it from the Go:
+// its errors are the fields it sends.
+const PasswordForm = createForm<Inputs['user-password.update']>()
 </script>
 
 <template>
   <Head title="Security" />
   <section class="space-y-6">
     <Heading small title="Password" description="A new one logs you out everywhere else, such as a lost laptop." />
-    <Form
+    <PasswordForm
       v-slot="{ errors, processing }"
       :action="form('user-password.update')"
       :options="{ preserveScroll: true }"
@@ -45,7 +49,7 @@ const props = defineProps<Pages['Settings/Security'] & SharedProps>()
         <InputError :message="errors.password_confirmation" />
       </div>
       <Button type="submit" :disabled="processing">Change the password</Button>
-    </Form>
+    </PasswordForm>
   </section>
   <PasskeySettings v-bind="props" />
   <TwoFactorSettings v-bind="props" />

@@ -1,14 +1,18 @@
 <script lang="ts">
-  import { Form } from '@inertiajs/svelte'
+  import { createForm } from '@inertiajs/svelte'
   import Head from '../Head.svelte'
   import Layout from '../Layout.svelte'
   import type { PageProps } from '../tug/pages'
-  import { form, route } from '../tug/routes'
+  import { form, route, type Inputs } from '../tug/routes'
 
   // Home is the page main.go's home handler renders. Its props, and the
   // routes route() knows, are the Go ones: tug gen writes their TypeScript
   // into ../tug.
   let { appName, greeting }: PageProps<'Home'> = $props()
+
+  // The form, typed by its route's input, as tug gen writes it from the
+  // Go: its errors are the fields it sends.
+  const HelloForm = createForm<Inputs['hello']>()
 </script>
 
 <Layout>
@@ -18,7 +22,7 @@
 
   <!-- The name is checked by the server as the field is left, and again
        when the form is sent: BindValid in main.go does both. -->
-  <Form action={form('hello')} class="form">
+  <HelloForm action={form('hello')} class="form">
     {#snippet children({ errors, processing, validate, invalid })}
       <label>
         What's your name?
@@ -29,7 +33,7 @@
       {/if}
       <button type="submit" disabled={processing}>Say hello</button>
     {/snippet}
-  </Form>
+  </HelloForm>
 
   <p class="hint">
     Change <code>main.go</code> or <code>resources/js/pages/Home.svelte</code>, and the page follows.

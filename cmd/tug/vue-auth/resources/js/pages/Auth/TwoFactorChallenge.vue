@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3'
+import { createForm, Head } from '@inertiajs/vue3'
 import { LoaderCircle } from '@lucide/vue'
 import { ref } from 'vue'
 import InputError from '@/components/InputError.vue'
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
-import { form } from '@/tug/routes'
+import { form, type Inputs } from '@/tug/routes'
 
 // TwoFactorChallenge is the second step of logging in, for a user who has
 // turned two-factor logins on: a code from their authenticator app, or,
@@ -19,11 +19,15 @@ defineOptions({
   },
 })
 const recovery = ref(false)
+
+// The form, typed by its route's input, as tug gen writes it from the Go:
+// its errors are the fields it sends.
+const ChallengeForm = createForm<Inputs['two-factor.login.store']>()
 </script>
 
 <template>
   <Head title="Two-factor login" />
-  <Form
+  <ChallengeForm
     :key="recovery ? 'recovery' : 'code'"
     v-slot="{ errors, processing }"
     :action="form('two-factor.login.store')"
@@ -61,7 +65,7 @@ const recovery = ref(false)
       <InputError :message="errors.code" />
     </div>
     <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Log in</Button>
-  </Form>
+  </ChallengeForm>
   <p class="mt-6 text-center text-sm text-muted-foreground">
     {{ recovery ? 'Found your phone?' : 'Lost your phone?' }}
     <button type="button" class="cursor-pointer text-foreground underline underline-offset-4" @click="recovery = !recovery">

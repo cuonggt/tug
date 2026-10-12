@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head, router, usePage } from '@inertiajs/vue3'
+import { createForm, Head, router, usePage } from '@inertiajs/vue3'
 import { KeyRound, LoaderCircle } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
 import InputError from '@/components/InputError.vue'
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
 import { dismissed, getPasskey, optionsFrom, passkeysWork } from '@/lib/passkeys'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { form, route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // ConfirmPassword asks for the password again before the settings that
 // could hand the account to someone else: passwordConfirmed in auth.go
@@ -36,11 +36,15 @@ const withPasskey = async () => {
     if (!dismissed(err)) failure.value = "Your browser didn't use a passkey: try again, or type your password."
   }
 }
+
+// The form, typed by its route's input, as tug gen writes it from the Go:
+// its errors are the fields it sends.
+const ConfirmForm = createForm<Inputs['password.confirm.store']>()
 </script>
 
 <template>
   <Head title="Confirm your password" />
-  <Form
+  <ConfirmForm
     v-slot="{ errors, processing }"
     :action="form('password.confirm.store')"
     reset-on-error
@@ -52,7 +56,7 @@ const withPasskey = async () => {
       <InputError :message="errors.password" />
     </div>
     <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Confirm</Button>
-  </Form>
+  </ConfirmForm>
   <div v-if="passkeys && works" class="mt-4 grid gap-2">
     <Button type="button" variant="outline" class="w-full" @click="withPasskey"><KeyRound />Use a passkey</Button>
     <InputError :message="page.props.errors.passkey ?? failure" />

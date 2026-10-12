@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { Form } from '@inertiajs/svelte'
+  import { createForm } from '@inertiajs/svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Head from '@/Head.svelte'
   import InputError from '@/components/InputError.svelte'
@@ -13,15 +13,19 @@
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
   import type { PageProps } from '@/tug/pages'
-  import { form, route } from '@/tug/routes'
+  import { form, route, type Inputs } from '@/tug/routes'
 
   // ResetPassword is where the link in a reset mail leads: its token, and
   // the email it went to, come in the props.
   let { token, email }: PageProps<'Auth/ResetPassword'> = $props()
+
+  // The form, typed by its route's input, as tug gen writes it from the
+  // Go: its errors are the fields it sends.
+  const ResetForm = createForm<Inputs['password.store']>()
 </script>
 
 <Head title="Choose a new password" />
-<Form
+<ResetForm
   action={form('password.store')}
   resetOnError={['password', 'password_confirmation']}
   class="flex flex-col gap-6"
@@ -58,7 +62,7 @@
       Set the password
     </Button>
   {/snippet}
-</Form>
+</ResetForm>
 <p class="mt-6 text-center text-sm text-muted-foreground">
   Has the link stopped working? <TextLink href={route('password.request')}>Ask for another</TextLink>
 </p>

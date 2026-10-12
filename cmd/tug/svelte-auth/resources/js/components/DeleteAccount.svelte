@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Form } from '@inertiajs/svelte'
+  import { createForm } from '@inertiajs/svelte'
   import Heading from '@/components/Heading.svelte'
   import InputError from '@/components/InputError.svelte'
   import PasswordInput from '@/components/PasswordInput.svelte'
@@ -14,11 +14,15 @@
     DialogTrigger,
   } from '@/components/ui/dialog'
   import { Label } from '@/components/ui/label'
-  import { form } from '@/tug/routes'
+  import { form, type Inputs } from '@/tug/routes'
 
   // DeleteAccount deletes the user's account, after asking for the password
   // once more: it can't be undone.
   let password = $state<HTMLElement | null>(null)
+
+  // The form, typed by its route's input, as tug gen writes it from the
+  // Go: its errors are the fields it sends.
+  const DeleteForm = createForm<Inputs['profile.destroy']>()
 </script>
 
 <section class="space-y-6">
@@ -36,7 +40,7 @@
         <DialogDescription>
           Everything in it goes too, and you're logged out everywhere. Type your password to say you mean it.
         </DialogDescription>
-        <Form
+        <DeleteForm
           action={form('profile.destroy')}
           options={{ preserveScroll: true }}
           onError={() => password?.focus()}
@@ -64,7 +68,7 @@
               <Button type="submit" variant="destructive" disabled={processing}>Delete my account</Button>
             </DialogFooter>
           {/snippet}
-        </Form>
+        </DeleteForm>
       </DialogContent>
     </Dialog>
   </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, router, usePage } from '@inertiajs/vue3'
+import { createForm, Form, router, usePage } from '@inertiajs/vue3'
 import { LoaderCircle, ShieldCheck } from '@lucide/vue'
 import { QrcodeSvg } from 'qrcode.vue'
 import { computed, ref, watch } from 'vue'
@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { form, route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // TwoFactorSettings turns two-factor logins on and off: off, a button to
 // start; starting, a QR code for the user's authenticator app and a code
@@ -35,6 +35,10 @@ watch(
 const codes = computed(() => page.flash.recoveryCodes ?? kept.value ?? props.recoveryCodes)
 // The secret, in fours, to type in by hand.
 const key = computed(() => props.setup?.secret.match(/.{1,4}/g)?.join(' '))
+
+// The form, typed by its route's input, as tug gen writes it from the Go:
+// its errors are the fields it sends.
+const ConfirmCodeForm = createForm<Inputs['two-factor.confirm']>()
 </script>
 
 <template>
@@ -72,7 +76,7 @@ const key = computed(() => props.setup?.secret.match(/.{1,4}/g)?.join(' '))
           <p class="font-mono text-base tracking-wider break-all select-all">{{ key }}</p>
         </div>
       </div>
-      <Form
+      <ConfirmCodeForm
         v-slot="{ errors, processing }"
         :action="form('two-factor.confirm')"
         reset-on-error
@@ -99,7 +103,7 @@ const key = computed(() => props.setup?.secret.match(/.{1,4}/g)?.join(' '))
           <Button type="submit" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Turn on</Button>
           <Button type="button" variant="ghost" @click="router.delete(route('two-factor.disable'), { preserveScroll: true })">Cancel</Button>
         </div>
-      </Form>
+      </ConfirmCodeForm>
     </div>
     <Form v-else v-slot="{ processing }" :action="form('two-factor.enable')" :options="{ preserveScroll: true }">
       <Button type="submit" :disabled="processing"><ShieldCheck />Turn two-factor logins on</Button>

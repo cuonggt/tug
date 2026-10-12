@@ -16,7 +16,10 @@
   import { form, route } from '@/tug/routes'
 
   // Register checks each field with the server as it's left, as BindValid in
-  // auth.go answers: a taken email shows before the form is sent.
+  // auth.go answers: a taken email shows before the form is sent. Its Form
+  // takes no type, as the other pages' do with createForm: the typed one's
+  // type leaves out the methods bind:this gives, validator among them,
+  // which the page calls.
   let registration: Form
 
   // A field's check can be waiting out its 300ms as the form is sent, and

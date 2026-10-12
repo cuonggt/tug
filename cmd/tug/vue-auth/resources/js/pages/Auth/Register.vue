@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { FormComponentRef } from '@inertiajs/core'
-import { Form, Head } from '@inertiajs/vue3'
+import { createForm, Head } from '@inertiajs/vue3'
 import { LoaderCircle } from '@lucide/vue'
 import { onBeforeUnmount, useTemplateRef } from 'vue'
 import InputError from '@/components/InputError.vue'
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
-import { form, route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // Register checks each field with the server as it's left, as BindValid in
 // auth.go answers: a taken email shows before the form is sent.
@@ -29,11 +29,15 @@ defineOptions({
 const registration = useTemplateRef<FormComponentRef>('registration')
 const dropCheck = () => registration.value?.validator().setTimeout(300)
 onBeforeUnmount(dropCheck)
+
+// The form, typed by its route's input, as tug gen writes it from the Go:
+// its errors are the fields it sends.
+const RegisterForm = createForm<Inputs['register.store']>()
 </script>
 
 <template>
   <Head title="Register" />
-  <Form
+  <RegisterForm
     ref="registration"
     v-slot="{ errors, processing, validate, invalid }"
     :action="form('register.store')"
@@ -94,6 +98,6 @@ onBeforeUnmount(dropCheck)
       <InputError :message="errors.password_confirmation" />
     </div>
     <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Register</Button>
-  </Form>
+  </RegisterForm>
   <p class="mt-6 text-center text-sm text-muted-foreground">Have an account? <TextLink :href="route('login')">Log in</TextLink></p>
 </template>

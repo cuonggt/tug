@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Form } from '@inertiajs/svelte'
+  import { createForm } from '@inertiajs/svelte'
   import Head from '@/Head.svelte'
   import Heading from '@/components/Heading.svelte'
   import InputError from '@/components/InputError.svelte'
@@ -10,18 +10,22 @@
   import { Button } from '@/components/ui/button'
   import { Label } from '@/components/ui/label'
   import type { PageProps } from '@/tug/pages'
-  import { form } from '@/tug/routes'
+  import { form, type Inputs } from '@/tug/routes'
 
   // Security changes the user's password, which logs them out everywhere
   // else, turns two-factor logins on and off, keeps their passkeys, and
   // lists the browsers they're logged in from.
   let props: PageProps<'Settings/Security'> = $props()
+
+  // The form, typed by its route's input, as tug gen writes it from the
+  // Go: its errors are the fields it sends.
+  const PasswordForm = createForm<Inputs['user-password.update']>()
 </script>
 
 <Head title="Security" />
 <section class="space-y-6">
   <Heading small title="Password" description="A new one logs you out everywhere else, such as a lost laptop." />
-  <Form
+  <PasswordForm
     action={form('user-password.update')}
     options={{ preserveScroll: true }}
     resetOnError
@@ -46,7 +50,7 @@
       </div>
       <Button type="submit" disabled={processing}>Change the password</Button>
     {/snippet}
-  </Form>
+  </PasswordForm>
 </section>
 <PasskeySettings {...props} />
 <TwoFactorSettings {...props} />

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Form, page, router } from '@inertiajs/svelte'
+  import { createForm, Form, page, router } from '@inertiajs/svelte'
   import Check from '@lucide/svelte/icons/check'
   import Copy from '@lucide/svelte/icons/copy'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -12,7 +12,7 @@
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
   import type { PageProps } from '@/tug/pages'
-  import { form, route } from '@/tug/routes'
+  import { form, route, type Inputs } from '@/tug/routes'
 
   // TwoFactorSettings turns two-factor logins on and off: off, a button to
   // start; starting, a QR code for the user's authenticator app and a code
@@ -35,6 +35,10 @@
     copied = true
     setTimeout(() => (copied = false), 2000)
   }
+
+  // The form, typed by its route's input, as tug gen writes it from the
+  // Go: its errors are the fields it sends.
+  const ConfirmCodeForm = createForm<Inputs['two-factor.confirm']>()
 </script>
 
 <section class="space-y-6">
@@ -94,7 +98,7 @@
           </p>
         </div>
       </div>
-      <Form
+      <ConfirmCodeForm
         action={form('two-factor.confirm')}
         resetOnError
         options={{ preserveScroll: true }}
@@ -133,7 +137,7 @@
             </Button>
           </div>
         {/snippet}
-      </Form>
+      </ConfirmCodeForm>
     </div>
   {:else}
     <Form action={form('two-factor.enable')} options={{ preserveScroll: true }}>

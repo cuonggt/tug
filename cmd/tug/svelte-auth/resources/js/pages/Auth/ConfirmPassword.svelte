@@ -6,7 +6,7 @@
 </script>
 
 <script lang="ts">
-  import { Form, page, router } from '@inertiajs/svelte'
+  import { createForm, page, router } from '@inertiajs/svelte'
   import KeyRound from '@lucide/svelte/icons/key-round'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import { onMount } from 'svelte'
@@ -17,7 +17,7 @@
   import { Label } from '@/components/ui/label'
   import { dismissed, getPasskey, optionsFrom, passkeysWork } from '@/lib/passkeys'
   import type { PageProps } from '@/tug/pages'
-  import { form, route } from '@/tug/routes'
+  import { form, route, type Inputs } from '@/tug/routes'
 
   // ConfirmPassword asks for the password again before the settings that
   // could hand the account to someone else: passwordConfirmed in auth.go
@@ -39,10 +39,14 @@
       if (!dismissed(err)) failure = "Your browser didn't use a passkey: try again, or type your password."
     }
   }
+
+  // The form, typed by its route's input, as tug gen writes it from the
+  // Go: its errors are the fields it sends.
+  const ConfirmForm = createForm<Inputs['password.confirm.store']>()
 </script>
 
 <Head title="Confirm your password" />
-<Form action={form('password.confirm.store')} resetOnError class="flex flex-col gap-6">
+<ConfirmForm action={form('password.confirm.store')} resetOnError class="flex flex-col gap-6">
   {#snippet children({ errors, processing })}
     <div class="grid gap-2">
       <Label for="password">Password</Label>
@@ -56,7 +60,7 @@
       Confirm
     </Button>
   {/snippet}
-</Form>
+</ConfirmForm>
 {#if passkeys && works}
   <div class="mt-4 grid gap-2">
     <Button type="button" variant="outline" class="w-full" onclick={withPasskey}>

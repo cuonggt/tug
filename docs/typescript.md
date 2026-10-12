@@ -484,11 +484,46 @@ import { form, type Inputs } from '../../tug/routes'
 </Form>
 ```
 
-`useForm<Inputs['login.store']>(…)` types a form's data the same way, in
-React, Vue and Svelte. Vue's and Svelte's `<Form>` take no type, in
-Inertia 3.7.1, so there `form()` is the action, and the errors are any
-string's. An input's `name="email"` is text TypeScript doesn't read, so a
-typo there is for the form's own tests to catch.
+Vue's and Svelte's `<Form>` take their type from `createForm`, which
+makes a `<Form>` of what it sends, as the starters' pages do:
+
+```vue
+<script setup lang="ts">
+import { createForm } from '@inertiajs/vue3'
+import { form, type Inputs } from '@/tug/routes'
+
+const LoginForm = createForm<Inputs['login.store']>()
+</script>
+
+<template>
+  <LoginForm v-slot="{ errors }" :action="form('login.store')" :reset-on-error="['password']">
+    <InputError :message="errors.email" />
+  </LoginForm>
+</template>
+```
+
+```svelte
+<script lang="ts">
+  import { createForm } from '@inertiajs/svelte'
+  import { form, type Inputs } from '@/tug/routes'
+
+  const LoginForm = createForm<Inputs['login.store']>()
+</script>
+
+<LoginForm action={form('login.store')} resetOnError={['password']}>
+  {#snippet children({ errors })}
+    <InputError message={errors.email} />
+  {/snippet}
+</LoginForm>
+```
+
+It's Inertia's own `<Form>`, with a type. Svelte's leaves out of its type
+the methods `bind:this` gives, so a page that calls one, as the Svelte
+starter's register page calls `validator()`, keeps the `<Form>` that
+takes none. `useForm<Inputs['login.store']>(…)` types a form's data the
+same way, in React, Vue and Svelte. An input's `name="email"` is text
+TypeScript doesn't read, so a typo there is for the form's own tests to
+catch.
 
 An input's keys are the names `validate` gives its errors, its json tag's
 name, else its form tag's, else the field's own, which is how `Bind` reads

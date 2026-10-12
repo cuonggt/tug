@@ -6,7 +6,7 @@
 </script>
 
 <script lang="ts">
-  import { Form } from '@inertiajs/svelte'
+  import { createForm } from '@inertiajs/svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import type { Attachment } from 'svelte/attachments'
   import Head from '@/Head.svelte'
@@ -14,7 +14,7 @@
   import { Button } from '@/components/ui/button'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
-  import { form } from '@/tug/routes'
+  import { form, type Inputs } from '@/tug/routes'
 
   // TwoFactorChallenge is the second step of logging in, for a user who has
   // turned two-factor logins on: a code from their authenticator app, or,
@@ -24,13 +24,17 @@
   // focus has the field the button below swaps in take the focus from the
   // button: Svelte's autofocus moves the focus only when nothing has it.
   const focus: Attachment<HTMLElement> = (field) => field.focus()
+
+  // The form, typed by its route's input, as tug gen writes it from the
+  // Go: its errors are the fields it sends.
+  const ChallengeForm = createForm<Inputs['two-factor.login.store']>()
 </script>
 
 <Head title="Two-factor login" />
 <!-- The form is made again as they switch, with no errors from the other,
      and the field it shows focused. -->
 {#key recovery}
-  <Form action={form('two-factor.login.store')} resetOnError class="flex flex-col gap-6">
+  <ChallengeForm action={form('two-factor.login.store')} resetOnError class="flex flex-col gap-6">
     {#snippet children({ errors, processing })}
       {#if recovery}
         <div class="grid gap-2">
@@ -74,7 +78,7 @@
         Log in
       </Button>
     {/snippet}
-  </Form>
+  </ChallengeForm>
 {/key}
 <p class="mt-6 text-center text-sm text-muted-foreground">
   {recovery ? 'Found your phone?' : 'Lost your phone?'}

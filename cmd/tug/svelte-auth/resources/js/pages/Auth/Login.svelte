@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { Form, page, router } from '@inertiajs/svelte'
+  import { createForm, page, router } from '@inertiajs/svelte'
   import KeyRound from '@lucide/svelte/icons/key-round'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import { onMount } from 'svelte'
@@ -16,7 +16,7 @@
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
   import { autofillWorks, dismissed, getPasskey, type Json, optionsFrom, passkeysWork } from '@/lib/passkeys'
-  import { form, route } from '@/tug/routes'
+  import { form, route, type Inputs } from '@/tug/routes'
 
   // Login logs in with an email and password, or with a passkey, which the
   // browser offers in the email field's autofill too. passkeyLogin in
@@ -54,10 +54,14 @@
       if (!dismissed(err)) failure = "Your browser didn't use a passkey: try again, or use your password."
     }
   }
+
+  // The form, typed by its route's input, as tug gen writes it from the
+  // Go: its errors are the fields it sends.
+  const LoginForm = createForm<Inputs['login.store']>()
 </script>
 
 <Head title="Log in" />
-<Form action={form('login.store')} resetOnError={['password']} class="flex flex-col gap-6">
+<LoginForm action={form('login.store')} resetOnError={['password']} class="flex flex-col gap-6">
   {#snippet children({ errors, processing })}
     <div class="grid gap-2">
       <Label for="email">Email</Label>
@@ -92,7 +96,7 @@
       Log in
     </Button>
   {/snippet}
-</Form>
+</LoginForm>
 {#if works}
   <div class="mt-4 grid gap-2">
     <Button type="button" variant="outline" class="w-full" onclick={withPasskey}>

@@ -91,7 +91,7 @@ compressed assets (v0.31.0): the build's scripts and styles, as package
 build's own brotli, and typed forms (v0.32.0): `Route.Takes`, the struct
 a route's handler binds, which `Bind` checks, and tug gen's `Inputs`, by
 route name, and `form()`, a route's path and method as a form's action,
-which the starters' forms take, React's typed by their input, and typed
+which the starters' forms take, typed by their input, and typed
 flash (v0.33.0): `tug.Flash[T]`, a flash key declared with its value's
 type, set through it, which `Ctx.Flash` checks, and tug gen's `FlashData`,
 Inertia's `flashDataType`, in place of the starters' hand-kept `types.ts`,
@@ -725,9 +725,12 @@ dev server that isn't there: delete it.
   `flash.go`, the auth starter's `Success`, `Failure` (`error`),
   `RecoveryCodes` and `NewToken` (`token`), and set them through it, with
   no `types.ts` of their own. Each route of the starters' that binds input `Takes`
-  it, and their forms take their action from `form()`, React's typed by
-  their route's input, `<Form<Inputs['login.store']>>`, as Vue's and
-  Svelte's `<Form>` take no type. The auth starter's handlers are in `auth.go.tmpl`
+  it, and their forms take their action from `form()`, typed by their
+  route's input: React's `<Form<Inputs['login.store']>>`, and Vue's and
+  Svelte's a `<Form>` of `createForm<Inputs['login.store']>()`, as
+  `LoginForm`, but for Svelte's register page, whose `bind:this` calls
+  `validator()`, a method the typed one's type leaves out. The auth
+  starter's handlers are in `auth.go.tmpl`
   (who's logged in, and the wrappers `usersOnly`, `verified`,
   `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
   `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the

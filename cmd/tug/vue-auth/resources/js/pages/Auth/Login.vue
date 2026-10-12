@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head, router, usePage } from '@inertiajs/vue3'
+import { createForm, Head, router, usePage } from '@inertiajs/vue3'
 import { KeyRound, LoaderCircle } from '@lucide/vue'
 import { onMounted, onUnmounted, ref } from 'vue'
 import InputError from '@/components/InputError.vue'
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
 import { autofillWorks, dismissed, getPasskey, type Json, optionsFrom, passkeysWork } from '@/lib/passkeys'
-import { form, route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // Login logs in with an email and password, or with a passkey, which the
 // browser offers in the email field's autofill too. passkeyLogin in
@@ -54,11 +54,15 @@ const withPasskey = async () => {
     if (!dismissed(err)) failure.value = "Your browser didn't use a passkey: try again, or use your password."
   }
 }
+
+// The form, typed by its route's input, as tug gen writes it from the Go:
+// its errors are the fields it sends.
+const LoginForm = createForm<Inputs['login.store']>()
 </script>
 
 <template>
   <Head title="Log in" />
-  <Form
+  <LoginForm
     v-slot="{ errors, processing }"
     :action="form('login.store')"
     :reset-on-error="['password']"
@@ -96,7 +100,7 @@ const withPasskey = async () => {
       <Label for="remember" class="font-normal">Remember me for a month</Label>
     </div>
     <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Log in</Button>
-  </Form>
+  </LoginForm>
   <div v-if="works" class="mt-4 grid gap-2">
     <Button type="button" variant="outline" class="w-full" @click="withPasskey"><KeyRound />Log in with a passkey</Button>
     <InputError :message="page.props.errors.passkey ?? failure" />

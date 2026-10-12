@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form } from '@inertiajs/vue3'
+import { createForm } from '@inertiajs/vue3'
 import { useTemplateRef } from 'vue'
 import Heading from '@/components/Heading.vue'
 import InputError from '@/components/InputError.vue'
@@ -15,11 +15,15 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { form } from '@/tug/routes'
+import { form, type Inputs } from '@/tug/routes'
 
 // DeleteAccount deletes the user's account, after asking for the password
 // once more: it can't be undone.
 const field = useTemplateRef('password')
+
+// The form, typed by its route's input, as tug gen writes it from the Go:
+// its errors are the fields it sends.
+const DeleteForm = createForm<Inputs['profile.destroy']>()
 </script>
 
 <template>
@@ -34,7 +38,7 @@ const field = useTemplateRef('password')
         <DialogContent>
           <DialogTitle>Delete your account?</DialogTitle>
           <DialogDescription>Everything in it goes too, and you're logged out everywhere. Type your password to say you mean it.</DialogDescription>
-          <Form
+          <DeleteForm
             v-slot="{ errors, processing, resetAndClearErrors }"
             :action="form('profile.destroy')"
             :options="{ preserveScroll: true }"
@@ -59,7 +63,7 @@ const field = useTemplateRef('password')
               </DialogClose>
               <Button type="submit" variant="destructive" :disabled="processing">Delete my account</Button>
             </DialogFooter>
-          </Form>
+          </DeleteForm>
         </DialogContent>
       </Dialog>
     </div>

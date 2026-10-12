@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3'
+import { createForm, Head } from '@inertiajs/vue3'
 import { LoaderCircle } from '@lucide/vue'
 import InputError from '@/components/InputError.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { vFocus } from '@/lib/focus'
 import type { Pages, SharedProps } from '@/tug/pages'
-import { form, route } from '@/tug/routes'
+import { form, route, type Inputs } from '@/tug/routes'
 
 // ResetPassword is where the link in a reset mail leads: its token, and
 // the email it went to, come in the props.
@@ -17,11 +17,15 @@ defineOptions({
   layout: { title: 'Choose a new password', description: 'It logs you out everywhere you were logged in.' },
 })
 defineProps<Pages['Auth/ResetPassword'] & SharedProps>()
+
+// The form, typed by its route's input, as tug gen writes it from the Go:
+// its errors are the fields it sends.
+const ResetForm = createForm<Inputs['password.store']>()
 </script>
 
 <template>
   <Head title="Choose a new password" />
-  <Form
+  <ResetForm
     v-slot="{ errors, processing }"
     :action="form('password.store')"
     :reset-on-error="['password', 'password_confirmation']"
@@ -52,6 +56,6 @@ defineProps<Pages['Auth/ResetPassword'] & SharedProps>()
       <InputError :message="errors.password_confirmation" />
     </div>
     <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Set the password</Button>
-  </Form>
+  </ResetForm>
   <p class="mt-6 text-center text-sm text-muted-foreground">Has the link stopped working? <TextLink :href="route('password.request')">Ask for another</TextLink></p>
 </template>

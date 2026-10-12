@@ -3245,7 +3245,8 @@ writes both from the Go. Released as v0.32.0.
 - **The starters' forms typed:** their 16 routes that bind input take it,
   each form's action is `form()`'s, and React's forms take their route's
   input. Vue's and Svelte's `<Form>` take no type in Inertia 3.7.1, so
-  theirs take the action, and their errors stay of any string.
+  theirs take the action, and their errors stay of any string. Later,
+  they were typed too, by `createForm`, which Inertia had had all along.
   `examples/inertia`'s post form is typed too.
 - **The guide:** TypeScript, a section on forms; Forms, its example with
   `Takes` and `form()`; Routing, `Takes`; and the README.
@@ -3289,7 +3290,11 @@ Choices made on the way:
 - **React's alone typed whole:** Vue's `<Form>` is a component of fixed
   props, and Svelte's hands its slot props of no type, in Inertia 3.7.1,
   so neither takes a type; `useForm` does in both, and their forms get
-  `form()`. When theirs take one, the starters follow.
+  `form()`. When theirs take one, the starters follow. They did take one,
+  by `createForm<T>()`, a `<Form>` of `T`, in 3.7.1 already, which was
+  missed: the starters' Vue and Svelte forms were typed by it later, but
+  for the Svelte register page's, whose `bind:this` calls `validator()`,
+  which the typed one's type leaves out.
 - **The starters' every route that binds:** the three of passkeys too,
   whose browser side is `fetch`, not a form, as their inputs are what
   the app's own code would send. The Vue and Svelte register pages' form,

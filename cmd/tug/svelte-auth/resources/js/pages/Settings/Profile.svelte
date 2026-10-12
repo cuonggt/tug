@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Form, Link, router } from '@inertiajs/svelte'
+  import { createForm, Link, router } from '@inertiajs/svelte'
   import Head from '@/Head.svelte'
   import DeleteAccount from '@/components/DeleteAccount.svelte'
   import Heading from '@/components/Heading.svelte'
@@ -10,19 +10,24 @@
   import { Label } from '@/components/ui/label'
   import { initials } from '@/lib/utils'
   import type { PageProps } from '@/tug/pages'
-  import { form, route } from '@/tug/routes'
+  import { form, route, type Inputs } from '@/tug/routes'
 
   // Profile changes the user's name and email, and their photo. A new email
   // is mailed a link, and isn't verified until it's followed: updateProfile
   // in settings.go. The photo goes up as the form's file, with its progress
   // shown, and replaces the one before: updatePhoto in photos.go.
   let { user }: PageProps<'Settings/Profile'> = $props()
+
+  // The forms, typed by their routes' inputs, as tug gen writes them from
+  // the Go: their errors are the fields they send.
+  const ProfileForm = createForm<Inputs['profile.update']>()
+  const PhotoForm = createForm<Inputs['profile.photo.update']>()
 </script>
 
 <Head title="Profile" />
 <section class="space-y-6">
   <Heading small title="Profile" description="Your name, and the email we reach you at." />
-  <Form action={form('profile.update')} options={{ preserveScroll: true }} class="space-y-6">
+  <ProfileForm action={form('profile.update')} options={{ preserveScroll: true }} class="space-y-6">
     {#snippet children({ errors, processing })}
       <div class="grid gap-2">
         <Label for="name">Name</Label>
@@ -58,7 +63,7 @@
       </div>
       <Button type="submit" disabled={processing}>Save</Button>
     {/snippet}
-  </Form>
+  </ProfileForm>
 </section>
 <section class="space-y-6">
   <Heading small title="Photo" description="Shown in place of your initials: a PNG, JPEG or WebP, of 2 MB at most." />
@@ -71,7 +76,7 @@
         <AvatarFallback class="text-lg font-medium">{initials(user.name)}</AvatarFallback>
       </Avatar>
     {/key}
-    <Form
+    <PhotoForm
       action={form('profile.photo.update')}
       options={{ preserveScroll: true }}
       resetOnSuccess
@@ -104,7 +109,7 @@
           {/if}
         </div>
       {/snippet}
-    </Form>
+    </PhotoForm>
   </div>
 </section>
 <DeleteAccount />
