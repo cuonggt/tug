@@ -53,6 +53,17 @@ func TestEveryAppsNotesForAgentsAreTheApps(t *testing.T) {
 			if strings.Contains(notes, "createForm") == data.React() {
 				t.Errorf("AGENTS.md's forms aren't %s's", data.Framework())
 			}
+			// The cn the components take, which shadcn's CLI, since 4.x,
+			// takes from a package of its own.
+			if data.Auth {
+				utils := "@/lib/utils"
+				if data.Svelte() {
+					utils += ".js"
+				}
+				if !strings.Contains(notes, "takes `cn` from `"+utils+"`") || !strings.Contains(frontendText(t, root), `from "`+utils+`"`) {
+					t.Errorf("AGENTS.md doesn't say the cn the components take, from %s", utils)
+				}
+			}
 			if strings.Contains(notes, "docker compose up -d") != (data.Postgres() || data.MySQL()) {
 				t.Error("AGENTS.md's checks start the database where the app has none to start, or don't where it has")
 			}

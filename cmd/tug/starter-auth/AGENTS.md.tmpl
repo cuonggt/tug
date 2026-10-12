@@ -50,6 +50,16 @@ of its own.
   console says, and the app's log.
 - A route whose handler binds input says which, with `Takes`, and its
   form's action is `form()`'s, typed by that input.
+- A component added to `resources/js/components/ui`, as the README says,
+  takes `cn` from `[[ if .Svelte ]]@/lib/utils.js[[ else ]]@/lib/utils[[ end ]]`, as the others there do.
+[[- if .React ]] shadcn's CLI,
+  since 4.x, imports it from shadcn's own `cn` package instead, and adds
+  that to `package.json`: change the import, and take the package out.
+[[- else ]] If its CLI
+  imports it from elsewhere, as shadcn's own does since 4.x, from its
+  `cn` package, which it adds to `package.json`, change the import, and
+  take the package out.
+[[- end ]]
 - A flash key is declared in `flash.go`, with `tug.Flash`, and set through
   it.
 - A route for users is behind `usersOnly`, whose handler is handed the
