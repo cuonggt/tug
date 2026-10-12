@@ -4603,21 +4603,21 @@ Choices made on the way:
 - **Not skills, or an MCP server:** more than an app's ways need, where
   `AGENTS.md` is text every agent reads, and the commands are the CLI's,
   which an agent runs as a person does.
-- **Tried on an agent, after the release:** a headless Claude Code, in an
-  app `tug new -auth` made, asked for a user's posts, read its notes by
+- **Tried on an agent, after v0.43.0:** a headless Claude Code, in an app
+  `tug new -auth` made, asked for a user's posts, read its notes by
   `CLAUDE.md`, wrote the table by `tug migrate new` and its SQL in a
   `_db.go`, the routes behind `usersOnly` and `verified`, the input
   `Takes`, the page in the app's layout and its `nav`, and a test as a
   verified user, and ran the checks, `tug routes` and `tug build` by
-  itself. It found what the notes couldn't say: the migrate command's test
-  took the starter's own migrations for the newest, so an app's first of
-  its own, with a down part, failed it, which now goes by the newest's
-  down part, and `growsAMigration` checks; the binary `tug build` writes,
-  named for the app, wasn't in `.gitignore` or `.dockerignore`; and it
-  left Go that gofmt would change, so the checks have `go fmt ./...`.
-  shadcn's CLI, in its 4.x registry, now imports `cn` from shadcn's own
-  `cn` package, where the starter's components take the app's, from
-  `@/lib/utils`.
+  itself. It found what the notes couldn't say, which v0.43.1 fixed: the
+  migrate command's test took the starter's own migrations for the newest,
+  so an app's first of its own, with a down part, failed it, which now
+  goes by the newest's down part, and `growsAMigration` checks; the binary
+  `tug build` writes, named for the app, wasn't in `.gitignore` or
+  `.dockerignore`; and it left Go that gofmt would change, so the checks
+  have `go fmt ./...`. shadcn's CLI, in its 4.x registry, now imports `cn`
+  from shadcn's own `cn` package, where the starter's components take the
+  app's, from `@/lib/utils`.
 - **Tests:** `AGENTS.md` and `CLAUDE.md` in each kind of app, each
   frontend plain and with SSR, and with accounts on each database and with
   SSR, with no placeholder left, the guide linked at the version, the

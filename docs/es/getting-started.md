@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 2a2986f3085a -->
+<!-- translated from docs/getting-started.md at c9c6ab372a29 -->
 
 # Primeros pasos
 
@@ -24,7 +24,7 @@ tug version
 
 `go install` pone `tug` en `$(go env GOPATH)/bin`, o en `$GOBIN` si esa
 variable está definida, y ese directorio tiene que estar en tu `PATH`.
-`tug version` muestra la versión instalada, como `tug v0.43.0`. Las
+`tug version` muestra la versión instalada, como `tug v0.43.1`. Las
 aplicaciones que crea `tug new` requieren esa versión.
 
 ## Crear una aplicación
