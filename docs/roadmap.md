@@ -54,7 +54,6 @@ to 3.8.0, October 2026), written against
 | M45 | Built-in HTTPS             | done   |
 | M46 | Passkey-only accounts      | done   |
 | M47 | Security headers, further  | done   |
-| M48 | Page generator             | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4500,119 +4499,6 @@ Choices made on the way:
   toast styled, and every other test's pages saying nothing in the
   console, the dialogs' among them.
 
-## M48 · Page generator — later
-
-A page is four things in Go and one in the frontend: a struct of its
-props, a `tug.Page` that ties them to its component, a handler, a route,
-and the component, in `resources/js/pages`, in the app's frontend, React,
-Vue or Svelte, written as the app's other pages are. Getting started adds
-one by hand, as does every page an app grows after it, and the auth
-starter's dashboard says to: "declare it in Go with
-`tug.Page[Props]("Name")`, route it, and write `pages/Name.tsx`". Rails'
-`generate controller` writes a controller's actions, their views and their
-routes, and Laravel's `make:` commands the classes an app adds. tug's CLI
-writes a migration's file, and tug gen the TypeScript of the pages an app
-declares, so a page's props are typed once its Go builds. To be released
-as v0.43.0.
-
-- **`tug make page Posts/Index`:** writes the page: its component,
-  `resources/js/pages/Posts/Index.tsx` (`.vue`, `.svelte`); its Go,
-  `posts_index.go`, its props, its `tug.Page` and its handler; a test of
-  it, `posts_index_test.go`; and its route,
-  `app.Get("/posts", postsIndex).Name("posts.index")`, in `newApp`. Then
-  it writes the types, as tug gen does, and says what it wrote.
-- **Paths by Laravel's resource routes:** `Index` is the parts before it,
-  `/posts`, `Show` `/posts/{id}`, `Create` `/posts/create` and `Edit`
-  `/posts/{id}/edit`, and any other the name's parts, `/reports/monthly`;
-  `-path` gives another.
-- **In the auth starter, for its users:** behind `usersOnly` and
-  `verified`, as the dashboard is, the handler handed the user; `-public`
-  for anyone, as the home page is.
-- **The guide:** CLI, `tug make`; Getting started, Add a page, from
-  `tug make page`; Pages, Declaring and rendering pages, a pointer to it;
-  the README; and the starters' READMEs, and the auth starter's dashboard.
-
-Choices, to settle before any code:
-
-- **`tug make`, for the app's own code:** `make page` now, and what else
-  writes the app's code under it later, as a resource's pages;
-  `tug migrate new` stays as it is, as a migration is a file the app runs,
-  not its code.
-- **New files, and one line:** the page's Go and its test are files of
-  their own, named for it, `posts_index.go`, as adding to a file of the
-  app's would have to merge its imports, and keep to its order. tug make
-  writes no file that's there, and changes no other but the one with
-  `newApp`, where it adds the route, before its last statement, the
-  `return`, on the variable `tug.New`'s App is in, `app` in the starters,
-  found with `go/parser`, the file formatted with `go/format`, which keeps
-  its comments. An app with no `newApp` that makes its App, as one that
-  adds its routes elsewhere, is given the line to add itself. Gathering
-  a kind's pages into one file, once it has several, is the app's.
-- **Names from the page's:** `Posts/Show` is the Go's `PostsShow`,
-  `PostsShowProps` and `postsShow`, the route's name `posts.show`, and the
-  files `posts_show.go` and `posts_show_test.go`. Each part starts with a
-  capital, of letters and digits, as the starters' pages' names do, and a
-  part of words, `Settings/BillingInfo`, is `settings.billing-info`, at
-  `/settings/billing-info`. A name that isn't one, as `posts/index`, is
-  refused, saying what one is.
-- **Refused before anything's written:** a page the app declares, or whose
-  component is there, a route name or path the app has, or a name package
-  main has: tug make builds the app and runs it as tug gen does, as tug
-  routes does, for its pages and routes. An app that doesn't build is
-  refused, as tug gen couldn't write its types after; nothing is left half
-  written.
-- **The types, written after:** so `PageProps<'Posts/Index'>` is there as
-  the editor opens the component. Under tug dev, which builds again as the
-  Go changes, it's the same, as tug gen beside it is.
-- **The handler, a start:** it renders the page with its props empty, a
-  struct with no fields, whose comment says each field is a prop, by its
-  json tag. A path's wildcard, as `{id}`, is `c.Param("id")`, which its
-  comment names, as the handler doesn't know what it's the ID of. Its
-  title is `c.Head`'s, `inertia.Title`, as the home page's is, in a first
-  visit's HTML too: the name in words, `Index` left out, `Posts`,
-  `Posts show`, `Reports monthly`, for the app to change. Svelte's page
-  says it again with `Head.svelte`, as Svelte's home page does, as its
-  adapter leaves the title out of the server's head.
-- **The page as the app's others are:** in the app's frontend, by its
-  Inertia adapter in `package.json`, `@inertiajs/react`, `vue3` or
-  `svelte`; inside `Layout` where the app has `resources/js/Layout.tsx`
-  (`.vue`, `.svelte`), as the plain starter's pages are, and else bare,
-  for the layout `inertia.tsx` (`.ts`) gives it by its name, as the auth
-  starter's: the app's for `Posts/*`, and the settings' inside it for
-  `Settings/*`. Its imports are by `@/` where the app's `tsconfig.json`
-  has it, as the auth starter's, and else relative. It has a heading, its
-  title, and says where it and its handler are, as the dashboard's cards
-  do, in the auth starter in Tailwind's classes, as the dashboard's
-  heading is.
-- **For the auth starter's users, by what the app has:** where package
-  main has `usersOnly` and `verified`, the route's handler is in both, as
-  the dashboard's is, and takes the user,
-  `func postsIndex(c *tug.Ctx, user *User) error`, so a guest is sent to
-  log in, and an email not yet verified to verify it; `-public` leaves
-  them out, for anyone, as `home`. A handler that needs the database is
-  the app's to make a method of `*app`'s.
-- **A test, by the app's helpers:** a visit to the route, with `newClient`
-  in the plain starter's tests, and in the auth starter's, a verified
-  user's, `newTestApp(t).verifiedUser`, and a guest's, sent to log in; the
-  page read with `tugtest.Props`, which fails for another page. An app
-  without the helpers gets no test, and is told so.
-- **Not the nav:** the auth starter's `AppLayout` lists the app's pages in
-  `nav`, which tug make leaves alone, as it's the app's TypeScript, and
-  not every page is in it; it says where a page is added to it.
-- **Not a resource, yet:** a table's pages, its list, one of it, and the
-  forms that make one and change it, with their routes, their handlers and
-  their SQL, as Rails' `scaffold` writes, need the table's fields, by
-  their types, in each database's SQL, in a migration, and in each
-  frontend's inputs: a milestone of its own, on this one's pages. Nor a
-  form here, which would need fields too.
-- **Tests:** the names, the paths, and a name refused; the route added in
-  `newApp`, its file's comments kept, and given to add for an app without
-  one; a file that's there, and a page, route or Go name the app has,
-  refused with nothing written; and in each app the CLI's tests make,
-  `tug make page Posts/Index` and `tug make page -public About`, whose
-  types check, by `npm run typecheck`, whose tests pass, and which builds,
-  a guest sent to log in from the first in the auth starter.
-
 ## Decisions
 
 - tug has its own Inertia adapter. gonertia and inertia-laravel are
@@ -4649,3 +4535,12 @@ Choices, to settle before any code:
   a shared prop, and a share of the users is a hash of the flag's name and
   the user's ID. Many apps that need more use a service; Laravel ships
   Pennant apart from the framework.
+- No page generator: a page is a struct of its props, a `tug.Page`, a
+  handler, a route and a component, which the guide and the starters'
+  READMEs show, and tug gen keeps the TypeScript in step with the Go, so
+  a page's props, its route's name and its form's fields that don't match
+  fail `npm run typecheck`, and its handler `go test`. A coding agent
+  writes the five as the app around them has them, and checks them by
+  those, where a generator, as was planned after M47, would guess at an
+  app's `newApp`, guards, test helpers and layouts, which drift from the
+  starter's as it grows, and be templates in three frontends to keep.
