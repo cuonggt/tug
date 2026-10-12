@@ -52,6 +52,7 @@ to 3.8.0, October 2026), written against
 | M43 | Development mailbox        | done   |
 | M44 | Browser sessions           | done   |
 | M45 | Built-in HTTPS             | done   |
+| M46 | Passkey-only accounts      | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4231,6 +4232,134 @@ Choices made on the way:
   ECDSA's, at a browser's handshake without another order, and one got by
   TLS-ALPN-01 alone, with nothing on `:80`. In the CLI, `tug dev` leaving
   the variables out.
+
+## M46 · Passkey-only accounts — later
+
+An account of the auth starter's has a password, whatever else it has:
+registering takes one, and passkeys come after, which the guide's list of
+what the starter leaves out says. A passkey stands for the password
+already, since M13, logging in and confirming it's the user, with no code
+from the phone, but the password stays beside it, a way into the account
+that can be guessed, phished, or leaked from another site, as a passkey
+can't be. tug has `auth.Passkeys`, the `passkeys` table and each user's
+random handle, confirming with a passkey, reset links signed over the
+password's hash, which a new one ends, the throttles, and mail by jobs.
+To be released as v0.41.0.
+
+- **Registering with a passkey:** the register page, in each frontend,
+  offers a passkey beside the password, where the browser makes them:
+  the name and the email, then a link mailed to the email, whose page
+  makes the passkey and the account, its email verified, with no
+  password, and logs in.
+- **An account with no password:** a password login fails for it, as for
+  a wrong password, and as slowly; its passkeys log in, as now.
+- **The password, set and removed:** on the security page, an account
+  with no password sets one, with no current one to type, and one with a
+  password and a passkey removes it. Each ends the account's other
+  logins, as a new password does, and is a notification, in the bell and
+  by mail.
+- **A way in, kept:** an account keeps a password or a passkey: the last
+  passkey of an account with no password can't be removed, nor the
+  password of one with no passkey.
+- **Confirming it's them, with no password:** the page that asks for the
+  password again asks such an account for a passkey alone, and deleting
+  it asks for a passkey in the password's place.
+- **A lost passkey:** the forgotten password page is for a lost passkey
+  too. Its link sets a password, as for one forgotten, and the account
+  goes on with it, its passkeys kept.
+- **Package auth:** `Registrations`, the tokens of the links that finish
+  registering with a passkey, signed with a key for their purpose alone,
+  over the email, the name and their expiry, as `Resets`' and
+  `Verifications`' are.
+- **The guide:** Accounts, Registering, with a passkey, Passkeys, A
+  forgotten password, or a lost passkey, Settings, and package auth's
+  `Registrations`, with the line of what the starter leaves out gone; and
+  the README.
+
+Choices, to settle before any code:
+
+- **The email first, for a passkey:** the account and its passkey are
+  made from the link mailed to the email, not as the form is sent, as a
+  password's account is. An account made with a passkey before its email
+  is shown to be the registrant's would let someone register another's
+  email, wait for its owner to verify it or reset its password, and log
+  in after with their own passkey, which no reset ends, where a new
+  password ends a registrant's old one: account pre-hijacking. From the
+  link, the account starts verified, and no verification mail follows.
+  An account with a password registers as now: logged in at once, its
+  email verified after.
+- **The link, signed, not kept:** `/register/passkey/{token}?email=…&name=…`,
+  the token `Registrations`', over the email and the name, for a day, as
+  a verification link lasts. Once the email has an account, following it
+  says so, and goes to log in, so what a link makes, it makes once. No
+  table of registrations waiting.
+- **The routes:** `POST /register/passkey`, `register.passkey`, which
+  mails the link; the link's page, `GET /register/passkey/{token}`,
+  `register.passkey.create`, `Auth/RegisterPasskey`; its options,
+  `POST /register/passkey/{token}/options`; and the passkey,
+  `POST /register/passkey/{token}`, `register.passkey.store`; each
+  `guestsOnly`, and each that binds `Takes` its input.
+- **Asked for as a reset link is:** the form refuses a taken email, as
+  the password's does, as the field is left too, and the mail goes by a
+  job, `registration-mail`, which sends nothing to an email that has an
+  account by then. An email gets one mail a minute, by the `mails`
+  throttle, and an address five asks a minute, by a throttle of its own,
+  `registration-asks`, as `reset-asks` counts a reset's.
+- **The handle, made on the link's page:** the passkey's handle is made
+  as its options are, random, kept in the session's ceremony, as now, and
+  the account's from then, as `passkeyHandle` makes one with a first
+  passkey added later. The passkey is named by `browserName`, as "Chrome
+  on macOS", as no form asks for its name.
+- **No password, as an empty hash:** `password_hash` is `''`, not `NULL`,
+  so no migration changes the column, in three databases: `CheckPassword`
+  checks a password against its decoy for it, so a login fails as for a
+  wrong password, as slowly, and says nothing of the account; `Current`'s
+  fingerprint is of `''`; and a reset token is over `''`, which a first
+  password ends, as a new one does. `User` gains `password`, a bool in
+  its JSON, whether the account has one, for the pages.
+- **The password, removed as a new one is set:** removing it, `DELETE
+  /settings/password`, `user-password.destroy`, behind
+  `passwordConfirmed`, changes the hash, as a new one does: every login
+  ends, its rows with it, and this browser logs in again. Setting a first
+  password is `PUT /settings/password` with no `current_password`, which
+  the handler asks for only of an account with one, not its tag.
+- **A way in, always:** the words say what to add first: "Add a password
+  or another passkey first: an account needs a way in." A reset link is
+  how back in for a lost passkey, as for a forgotten password: it was a
+  way in for whoever has the email already, and isn't one more.
+- **Two-factor logins, as they are:** a code after a password, and after
+  a reset link, whether the account has a password or not: for one
+  without, it guards the link that would set one. A passkey login asks
+  for none, as now.
+- **Deleting, with a passkey:** with no password, the dialog's button asks
+  the browser for a passkey, whose answer the form sends, checked as
+  confirming with one is, in the password's place.
+- **The words:** the login page's "Forgotten it?" goes to "Forgotten your
+  password, or lost your passkey?", and the mail of an account with no
+  password says "Set a password".
+- **The password first, on the register page:** the form, as now, and
+  "Use a passkey instead" where the browser makes passkeys
+  (`passkeysWork`), which asks for no password, so the browser suite's
+  steps, by their labels, stay as they are.
+- **The notifications:** `password-set` and `password-removed`, in the
+  bell and by mail, as `password-changed` is. Registering with a passkey
+  tells of nothing, as registering doesn't, and its passkey is no
+  `passkey-added`.
+- **Tests:** in package auth, `Registrations`' tokens, made and checked,
+  for another email or name, expired, and under a key rotated out; in the
+  starter's tests, on SQLite, Postgres and MySQL, with passkeytest's
+  authenticator: the passkey path mailing its link, a taken email
+  refused, the throttles, the link's page, a link changed or expired, the
+  passkey made into a verified account with no password, logged in, and
+  an email taken since refused; a password login of such an account
+  failing as a wrong one does; the password set with no current one, and
+  removed, each ending the other logins, and told of; the last way in
+  kept; the confirm page and deleting with a passkey; and a reset link
+  setting a first password, with two-factor's code after it. In the
+  browser suite, in each frontend, with Chrome's virtual authenticator:
+  registering with a passkey from the mailed link, logging out, and in
+  with it, the password set and removed, and an account whose passkey is
+  lost back in by a reset link.
 
 ## Decisions
 
