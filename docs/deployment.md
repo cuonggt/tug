@@ -604,14 +604,15 @@ features no page of the app's uses, as a script that got into one would:
 
 ```
 camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(),
-bluetooth=(), midi=(), display-capture=(), browsing-topics=()
+midi=(), display-capture=(), browsing-topics=()
 ```
 
-They're the features Chrome knows by those names, as it logs an error
-for one it doesn't. Passkeys keep theirs, as do `fullscreen` and
-`autoplay`, which a video needs, each the app's own pages. An app whose
-page uses one allows it in `Permissions`, by its allowlist, `self`, `*`,
-or origins in quotes, which adds a feature too:
+They're the features Chrome knows by those names on every system, as it
+logs an error for one it doesn't: Bluetooth isn't among them, as Chrome on
+Linux has none. Passkeys keep theirs, as do `fullscreen` and `autoplay`,
+which a video needs, each the app's own pages. An app whose page uses
+one allows it in `Permissions`, by its allowlist, `self`, `*`, or origins
+in quotes, which adds a feature too:
 
 ```go
 middleware.Headers(middleware.HeadersConfig{Permissions: map[string]string{

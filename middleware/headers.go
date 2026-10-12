@@ -27,13 +27,14 @@ type HeadersConfig struct {
 }
 
 // permissionsOff are the powerful features the Permissions-Policy turns off
-// unless Permissions allows them: those Chrome knows, as it logs an error
-// for a name it doesn't. Passkeys' publickey-credentials-get and -create,
-// and fullscreen and autoplay, which a video needs, keep their default, the
-// app's own pages.
+// unless Permissions allows them: those Chrome knows on every system, as it
+// logs an error for a name it doesn't, on each page. Bluetooth isn't one:
+// Chrome on Linux has none, and logs bluetooth as unrecognized. Passkeys'
+// publickey-credentials-get and -create, and fullscreen and autoplay, which
+// a video needs, keep their default, the app's own pages.
 var permissionsOff = []string{
 	"camera", "microphone", "geolocation", "payment", "usb", "serial",
-	"hid", "bluetooth", "midi", "display-capture", "browsing-topics",
+	"hid", "midi", "display-capture", "browsing-topics",
 }
 
 // Headers sets the headers that say what a browser may do with the app's
@@ -54,8 +55,8 @@ var permissionsOff = []string{
 //   - Permissions-Policy, which turns off the powerful features no page of
 //     the app's uses, as a script that got into one would: the camera, the
 //     microphone, the browser's location, payments, USB, serial ports, HID,
-//     Bluetooth, MIDI, capturing the screen, and the Topics API. A page that
-//     uses one is the app's to allow, in Permissions.
+//     MIDI, capturing the screen, and the Topics API. A page that uses one
+//     is the app's to allow, in Permissions.
 //   - With HSTS, Strict-Transport-Security, for a year.
 //
 // A handler whose response needs another, as a page another site frames,

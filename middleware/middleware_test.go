@@ -442,7 +442,7 @@ func TestHeadersSayWhatABrowserMayDoWithEveryResponse(t *testing.T) {
 func TestHeadersTurnOffThePowerfulFeaturesNoPageUses(t *testing.T) {
 	rec := httptest.NewRecorder()
 	Headers(HeadersConfig{})(respond(200, "")).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	want := "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=(), display-capture=(), browsing-topics=()"
+	want := "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()"
 	if got := rec.Header().Get("Permissions-Policy"); got != want {
 		t.Errorf("Permissions-Policy %q, want %q", got, want)
 	}

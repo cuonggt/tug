@@ -4399,7 +4399,7 @@ the console, as a blocked style does. To be released as v0.42.0.
 - **A Permissions-Policy:** `middleware.Headers` sends one, which turns
   off the powerful features no page of the app's uses: the camera, the
   microphone, the browser's location, payments, USB, serial ports, HID,
-  Bluetooth, MIDI, capturing the screen, and the Topics API.
+  MIDI, capturing the screen, and the Topics API.
   `HeadersConfig.Permissions` allows one, as `{"camera": "self"}`.
 - **Styles by nonce:** `CSPConfig.StyleNonce`: `style-src` takes the
   response's nonce in place of `'unsafe-inline'`, for `<style>` elements,
@@ -4419,9 +4419,12 @@ Choices made on the way:
 - **The Permissions-Policy, in Headers, always:** as nosniff is: a page
   that uses one of the features is the app's to allow, and every other
   page is safer for it off. Off is `feature=()`, for `permissionsOff`,
-  the features Chrome knows, as it logs an error for a name it doesn't:
-  `camera`, `microphone`, `geolocation`, `payment`, `usb`, `serial`,
-  `hid`, `bluetooth`, `midi`, `display-capture` and `browsing-topics`.
+  the features Chrome knows on every system, as it logs an error for a
+  name it doesn't, on each page: `camera`, `microphone`, `geolocation`,
+  `payment`, `usb`, `serial`, `hid`, `midi`, `display-capture` and
+  `browsing-topics`. `bluetooth` was among them, until CI's browser suite,
+  in Chromium on Linux, which has no Bluetooth, found every page logging
+  it as unrecognized, as the suite fails on any error in the console.
   Passkeys' `publickey-credentials-get` and `-create` are left at their
   default, the app's own pages, as are `fullscreen` and `autoplay`.
   Firefox and Safari ignore the header, or the features they don't have.
