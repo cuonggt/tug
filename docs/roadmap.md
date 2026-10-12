@@ -4356,8 +4356,10 @@ Choices made on the way:
   bell and by mail, as `password-changed` is, the second's mail linking to
   the forgotten password page. Registering with a passkey tells of
   nothing, and its passkey is no `passkey-added`. The other kinds' mails
-  still say to change the password, which an account with no password
-  sets.
+  still said to change the password, which an account with no password
+  sets; later, they tell it to remove the passkeys it doesn't know
+  (`secureIt`), and the mail of two-factor logins turned off, that a link
+  to set a password takes no code.
 - **Tests:** in package auth, `Registrations`' tokens, made and checked,
   for another email or name, split another way, expired, and under a key
   rotated out; in the starter's `passwordless_test.go`, with passkeytest's

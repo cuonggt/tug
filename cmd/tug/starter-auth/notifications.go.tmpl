@@ -94,7 +94,7 @@ var notices = map[string]notice{
 				To: &User{Name: u.Name, Email: d.OldEmail}, Subject: "Your " + appName + " email was changed",
 				Intro:  "The email of your account was changed from " + d.OldEmail + " to " + d.NewEmail + ", where its mail goes from now on.",
 				Action: "Log in", URL: link,
-				Outro: "If that wasn't you, log in and change it back, and your password: someone else has been in your account.",
+				Outro: "If that wasn't you, log in, change it back, and " + secureIt(u) + ": someone else has been in your account.",
 			}
 		},
 	},
@@ -102,11 +102,15 @@ var notices = map[string]notice{
 		line: func(c *tug.Ctx, _ noticeData) string { return c.T("Two-factor logins were turned off.") },
 		link: "security.edit", mailLink: "security.edit",
 		mail: func(u *User, _ noticeData, link string) message {
+			intro := "Two-factor logins were turned off: logging in takes your password alone."
+			if !u.Password {
+				intro = "Two-factor logins were turned off: a link mailed to you to set a password takes no code from your phone."
+			}
 			return message{
 				To: u, Subject: "Two-factor logins are off for your " + appName + " account",
-				Intro:  "Two-factor logins were turned off: logging in takes your password alone.",
+				Intro:  intro,
 				Action: "See your security settings", URL: link,
-				Outro: "If that wasn't you, turn them on again, and change your password: someone else has been in your account.",
+				Outro: "If that wasn't you, turn them on again, and " + secureIt(u) + ": someone else has been in your account.",
 			}
 		},
 	},
@@ -120,7 +124,7 @@ var notices = map[string]notice{
 				To: u, Subject: "A passkey was added to your " + appName + " account",
 				Intro:  "A passkey called “" + d.Name + "” was added to your account, and logs in with no password.",
 				Action: "See your passkeys", URL: link,
-				Outro: "If that wasn't you, remove it there, and change your password: someone else has been in your account.",
+				Outro: "If that wasn't you, remove it there, and " + secureIt(u) + ": someone else has been in your account.",
 			}
 		},
 	},
@@ -134,7 +138,7 @@ var notices = map[string]notice{
 				To: u, Subject: "A new login to your " + appName + " account",
 				Intro:  "Your account was logged in to from " + d.Browser + ", at " + d.IP + ": a browser it hadn't been logged in from before.",
 				Action: "See where you're logged in", URL: link,
-				Outro: "If that wasn't you, log it out there, and change your password: someone else knows it.",
+				Outro: "If that wasn't you, log it out there, and " + secureIt(u) + ": someone else has a way in.",
 			}
 		},
 	},
@@ -148,10 +152,20 @@ var notices = map[string]notice{
 				To: u, Subject: "An API token was made for your " + appName + " account",
 				Intro:  "An API token called “" + d.Name + "” was made, which calls the app's API as you.",
 				Action: "See your API tokens", URL: link,
-				Outro: "If that wasn't you, revoke it there, and change your password: someone else has been in your account.",
+				Outro: "If that wasn't you, revoke it there, and " + secureIt(u) + ": someone else has been in your account.",
 			}
 		},
 	},
+}
+
+// secureIt is what a mail tells the owner of u's account to do, beside
+// undoing a change that wasn't theirs: change the password, or for an
+// account with none, remove the passkeys they don't know, its ways in.
+func secureIt(u *User) string {
+	if u.Password {
+		return "change your password"
+	}
+	return "remove the passkeys you don't know"
 }
 
 // someKind is what a notification of a kind this version of the app

@@ -856,7 +856,9 @@ dev server that isn't there: delete it.
   `noticeData` as JSON, and times in Unix milliseconds): `notices`, each
   kind's line, made as it's read with `c.T`, its page, and its mail, which
   `mailNotification` sends by the `notification-mail` job (`someKind` for
-  a kind the version has none of); `a.notify`, which a handler calls in
+  a kind the version has none of), saying what to do beside, `secureIt`:
+  change the password, or remove the passkeys an account with none
+  doesn't know; `a.notify`, which a handler calls in
   its transaction, keeping the notification, publishing `notification`
   on the user's channel, and pushing the mail; `Notifications`, the page
   at `/notifications`, `SimplePaginate`d, which marks read what it shows
