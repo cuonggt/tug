@@ -32,7 +32,9 @@ go test ./...
 handler, with the guards around it. `tug build` builds the frontend into
 one binary, as a deploy does. The tests visit the pages as Inertia's
 client does, with `tugtest`, with no browser or build, each on a database
-of its own.
+of its own: they're how a page is checked. `tug dev` serves the app until
+it's stopped, so it answers nothing in a script, and a binary run by hand
+takes `ADDR=127.0.0.1:8080`, as the default listens on every interface.
 
 ## Rules
 

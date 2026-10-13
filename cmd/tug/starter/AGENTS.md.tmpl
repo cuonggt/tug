@@ -21,7 +21,10 @@ go test ./...
 `tug routes` lists the routes, each with the line that added it, and
 `tug build` builds the frontend into one binary, as a deploy does. The
 tests visit the pages as Inertia's client does, with `tugtest`, with no
-browser or build.
+browser or build: they're how a page is checked. `tug dev` serves the app
+until it's stopped, so it answers nothing in a script, and a binary run
+by hand takes `ADDR=127.0.0.1:8080`, as the default listens on every
+interface.
 
 ## Rules
 
