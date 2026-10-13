@@ -4629,8 +4629,8 @@ Choices made on the way:
   out of turns, where the first had turns to spare, on seeing the app
   itself once its checks had passed: `tug dev`, which serves until it's
   stopped and so answered nothing, and its own binary on `:8080`. The
-  notes now say the tests are how a page is checked, and that a binary run
-  by hand takes `ADDR=127.0.0.1:8080`.
+  notes say, since v0.43.3, that the tests are how a page is checked, and
+  that a binary run by hand takes `ADDR=127.0.0.1:8080`.
 - **Tests:** `AGENTS.md` and `CLAUDE.md` in each kind of app, each
   frontend plain and with SSR, and with accounts on each database and with
   SSR, with no placeholder left, the guide linked at the version, the
