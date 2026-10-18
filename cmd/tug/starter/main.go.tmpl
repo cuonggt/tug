@@ -10,6 +10,7 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -162,6 +163,9 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 		middleware.CSRF(),
 	)
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
+	// What a load balancer, or whatever watches the app, asks to see that
+	// it's up and serving.
+	app.Get("/up", func(c *tug.Ctx) error { return c.String(http.StatusOK, "up") })
 
 	app.Get("/", home).Name("home")
 	app.Post("/hello", hello).Name("hello").Takes(HelloInput{})
