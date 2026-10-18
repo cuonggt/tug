@@ -504,7 +504,7 @@ func (st *Store) keep(r *http.Request, s *Session, p payload, expires time.Time)
 	if s.id == old && !s.changed && len(s.next) == 0 && len(s.now) == 0 && fresh {
 		return true
 	}
-	p.ID, p.Wrote = "", st.now().Unix()
+	p.Wrote = st.now().Unix() // the row doesn't carry the ID: its seal is bound to it
 	sealed, err := st.seal(p, ad(st.cookie, s.id))
 	if err == nil {
 		err = st.keeper.Set(r.Context(), keyOf(s.id), sealed, expires.Add(refresh))
