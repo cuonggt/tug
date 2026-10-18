@@ -171,6 +171,12 @@ An app with Redis can write a store on it: its `SET` with `NX` and `PX` is
 `Add`, and a script that deletes a key only while it's the value given is
 `DeleteIf`.
 
+A store is also a `session.Keeper`, which wants `Get`, `Set` and `Delete`
+and no more, so an app can keep its sessions in its cache rather than in
+their cookies ([Kept on the server](forms.md#kept-on-the-server)). Keep in
+mind what that means: clearing the cache, or a cache that throws values
+out to make room, logs out every user.
+
 ### The auth starter's
 
 The starter's store is a `cache` table, with its SQL in `cache_db.go`,

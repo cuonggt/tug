@@ -228,8 +228,10 @@ func (a *testApp) oldLogin(u *User) *tugtest.Client {
 ```
 
 It takes the app's `session.Store`, or one made with the same
-`session.Config`, as here, and keeps what the request before flashed for
-the next visit.
+`session.Config`, as here, its `Keeper` included where the app keeps its
+sessions on the server ([Kept on the
+server](forms.md#kept-on-the-server)), and keeps what the request before
+flashed for the next visit.
 
 ## First visits and builds
 

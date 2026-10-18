@@ -253,7 +253,8 @@ func (c *Client) Do(req *http.Request) *Response {
 // Session changes the client's session as fn does, as a request to the app
 // would: to log in as a user without the pages it takes, say, or as one who
 // logged in so long ago that the app asks for their password again. store
-// is the app's session.Store, or one made with the same session.Config.
+// is the app's session.Store, or one made with the same session.Config,
+// its Keeper included where the app keeps its sessions on the server.
 // What the request before flashed is kept for the next visit, as if this
 // one hadn't been made.
 func (c *Client) Session(store *session.Store, fn func(*session.Session)) {
