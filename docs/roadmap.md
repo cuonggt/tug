@@ -56,6 +56,7 @@ to 3.8.0, October 2026), written against
 | M47 | Security headers, further  | done   |
 | M48 | Coding agents              | done   |
 | M49 | Sessions kept server-side  | done   |
+| M50 | A page's own language      | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4747,6 +4748,65 @@ Choices made on the way:
   as the session loads and written as the response starts, where the
   cookie is written, and a Keeper that fails is a log line, as a session
   too large for its cookie is.
+
+## M50 · A page's own language — later
+
+A page says what it says in the request's language, since M20: tug's texts
+and the app's, a form's errors among them, through `c.T` and `c.Choice`,
+in the language `Config.Locale` chose, or the browser asked for, or the
+app defaults to. The document around it says English. `TemplateData`,
+which the root template is rendered with, has the page, its props, the
+head and the nonce, and no language, so `app.html` can only write
+`lang="en"`, as both starters' and the example's do: a Vietnamese page
+tells the browser it's English, which hyphenates by it, spell-checks by
+it, and reads it aloud in an English voice. The way round is for the app
+to share the language as a prop and read it from `.Page.Props`, which is
+what the guide says, for want of anything better. tug picks the language
+once a request, `App.Locale`, and makes a page's render context in one
+place, `pageRequest`, which the error pages go through too. To be released
+as v0.45.0.
+
+- **`TemplateData.Locale`:** the request's language, for the root
+  template: `<html lang="{{ .Locale }}">`.
+- **`inertia.WithLocale`:** the language in the request's context, as
+  `WithHead` and `WithClearHistory` are, which `RenderStatus` reads, so an
+  app on package inertia alone says it too, from `lang.Match` or wherever
+  it keeps the language. Without one, `Locale` is "en", which is what the
+  templates say now.
+- **tug sets it:** `pageRequest` adds `c.Locale()`, so every page, and
+  every error page, has the language the texts in it are said in, picked
+  once a request as `c.T` picks it.
+- **The starters and the example:** `app.html`'s `<html lang="{{ .Locale }}">`,
+  in all three frontends, with and without SSR, where the language of a
+  page rendered on the server is the root template's all the same.
+- **`dir` is the app's:** a language's direction isn't in package lang,
+  which knows a tag, not a script.
+- **The guide:** Pages' `TemplateData`, and Languages, whose "The page's
+  own `lang`" is no longer what's not here yet; and the CLI's `tug lang`
+  needs nothing.
+
+Choices, to settle before any code:
+
+- **A context helper, not a `Config` hook:** `inertia.Config` could take a
+  `func(*http.Request) string`, as `Config.Locale` does for tug, but the
+  Inertia is made before the App that would answer it (`tug.New` takes
+  `cfg.Inertia`), so the starters would wire it the long way round, as the
+  guide's `ShareFunc` example has to. The context is where inertia keeps
+  what a request renders with already.
+- **Not the nonce's way:** the nonce reaches inertia through
+  `internal/nonce`, which `middleware.CSP` writes, because both are tug's
+  and neither imports the other. An internal package would do here too,
+  and would need no new exported name, but an app on inertia alone
+  couldn't write it, and it's the one that most needs to say its own
+  language.
+- **"en" with nothing set:** a document has to say something, and `lang=""`
+  says nothing a browser can use. tug's own apps always set it, since
+  `App.Locale` falls back to `Config.Lang`'s default, which is "en" for an
+  app with no languages at all.
+- **Not a shared prop of tug's own:** tug could share the language with
+  every page, which would put it in the props the root template reads and
+  in every page's TypeScript. The template needs it, not the page; an app
+  that wants it in its pages shares it itself, as the guide shows.
 
 ## Decisions
 
