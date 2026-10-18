@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/lang"
 )
 
@@ -170,6 +172,31 @@ func TestTugGensRunWritesTheTextsTugSays(t *testing.T) {
 	} {
 		if !slices.Contains(out.Texts, want) {
 			t.Errorf("the texts haven't %q", want)
+		}
+	}
+}
+
+func TestAFirstVisitsHTMLSaysTheLanguageItsPageIsIn(t *testing.T) {
+	pages, err := inertia.New(inertia.Config{Template: `<html lang="{{ .Locale }}">{{ .Inertia }}</html>`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(Config{Inertia: pages, Lang: languages(t), ErrorPage: "Error"})
+	app.Get("/posts/{id}", func(c *Ctx) error {
+		return postsShow.Render(c, showProps{Post: "post " + c.Param("id")})
+	})
+	for _, tc := range []struct{ accept, want string }{
+		{"vi", "vi"},
+		{"fr-FR,fr;q=0.9", "fr"},
+		{"de, ja;q=0.5", "en"}, // languages the app hasn't: its default
+	} {
+		// The page, and the error page of a request that has none, both
+		// say the language their texts are said in.
+		for _, target := range []string{"/posts/1", "/posts/1/nowhere"} {
+			rec := serve(app, "GET", target, "", "Accept-Language", tc.accept)
+			if want := `<html lang="` + tc.want + `">`; !strings.HasPrefix(rec.Body.String(), want) {
+				t.Errorf("%s for %q: %s", target, tc.accept, rec.Body)
+			}
 		}
 	}
 }

@@ -93,6 +93,12 @@ type TemplateData struct {
 	// page, its title as Config.Title says it, or else nothing.
 	InertiaHead template.HTML
 
+	// Locale is the language the page is in, as WithLocale set it, for the
+	// document around it to say: <html lang="{{ .Locale }}">. It's "en"
+	// when nothing set it. A language's direction isn't here: an app that
+	// has a right-to-left language writes its own dir.
+	Locale string
+
 	// Nonce is the response's Content-Security-Policy nonce, which
 	// middleware.CSP made, for the template's own scripts to carry, as
 	// <script nonce="{{ .Nonce }}">, and Vite's tags, as
@@ -248,6 +254,7 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 	td := TemplateData{
 		Page:    page,
 		Inertia: template.HTML(`<script data-page="app" type="application/json">` + string(data) + `</script><div id="app"></div>`),
+		Locale:  localeFrom(r.Context()),
 		Nonce:   nonce.From(r.Context()),
 	}
 	onServer := false
@@ -638,6 +645,7 @@ const (
 	fragmentKey
 	noSSRKey
 	headKey
+	localeKey
 )
 
 // WithoutSSR returns a context whose pages render in the browser, even
@@ -657,6 +665,25 @@ func skipsSSR(ctx context.Context) bool {
 // here: a form sent from /posts/1#comments comes back to the comments.
 func WithPreserveFragment(ctx context.Context) context.Context {
 	return context.WithValue(ctx, fragmentKey, true)
+}
+
+// WithLocale returns a context whose pages are in locale, a language tag,
+// for the root template to say around them: TemplateData.Locale. tug sets
+// it to the request's language, the one its texts are said in; an app on
+// package inertia alone sets it from wherever it keeps the language, such
+// as lang.Catalog.Match of the request's Accept-Language.
+func WithLocale(ctx context.Context, locale string) context.Context {
+	return context.WithValue(ctx, localeKey, locale)
+}
+
+// localeFrom is the language of the page ctx renders, or "en": a document
+// has to say something, and lang="" says nothing a browser can use.
+func localeFrom(ctx context.Context) string {
+	locale, _ := ctx.Value(localeKey).(string)
+	if locale == "" {
+		return "en"
+	}
+	return locale
 }
 
 // WithProps returns a context whose pages get props as shared props. It is

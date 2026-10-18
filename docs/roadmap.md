@@ -56,7 +56,7 @@ to 3.8.0, October 2026), written against
 | M47 | Security headers, further  | done   |
 | M48 | Coding agents              | done   |
 | M49 | Sessions kept server-side  | done   |
-| M50 | A page's own language      | later  |
+| M50 | A page's own language      | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4749,19 +4749,19 @@ Choices made on the way:
   cookie is written, and a Keeper that fails is a log line, as a session
   too large for its cookie is.
 
-## M50 · A page's own language — later
+## M50 · A page's own language — done
 
-A page says what it says in the request's language, since M20: tug's texts
+A page said what it said in the request's language, since M20: tug's texts
 and the app's, a form's errors among them, through `c.T` and `c.Choice`,
 in the language `Config.Locale` chose, or the browser asked for, or the
-app defaults to. The document around it says English. `TemplateData`,
-which the root template is rendered with, has the page, its props, the
-head and the nonce, and no language, so `app.html` can only write
-`lang="en"`, as both starters' and the example's do: a Vietnamese page
-tells the browser it's English, which hyphenates by it, spell-checks by
-it, and reads it aloud in an English voice. The way round is for the app
+app defaulted to. The document around it said English. `TemplateData`,
+which the root template is rendered with, had the page, its props, the
+head and the nonce, and no language, so `app.html` could only write
+`lang="en"`, as both starters' and the example's did: a Vietnamese page
+told the browser it was English, which hyphenates by it, spell-checks by
+it, and reads it aloud in an English voice. The way round was for the app
 to share the language as a prop and read it from `.Page.Props`, which is
-what the guide says, for want of anything better. tug picks the language
+what the guide said, for want of anything better. tug picks the language
 once a request, `App.Locale`, and makes a page's render context in one
 place, `pageRequest`, which the error pages go through too. To be released
 as v0.45.0.
@@ -4769,23 +4769,30 @@ as v0.45.0.
 - **`TemplateData.Locale`:** the request's language, for the root
   template: `<html lang="{{ .Locale }}">`.
 - **`inertia.WithLocale`:** the language in the request's context, as
-  `WithHead` and `WithClearHistory` are, which `RenderStatus` reads, so an
-  app on package inertia alone says it too, from `lang.Match` or wherever
-  it keeps the language. Without one, `Locale` is "en", which is what the
-  templates say now.
+  `WithHead` and `WithClearHistory` are, which `RenderStatus` reads
+  (`localeFrom`), so an app on package inertia alone says it too, from
+  `lang.Catalog.Match` or wherever it keeps the language. Without one,
+  `Locale` is "en", which is what the templates said.
 - **tug sets it:** `pageRequest` adds `c.Locale()`, so every page, and
   every error page, has the language the texts in it are said in, picked
   once a request as `c.T` picks it.
 - **The starters and the example:** `app.html`'s `<html lang="{{ .Locale }}">`,
-  in all three frontends, with and without SSR, where the language of a
-  page rendered on the server is the root template's all the same.
+  in all three frontends, with and without SSR, where a page rendered on
+  the server has the root template's `<html>` all the same.
 - **`dir` is the app's:** a language's direction isn't in package lang,
   which knows a tag, not a script.
-- **The guide:** Pages' `TemplateData`, and Languages, whose "The page's
-  own `lang`" is no longer what's not here yet; and the CLI's `tug lang`
-  needs nothing.
+- **The guide:** Pages' root template, `.Locale` beside `.Nonce`;
+  Languages' The request's language, with "The page's own `lang`" gone
+  from what's not here yet, and a language's direction in its place.
+- **Tests:** the template's language from `WithLocale`, and "en" without
+  it, in package inertia; a first visit's HTML in the request's language,
+  by `Accept-Language`, for a page and for the error page of a request
+  that has none, in package tug; the example's first visit, whose
+  `app.html` is a real one; and a made app of each kind, run as it's
+  deployed with a language of its own, `showsItsHead` and
+  `rendersOnTheServer`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A context helper, not a `Config` hook:** `inertia.Config` could take a
   `func(*http.Request) string`, as `Config.Locale` does for tug, but the
@@ -4795,8 +4802,8 @@ Choices, to settle before any code:
   what a request renders with already.
 - **Not the nonce's way:** the nonce reaches inertia through
   `internal/nonce`, which `middleware.CSP` writes, because both are tug's
-  and neither imports the other. An internal package would do here too,
-  and would need no new exported name, but an app on inertia alone
+  and neither imports the other. An internal package would have done here
+  too, and needed no new exported name, but an app on inertia alone
   couldn't write it, and it's the one that most needs to say its own
   language.
 - **"en" with nothing set:** a document has to say something, and `lang=""`
@@ -4807,6 +4814,16 @@ Choices, to settle before any code:
   every page, which would put it in the props the root template reads and
   in every page's TypeScript. The template needs it, not the page; an app
   that wants it in its pages shares it itself, as the guide shows.
+- **A language file for `APP_LOCALE`, in the test:** an app whose default
+  language has no file doesn't start, as `lang.Load` says which is
+  missing, so the test that runs a made app in Vietnamese writes
+  `lang/vi.json` first, which the binary embeds as it's built.
+- **The app's own tests don't render the root template:** a first visit
+  needs the frontend's build, which `go test` runs before, so the
+  starters' tests visit as Inertia's client does, and their `app.html` is
+  checked by the CLI's tests, which build an app of each kind and run it
+  as it's deployed. The example's own tests render its template against a
+  manifest of their own, and check the language there.
 
 ## Decisions
 

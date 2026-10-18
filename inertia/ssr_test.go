@@ -103,6 +103,22 @@ func TestTheRootTemplateHasTheResponsesNonce(t *testing.T) {
 	}
 }
 
+func TestTheRootTemplateHasThePagesLanguage(t *testing.T) {
+	i := newInertia(t, Config{Template: `<html lang="{{ .Locale }}">{{ .Inertia }}</html>`})
+	r := httptest.NewRequest("GET", "/posts", nil)
+	rec, _ := render(t, i, r.WithContext(WithLocale(r.Context(), "vi")), "Posts/Index", nil)
+	if body := rec.Body.String(); !strings.HasPrefix(body, `<html lang="vi">`) {
+		t.Errorf("got %s", body)
+	}
+	// A document has to say something, and lang="" says nothing a browser
+	// can use: without a language it's English, as a template that says it
+	// itself would have it.
+	rec, _ = render(t, i, httptest.NewRequest("GET", "/posts", nil), "Posts/Index", nil)
+	if body := rec.Body.String(); !strings.HasPrefix(body, `<html lang="en">`) {
+		t.Errorf("got %s", body)
+	}
+}
+
 func TestTheScriptsAndStylesInTheHeadFromSSRCarryTheNonce(t *testing.T) {
 	body := `<script data-page="app" type="application/json">{"component":"Posts/Index"}</script><div data-server-rendered="true" id="app"></div>`
 	ssr := &renderer{rendered: Rendered{

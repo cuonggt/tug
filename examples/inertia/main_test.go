@@ -62,6 +62,8 @@ func TestTheFirstVisitLoadsTheBuildAndLeavesTheStatsForLater(t *testing.T) {
 		t.Fatalf("no nonce in the policy %q", r.Header.Get("Content-Security-Policy"))
 	}
 	for _, tag := range []string{
+		// The document says the language the page is in, the request's.
+		`<html lang="en">`,
 		`<link rel="stylesheet" href="/build/assets/app-1.css">`,
 		`<script type="module" src="/build/assets/app-1.js" nonce="` + nonce + `"></script>`,
 		`<script type="module" src="/build/assets/Index-1.js" nonce="` + nonce + `"></script>`,

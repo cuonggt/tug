@@ -65,7 +65,7 @@ a redirect ([forms.md](forms.md)). The root template, `app.html`:
 
 ```html
 <!doctype html>
-<html lang="en">
+<html lang="{{ .Locale }}">
   <head>
     <meta charset="utf-8">
     <meta property="csp-nonce" nonce="{{ .Nonce }}">
@@ -91,6 +91,15 @@ its `<title>` first, before the template's own, which is for a page without
 one ([A page's head](#a-pages-head)). With server-side rendering, the
 `<div id="app">` has the page's HTML in it, and `{{ .InertiaHead }}` the
 tags of its `<Head>` too: [ssr.md](ssr.md).
+
+`.Locale` is the language the page is in, the request's
+([languages.md](languages.md#the-requests-language)), for the document
+around it to say: a browser hyphenates by it, spell-checks by it, and
+reads the page aloud in it. It's the language the page's own words are
+said in, since tug says them in the same one. Without a language of its
+own, as for an app with no catalog, it's `en`; a language written right to
+left needs the template's own `dir="rtl"`, which tug doesn't say, as a
+tag doesn't say a script.
 
 `.Nonce` is the response's Content-Security-Policy nonce, which
 `middleware.CSP` makes ([deployment.md](deployment.md#security-headers)),

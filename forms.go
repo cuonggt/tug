@@ -227,6 +227,9 @@ func (c *Ctx) pageRequest(component string) *http.Request {
 	if len(c.head) > 0 {
 		ctx = inertia.WithHead(ctx, c.head...)
 	}
+	// The language the page's texts are said in, for the document around
+	// it to say: it's picked once a request, as c.T picks it.
+	ctx = inertia.WithLocale(ctx, c.Locale())
 	return c.r.WithContext(ctx)
 }
 

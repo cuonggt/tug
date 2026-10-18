@@ -103,6 +103,13 @@ has no language for is passed over, as `lang.Catalog.Find` finds none.
 Someone who picked a language keeps it on any browser when it's in their
 account: read their row, as `usersOnly` does, rather than the session.
 
+The document around a page says the language too, from the root
+template's `<html lang="{{ .Locale }}">`, which both starters have
+([pages.md](pages.md#setting-up)): a browser hyphenates by it,
+spell-checks by it, and reads the page aloud in it. A language written
+right to left needs `dir="rtl"` beside it, which is the template's to
+say, as a language tag doesn't say its script.
+
 `app.Locale(r)` is the same, for code with the request alone, as a
 function that shares the language with every page:
 
@@ -211,11 +218,10 @@ says.
 - **Dates, numbers and money** in a language's own way, and sorting in
   its order: Go's `time` and `strconv` write them one way, `slices` and
   `sort` compare bytes, and a browser's `Intl` does both well.
-- **The page's own `lang`**: the root template is given the page and its
-  props, not the request's language, and the starters' `app.html` says
-  `lang="en"`. An app that shares the language with its pages, as above,
-  reads it from there: `<html lang="{{ index .Page.Props "locale" }}">`,
-  with `dir="rtl"` for a language written right to left.
+- **A language's direction**: `TemplateData.Locale` says which language a
+  page is in, and `dir="rtl"` for one written right to left is the
+  template's to say. A tag doesn't say its script, and package `lang`
+  keeps no table of them.
 - **A text's context**: one English text says one thing, in every place
   it's said. One that means two things is written two ways.
 - **Files in directories**, as Laravel's `lang/vi/validation.php`: a

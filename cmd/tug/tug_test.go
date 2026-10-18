@@ -869,7 +869,7 @@ func answersTheDevTools(t *testing.T, dir string) {
 
 // serveApp builds the app in dir, and runs it as it runs deployed until
 // the test ends, at the address it returns, writing what it says to out.
-func serveApp(t *testing.T, dir string) (base string, out *bytes.Buffer) {
+func serveApp(t *testing.T, dir string, env ...string) (base string, out *bytes.Buffer) {
 	t.Helper()
 	build := exec.Command("go", "build", "-o", "app", ".")
 	build.Dir = dir
@@ -891,7 +891,7 @@ func serveApp(t *testing.T, dir string) (base string, out *bytes.Buffer) {
 	app.Dir = dir
 	// Its address, as a deployed app has one, and tug dev gives it: the
 	// auth starter's links, and its passkeys, need it.
-	app.Env = append(append(os.Environ(), vars...), "ADDR="+addr, "APP_URL=http://"+addr)
+	app.Env = append(append(append(os.Environ(), vars...), "ADDR="+addr, "APP_URL=http://"+addr), env...)
 	app.Stdout, app.Stderr = out, out
 	if err := app.Start(); err != nil {
 		t.Fatal(err)
@@ -937,9 +937,33 @@ func hasItsHead(t *testing.T, page, title string) {
 // without running its scripts.
 func showsItsHead(t *testing.T, dir, title string) {
 	t.Helper()
-	base, out := serveApp(t, dir)
+	// In a language of its own, which the document around the page says.
+	withLanguage(t, dir, "vi")
+	base, out := serveApp(t, dir, "APP_LOCALE=vi")
 	page, _ := firstVisit(t, base, out, "</html>")
 	hasItsHead(t, page, title)
+	hasItsLanguage(t, page, "vi")
+}
+
+// withLanguage gives the app in dir a language of its own, as tug lang
+// writes one, for APP_LOCALE to name: a language the catalog hasn't got is
+// an error as the app starts. The binary embeds lang/, so the file goes in
+// before serveApp builds it.
+func withLanguage(t *testing.T, dir, locale string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "lang", locale+".json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hasItsLanguage checks the document around the page says the language the
+// app is in, APP_LOCALE's: a page in another language shouldn't tell a
+// browser it's English.
+func hasItsLanguage(t *testing.T, page, locale string) {
+	t.Helper()
+	if !strings.Contains(page, `<html lang="`+locale+`">`) {
+		t.Errorf("the page's document doesn't say it's in %s:\n%.200s", locale, page)
+	}
 }
 
 // rendersOnTheServer runs the app in dir, as it runs deployed, and checks a
@@ -950,8 +974,10 @@ func rendersOnTheServer(t *testing.T, dir, title string) {
 	if _, err := os.Stat(filepath.Join(dir, "ssr/build/ssr.mjs")); err != nil {
 		t.Fatalf("the build has no SSR bundle where the server embeds it: %v", err)
 	}
-	base, out := serveApp(t, dir)
+	withLanguage(t, dir, "vi")
+	base, out := serveApp(t, dir, "APP_LOCALE=vi")
 	page, header := firstVisit(t, base, out, `data-server-rendered="true"`)
+	hasItsLanguage(t, page, "vi")
 
 	// The page says what a browser may do with it, and its scripts carry
 	// the nonce its policy runs scripts by: the template's, Vite's, and
