@@ -208,9 +208,18 @@ says.
 
 - **The frontend's translations**, built in: a page's words are its
   library's.
-- **Dates, numbers and money** in a language's own way: Go's `time` and
-  `strconv` write them one way, and a browser's `Intl` does it well.
+- **Dates, numbers and money** in a language's own way, and sorting in
+  its order: Go's `time` and `strconv` write them one way, `slices` and
+  `sort` compare bytes, and a browser's `Intl` does both well.
+- **The page's own `lang`**: the root template is given the page and its
+  props, not the request's language, and the starters' `app.html` says
+  `lang="en"`. An app that shares the language with its pages, as above,
+  reads it from there: `<html lang="{{ index .Page.Props "locale" }}">`,
+  with `dir="rtl"` for a language written right to left.
 - **A text's context**: one English text says one thing, in every place
   it's said. One that means two things is written two ways.
 - **Files in directories**, as Laravel's `lang/vi/validation.php`: a
   language is one file.
+- **How much of a language is translated**: `tug lang` says how many
+  texts it added, and a text left empty says the English, but nothing
+  lists the ones still empty, or counts them.
