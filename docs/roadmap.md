@@ -4656,8 +4656,8 @@ answer, IDs in the session and the rest in a database, was the app's own to
 write, and left it a session it couldn't grow. Laravel keeps sessions in a
 table, a cache or Redis, the cookie carrying the session's ID alone, as
 Rails and Django do. tug had the cookie, a database in three layers, the
-stores of its own packages, and each store's promises as tests. To be
-released as v0.44.0.
+stores of its own packages, and each store's promises as tests. Released as
+v0.44.0.
 
 - **Package session:** `Config.Keeper`, where the sessions are kept. With
   one, the cookie carries the session's ID alone, `rand.Text`'s, as a
