@@ -488,17 +488,20 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 
 // keep writes the session where the Keeper puts it, under the ID the
 // cookie will carry, and says whether the response can carry it. A
-// request that changed nothing and flashed nothing writes no row while
-// the row it read was written less than refresh ago, as a login's last
-// sight is written at most that often; the cookie goes out all the same,
-// so the browser's own expiry is exact, and the row outlasts it by
-// refresh, so it never goes first.
+// request that changed nothing, flashed nothing, and was left nothing
+// writes no row while the row it read was written less than refresh ago,
+// as a login's last sight is written at most that often; the cookie goes
+// out all the same, so the browser's own expiry is exact, and the row
+// outlasts it by refresh, so it never goes first. A request that was
+// flashed something writes, since the row holds that flash until a write
+// leaves it out, and the page after this one would be shown it again.
 func (st *Store) keep(r *http.Request, s *Session, p payload, expires time.Time) bool {
 	old := s.id
 	if s.id == "" || s.rotated {
 		s.id = rand.Text()
 	}
-	if s.id == old && !s.changed && len(s.next) == 0 && !s.wrote.IsZero() && st.now().Sub(s.wrote) < refresh {
+	fresh := !s.wrote.IsZero() && st.now().Sub(s.wrote) < refresh
+	if s.id == old && !s.changed && len(s.next) == 0 && len(s.now) == 0 && fresh {
 		return true
 	}
 	p.ID, p.Wrote = "", st.now().Unix()

@@ -514,11 +514,14 @@ a cookie is read from it one last time and written to the keeper under a
 new ID; moving back logs everybody out. `prune-sessions`, a job on the
 hour, deletes the rows that have expired.
 
-A request that changes nothing and flashes nothing writes no row while the
-row it read was written less than a minute ago, as the auth starter writes
-a login's last sight at most that often. The cookie goes out all the same,
-so the browser's own expiry is exact, and the row outlasts it by a minute,
-so a session the browser still has is one the keeper still holds.
+A request that changes nothing, flashes nothing, and was flashed nothing
+writes no row while the row it read was written less than a minute ago, as
+the auth starter writes a login's last sight at most that often. The
+cookie goes out all the same, so the browser's own expiry is exact, and the
+row outlasts it by a minute, so a session the browser still has is one the
+keeper still holds. A request that was flashed something writes, since the
+row holds that flash until a write leaves it out, and the page after it
+would be shown the message again.
 
 `Rotate` gives the session a new ID, keeping its values, and the row under
 the old one goes as the response does. `auth.Login` calls it, so a session

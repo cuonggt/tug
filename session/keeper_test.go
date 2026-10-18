@@ -166,6 +166,28 @@ func TestFlashDataGoesThroughAKeeper(t *testing.T) {
 	})
 }
 
+func TestAFlashIsntShownTwiceWhenNothingElseChanged(t *testing.T) {
+	k := newMemoryKeeper()
+	b := newBrowser(t, newStore(t, Config{Keeper: k}))
+	b.do(func(s *Session) {
+		s.Set("user_id", 42)
+		s.Flash("status", "Saved")
+	})
+	b.do(func(s *Session) {
+		if s.Flashed("status") != "Saved" {
+			t.Errorf("the page it was left for got %v", s.Flashed("status"))
+		}
+	})
+	// That page changed nothing else, but the row it read holds the flash
+	// until something writes over it: the page after it shouldn't show the
+	// message again.
+	b.do(func(s *Session) {
+		if s.Flashed("status") != nil {
+			t.Errorf("the page after that was shown %v again", s.Flashed("status"))
+		}
+	})
+}
+
 func TestAClearedSessionIsTakenOutOfTheKeeper(t *testing.T) {
 	k := newMemoryKeeper()
 	b := newBrowser(t, newStore(t, Config{Keeper: k}))

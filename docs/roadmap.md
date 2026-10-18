@@ -4677,12 +4677,15 @@ released as v0.44.0.
   browser by someone else isn't the one that ends up logged in. `Clear`
   rotates too, so the ID a browser came with is no session once it has
   logged out. With no Keeper there's no ID, and both do nothing.
-- **Written once a minute:** a request that changes nothing and flashes
-  nothing writes no row while the row it read was written less than a
-  minute ago, as a login's last sight is written, and an API token's last
-  use; the cookie goes out all the same, so the browser's own expiry is
-  exact, and the row's is a minute past the cookie's, so it never goes
-  first.
+- **Written once a minute:** a request that changes nothing, flashes
+  nothing, and was flashed nothing writes no row while the row it read was
+  written less than a minute ago, as a login's last sight is written, and
+  an API token's last use; the cookie goes out all the same, so the
+  browser's own expiry is exact, and the row's is a minute past the
+  cookie's, so it never goes first. One that was flashed something writes,
+  since the row holds that flash until a write leaves it out: a test of a
+  page that shows a message and changes nothing else, and the page after
+  it, which was shown the message again.
 - **A keeper that fails:** the request has no session and the log says so,
   and the response writes nothing, so a database that blinks doesn't log
   out every user, or empty the sessions it still holds.
