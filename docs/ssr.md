@@ -205,6 +205,27 @@ renders in the browser too. Package `inertia` has no idea it's Node.
 
 ## What's not here yet
 
-- **Streaming**: Inertia renders a page to a string, and sends it whole.
-- **More than one Node**: Inertia's SSR server can run a process per CPU,
-  its cluster mode, where tug runs one.
+- **Streaming**, a page sent as it renders: Inertia's SSR isn't one. Its
+  server renders the page with the adapter's `renderToString` and answers
+  with one JSON object, the head's tags and the body, which is what
+  `inertia.Rendered` holds. Sending a page a piece at a time would take a
+  Node server of tug's own, one for each frontend, in place of Inertia's,
+  and would give up both the head's tags, which go out before the body
+  they belong to, and the fall back to the browser, which takes a render
+  that failed whole. A page's props are in the page object already, so a
+  stream would have nothing to wait for.
+- **More than one Node under the app**: tug runs one. An app whose first
+  visits outgrow it can set `createServer`'s `cluster: true` in
+  `resources/js/ssr.tsx`, where Inertia's own server forks a worker per
+  CPU, which share its port; tug needs nothing for it, as the process it
+  runs becomes the primary and the workers answer on `SSR_PORT`. Two
+  things to know first: Inertia doesn't start a worker again when it dies,
+  and tug asks the server for its health as it starts and no later, so a
+  pool that shrinks goes unnoticed, where one Node that stops is started
+  again; and the SIGTERM, its five seconds, and Linux's dying with the app
+  reach the primary alone, so a worker can be left behind, on a port the
+  next run won't take. `SSR_URL` is the other way: a server run apart, or
+  several behind one address, started and stopped by whatever runs it.
+  Either way, only first visits render on the server, and a renderer that
+  can't keep up means a page rendered in the browser at the `Timeout`,
+  not a failure.
