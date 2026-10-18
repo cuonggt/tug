@@ -12,9 +12,13 @@
 //
 // The whole session travels in the cookie, encrypted and authenticated
 // with AES-GCM, so it needs no storage on the server; the price is that it
-// stays small, as browsers take about 4 KB a cookie. Values go through
-// encoding/json on their way, so they come back as JSON types: a number as
-// a float64, a struct as a map[string]any.
+// stays small, as browsers take about 4 KB a cookie. Config.Keeper keeps
+// the sessions themselves where every instance of the app finds them, a
+// table in its database say, and leaves the cookie carrying the session's
+// ID alone, for an app whose sessions hold more than that.
+//
+// Values go through encoding/json on their way, so they come back as JSON
+// types: a number as a float64, a struct as a map[string]any.
 package session
 
 import (
@@ -52,6 +56,11 @@ type Config struct {
 	// starts it again. Default 2 hours; Session.SetLifetime changes it for
 	// one session.
 	Lifetime time.Duration
+
+	// Keeper is where the sessions themselves are kept, for sessions
+	// larger than a cookie: with one, the cookie carries the session's ID
+	// alone. Without one, the whole session travels in the cookie.
+	Keeper Keeper
 
 	// Secure marks the cookie for HTTPS only. A request that came over TLS
 	// gets a secure cookie either way; this is for an app behind a proxy
@@ -94,12 +103,37 @@ func ParseKey(s string) ([]byte, error) {
 	return k, nil
 }
 
-// Store keeps sessions in cookies. See New.
+// Keeper keeps the sessions themselves where every instance of the app
+// finds them, such as a table in its database, for an app whose sessions
+// hold more than a cookie takes. A key is 32 bytes, the SHA-256 of the
+// session's ID, so a keeper read out gives up no ID to send as a session's
+// own, and a value is the session sealed, so it gives up nothing the
+// session holds either. The times are the Store's clock. Its methods are
+// called from several goroutines at once, and with a database, from
+// several instances. A cache.Store satisfies it, so an app can keep its
+// sessions in its cache, knowing that clearing the cache, or a cache that
+// throws values out to make room, logs out every user. Package sessiontest
+// checks that a keeper keeps these promises.
+type Keeper interface {
+	// Get returns the session under key, and true, or false for a key with
+	// none, or whose session has expired by now.
+	Get(ctx context.Context, key []byte, now time.Time) (value []byte, ok bool, err error)
+
+	// Set keeps value under key until expires, in place of any session
+	// there.
+	Set(ctx context.Context, key, value []byte, expires time.Time) error
+
+	// Delete removes the session under key. A key with none isn't an error.
+	Delete(ctx context.Context, key []byte) error
+}
+
+// Store keeps sessions in cookies, or where its Keeper puts them. See New.
 type Store struct {
 	aeads    []cipher.AEAD
 	cookie   string
 	lifetime time.Duration
 	secure   bool
+	keeper   Keeper
 	now      func() time.Time
 }
 
@@ -111,7 +145,7 @@ func New(cfg Config) (*Store, error) {
 	if cfg.Lifetime < 0 {
 		return nil, errors.New("session: Config.Lifetime is negative")
 	}
-	s := &Store{cookie: cfg.Cookie, lifetime: cfg.Lifetime, secure: cfg.Secure, now: time.Now}
+	s := &Store{cookie: cfg.Cookie, lifetime: cfg.Lifetime, secure: cfg.Secure, keeper: cfg.Keeper, now: time.Now}
 	if s.cookie == "" {
 		s.cookie = "tug_session"
 	}
@@ -149,6 +183,15 @@ type Session struct {
 	had      bool           // the request came with a session cookie
 	lifetime time.Duration  // this session's own, from SetLifetime; 0 for the Store's
 	base     time.Duration  // the Store's
+
+	// Where a Keeper keeps the session: id is its own, which the cookie
+	// carries, wrote when the row it came from was written, rotated
+	// whether Rotate asked for a new id, and lost whether the keeper
+	// failed to answer, which leaves the session it holds alone.
+	id      string
+	wrote   time.Time
+	rotated bool
+	lost    bool
 
 	// changed is whether the request has changed the session's values or
 	// lifetime, and passed whether it calls Pass.
@@ -238,13 +281,46 @@ func (s *Session) Reflash() {
 	}
 }
 
-// payload is what the cookie holds, before encryption.
+// Rotate gives the session a new ID, where a Keeper keeps it, dropping
+// the row under the old one as the response goes out and keeping the
+// session's values. It's for a login, which auth.Login calls it for: a
+// session whose ID someone else set in the browser isn't the one that ends
+// up logged in. Without a Keeper the cookie is the session, with no ID of
+// its own, and it does nothing.
+func (s *Session) Rotate() {
+	s.rotated = true
+	s.changed = true
+}
+
+// payload is what the cookie holds, and what a Keeper keeps, before
+// encryption. Where a Keeper keeps the session, the cookie's payload is
+// the ID alone, and the keeper's the rest.
 type payload struct {
+	ID       string         `json:"i,omitempty"`
 	Values   map[string]any `json:"v,omitempty"`
 	Flash    map[string]any `json:"f,omitempty"`
 	Expires  int64          `json:"e"`
 	Lifetime int64          `json:"l,omitempty"` // seconds, when SetLifetime set one
+	Wrote    int64          `json:"w,omitempty"` // when a Keeper's row was written
 }
+
+// keyOf is the key a session is kept under: the SHA-256 of its ID, as a
+// login's row keeps the hash of its own.
+func keyOf(id string) []byte {
+	sum := sha256.Sum256([]byte(id))
+	return sum[:]
+}
+
+// ad is a kept session's additional data: the cookie's name and the
+// session's ID, each after its length, so a row moved to another ID, or to
+// an app whose cookie has another name, doesn't open.
+func ad(cookie, id string) []byte {
+	return fmt.Appendf(nil, "%d:%s%d:%s", len(cookie), cookie, len(id), id)
+}
+
+// refresh is how often a session nothing changed is written again, to put
+// off when it expires, and how long its row outlasts its cookie.
+const refresh = time.Minute
 
 // Middleware gives each request its session, and writes the session back
 // to its cookie before the response starts. The cookie is written with
@@ -266,38 +342,84 @@ func (st *Store) load(r *http.Request) *Session {
 		return s
 	}
 	s.had = true
-	p, ok := st.open(c.Value)
+	sealed, err := base64.RawURLEncoding.DecodeString(c.Value)
+	if err != nil {
+		return s
+	}
+	p, ok := st.open(sealed, []byte(st.cookie))
 	if !ok || st.now().Unix() > p.Expires {
 		return s // tampered with, from a key since dropped, or too old: start afresh
 	}
+	s.lifetime = time.Duration(max(p.Lifetime, 0)) * time.Second
+	if st.keeper != nil && p.ID != "" {
+		st.read(r, s, p.ID)
+		return s
+	}
+	// The cookie holds the session itself: always without a Keeper, and
+	// with one for a session made before it was set, which save writes
+	// where the keeper puts it, under an ID of its own.
 	if p.Values != nil {
 		s.values = p.Values
 	}
 	if p.Flash != nil {
 		s.now = p.Flash
 	}
-	s.lifetime = time.Duration(max(p.Lifetime, 0)) * time.Second
 	return s
 }
 
-func (st *Store) open(value string) (payload, bool) {
-	var p payload
-	sealed, err := base64.RawURLEncoding.DecodeString(value)
+// read fills s from the Keeper's row for id. A row that isn't there is a
+// session that has expired, or been logged out from somewhere else, and so
+// a new one. A keeper that fails is neither: s is left lost, and the
+// response writes nothing over the session it holds.
+func (st *Store) read(r *http.Request, s *Session, id string) {
+	value, ok, err := st.keeper.Get(r.Context(), keyOf(id), st.now())
 	if err != nil {
-		return p, false
+		slog.ErrorContext(r.Context(), "session: can't be read, so this request has none", "err", err)
+		s.lost = true
+		return
 	}
+	if !ok {
+		return
+	}
+	p, ok := st.open(value, ad(st.cookie, id))
+	if !ok || st.now().Unix() > p.Expires {
+		return
+	}
+	s.id, s.wrote = id, time.Unix(p.Wrote, 0)
+	if p.Values != nil {
+		s.values = p.Values
+	}
+	if p.Flash != nil {
+		s.now = p.Flash
+	}
+}
+
+func (st *Store) open(sealed, ad []byte) (payload, bool) {
+	var p payload
 	for _, aead := range st.aeads {
 		n := aead.NonceSize()
 		if len(sealed) < n {
 			return p, false
 		}
-		plain, err := aead.Open(nil, sealed[:n], sealed[n:], []byte(st.cookie))
+		plain, err := aead.Open(nil, sealed[:n], sealed[n:], ad)
 		if err != nil {
 			continue
 		}
 		return p, json.Unmarshal(plain, &p) == nil
 	}
 	return p, false
+}
+
+// seal is p under the first key, for the cookie or for a Keeper.
+func (st *Store) seal(p payload, ad []byte) ([]byte, error) {
+	plain, err := json.Marshal(p)
+	if err != nil {
+		return nil, err
+	}
+	aead := st.aeads[0]
+	nonce := make([]byte, aead.NonceSize(), aead.NonceSize()+len(plain)+aead.Overhead())
+	rand.Read(nonce)
+	return aead.Seal(nonce, nonce, plain, ad), nil
 }
 
 // maxCookie is about as much as a browser keeps in one cookie.
@@ -317,8 +439,12 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 		}
 		s.Reflash()
 	}
+	if s.lost {
+		return // the Keeper didn't answer: leave the session it holds alone
+	}
 	if len(s.values) == 0 && len(s.next) == 0 {
 		if s.had {
+			st.forget(r, s)
 			cookie.MaxAge = -1 // it's emptied: drop it
 			http.SetCookie(w, cookie)
 		}
@@ -328,20 +454,25 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 	if s.lifetime > 0 {
 		lifetime = s.lifetime
 	}
-	plain, err := json.Marshal(payload{
+	expires := st.now().Add(lifetime)
+	p := payload{
 		Values:   s.values,
 		Flash:    s.next,
-		Expires:  st.now().Add(lifetime).Unix(),
+		Expires:  expires.Unix(),
 		Lifetime: int64(s.lifetime / time.Second),
-	})
+	}
+	if st.keeper != nil {
+		if !st.keep(r, s, p, expires) {
+			return
+		}
+		p = payload{ID: s.id, Expires: p.Expires, Lifetime: p.Lifetime}
+	}
+	sealed, err := st.seal(p, []byte(st.cookie))
 	if err != nil {
 		slog.ErrorContext(r.Context(), "session: can't be saved", "err", err)
 		return
 	}
-	aead := st.aeads[0]
-	nonce := make([]byte, aead.NonceSize(), aead.NonceSize()+len(plain)+aead.Overhead())
-	rand.Read(nonce)
-	cookie.Value = base64.RawURLEncoding.EncodeToString(aead.Seal(nonce, nonce, plain, []byte(st.cookie)))
+	cookie.Value = base64.RawURLEncoding.EncodeToString(sealed)
 	if len(cookie.Value) > maxCookie {
 		slog.ErrorContext(r.Context(), "session: too large for a cookie, so it wasn't saved; keep less in it",
 			"bytes", len(cookie.Value))
@@ -349,6 +480,51 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 	}
 	cookie.MaxAge = int(lifetime / time.Second)
 	http.SetCookie(w, cookie)
+}
+
+// keep writes the session where the Keeper puts it, under the ID the
+// cookie will carry, and says whether the response can carry it. A
+// request that changed nothing and flashed nothing writes no row while
+// the row it read was written less than refresh ago, as a login's last
+// sight is written at most that often; the cookie goes out all the same,
+// so the browser's own expiry is exact, and the row outlasts it by
+// refresh, so it never goes first.
+func (st *Store) keep(r *http.Request, s *Session, p payload, expires time.Time) bool {
+	old := s.id
+	if s.id == "" || s.rotated {
+		s.id = rand.Text()
+	}
+	if s.id == old && !s.changed && len(s.next) == 0 && !s.wrote.IsZero() && st.now().Sub(s.wrote) < refresh {
+		return true
+	}
+	p.ID, p.Wrote = "", st.now().Unix()
+	sealed, err := st.seal(p, ad(st.cookie, s.id))
+	if err == nil {
+		err = st.keeper.Set(r.Context(), keyOf(s.id), sealed, expires.Add(refresh))
+	}
+	if err != nil {
+		slog.ErrorContext(r.Context(), "session: can't be saved", "err", err)
+		return false
+	}
+	// The old row goes once the new one is there, so a failure in between
+	// leaves the session as it was rather than nowhere.
+	if old != "" && old != s.id {
+		if err := st.keeper.Delete(r.Context(), keyOf(old)); err != nil {
+			slog.ErrorContext(r.Context(), "session: the row of the ID it had is still there", "err", err)
+		}
+	}
+	return true
+}
+
+// forget drops the session's row, where a Keeper keeps it, as the cookie
+// is dropped: the session has been cleared, or its last value taken out.
+func (st *Store) forget(r *http.Request, s *Session) {
+	if st.keeper == nil || s.id == "" {
+		return
+	}
+	if err := st.keeper.Delete(r.Context(), keyOf(s.id)); err != nil {
+		slog.ErrorContext(r.Context(), "session: can't be deleted", "err", err)
+	}
 }
 
 // cookieWriter writes the session's cookie just before the response

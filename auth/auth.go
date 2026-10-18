@@ -78,11 +78,15 @@ var now = time.Now
 //
 // A login starts afresh: a password confirmed before it (see
 // PasswordConfirmed), a login waiting for its second factor (see
-// StartTwoFactor), and a passkey asked for (see Passkeys), are forgotten.
+// StartTwoFactor), and a passkey asked for (see Passkeys), are forgotten,
+// and the session takes an ID of its own where one is kept on the server
+// (see session.Session.Rotate), so a session someone else set in the
+// browser isn't the one that ends up logged in.
 func Login(s *session.Session, id, passwordHash string) {
 	if s == nil {
 		panic("auth: Login needs a session; set tug's Config.Session")
 	}
+	s.Rotate()
 	s.Delete(confirmedKey)
 	s.Delete(pendingKey)
 	s.Delete(passkeyKey)

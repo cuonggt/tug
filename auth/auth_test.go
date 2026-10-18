@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/session/sessiontest"
 )
 
 // browser makes requests that carry a session, as a browser keeps its
@@ -54,6 +55,39 @@ func TestALoginLastsFromOneRequestToTheNext(t *testing.T) {
 		}
 		if !Current(s, "hash-1") {
 			t.Error("the login isn't current with the password it was made with")
+		}
+	})
+}
+
+func TestALoginGivesTheSessionAnIDOfItsOwn(t *testing.T) {
+	// Where a session is kept on the server, its cookie carries an ID. A
+	// login takes a new one, and the row under the old one goes, so a
+	// session whose ID someone else set in the browser isn't the one that
+	// ends up logged in, and the ID they still have is no session at all.
+	keeper := &sessiontest.Memory{}
+	store, err := session.New(session.Config{Keys: [][]byte{bytes.Repeat([]byte{7}, 32)}, Keeper: keeper})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &browser{t: t, store: store}
+	b.request("GET", "/", func(s *session.Session, _ *http.Request) { s.Set("cart", "theirs") })
+	fixed := keeper.Keys()
+	if len(fixed) != 1 {
+		t.Fatalf("the keeper holds %d sessions, want 1", len(fixed))
+	}
+	b.request("POST", "/login", func(s *session.Session, _ *http.Request) {
+		Login(s, "42", "hash-1")
+	})
+	logged := keeper.Keys()
+	if len(logged) != 1 {
+		t.Fatalf("after the login the keeper holds %d sessions, want 1", len(logged))
+	}
+	if bytes.Equal(fixed[0], logged[0]) {
+		t.Error("the login kept the ID the session had")
+	}
+	b.request("GET", "/dashboard", func(s *session.Session, _ *http.Request) {
+		if id, ok := UserID(s); !ok || id != "42" {
+			t.Errorf("logged in as %q, %v", id, ok)
 		}
 	})
 }
