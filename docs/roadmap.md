@@ -55,7 +55,7 @@ to 3.8.0, October 2026), written against
 | M46 | Passkey-only accounts      | done   |
 | M47 | Security headers, further  | done   |
 | M48 | Coding agents              | done   |
-| M49 | Sessions kept server-side  | later  |
+| M49 | Sessions kept server-side  | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4643,73 +4643,82 @@ Choices made on the way:
   app's, and passes over a path with a part to fill in, a page's name,
   what tug gen writes, and a block of code.
 
-## M49 · Sessions kept server-side — later
+## M49 · Sessions kept server-side — done
 
-A session travels in its cookie, the whole of it, encrypted and
-authenticated: tug keeps nothing on the server for it, and an app sets
-nothing up. The price is its size, the 4 KB or so a browser keeps in one
+A session travelled in its cookie, the whole of it, encrypted and
+authenticated: tug kept nothing on the server for it, and an app set
+nothing up. The price was its size, the 4 KB or so a browser keeps in one
 cookie, which is why an account's passkeys are ten at most, whose IDs wait
-in the session while it confirms the user, and why a session that outgrows
-it isn't saved at all: the response goes out without the cookie, what the
-request changed is lost, and the log says to keep less in it. The guide's
-answer, IDs in the session and the rest in a database, is the app's own to
-write, and leaves it a session it can't grow. Laravel keeps sessions in a
+in the session while it confirms the user, and why a session that outgrew
+it wasn't saved at all: the response went out without the cookie, what the
+request changed was lost, and the log said to keep less in it. The guide's
+answer, IDs in the session and the rest in a database, was the app's own to
+write, and left it a session it couldn't grow. Laravel keeps sessions in a
 table, a cache or Redis, the cookie carrying the session's ID alone, as
-Rails and Django do. tug has the cookie, a database in three layers, the
+Rails and Django do. tug had the cookie, a database in three layers, the
 stores of its own packages, and each store's promises as tests. To be
 released as v0.44.0.
 
 - **Package session:** `Config.Keeper`, where the sessions are kept. With
   one, the cookie carries the session's ID alone, `rand.Text`'s, as a
   login's is, and the session itself, its values and its flash, goes to
-  the Keeper under the SHA-256 of that ID, sealed as the cookie is. With
-  none, nothing changes.
+  the Keeper under the SHA-256 of that ID, sealed as the cookie is, its
+  additional data the cookie's name and the ID. With none, nothing
+  changed.
 - **`Keeper`:** `Get`, `Set` and `Delete`, a key of 32 bytes, bytes for a
   value, an expiry, and the clock passed in, as `cache.Store`'s are, which
-  satisfies it: an app hands its cache over in a line. A session that
-  isn't there, or whose time has passed, is a new one, as a cookie that
-  doesn't open is.
+  satisfies it, as a test spells out. A session the keeper hasn't, or
+  whose time has passed, is a new one, as a cookie that doesn't open is,
+  and the cookie goes, so the browser stops sending an ID that's no
+  session.
 - **A new ID for a login:** `Session.Rotate`, which `auth.Login` calls:
   the session keeps its values under an ID of its own, the row of the old
-  one deleted as the response goes out, so a session fixed in the browser
-  by someone else isn't the one that ends up logged in. With no Keeper
-  there's no ID, and it does nothing.
+  one deleted once the new one is written, so a session fixed in the
+  browser by someone else isn't the one that ends up logged in. `Clear`
+  rotates too, so the ID a browser came with is no session once it has
+  logged out. With no Keeper there's no ID, and both do nothing.
 - **Written once a minute:** a request that changes nothing and flashes
   nothing writes no row while the row it read was written less than a
   minute ago, as a login's last sight is written, and an API token's last
   use; the cookie goes out all the same, so the browser's own expiry is
   exact, and the row's is a minute past the cookie's, so it never goes
   first.
-- **Cleared, logged out:** `Clear` deletes the row and drops the cookie,
-  as it drops the cookie now.
+- **A keeper that fails:** the request has no session and the log says so,
+  and the response writes nothing, so a database that blinks doesn't log
+  out every user, or empty the sessions it still holds.
 - **The cookies' own sessions, kept:** an app that sets a Keeper over
   sessions already in cookies reads one last time from the cookie and
   writes what it holds to the Keeper under a new ID, so the change logs
   nobody out. The other way round does, which the guide says.
 - **`sessiontest`:** `TestStore`, a Keeper's promises as tests, which the
   starter's layers run on their table, as `cachetest`'s and
-  `throttletest`'s are run.
+  `throttletest`'s are run, and `Memory`, a Keeper in memory for an app's
+  tests, as `queuetest`'s and `broadcasttest`'s are.
 - **The auth starter:** a `sessions` table in each layer (`sessions_db.go`,
   the hash of the ID, the sealed session, and when it expires in Unix
   milliseconds, as the cache's rows are), `prune-sessions` every hour, and
   `SESSION_STORE`, `cookie` by default and `database` for the table, so no
   app made with the starter reads a row for a request that didn't ask for
-  one. Its tests run the suite on each layer's table, and its pages once
-  through the table, so the switch is checked end to end. The plain
-  starter, which has no database, keeps the cookie.
-- **The guide:** Forms and sessions, where a session is kept, the 4 KB
-  paragraph saying what to do about it; Deployment's environment; and the
-  README.
+  one. `sessions_test.go` runs the suite on each layer's table, and the
+  app's pages once through the table and once through their cookies, so
+  the switch is checked end to end. The plain starter, which has no
+  database, keeps the cookie.
+- **The guide:** Forms and sessions, Kept on the server; Accounts, The
+  sessions; Deployment's environment, `SESSION_STORE`; and the README.
+- **Beside it:** the plain starter answers `/up` too, the health check
+  only the auth starter had, and the guide's index no longer says the
+  roadmap has what comes next, which it has only while something is
+  planned.
 
-Choices, to settle before any code:
+Choices made on the way:
 
-- **A Keeper of its own, not the cache:** sessions could go in the cache
-  the starter has in every layer already, which would need no SQL at all,
-  and `Config.Keeper` takes a `cache.Store` as it is. But a cache is
-  cleared, and a cache may throw values out to make room; either would log
-  out every user of the app. The starter gets a table of its own, which
-  nothing clears, and an app that would rather have no table hands over
-  its cache knowing both.
+- **A Keeper of its own, not the cache:** sessions could have gone in the
+  cache the starter has in every layer already, which would have needed no
+  SQL at all, and `Config.Keeper` takes a `cache.Store` as it is. But a
+  cache is cleared, and a cache may throw values out to make room; either
+  would log out every user of the app. The starter got a table of its own,
+  which nothing clears, and an app that would rather have no table hands
+  over its cache knowing both.
 - **Three methods, not five:** `Keeper` leaves out `cache.Store`'s `Add`
   and `DeleteIf`, which take a lock, so an app that writes one writes no
   SQL for a lock no session takes; a `cache.Store` satisfies it all the
@@ -4718,17 +4727,23 @@ Choices, to settle before any code:
   AES-GCM the whole session was in, under the same keys and with the
   cookie's name as its additional data, so one path reads both kinds of
   cookie, and a cookie made under a key since rotated out is a new
-  session, as it is now.
+  session, as it was before.
 - **The row's key is the ID's hash, its value sealed:** as a login's row
   keeps the hash of its `auth.LoginID`, and an access token its own, so a
   database read out gives up no session and no ID to send as one; the
   seal's additional data is the cookie's name and the ID, so a row moved
   to another ID doesn't open.
+- **A new ID when the session is cleared, too:** `Clear` rotates as
+  `Rotate` does, which the starter's test found the need for: logging out
+  empties the session and then flashes a message for the page it goes back
+  to, so the session isn't empty and its row stays. It's a new session's
+  row now, holding a message and nothing else, and the ID the browser came
+  with is gone, as Laravel's `invalidate` leaves none.
 - **Nothing for the app to call:** no `Save`, no `Regenerate` beyond
-  `Rotate`, and no error returned where there was none: the Keeper is
-  read as the session loads and written as the response starts, where the
-  cookie is written now, and a Keeper that fails is a log line, as a
-  session too large for its cookie is.
+  `Rotate`, and no error returned where there was none: the Keeper is read
+  as the session loads and written as the response starts, where the
+  cookie is written, and a Keeper that fails is a log line, as a session
+  too large for its cookie is.
 
 ## Decisions
 

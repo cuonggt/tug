@@ -106,9 +106,9 @@ them.
   `migrations/`, the migrations that make its tables, a file of SQL each,
   which `migrations.go` runs as the app starts, and has the `migrate`
   command run; `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
-  `throttles_db.go`, `cache_db.go`, `tokens_db.go`, `broadcasts_db.go`,
-  `notifications_db.go`, `logins_db.go` and `migrations_db.go`, the SQL
-  of each;
+  `throttles_db.go`, `cache_db.go`, `sessions_db.go`, `tokens_db.go`,
+  `broadcasts_db.go`, `notifications_db.go`, `logins_db.go` and
+  `migrations_db.go`, the SQL of each;
   `db_test.go`, the tests' databases; and on Postgres or MySQL,
   `compose.yaml`, which runs the database in development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
@@ -853,7 +853,8 @@ starting at once take turns, each database in its own way:
 
 The SQL of each table is in a file of its own, `users_db.go`,
 `passkeys_db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,
-`tokens_db.go`, `broadcasts_db.go`, `notifications_db.go`,
+`sessions_db.go`, `tokens_db.go`, `broadcasts_db.go`,
+`notifications_db.go`,
 `logins_db.go` and `migrations_db.go`, beside the Go that's the same on any database, and
 it's written for its database, where they differ:
 
@@ -925,6 +926,17 @@ A throttle that can't count, as when the database is down, has an error
 for the handler to return, as any of the database's: the login is a 500,
 rather than let in unthrottled, or turned away as though it had tried too
 often.
+
+### The sessions
+
+A session travels in its cookie, as tug keeps them, and
+`SESSION_STORE=database` keeps the sessions themselves in a `sessions`
+table instead, whose SQL is in `sessions_db.go`, for an app whose sessions
+hold more than the 4 KB a cookie takes: the cookie then carries the
+session's ID alone. Moving to the table logs nobody out, and moving back
+logs everybody out. Every hour a scheduled job, `prune-sessions`, deletes
+the rows that have expired. See [Kept on the
+server](forms.md#kept-on-the-server).
 
 ### The cache
 

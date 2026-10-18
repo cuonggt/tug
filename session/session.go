@@ -223,13 +223,17 @@ func (s *Session) Delete(key string) {
 }
 
 // Clear empties the session, flash data included, as signing out does. Its
-// lifetime goes back to the Store's.
+// lifetime goes back to the Store's. Where a Keeper keeps the session, it
+// takes a new ID as well, as Rotate does, so the ID the browser came with
+// is no longer a session of any kind, and what a handler flashes after it,
+// a message on the page it goes back to, is a new session's.
 func (s *Session) Clear() {
 	clear(s.values)
 	clear(s.now)
 	clear(s.next)
 	s.lifetime = 0
 	s.changed = true
+	s.rotated = true
 }
 
 // SetLifetime makes the session last d without a request, in whole seconds,

@@ -130,6 +130,7 @@ The auth starter reads these as well:
 | `DB_PATH`           | The SQLite database. | `app.db`, and `/data/app.db` in its image | its `db.go` |
 | `DB_URL`            | On Postgres or MySQL, the database, as `postgres://user:password@host:5432/blog?sslmode=require` or `mysql://user:password@host:3306/blog?tls=true`, with the driver's settings in its query. | none: needed, unless `DB_HOST` is set | its `db.go` |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | The database's parts, as Laravel names them, where there's no `DB_URL`. | the port is `5432` or `3306` | its `db.go` |
+| `SESSION_STORE`     | Where the sessions themselves are kept: `cookie`, in the cookies, or `database`, in the app's `sessions` table, for sessions larger than the 4 KB a cookie takes ([Kept on the server](forms.md#kept-on-the-server)). Moving to the table logs nobody out; moving back logs everybody out. | `cookie` | its `main.go` |
 | `FILES_PATH`        | The directory the photos people upload are kept in, unless `FILESYSTEM_DISK` is `s3`. | `files`, and `/data/files` in its image | its `main.go` |
 | `FILESYSTEM_DISK`   | `local`, the directory, or `s3`, a bucket, which instances on more than one machine share. | `local` | `storage.FromEnv` |
 | `AWS_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | The bucket, and the keys to it, for `FILESYSTEM_DISK=s3`: in S3, or a service that speaks its API, as [files.md](files.md#from-the-environment) has. | none, and `us-east-1` for the region | `storage.FromEnv` |
@@ -751,11 +752,10 @@ container has.
 
 ## Health checks
 
-The auth starter answers `GET /up` with 200 and `up` while the app is
-serving and its database answers a ping, and a 503 when it doesn't, for a
-load balancer's or a platform's health check to ask. Like any request,
-each check is a line in the request log. The plain starter has no such
-route; a handler that answers 200 does.
+Both starters answer `GET /up` with 200 and `up` while the app is serving,
+for a load balancer's or a platform's health check to ask. The auth
+starter's pings its database as well, and answers 503 when that doesn't
+answer. Like any request, each check is a line in the request log.
 
 ## Rotating `APP_KEY`
 

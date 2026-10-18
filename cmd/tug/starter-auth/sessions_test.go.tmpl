@@ -1,0 +1,125 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/session"
+	"github.com/cuonggt/tug/session/sessiontest"
+)
+
+func TestTheSessionsTableKeepsItsPromises(t *testing.T) {
+	sessiontest.TestStore(t, func(t *testing.T) session.Keeper {
+		return &sessionTable{db: testDB(t)}
+	})
+}
+
+func TestTheAppKeepsItsSessionsInTheTableWhenItsAskedTo(t *testing.T) {
+	t.Setenv("SESSION_STORE", "database")
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	if r := c.Get("/dashboard"); r.Page.Component != "Dashboard" {
+		t.Fatalf("the dashboard: %v", r)
+	}
+	logged := app.sessionIDs()
+	if len(logged) != 1 {
+		t.Fatalf("%d rows in sessions, want the one logged in", len(logged))
+	}
+
+	// Logging out empties the session, so the row the login was in goes
+	// with the ID the browser came with, and what's left is the message
+	// on the page it goes back to.
+	if r := c.Post("/logout", nil).Follow(); r.Page.Flash["success"] != "You've logged out." {
+		t.Fatalf("logging out: %v", r)
+	}
+	for _, id := range app.sessionIDs() {
+		if bytes.Equal(id, logged[0]) {
+			t.Error("the row the login was in is still there")
+		}
+	}
+	// And once that message has been shown there's nothing left to keep.
+	if ids := app.sessionIDs(); len(ids) != 0 {
+		t.Errorf("%d rows in sessions, want none: nothing is kept for a guest", len(ids))
+	}
+	if r := c.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("still logged in: %v", r)
+	}
+}
+
+func TestTheAppKeepsItsSessionsInTheirCookiesByDefault(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	if r := c.Get("/dashboard"); r.Page.Component != "Dashboard" {
+		t.Fatalf("the dashboard: %v", r)
+	}
+	if ids := app.sessionIDs(); len(ids) != 0 {
+		t.Errorf("%d rows in sessions, want none: the cookie holds the session", len(ids))
+	}
+}
+
+// sessionIDs are the keys of the sessions the app's table holds: the
+// SHA-256 of each session's own ID.
+func (a *testApp) sessionIDs() [][]byte {
+	a.t.Helper()
+	rows, err := a.db.Query("SELECT id_hash FROM sessions")
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids [][]byte
+	for rows.Next() {
+		var id []byte
+		if err := rows.Scan(&id); err != nil {
+			a.t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		a.t.Fatal(err)
+	}
+	return ids
+}
+
+func TestTheSessionsThatHaveExpiredArePruned(t *testing.T) {
+	st := &sessionTable{db: testDB(t)}
+	ctx, now := context.Background(), time.Now()
+	for id, expires := range map[string]time.Time{"expired": now.Add(-time.Minute), "kept": now.Add(time.Hour)} {
+		if err := st.Set(ctx, hashed(id), []byte("a sealed session"), expires); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.prune(ctx, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := st.db.QueryRow("SELECT count(*) FROM sessions").Scan(&rows); err != nil || rows != 1 {
+		t.Errorf("%d rows left, %v: want the one still kept", rows, err)
+	}
+	if _, ok, err := st.Get(ctx, hashed("kept"), now); !ok || err != nil {
+		t.Errorf("the one still kept: %v, %v", ok, err)
+	}
+}
+
+func TestTheAppPrunesTheSessionsEveryHour(t *testing.T) {
+	started := time.Now().UTC()
+	app := newTestApp(t)
+	var runAt int64
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		err := app.db.QueryRow("SELECT run_at FROM jobs WHERE kind = 'prune-sessions'").Scan(&runAt)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the prune job wasn't pushed: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The next hour, or the one after, should one have come round as the
+	// app started.
+	next := started.Truncate(time.Hour).Add(time.Hour)
+	if got := time.UnixMilli(runAt).UTC(); !got.Equal(next) && !got.Equal(next.Add(time.Hour)) {
+		t.Errorf("the prune job runs at %v, want the next hour, %v", got, next)
+	}
+}

@@ -32,14 +32,15 @@ and description given from Go, which a first visit's HTML has too,
 whole numbers past JavaScript's safe range sent as BigInts, the mail an
 app sends under `tug dev` kept in a mailbox it shows as a mail program
 would, HTTPS served by the app itself, with its certificates from Let's
-Encrypt, and starters in React, Vue or Svelte, whose notes tell a coding
+Encrypt, sessions kept on the server where they hold more than a cookie
+takes, and starters in React, Vue or Svelte, whose notes tell a coding
 agent how to change them, one with accounts, from
 registering to two-factor logins, passkeys, in place of a password too,
 a profile photo, API tokens,
 notifications in the app and by mail, and the browsers an account is
 logged in from, each to log out, in SQLite, Postgres or MySQL.
 [The guide](docs/README.md) covers all of it, and
-[docs/roadmap.md](docs/roadmap.md) has what's next.
+[docs/roadmap.md](docs/roadmap.md) has how it was built.
 
 ```sh
 go install github.com/cuonggt/tug/cmd/tug@latest

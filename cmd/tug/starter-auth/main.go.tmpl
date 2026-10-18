@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -308,9 +309,22 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Where the sessions themselves are kept: in their cookies, which asks
+	// nothing of the app, or, with SESSION_STORE=database, in the sessions
+	// table, for an app whose sessions hold more than the 4 KB a cookie
+	// takes. Moving to the table logs nobody out; moving back does.
+	kept := &sessionTable{db: e.DB}
+	var keeper session.Keeper
+	switch store := cmp.Or(os.Getenv("SESSION_STORE"), "cookie"); store {
+	case "cookie":
+	case "database":
+		keeper = kept
+	default:
+		return nil, fmt.Errorf("SESSION_STORE is cookie or database, not %q", store)
+	}
 	// Behind a proxy that ends TLS, requests reach the app over plain HTTP:
 	// an https:// APP_URL says the cookie is for HTTPS all the same.
-	sessions, err := session.New(session.Config{Keys: e.Keys, Secure: strings.HasPrefix(cfg.URL, "https://")})
+	sessions, err := session.New(session.Config{Keys: e.Keys, Keeper: keeper, Secure: strings.HasPrefix(cfg.URL, "https://")})
 	if err != nil {
 		return nil, err
 	}
@@ -362,6 +376,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	queue.Handle(e.Queue, "prune-notifications", a.notifications.prune).Schedule(queue.Cron("@daily"), struct{}{})
 	queue.Handle(e.Queue, "prune-throttles", counts.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	queue.Handle(e.Queue, "prune-cache", cached.prune).Schedule(queue.Every(time.Hour), struct{}{})
+	queue.Handle(e.Queue, "prune-sessions", kept.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	queue.Handle(e.Queue, "prune-logins", a.browsers.prune).Schedule(queue.Every(time.Hour), struct{}{})
 [[- if not .Postgres ]]
 	// The events the hub carried go after a minute, which every instance

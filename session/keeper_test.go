@@ -179,6 +179,39 @@ func TestAClearedSessionIsTakenOutOfTheKeeper(t *testing.T) {
 	}
 }
 
+func TestWhatsFlashedAfterAClearIsANewSession(t *testing.T) {
+	k := newMemoryKeeper()
+	b := newBrowser(t, newStore(t, Config{Keeper: k}))
+	b.do(func(s *Session) { s.Set("user_id", 42) })
+	logged := b.cookiePayload(t).ID
+
+	// Logging out empties the session and leaves a message for the page it
+	// goes back to, which is a session of its own: the row the login was
+	// in goes with the ID the browser had.
+	b.do(func(s *Session) {
+		s.Clear()
+		s.Flash("status", "You've logged out.")
+	})
+	if id := b.cookiePayload(t).ID; id == logged {
+		t.Error("the session that was logged out kept its ID")
+	}
+	if _, ok, _ := k.Get(context.Background(), keyOf(logged), time.Now()); ok {
+		t.Error("the row of the session that was logged out is still there")
+	}
+	b.do(func(s *Session) {
+		if s.Get("user_id") != nil {
+			t.Errorf("it's still logged in: user_id = %v", s.Get("user_id"))
+		}
+		if s.Flashed("status") != "You've logged out." {
+			t.Errorf("the page it went back to got %v", s.Flashed("status"))
+		}
+	})
+	// Once the message has been shown there's nothing left to keep.
+	if k.kept() != 0 {
+		t.Errorf("the keeper holds %d sessions", k.kept())
+	}
+}
+
 func TestALoginGivesTheSessionANewID(t *testing.T) {
 	k := newMemoryKeeper()
 	b := newBrowser(t, newStore(t, Config{Keeper: k}))

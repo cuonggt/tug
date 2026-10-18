@@ -395,7 +395,7 @@ returns its session; without `Config.Session`, it's nil.
 The whole session travels in one cookie, encrypted and authenticated with
 AES-256-GCM under a key derived from `APP_KEY`, so the server keeps nothing.
 A cookie that was tampered with, or made with a key since dropped, starts
-an empty session. `session.Config` has three more fields:
+an empty session. `session.Config` has four more fields:
 
 - `Cookie` names the cookie, `tug_session` by default. It's `HttpOnly` and
   `SameSite=Lax`, and isn't set while the session is empty.
@@ -407,6 +407,10 @@ an empty session. `session.Config` has three more fields:
 - `Secure` keeps the cookie to HTTPS. A request over TLS gets that anyway,
   but behind a proxy that ends TLS, requests arrive over plain HTTP and it
   takes `Secure: true`. See [Deployment](deployment.md#behind-a-proxy).
+- `Keeper` keeps the sessions themselves where every instance of the app
+  finds them, and leaves the cookie carrying the session's ID alone, for
+  an app whose sessions hold more than a cookie takes: [Kept on the
+  server](#kept-on-the-server).
 
 ### Keys
 
@@ -461,10 +465,67 @@ on them, under keys of its own.
 A browser keeps about 4 KB in a cookie. A session larger than that isn't
 saved: the response goes out without it, what the request changed is lost,
 and the log says `session: too large for a cookie, so it wasn't saved; keep
-less in it`. Keep IDs in the session, and the rest in a database.
+less in it`. Keep IDs in the session, and the rest in a database, or keep
+the sessions on the server, below.
 
 Middleware added with `app.Use` runs outside the session and can't see it;
 a group's or a route's can, with `session.From(r.Context())`.
+
+### Kept on the server
+
+```go
+sessions, err := session.New(session.Config{Keys: keys, Keeper: &sessionTable{db: db}})
+```
+
+A `Keeper` keeps the sessions themselves where every instance of the app
+finds them, a table in its database say, and the cookie carries the
+session's ID alone, 26 random characters sealed as the whole session was.
+Nothing else changes: `c.Session()`, the flash, and the lifetime work as
+they do, and a session holds what it likes.
+
+```go
+type Keeper interface {
+	Get(ctx context.Context, key []byte, now time.Time) (value []byte, ok bool, err error)
+	Set(ctx context.Context, key, value []byte, expires time.Time) error
+	Delete(ctx context.Context, key []byte) error
+}
+```
+
+The key is the SHA-256 of the session's ID, so a keeper read out gives up
+no ID to send as a session's own, and the value is the session sealed with
+`APP_KEY`, bound to that ID, so it gives up nothing the session holds
+either, and a row moved to another ID doesn't open. A session the keeper
+no longer has, because it expired or was deleted, is a new one, as a
+cookie that doesn't open is. A keeper that fails is neither: the request
+has no session, the log says `session: can't be read, so this request has
+none`, and the response leaves the session the keeper holds alone.
+
+The signatures are a [`cache.Store`](cache.md#stores)'s,
+so an app can hand its cache over in a line, knowing that clearing the
+cache, or a cache that throws values out to make room, logs out every
+user. A table of its own doesn't. Package `sessiontest` has
+`TestStore(t, open)`, the promises a keeper makes, as tests, for one the
+app writes.
+
+The auth starter has a `sessions` table in each database's layer,
+`sessions_db.go`, and `SESSION_STORE` picks it: `cookie` by default, or
+`database`. Moving to the table logs nobody out, since a session still in
+a cookie is read from it one last time and written to the keeper under a
+new ID; moving back logs everybody out. `prune-sessions`, a job on the
+hour, deletes the rows that have expired.
+
+A request that changes nothing and flashes nothing writes no row while the
+row it read was written less than a minute ago, as the auth starter writes
+a login's last sight at most that often. The cookie goes out all the same,
+so the browser's own expiry is exact, and the row outlasts it by a minute,
+so a session the browser still has is one the keeper still holds.
+
+`Rotate` gives the session a new ID, keeping its values, and the row under
+the old one goes as the response does. `auth.Login` calls it, so a session
+whose ID someone else set in the browser isn't the one that ends up logged
+in, and `Clear` does too, so the ID a browser came with is no session at
+all once it has logged out. Without a `Keeper` there's no ID, and `Rotate`
+does nothing.
 
 ## CSRF
 

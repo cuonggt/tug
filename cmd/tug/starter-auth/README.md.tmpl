@@ -62,18 +62,20 @@ go test ./...
   `database/sql`. The SQL of each table is beside the Go that's the same
   on any database: `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
   `throttles_db.go`, `tokens_db.go`, `broadcasts_db.go`,
-  `notifications_db.go`, `migrations_db.go`, and `cache_db.go`, the app's
+  `notifications_db.go`, `migrations_db.go`, `cache_db.go`, the app's
   cache, for tug's package `cache`, which the starter keeps nothing in
-  yet.
+  yet, and `sessions_db.go`, the sessions themselves, which
+  `SESSION_STORE=database` keeps there rather than in their cookies.
 [[- else ]]
 - `db.go`: the database, [[ if .MySQL ]]MySQL[[ else ]]Postgres[[ end ]] at `DB_URL`, through `database/sql`.
   `compose.yaml` runs it in development, and the tests make a database
   each on it. The SQL of each table is beside the Go that's the same on
   any database: `users_db.go`, `passkeys_db.go`, `jobs_db.go`,
   `throttles_db.go`, `tokens_db.go`, `broadcasts_db.go`,
-  `notifications_db.go`, `migrations_db.go`, and `cache_db.go`, the app's
+  `notifications_db.go`, `migrations_db.go`, `cache_db.go`, the app's
   cache, for tug's package `cache`, which the starter keeps nothing in
-  yet.
+  yet, and `sessions_db.go`, the sessions themselves, which
+  `SESSION_STORE=database` keeps there rather than in their cookies.
 [[- end ]]
 - `migrations/`: the migrations that make and change the tables, a file of
   SQL each, named for when it was made, which run once, in order, as the

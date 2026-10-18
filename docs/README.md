@@ -21,8 +21,8 @@ the detail.
 4. [Server-side rendering](ssr.md): pages rendered on the server for a
    first visit, by Node beside the app, and package `ssr`.
 5. [Forms and sessions](forms.md): validation, rules of the app's own,
-   forms that check each field as it's left, flash messages, sessions, and
-   CSRF.
+   forms that check each field as it's left, flash messages, sessions, in
+   their cookies or kept on the server, and CSRF.
 6. [Languages](languages.md): what tug and the app say, in the request's
    language, from a file for each, package `lang`, and `tug lang`.
 7. [Files](files.md): uploads, checked by their size and what they are,
@@ -64,7 +64,6 @@ the detail.
 18. [The CLI](cli.md): `tug new`, `tug dev`, `tug gen`, `tug routes`,
     `tug lang`, `tug migrate`, `tug build` and `tug key`, in full.
 
-[The roadmap](roadmap.md) has how tug was built, the decisions behind it,
-and what comes next, and [the benchmarks](benchmarks.md) what tug costs a
-request and what an app made with it takes to run, and how that was
-measured.
+[The roadmap](roadmap.md) has how tug was built and the decisions behind
+it, and [the benchmarks](benchmarks.md) what tug costs a request and what
+an app made with it takes to run, and how that was measured.

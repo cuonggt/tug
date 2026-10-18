@@ -1,0 +1,52 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+// sessionTable is the sessions themselves, in the database, where every
+// instance of the app finds them: a session.Keeper, which newApp gives
+// the session store where SESSION_STORE is "database". A row is one
+// session, under the SHA-256 of the ID its cookie carries, so the table
+// holds no ID to send as a session's own, the session sealed, which only
+// package session opens, and when it expires, in Unix milliseconds, as
+// the cache's rows are.
+type sessionTable struct {
+	db *sql.DB
+}
+
+func (st *sessionTable) Get(ctx context.Context, id []byte, now time.Time) ([]byte, bool, error) {
+	var payload []byte
+	err := st.db.QueryRowContext(ctx, "SELECT payload FROM sessions WHERE id_hash = ? AND expires_at > ?", id, now.UnixMilli()).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return payload, true, nil
+}
+
+func (st *sessionTable) Set(ctx context.Context, id, payload []byte, expires time.Time) error {
+	_, err := st.db.ExecContext(ctx, `
+		INSERT INTO sessions (id_hash, payload, expires_at) VALUES (?, ?, ?)
+		ON CONFLICT (id_hash) DO UPDATE SET payload = excluded.payload, expires_at = excluded.expires_at`,
+		id, payload, expires.UnixMilli())
+	return err
+}
+
+func (st *sessionTable) Delete(ctx context.Context, id []byte) error {
+	_, err := st.db.ExecContext(ctx, "DELETE FROM sessions WHERE id_hash = ?", id)
+	return err
+}
+
+// prune deletes the sessions that have expired, which Get leaves out
+// already, for the room they take. It's a job, which newApp schedules for
+// every hour.
+func (st *sessionTable) prune(ctx context.Context, _ struct{}) error {
+	_, err := st.db.ExecContext(ctx, "DELETE FROM sessions WHERE expires_at <= ?", time.Now().UnixMilli())
+	return err
+}
