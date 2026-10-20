@@ -4763,8 +4763,8 @@ it, and reads it aloud in an English voice. The way round was for the app
 to share the language as a prop and read it from `.Page.Props`, which is
 what the guide said, for want of anything better. tug picks the language
 once a request, `App.Locale`, and makes a page's render context in one
-place, `pageRequest`, which the error pages go through too. To be released
-as v0.45.0.
+place, `pageRequest`, which the error pages go through too. Released as
+v0.45.0.
 
 - **`TemplateData.Locale`:** the request's language, for the root
   template: `<html lang="{{ .Locale }}">`.
