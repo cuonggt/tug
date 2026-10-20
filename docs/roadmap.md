@@ -4840,7 +4840,7 @@ placeholders: two sets of texts, and two ways of saying the same thing.
 tug had the catalog, one file a language keyed by the English, once props,
 which the client keeps across visits, tug gen, which keeps the TypeScript
 in step with the Go, and `tug lang`, which finds the texts the app says.
-To be released as v0.46.0.
+Released as v0.46.0.
 
 - **The language's texts, shared once:** both starters share the request
   language's texts, `lang.Words.Texts`, as `inertia.Once(...,

@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 64c5ac29afd5 -->
+<!-- translated from docs/getting-started.md at 9818999d77fc -->
 
 # はじめに
 
@@ -17,7 +17,7 @@ go install github.com/cuonggt/tug/cmd/tug@latest
 tug version
 ```
 
-`go install` は `tug` を `$(go env GOPATH)/bin` に置きます。`$GOBIN` が設定されていれば、そちらに置きます。そのディレクトリが `PATH` に含まれている必要があります。`tug version` は、`tug v0.45.0` のように、インストールされたバージョンを表示します。`tug new` が作るアプリは、このバージョンに依存します。
+`go install` は `tug` を `$(go env GOPATH)/bin` に置きます。`$GOBIN` が設定されていれば、そちらに置きます。そのディレクトリが `PATH` に含まれている必要があります。`tug version` は、`tug v0.46.0` のように、インストールされたバージョンを表示します。`tug new` が作るアプリは、このバージョンに依存します。
 
 ## アプリを作る
 
