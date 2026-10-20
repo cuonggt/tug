@@ -219,3 +219,87 @@ func TestEnglishsOwnFileAndARegionsLanguageAreWhereAMissingTextComesFrom(t *test
 		t.Errorf("pt-BR, from the app's English: %q", got)
 	}
 }
+
+func TestTextsAreEverythingALanguageSaysForAPageToSayItToo(t *testing.T) {
+	c := catalog(t, "en", map[string]string{
+		"vi.json":    `{"Save": "Lưu", "Untranslated": "", ":count post|:count posts": ":count bài viết"}`,
+		"pt_br.json": `{"Save": "Salvar"}`,
+		"pt.json":    `{"Save": "Guardar", "Cancel": "Cancelar"}`,
+		"en.json":    `{"Save": "Save it", "Delete": "Delete it"}`,
+	})
+
+	// A language's own words, and English's own for what it hasn't got,
+	// which From names, so a count takes English's forms there, as Choice
+	// gives it them.
+	got := c.In("vi").Texts()
+	want := Texts{
+		Locale: "vi",
+		Words:  map[string]string{"Save": "Lưu", ":count post|:count posts": ":count bài viết", "Delete": "Delete it"},
+		From:   map[string]string{"Delete": "en"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("vi's texts:\n%+v\nwant\n%+v", got, want)
+	}
+
+	// A region takes the words its language has, and says which.
+	got = c.In("pt-BR").Texts()
+	want = Texts{
+		Locale: "pt-BR",
+		Words:  map[string]string{"Save": "Salvar", "Cancel": "Cancelar", "Delete": "Delete it"},
+		From:   map[string]string{"Cancel": "pt", "Delete": "en"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("pt-BR's texts:\n%+v\nwant\n%+v", got, want)
+	}
+
+	// English's are its own, with nothing to say about where they're from.
+	got = c.In("en").Texts()
+	want = Texts{Locale: "en", Words: map[string]string{"Save": "Save it", "Delete": "Delete it"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("en's texts:\n%+v\nwant\n%+v", got, want)
+	}
+
+	// Every text in them is said as T says it, and what isn't in them says
+	// itself.
+	for _, locale := range c.Languages() {
+		w := c.In(locale)
+		for text, words := range w.Texts().Words {
+			if got := w.T(text); got != words {
+				t.Errorf("%s: T(%q) is %q, and its texts say %q", locale, text, got, words)
+			}
+		}
+		if _, ok := w.Texts().Words["Untranslated"]; ok {
+			t.Errorf("%s has words for a text left empty", locale)
+		}
+	}
+
+	// A nil catalog says everything in English, and has no words of its
+	// own.
+	if got := (*Catalog)(nil).In("vi").Texts(); got.Locale != "en" || len(got.Words) != 0 {
+		t.Errorf("a nil catalog's texts: %+v", got)
+	}
+}
+
+func TestPluralIndexIsTheFormChoicePicks(t *testing.T) {
+	// What tug gen writes into an app's TypeScript, so a page says a count
+	// as the server does.
+	for _, tc := range []struct {
+		locale string
+		want   []int // the form for 0, 1, 2 and 5
+	}{
+		{"en", []int{1, 0, 1, 1}},
+		{"vi", []int{0, 0, 0, 0}},
+		{"fr", []int{0, 0, 1, 1}},
+		{"ru", []int{2, 0, 1, 2}},
+		{"pt-BR", []int{0, 0, 1, 1}},
+		{"ig", []int{0, 0, 0, 0}}, // a language the rules don't know
+	} {
+		var got []int
+		for _, n := range []int{0, 1, 2, 5} {
+			got = append(got, PluralIndex(tc.locale, n))
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.locale, got, tc.want)
+		}
+	}
+}

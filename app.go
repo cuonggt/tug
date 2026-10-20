@@ -470,7 +470,7 @@ func Generating() bool {
 // the pages Page declared, the props shared with inertia.Share, and the
 // named routes.
 func (a *App) gen(path string) error {
-	in := typegen.Input{Pages: declaredPages(), Flash: declaredFlashes()}
+	in := typegen.Input{Pages: declaredPages(), Flash: declaredFlashes(), Languages: a.config.Lang.Languages()}
 	if a.config.ErrorPage != "" {
 		in.Pages = append(in.Pages, typegen.Page{Component: a.config.ErrorPage, Props: reflect.TypeFor[ErrorPageProps]()})
 	}

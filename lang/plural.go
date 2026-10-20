@@ -61,6 +61,14 @@ func interval(form string, n int) (string, bool, bool) {
 	return rest, true, false
 }
 
+// PluralIndex is the index of the form a count takes in a language: of a
+// text's forms, split by |, the one locale's rules give n, as Choice
+// picks it. tug gen writes the forms the app's languages take into its
+// TypeScript with it, so a page says a count as the server does.
+func PluralIndex(locale string, n int) int {
+	return pluralIndex(locale, n)
+}
+
 // pluralIndex is the form a language's rules have for n, from 0: the rules
 // Laravel's MessageSelector has, for the languages it names, looked up by
 // the whole tag, as pt_BR's differ from pt's, and else by its language.

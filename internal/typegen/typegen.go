@@ -38,12 +38,17 @@ type Input struct {
 	Shared map[string]any          // the props shared with inertia.Share, by value
 	Flash  map[string]reflect.Type // the flash keys tug.Flash declares, and their values' types
 	Routes []Route
+
+	// Languages are the app's, as lang.Catalog.Languages has them, for the
+	// forms their counts take in lang.ts.
+	Languages []string
 }
 
-// Output is the TypeScript: pages.ts and routes.ts.
+// Output is the TypeScript: pages.ts, routes.ts and lang.ts.
 type Output struct {
 	Pages  string `json:"pages"`
 	Routes string `json:"routes"`
+	Lang   string `json:"lang"`
 }
 
 // header marks the files as written by tug gen, so that tools and people
@@ -57,7 +62,7 @@ func Generate(in Input) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
-	return Output{Pages: pages(in), Routes: r}, nil
+	return Output{Pages: pages(in), Routes: r, Lang: langTS(in.Languages)}, nil
 }
 
 func pages(in Input) string {

@@ -2,6 +2,7 @@
   import { createForm } from '@inertiajs/svelte'
   import Head from '../Head.svelte'
   import Layout from '../Layout.svelte'
+  import { useLang } from '../lib/lang'
   import type { PageProps } from '../tug/pages'
   import { form, route, type Inputs } from '../tug/routes'
 
@@ -13,6 +14,11 @@
   // The form, typed by its route's input, as tug gen writes it from the
   // Go: its errors are the fields it sends.
   const HelloForm = createForm<Inputs['hello']>()
+
+  // The page's own words, in the language of the request it came with, as
+  // the server says its own: `tug lang vi` writes them into lang/vi.json,
+  // to translate.
+  const { t } = useLang()
 </script>
 
 <Layout>
@@ -25,13 +31,13 @@
   <HelloForm action={form('hello')} class="form">
     {#snippet children({ errors, processing, validate, invalid })}
       <label>
-        What's your name?
+        {t("What's your name?")}
         <input name="name" aria-invalid={invalid('name')} onblur={() => validate('name')} />
       </label>
       {#if errors.name}
         <p class="error">{errors.name}</p>
       {/if}
-      <button type="submit" disabled={processing}>Say hello</button>
+      <button type="submit" disabled={processing}>{t('Say hello')}</button>
     {/snippet}
   </HelloForm>
 

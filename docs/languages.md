@@ -194,27 +194,50 @@ tug lang vi
 
 writes `lang/vi.json` with every text the app says, each with no words
 yet, for a translator: tug's own, the messages of the app's rules, its
-fields' names, the file types its uploads take, and the texts its Go
-gives `T` and `Choice`, as they're written, in quotes. Run it again after
-the app changes, for the new ones: what the file has, it keeps. A text
-made as the app runs, `c.T(message)` of a variable, is the translator's
-to add. [The CLI](cli.md#tug-lang) has the rest.
+fields' names, the file types its uploads take, the texts its Go gives `T`
+and `Choice`, and those its pages give `t` and `choice`, as they're
+written, in quotes. Run it again after the app changes, for the new ones:
+what the file has, it keeps. A text made as the app runs, `c.T(message)`
+or `t(message)` of a variable, is the translator's to add.
+[The CLI](cli.md#tug-lang) has the rest.
 
 The binary embeds the files, so `tug dev` builds again when one changes.
 
-## The frontend
+## A page's own words
 
-A page's own words are in its components, and are the frontend's to
-translate, with whichever library it likes: react-i18next, vue-i18n,
-svelte-i18n. The app shares the request's language with its pages, as
-above, and the frontend can import the same files, which Vite reads as
-JSON, as `laravel-vue-i18n` reads Laravel's. tug says what the server
-says.
+```tsx
+const { t, choice } = useLang()
+
+<button>{t('Say hello')}</button>
+<p>{choice(':count post|:count posts', posts.length)}</p>
+<p>{t('Welcome, :name', { name: user.name })}</p>
+```
+
+A page says its own words in the request's language too, out of the same
+file: `lang/vi.json` is the language, both sides of it. `t(text, args)`
+and `choice(text, count, args)` work as `c.T` and `c.Choice` do, and say
+the same thing for the same text, placeholders, forms for a count, and a
+text with no words yet in English.
+
+`useLang` is `resources/js/lib/lang.ts`, which both starters have, over
+the `t()` and `choice()` tug gen writes into `resources/js/tug/lang.ts`
+from the Go: the lookup a language does, its placeholders, and the form
+each of the app's languages gives a count, from the rules package `lang`
+has, so a count reads the same on the page as it does from the server.
+A component that isn't a page uses `useLang` as a page does; `tug lang`
+finds what both say.
+
+The words themselves are the `texts` prop the app shares, the language's
+whole file, which the app's `main.go` shares as a once prop: the client
+keeps it, so it travels once a language rather than with every page, and a
+language the client hasn't got is sent on the visit that needs it.
+
+A page that would rather have a library than this has one: react-i18next,
+vue-i18n and svelte-i18n each do more, ICU messages among it, with files
+of their own to keep beside `lang/`.
 
 ## What's not here yet
 
-- **The frontend's translations**, built in: a page's words are its
-  library's.
 - **Dates, numbers and money** in a language's own way, and sorting in
   its order: Go's `time` and `strconv` write them one way, `slices` and
   `sort` compare bytes, and a browser's `Intl` does both well.

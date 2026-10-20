@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/lang"
 )
 
 type Author struct {
@@ -261,4 +262,56 @@ func TestABigIntIsABigintWhereverItGoes(t *testing.T) {
 	)
 	// The client sends one back as its digits, which Bind reads.
 	contains(t, out.Routes, "export interface RefundInput {\n  order: bigint\n  amount: number\n}")
+}
+
+func TestLangHasTheFormsEachOfTheAppsLanguagesGivesACount(t *testing.T) {
+	out, err := Generate(Input{Languages: []string{"en", "vi", "ru", "pt-BR"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, out.Lang,
+		"export interface Texts {",
+		"export function t(texts: Texts, text: string, args?: TextArgs): string {",
+		"export function choice(texts: Texts, text: string, count: number, args?: TextArgs): string {",
+		// A table for each, by the tag package lang keys its rules by.
+		"'en': '",
+		"'vi': '",
+		"'ru': '",
+		"'pt_br': '",
+	)
+
+	// Each table is the form each count takes, as lang.PluralIndex gives
+	// it: the counts below 100, and then those from 100 up, where the form
+	// a count takes is the one 100 + count % 100 takes.
+	for _, locale := range []string{"en", "vi", "ru", "pt-BR"} {
+		table := block(out.Lang, "'"+strings.ToLower(strings.ReplaceAll(locale, "-", "_"))+"': '")
+		table, _, _ = strings.Cut(table, "'")
+		if len(table) != counts {
+			t.Fatalf("%s's table is %d counts long, want %d: %q", locale, len(table), counts, table)
+		}
+		for n := range counts {
+			if want := lang.PluralIndex(locale, n); int(table[n]-'0') != want {
+				t.Errorf("%s: the form for %d is %c, and lang says %d", locale, n, table[n], want)
+			}
+		}
+		for _, n := range []int{counts, counts + 1, 317, 1001} {
+			if want := lang.PluralIndex(locale, n); int(table[100+n%100]-'0') != want {
+				t.Errorf("%s: the form for %d is %c, and lang says %d", locale, n, table[100+n%100], want)
+			}
+		}
+	}
+}
+
+func TestEveryLanguagesFormsFitOneDigit(t *testing.T) {
+	// A table is a digit a count, which every language the rules know has
+	// room for: the most forms any has is six, Arabic's.
+	for _, locale := range []string{
+		"ar", "cs", "ga", "hr", "lt", "lv", "mt", "pl", "ro", "ru", "sk", "sl", "cy", "he", "sr", "uk", "br",
+	} {
+		for n := range counts {
+			if i := lang.PluralIndex(locale, n); i < 0 || i > 9 {
+				t.Errorf("%s gives %d the form %d, which no digit holds", locale, n, i)
+			}
+		}
+	}
 }

@@ -1,5 +1,6 @@
 import { Form } from '@inertiajs/react'
 import Layout from '../Layout'
+import { useLang } from '../lib/lang'
 import type { PageProps } from '../tug/pages'
 import { form, route, type Inputs } from '../tug/routes'
 
@@ -7,6 +8,11 @@ import { form, route, type Inputs } from '../tug/routes'
 // routes route() knows, are the Go ones: tug gen writes their TypeScript
 // into ../tug.
 export default function Home({ appName, greeting }: PageProps<'Home'>) {
+  // The page's own words, in the language of the request it came with, as
+  // the server says its own: `tug lang vi` writes them into lang/vi.json,
+  // to translate.
+  const { t } = useLang()
+
   return (
     <Layout>
       <h1>{appName}</h1>
@@ -18,12 +24,12 @@ export default function Home({ appName, greeting }: PageProps<'Home'>) {
         {({ errors, processing, validate, invalid }) => (
           <>
             <label>
-              What's your name?
+              {t("What's your name?")}
               <input name="name" aria-invalid={invalid('name')} onBlur={() => validate('name')} />
             </label>
             {errors.name && <p className="error">{errors.name}</p>}
             <button type="submit" disabled={processing}>
-              Say hello
+              {t('Say hello')}
             </button>
           </>
         )}

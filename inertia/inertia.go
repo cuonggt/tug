@@ -254,7 +254,7 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 	td := TemplateData{
 		Page:    page,
 		Inertia: template.HTML(`<script data-page="app" type="application/json">` + string(data) + `</script><div id="app"></div>`),
-		Locale:  localeFrom(r.Context()),
+		Locale:  LocaleFrom(r.Context()),
 		Nonce:   nonce.From(r.Context()),
 	}
 	onServer := false
@@ -676,9 +676,11 @@ func WithLocale(ctx context.Context, locale string) context.Context {
 	return context.WithValue(ctx, localeKey, locale)
 }
 
-// localeFrom is the language of the page ctx renders, or "en": a document
-// has to say something, and lang="" says nothing a browser can use.
-func localeFrom(ctx context.Context) string {
+// LocaleFrom is the language the page ctx renders is in, as WithLocale
+// set it, or "en": a document has to say something, and lang="" says
+// nothing a browser can use. It's for a ShareFunc that shares what the
+// language decides, as the words a page says its own in.
+func LocaleFrom(ctx context.Context) string {
 	locale, _ := ctx.Value(localeKey).(string)
 	if locale == "" {
 		return "en"

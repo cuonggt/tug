@@ -136,6 +136,19 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 	if cfg.Lang, err = lang.Load(words, cmp.Or(os.Getenv("APP_LOCALE"), "en")); err != nil {
 		return nil, err
 	}
+	// The words a page says its own in, in the language of the request it
+	// came with, as the server says its own: t() and choice(), which tug
+	// gen writes into resources/js/tug/lang.ts, read them. Share says
+	// their type, for the TypeScript, and the client keeps them, so they
+	// travel once a language rather than with every page.
+	catalog := cfg.Lang
+	pages.Share("texts", lang.Texts{})
+	pages.ShareFunc(func(r *http.Request) inertia.Props {
+		locale := inertia.LocaleFrom(r.Context())
+		return inertia.Props{"texts": inertia.Once(func() (lang.Texts, error) {
+			return catalog.In(locale).Texts(), nil
+		}, inertia.As("texts:"+locale))}
+	})
 
 	// The app's keys also sign the links that tug.Signed lets through, for
 	// a route of the app's that takes only those.

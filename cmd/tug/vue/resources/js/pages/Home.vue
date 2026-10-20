@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { createForm } from '@inertiajs/vue3'
 import Layout from '../Layout.vue'
+import { useLang } from '../lib/lang'
 import type { Pages, SharedProps } from '../tug/pages'
 import { form, route, type Inputs } from '../tug/routes'
 
@@ -13,6 +14,11 @@ defineProps<Pages['Home'] & SharedProps>()
 // The form, typed by its route's input, as tug gen writes it from the Go:
 // its errors are the fields it sends.
 const HelloForm = createForm<Inputs['hello']>()
+
+// The page's own words, in the language of the request it came with, as
+// the server says its own: `tug lang vi` writes them into lang/vi.json, to
+// translate.
+const { t } = useLang()
 </script>
 
 <template>
@@ -24,11 +30,11 @@ const HelloForm = createForm<Inputs['hello']>()
          when the form is sent: BindValid in main.go does both. -->
     <HelloForm v-slot="{ errors, processing, validate, invalid }" :action="form('hello')" class="form">
       <label>
-        What's your name?
+        {{ t("What's your name?") }}
         <input name="name" :aria-invalid="invalid('name')" @blur="validate('name')" />
       </label>
       <p v-if="errors.name" class="error">{{ errors.name }}</p>
-      <button type="submit" :disabled="processing">Say hello</button>
+      <button type="submit" :disabled="processing">{{ t('Say hello') }}</button>
     </HelloForm>
 
     <p class="hint">

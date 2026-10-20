@@ -333,7 +333,7 @@ port in its `vite.config.ts`, in both `devServer` and `server.port`.
 tug gen
 ```
 
-Writes the TypeScript of the app's pages and named routes into
+Writes the TypeScript of the app's pages, named routes and languages into
 `resources/js/tug`, and says which files it wrote, or "the types are up to
 date". It has no flags.
 
@@ -343,6 +343,9 @@ date". It has no flags.
 - `routes.ts` has the named routes, and `route()`, which builds a route's
   path from its name and values, as `app.URL` does in Go. A route without
   a name isn't in it.
+- `lang.ts` has `t()` and `choice()`, which say a page's own words in the
+  request's language, and the form each of the app's languages gives a
+  count, from the rules package `lang` has.
 
 [TypeScript](typescript.md) has what each Go type becomes.
 
@@ -454,7 +457,9 @@ tug's own, as a form's errors, a 429's wait, and the statuses an error
 page says; the messages of the app's `validate.Rule`s; the names of the
 fields its forms bind and check, by their `label` tags or their keys made
 into words; the file types their uploads take, as "a PNG or JPEG image";
-and the texts its Go gives `T` and `Choice` as they're written, in quotes.
+the texts its Go gives `T` and `Choice` as they're written, in quotes; and
+those its pages give `t` and `choice`, in `resources/js`, by the quotes a
+JavaScript string takes.
 
 ```
 wrote lang/vi.json: 96 texts to translate, of 96; one left empty is said in English
@@ -469,8 +474,8 @@ delete. A file with nothing to add is left as it is.
 For tug's texts, and the app's rules, it builds the app and runs it as
 `tug gen` does, so it needs what `tug gen` needs; for the rest, it reads
 the app's Go, but its tests and the directories `tug dev` doesn't look in.
-A text made as the app runs, as `c.T(message)` of a variable, it can't
-see: a translator adds it by hand.
+A text made as the app runs, as `c.T(message)` of a variable, or
+`t(message)` on a page, it can't see: a translator adds it by hand.
 
 ## `tug migrate`
 

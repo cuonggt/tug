@@ -57,7 +57,7 @@ to 3.8.0, October 2026), written against
 | M48 | Coding agents              | done   |
 | M49 | Sessions kept server-side  | done   |
 | M50 | A page's own language      | done   |
-| M51 | A page's own words         | later  |
+| M51 | A page's own words         | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4826,52 +4826,56 @@ Choices made on the way:
   as it's deployed. The example's own tests render its template against a
   manifest of their own, and check the language there.
 
-## M51 · A page's own words — later
+## M51 · A page's own words — done
 
-What tug says is in the request's language, since M20, and so is what the
-app says from Go, `c.T` and `c.Choice`, a form's errors among it. A page's
-own words aren't: they're in its component, in one language, which the
-guide's list of what's not here yet has said since. An app in Vietnamese
-shows Vietnamese errors beside English buttons, and the starters' pages
-are English whatever `APP_LOCALE` says. Its way out today is a library of
-the frontend's own, react-i18next, vue-i18n or svelte-i18n, with its own
-files to keep beside `lang/vi.json`, and its own rules for plurals and
+What tug says was in the request's language, since M20, and so was what the
+app said from Go, `c.T` and `c.Choice`, a form's errors among it. A page's
+own words weren't: they were in its component, in one language, which the
+guide's list of what's not here yet had said since. An app in Vietnamese
+showed Vietnamese errors beside English buttons, and the starters' pages
+were English whatever `APP_LOCALE` said. Its way out was a library of the
+frontend's own, react-i18next, vue-i18n or svelte-i18n, with its own files
+to keep beside `lang/vi.json`, and its own rules for plurals and
 placeholders: two sets of texts, and two ways of saying the same thing.
-tug has the catalog, one file a language keyed by the English, once props,
+tug had the catalog, one file a language keyed by the English, once props,
 which the client keeps across visits, tug gen, which keeps the TypeScript
 in step with the Go, and `tug lang`, which finds the texts the app says.
 To be released as v0.46.0.
 
-- **The language's texts, shared once:** the starters share the request
-  language's texts as a prop, `inertia.Once(..., inertia.As("texts:" + locale))`,
-  so a first visit carries them, the client keeps them across visits, and
-  a language the client hasn't got is a new key, sent once. tug gen types
-  it in `SharedProps`, a `Record<string, string>`.
+- **The language's texts, shared once:** both starters share the request
+  language's texts, `lang.Words.Texts`, as `inertia.Once(...,
+  inertia.As("texts:" + locale))`, so a first visit carries them, the
+  client keeps them across visits, and a language it hasn't got is a new
+  key, sent once. `Share("texts", lang.Texts{})` says their type, as the
+  starters' `auth` and `bell` say theirs, and `inertia.LocaleFrom`, now
+  exported, is how the ShareFunc knows the language, where it has the
+  request and not the App.
 - **`t()` and `choice()`, written by tug gen:** `resources/js/tug/lang.ts`,
-  beside `pages.ts` and `routes.ts`: the lookup a `lang.Words` does (the
-  language's texts, then its own language's, then `en.json`'s, then the
-  English key itself), `fill`'s placeholders (`:name`, and `:Name` and
-  `:NAME` for their cases), and `choose`'s forms split by `|`, a form's
-  own counts first (`{0}`, `[1,2]`, `[2,*]`), then the language's rule,
-  from a table tug gen writes for the app's languages out of package
-  lang's own, so the browser picks the form `c.Choice` picks.
-- **A hook for each frontend:** `resources/js/lib/lang.ts`, React's and
-  Vue's over `usePage`, Svelte's over `$page`, which hand the page's texts
-  to the generated core, as each frontend's forms differ already.
-- **`tug lang` reads the frontend too:** `t('...')` and `choice('...', n)`
-  in `resources/js`, by the frontend's extensions, into the same
-  `lang/<tag>.json` as the Go's, so one file is a language, both sides of
-  it. A text made as the app runs, of a variable, is the translator's to
-  add, as in Go.
-- **The starters:** the plain starter's home page says its words with
-  `t()`, as the pattern to follow, and its README and `AGENTS.md` say how.
-  The auth starter's pages stay English for now: its words are a few
-  hundred, in three frontends, and a step of their own.
-- **The guide:** Languages' The frontend, which says to use a library,
-  rewritten; TypeScript, for what tug gen writes; the CLI's `tug lang`;
-  and the line in what's not here yet gone.
+  beside `pages.ts` and `routes.ts`: the lookup a `lang.Words` does, its
+  placeholders (`:name`, and `:Name` and `:NAME` for their cases), the
+  forms a text splits by `|`, a form's own counts first (`{0}`, `[2,*]`),
+  and the form each of the app's languages gives a count, from
+  `lang.PluralIndex`, now exported, so the browser picks the form
+  `c.Choice` picks.
+- **A hook for each frontend:** `resources/js/lib/lang.ts`, `useLang`,
+  React's and Vue's over `usePage`, Svelte's over its `page`, which hand
+  the page's texts to that core. A component that isn't a page uses it as
+  a page does.
+- **`tug lang` reads the frontend too:** the text a `t()` or a `choice()`
+  takes first, in the files of `resources/js` by their extension, into the
+  same `lang/<tag>.json` as the Go's, so one file is a language, both
+  sides of it. It passes over `resources/js/tug`, which tug gen writes,
+  and `node_modules`; a text made as the page runs, of a variable or a
+  template with a `${}` in it, is the translator's to add, as in Go.
+- **The starters:** the plain starter's home page says its own words with
+  `t()`, in all three frontends, as the pattern to follow, and its README
+  and `AGENTS.md` say how. The auth starter's pages stay English: its
+  words are a few hundred, in three frontends, and a step of their own.
+- **The guide:** Languages' A page's own words, in place of The frontend,
+  which said to use a library; TypeScript's three files; the CLI's `tug
+  gen` and `tug lang`; and the line in what's not here yet gone.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Shared once, not fetched or built in:** a route that serves the texts
   would be another request, and a page that renders before it has them;
@@ -4881,15 +4885,27 @@ Choices, to settle before any code:
   and costs the page object nothing after it.
 - **Rules written by tug gen, not ported by hand:** a plural table in
   TypeScript would drift from `lang/plural.go`, which is Laravel's by
-  language; generating it from the app's own languages is how tug keeps
-  the TypeScript in step with the Go everywhere else, and the browser then
-  can't disagree with the server about a count.
+  language; generating it is how tug keeps the TypeScript in step with the
+  Go everywhere else, and the browser then can't disagree with the server
+  about a count. A table is a digit for each count below 100 and each from
+  100 up, as every rule goes by the count, its last digit or its last two,
+  and the counts they name are below 100: so the form a count of 100 or
+  more takes is the one 100 + count % 100 takes. A digit holds them all,
+  as the most forms any language has is six, Arabic's, which a test of
+  every language with more than two checks.
+- **Which language's rules a text's words take:** `lang.Texts` has `From`,
+  the language a text's words are in where that isn't the request's, as
+  `lookup` gives `choose` the language it found the words in, not the one
+  asked for: a text from `en.json` takes English's forms on the page as it
+  does on the server, and a text with no words at all takes them too.
 - **A hook, not a module that keeps the texts:** `t()` could read a
   module-level copy, set as each page renders, which would need nothing of
   the frontends. Under SSR one Node process renders for every request, and
   Vue's and Svelte's renders await, so two pages in two languages could
   read each other's texts. The page's props are per render, and a hook
-  reads them.
+  reads them: `usePage()` in React and Vue, and in Svelte the adapter's
+  `page`, which is not a store but an object its components read, as they
+  read `page.props.appName`.
 - **The whole file, tug's own texts in it:** the texts a page says and
   those the server says are one file, so the browser gets a few kilobytes
   it has no use for, once a language. Sharing only the frontend's own
@@ -4900,6 +4916,12 @@ Choices, to settle before any code:
   than this, ICU messages among it, and each does it its own way, with
   files of its own. One file a language, read from Go and from the page,
   is the point; an app that wants ICU can still add one.
+- **A group for each quote:** `tug lang` finds a page's texts with a
+  regexp, where Go's has no backreference to say "the quote it opened
+  with", so each of the three reads with a group of its own, and the one
+  that took part is the text. The character before the name keeps
+  `format(` and `obj.t(` out, which a test checks along with the quotes,
+  the escapes and the files it passes over.
 
 ## Decisions
 

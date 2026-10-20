@@ -243,6 +243,44 @@ func (w Words) Choice(text string, n int, args ...any) string {
 	return fill(choose(s, n, locale), append([]any{"count", n}, args...))
 }
 
+// Texts are the words a language says an app's texts in, all of them, for
+// a page of its own to say its words in the language too: Locale is the
+// language, Words the words for each text the language has any for, its
+// own and the rest from English, and From names the language a text's
+// words are in where that isn't Locale, so a count takes the forms that
+// language's rules give it, as Choice gives it them here.
+type Texts struct {
+	Locale string            `json:"locale"`
+	Words  map[string]string `json:"words"`
+	From   map[string]string `json:"from,omitempty"`
+}
+
+// Texts is everything w says, for a page to say its own words in the same
+// language, through the TypeScript tug gen writes: see Texts. A text the
+// language has no words for isn't in it, and says itself, in English, as
+// T says it.
+func (w Words) Texts() Texts {
+	t := Texts{Locale: w.Locale(), Words: map[string]string{}}
+	if w.c == nil {
+		return t
+	}
+	for _, l := range []string{w.locale, base(w.locale), "en"} {
+		for text, words := range w.c.texts[strings.ToLower(l)] {
+			if words == "" || t.Words[text] != "" {
+				continue
+			}
+			t.Words[text] = words
+			if !strings.EqualFold(l, t.Locale) {
+				if t.From == nil {
+					t.From = map[string]string{}
+				}
+				t.From[text] = l
+			}
+		}
+	}
+	return t
+}
+
 // lookup finds text's words: the language's, its language without the
 // region's, English's own when the app has an en.json, or else the text
 // itself. It returns the language they're in, whose rules pick a form.

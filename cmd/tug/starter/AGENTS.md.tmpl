@@ -92,6 +92,12 @@ interface.
    `resources/js/tug/routes.ts`, which knows each named route, and the
    values of its wildcards, by name.
 
+5. Its own words go through `useLang`, from `resources/js/lib/lang.ts`, as
+   the home page's do: `t('Save')` says a word in the request's language,
+   and `choice(':count post|:count posts', n)` says one for a count.
+   `tug lang vi` writes them into `lang/<language>.json`, beside what the
+   Go says, to translate.
+
 ## Add a form
 
 1. Its input, with validate's tags, and a handler that binds it:

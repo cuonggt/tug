@@ -12,8 +12,8 @@ own transactions, and so many at once or a second across the instances,
 server-side rendering, tests of an app's pages, uploads kept on the app's
 disk or in S3, limits on routes and on guessing passwords, counted across
 the app's instances, the client's address behind its proxies, signed
-links, what tug and the app say in the request's language, which the
-document around a page says it's in, lists in
+links, what tug and the app say in the request's language, a page's own
+words among it, which the document around it says it's in, lists in
 pages, the app's own commands, a cache and locks across the instances,
 mail with copies, files and a link to unsubscribe, downloads, streams and
 server-sent events, the app's own values encrypted, events broadcast to
@@ -186,8 +186,11 @@ func showPost(c *tug.Ctx) error {
   in the request's language: the app's choice, or else the browser's
   `Accept-Language`, from a JSON file for each language, keyed by the
   English, as Laravel's `lang/vi.json` is, with plurals by each language's
-  rules. `tug lang vi` writes the file, with every text the app says, and
-  the root template says the language a page is in, `<html lang="{{ .Locale }}">`.
+  rules. A page says its own words in the language too, `t('Say hello')`
+  and `choice()` over the same file, which tug gen writes the TypeScript
+  of. `tug lang vi` writes the file, with every text the app and its pages
+  say, and the root template says the language a page is in,
+  `<html lang="{{ .Locale }}">`.
 - **Encryption** (package `crypt`): the app's own values, as a token for
   another service kept in a column, sealed with AES-256-GCM, under a key
   for their purpose alone, derived from `APP_KEY`, bound to their row if

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,68 @@ func TestLangFindsWhatTheAppsGoSaysToAPerson(t *testing.T) {
 		if slices.Contains(got, not) {
 			t.Errorf("appTexts found %q", not)
 		}
+	}
+}
+
+func TestLangFindsWhatTheAppsPagesSayToAPerson(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, map[string]string{
+		"resources/js/pages/Home.tsx": "import { useLang } from '../lib/lang'\n" +
+			"const { t, choice } = useLang()\n" +
+			"export default function Home({ posts }: Props) {\n" +
+			"  const title = t('Say hello')\n" +
+			"  const count = choice(':count post|:count posts', posts.length)\n" +
+			"  const named = t('Welcome, :name', { name: 'Ann' })\n" +
+			"  const quoted = t(\"What's your name?\")\n" +
+			"  const escaped = t('Don\\'t go')\n" +
+			"  const backticks = t(`Your receipt`)\n" +
+			"  const made = t(message)\n" +
+			"  const built = t(`a ${kind} of post`)\n" +
+			"  return format('a date') + insert('a row') + obj.t('a method of something')\n" +
+			"}\n",
+		"resources/js/pages/Home.vue":    "<template>{{ t('In a template') }}</template>\n",
+		"resources/js/pages/Home.svelte": "<p>{t('In a component')}</p>\n",
+		"resources/js/lib/lang.ts":       "export function useLang() { return { t, choice } }\n",
+		"resources/js/tug/lang.ts":       "export function t(texts: Texts, text: string) { return t('tug gen wrote this') }\n",
+		"resources/js/README.md":         "t('not a page')\n",
+		"node_modules/pkg/index.js":      "t('a dependency\\'s')\n",
+		"resources/js/.cache/stale.tsx":  "t('left behind')\n",
+	})
+	got, err := pageTexts(filepath.Join(dir, "resources", "js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"Say hello", ":count post|:count posts", "Welcome, :name", "What's your name?",
+		"Don't go", "Your receipt", "In a template", "In a component",
+	}
+	for _, w := range want {
+		if !slices.Contains(got, w) {
+			t.Errorf("pageTexts found no %q in %q", w, got)
+		}
+	}
+	for _, not := range []string{
+		"tug gen wrote this", "not a page", "a dependency's", "left behind",
+		"a date", "a row", "a method of something",
+	} {
+		if slices.Contains(got, not) {
+			t.Errorf("pageTexts found %q", not)
+		}
+	}
+	// A text made as the page runs isn't one to translate: nothing of
+	// t(message) or of a template with a ${} in it.
+	for _, text := range got {
+		if strings.Contains(text, "${") || text == "" {
+			t.Errorf("pageTexts found %q", text)
+		}
+	}
+}
+
+// An app with no frontend of its own has nothing for pageTexts to read.
+func TestLangTakesAnAppWithNoPages(t *testing.T) {
+	got, err := pageTexts(filepath.Join(t.TempDir(), "resources", "js"))
+	if err != nil || len(got) != 0 {
+		t.Errorf("pageTexts: %q, %v", got, err)
 	}
 }
 

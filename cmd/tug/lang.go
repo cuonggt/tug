@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,12 +30,13 @@ func runLang(args []string) error {
 Writes lang/<language>.json, as lang/vi.json, with every text the app says
 to a person, in English, for its translation: tug's own, as a form's
 errors, the messages of the app's validate rules, the names of its forms'
-fields, the file types its uploads take, and the texts its Go gives T and
-Choice. A file that's there keeps what it has, and gets the texts it
-hasn't. A text left empty is said in English.
+fields, the file types its uploads take, the texts its Go gives T and
+Choice, and those its pages give t and choice. A file that's there keeps
+what it has, and gets the texts it hasn't. A text left empty is said in
+English.
 
 tug lang builds the app and runs it, as tug gen does, for tug's texts and
-the app's rules, and reads the app's Go for the rest.
+the app's rules, and reads the app's Go and its frontend for the rest.
 `)
 	}
 	if err := flags.Parse(args); err != nil {
@@ -62,8 +64,12 @@ the app's rules, and reads the app's Go for the rest.
 	if err != nil {
 		return err
 	}
+	said, err := pageTexts(filepath.Join("resources", "js"))
+	if err != nil {
+		return err
+	}
 	path := filepath.Join("lang", flags.Arg(0)+".json")
-	added, total, err := addTexts(path, append(g.Texts, own...))
+	added, total, err := addTexts(path, slices.Concat(g.Texts, own, said))
 	if err != nil {
 		return err
 	}
@@ -258,4 +264,90 @@ func addTexts(path string, texts []string) (int, int, error) {
 		return 0, 0, err
 	}
 	return added, len(have), os.WriteFile(path, b.Bytes(), 0o644)
+}
+
+// pageTexts are the texts a frontend's pages say: the literal a t() or a
+// choice() call takes first, in the files under dir, which is
+// resources/js. A page says them as the Go says its own, through the
+// TypeScript tug gen writes, so one file is a language, both sides of it.
+// A text made as the page runs, of a variable, is the translator's to add,
+// as in Go.
+func pageTexts(dir string) ([]string, error) {
+	var texts []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		switch {
+		case errors.Is(err, fs.ErrNotExist) && path == dir:
+			return nil // an app whose frontend is elsewhere, or none
+		case err != nil:
+			return err
+		case d.IsDir():
+			name := d.Name()
+			// tug's own is written, not said, and node_modules is nobody's
+			// to translate.
+			if path != dir && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "tug") {
+				return filepath.SkipDir
+			}
+			return nil
+		case !slices.Contains(pageFiles, filepath.Ext(path)):
+			return nil
+		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range saidInPages.FindAllSubmatch(source, -1) {
+			// One of the quotes matched: the others took no part, and are
+			// nil rather than empty.
+			for _, said := range m[1:] {
+				if said == nil {
+					continue
+				}
+				if text, ok := unquoteJS(string(said)); ok {
+					texts = append(texts, text)
+				}
+			}
+		}
+		return nil
+	})
+	return texts, err
+}
+
+// pageFiles are the files a page's words are in, by extension.
+var pageFiles = []string{".ts", ".tsx", ".js", ".jsx", ".vue", ".svelte"}
+
+// saidInPages finds a t() or a choice() call's text: a JavaScript string
+// in any of its quotes, which a group each reads, as a regexp here can't
+// say "the quote it opened with"; and nothing of a call on something
+// else, as format( or $t(, which the character before the name rules out.
+var saidInPages = regexp.MustCompile(`(?:^|[^\w$.])(?:t|choice)\(\s*(?:` +
+	`'((?:[^'\\]|\\.)*)'|` +
+	`"((?:[^"\\]|\\.)*)"|` +
+	"`((?:[^`" + `\\]|\\.)*)` + "`" + `)`)
+
+// unquoteJS reads a JavaScript string's own escapes, the ones a text has
+// any use for, and says whether the string is one to keep: an empty text,
+// or one with a ${} in it, which is said as the page runs, isn't.
+func unquoteJS(s string) (string, bool) {
+	if s == "" || strings.Contains(s, "${") {
+		return "", false
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 == len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		i++
+		switch s[i] {
+		case 'n':
+			b.WriteByte('\n')
+		case 't':
+			b.WriteByte('\t')
+		case 'r':
+			b.WriteByte('\r')
+		default: // \\, \' and \" say themselves, as does anything else
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String(), true
 }
