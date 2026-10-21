@@ -5090,7 +5090,7 @@ own since M51's texts prop. Go was no better off: `Choice` filled `:count`
 with `fmt.Sprint`, so ":count bài viết" said 1234 where Vietnamese writes
 1.234. The browser has all of this right in `Intl`, and the Node that
 renders a first visit has the same ICU; Go has `strconv` and no table of
-what a language does. To be released as v0.49.0.
+what a language does. Released as v0.49.0.
 
 - **Numbers in `lang`:** `number.go`, a `group` and a `point` for
   forty-six languages and for Mexican Spanish, whose numbers aren't
