@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 4fc03d18536f -->
+<!-- translated from docs/README.md at 0cd2cd7db7cd -->
 
 # Hướng dẫn sử dụng tug
 
@@ -24,7 +24,7 @@ tiết còn lại.
    lượt truy cập đầu, bởi Node chạy cạnh ứng dụng, và gói `ssr`.
 5. [Form và session](../forms.md): kiểm tra hợp lệ, quy tắc riêng của ứng
    dụng, form kiểm tra từng trường ngay khi người dùng rời khỏi nó, thông
-   báo flash, session và CSRF.
+   báo flash, session trong cookie hoặc được giữ trên máy chủ, và CSRF.
 6. [Đa ngôn ngữ](../languages.md): những gì tug và ứng dụng nói với người
    dùng, bằng ngôn ngữ của request, từ một tệp cho mỗi ngôn ngữ, gói
    `lang` và `tug lang`.
@@ -67,8 +67,8 @@ tiết còn lại.
 18. [CLI](../cli.md): `tug new`, `tug dev`, `tug gen`, `tug routes`,
     `tug lang`, `tug migrate`, `tug build` và `tug key`, đầy đủ chi tiết.
 
-[Lộ trình](../roadmap.md) kể lại tug đã được xây dựng ra sao, những quyết
-định đằng sau nó và những gì sắp tới, còn
+[Lộ trình](../roadmap.md) kể lại tug đã được xây dựng ra sao và những
+quyết định đằng sau nó, còn
 [các phép đo hiệu năng](../benchmarks.md) cho biết tug tốn bao nhiêu cho một
 request và một ứng dụng làm bằng tug cần bao nhiêu để chạy, cùng cách đo
 những con số đó.

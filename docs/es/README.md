@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 4fc03d18536f -->
+<!-- translated from docs/README.md at 0cd2cd7db7cd -->
 
 # La guía de tug
 
@@ -26,7 +26,8 @@ los detalles.
    paquete `ssr`.
 5. [Formularios y sesiones](../forms.md): la validación, reglas propias de
    la aplicación, formularios que comprueban cada campo al salir de él, los
-   mensajes flash, las sesiones y CSRF.
+   mensajes flash, las sesiones, en sus cookies o guardadas en el servidor,
+   y CSRF.
 6. [Idiomas](../languages.md): lo que dicen tug y la aplicación, en el
    idioma de la petición, a partir de un archivo por idioma, el paquete
    `lang` y `tug lang`.
@@ -76,7 +77,7 @@ los detalles.
 18. [La CLI](../cli.md): `tug new`, `tug dev`, `tug gen`, `tug routes`,
     `tug lang`, `tug migrate`, `tug build` y `tug key`, en detalle.
 
-[La hoja de ruta](../roadmap.md) cuenta cómo se construyó tug, las
-decisiones que hay detrás y lo que viene después, y
+[La hoja de ruta](../roadmap.md) cuenta cómo se construyó tug y las
+decisiones que hay detrás, y
 [los benchmarks](../benchmarks.md), lo que cuesta tug en cada petición, lo
 que necesita para funcionar una aplicación hecha con él y cómo se midió.

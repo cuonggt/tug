@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 4fc03d18536f -->
+<!-- translated from docs/README.md at 0cd2cd7db7cd -->
 
 # tug 指南
 
@@ -8,7 +8,7 @@ tug 是一个 Web 框架，面向前端使用 [Inertia.js](https://inertiajs.com
 2. [路由与处理函数](../routing.md)：App、路由、绝对链接与签名链接、路由组、中间件（其中包括安全响应头）、响应了请求的路由、代理之后的客户端地址、`Ctx`、文件、下载、流与事件、请求绑定，以及错误。
 3. [页面](../pages.md)：Inertia 页面及其 props、根模板及其 nonce、延后计算的 props、共享 props、重定向、页面上的下载与事件、错误页面、Vite，以及 Inertia 的 DevTools。
 4. [服务端渲染](../ssr.md)：首次访问时，由应用旁边的 Node 在服务端渲染页面，以及 `ssr` 包。
-5. [表单与会话](../forms.md)：验证、应用自己的规则、离开字段时就检查该字段的表单、flash 消息、会话，以及 CSRF。
+5. [表单与会话](../forms.md)：验证、应用自己的规则、离开字段时就检查该字段的表单、flash 消息、放在 cookie 里或保存在服务端的会话，以及 CSRF。
 6. [多语言](../languages.md)：用请求的语言显示 tug 和应用的文字，每种语言一个文件；`lang` 包，以及 `tug lang`。
 7. [文件](../files.md)：上传的文件，按大小和实际类型检查，用 `storage` 包保存在应用的磁盘或 S3 上，以及指向它们的公开链接或签名链接。
 8. [账户](../auth.md)：认证脚手架，可用 SQLite、Postgres 或 MySQL，及其 API 令牌和通知；`auth` 和 `mail` 包，后者支持抄送、附件和一键退订链接。
@@ -23,4 +23,4 @@ tug 是一个 Web 框架，面向前端使用 [Inertia.js](https://inertiajs.com
 17. [部署](../deployment.md)：单个二进制文件、Dockerfile、环境变量、由应用自身提供的 HTTPS 及来自 Let's Encrypt 的证书，规定浏览器可以如何对待应用页面的响应头（其中包括 Content-Security-Policy），日志，以及指标。
 18. [命令行工具](../cli.md)：`tug new`、`tug dev`、`tug gen`、`tug routes`、`tug lang`、`tug migrate`、`tug build` 和 `tug key` 的完整说明。
 
-[路线图](../roadmap.md)讲述了 tug 是如何构建的、背后的决策，以及接下来的计划；[基准测试](../benchmarks.md)则给出 tug 在每个请求上的开销、用它构建的应用运行起来需要多少资源，以及这些数据是如何测得的。
+[路线图](../roadmap.md)讲述了 tug 是如何构建的，以及背后的决策；[基准测试](../benchmarks.md)则给出 tug 在每个请求上的开销、用它构建的应用运行起来需要多少资源，以及这些数据是如何测得的。
