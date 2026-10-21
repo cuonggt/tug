@@ -34,6 +34,15 @@ export function t(texts: Texts, text: string, args?: TextArgs): string {
 }
 
 /**
+ * text says a text where a hook can't reach, as a page's static layout
+ * title: it gives the text back as it is, for tug lang to find, and what
+ * reads it says it with t().
+ */
+export function text(said: string): string {
+  return said
+}
+
+/**
  * choice says text for a count, as t says it: a text with forms, split by
  * |, says the form the language's rules have for the count, and :count is
  * the count. A form may name the counts it's for: '{0} no posts|{1} one
