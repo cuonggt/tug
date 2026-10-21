@@ -5193,7 +5193,7 @@ right: each sentence read right to left, as bidi has it, and everything
 around the sentences — the menus, what was padded on which side, the
 chevron that points at a submenu — stayed where an English page has it.
 The starters had fifty-two utilities that named a physical side, and one
-icon that points. To be released as v0.50.0.
+icon that points. Released as v0.50.0.
 
 - **A table in `lang`:** `dir.go`, the eighteen languages written right to
   left, Arabic to Yiddish, and the nine scripts, with `Dir(locale)`,
