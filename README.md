@@ -13,7 +13,8 @@ server-side rendering, tests of an app's pages, uploads kept on the app's
 disk or in S3, limits on routes and on guessing passwords, counted across
 the app's instances, the client's address behind its proxies, signed
 links, what tug and the app say in the request's language, a page's own
-words among it, which the document around it says it's in, lists in
+words among it, which the document around it says it's in, the mail an
+account gets in the language it keeps, lists in
 pages, the app's own commands, a cache and locks across the instances,
 mail with copies, files and a link to unsubscribe, downloads, streams and
 server-sent events, the app's own values encrypted, events broadcast to
@@ -190,7 +191,9 @@ func showPost(c *tug.Ctx) error {
   and `choice()` over the same file, which tug gen writes the TypeScript
   of. `tug lang vi` writes the file, with every text the app and its pages
   say, and the root template says the language a page is in,
-  `<html lang="{{ .Locale }}">`.
+  `<html lang="{{ .Locale }}">`. Mail has no request to ask: a job says
+  its words in the reader's own language, `lang.Catalog.In`'s, which the
+  auth starter keeps in a column of the account.
 - **Encryption** (package `crypt`): the app's own values, as a token for
   another service kept in a column, sealed with AES-256-GCM, under a key
   for their purpose alone, derived from `APP_KEY`, bound to their row if
