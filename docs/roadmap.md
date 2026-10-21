@@ -58,6 +58,7 @@ to 3.8.0, October 2026), written against
 | M49 | Sessions kept server-side  | done   |
 | M50 | A page's own language      | done   |
 | M51 | A page's own words         | done   |
+| M52 | The auth starter's words   | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4922,6 +4923,69 @@ Choices made on the way:
   that took part is the text. The character before the name keeps
   `format(` and `obj.t(` out, which a test checks along with the quotes,
   the escapes and the files it passes over.
+
+## M52 · The auth starter's words — later
+
+M51 gave a page its own words in the request's language, `t()` and
+`choice()` over the same file the server says its texts from, and the
+plain starter's home page says two of its words that way. The starter
+people build on doesn't: every word of the auth starter's pages is English
+in its components, whatever `APP_LOCALE` says, so an app that starts from
+it shows Vietnamese form errors beside English labels, buttons and titles
+— the very thing M51 set out to end. It ships `useLang` and the texts
+prop, and uses neither. There are about 110 texts a frontend, in about 150
+places, and the three frontends say the same words, as they're one app
+word for word. To be released as v0.47.0.
+
+- **Every page, component and layout:** `useLang`, and `t()` where the
+  words are: in the markup, in the attributes a person reads, a
+  placeholder and an `aria-label` among them, in a page's title,
+  `<Head title={t('Log in')} />`, which the auth starter's pages give
+  themselves, and in what a handler says, as a passkey's
+  "Your browser didn't use a passkey".
+- **Left in English:** the app's own name, an example address, as
+  `you@example.com`, the names of files and the code a page shows, and the
+  components the shadcn registry wrote, which the app takes as they come
+  and tug doesn't translate for it.
+- **No counts yet:** the starter says no sentence with a count in it, so
+  `choice()` stays the guide's example and the plain starter's; a page of
+  an app's own says its counts with it.
+- **Nothing reads differently until there's a file:** with no
+  `lang/<tag>.json`, every text says itself, so the pages read as they do
+  now, and the browser suite, which finds them by their words, passes
+  unchanged.
+- **Checked by a language, not by the wrapping:** a text that says itself
+  looks right whether or not it ever reached the catalog, so the test
+  writes a `lang/vi.json` with a few of the starter's own words, through
+  `tug_test.go`'s `withLanguage`, runs the app in Vietnamese, and reads
+  them back from the page.
+- **The three say the same words:** a test over the frontends' own
+  sources, by `tug lang`'s `pageTexts`, that the texts of the React, Vue
+  and Svelte starters are one set, as their pages are one app.
+- **The guide:** Accounts, what the starter says and where its words are;
+  Languages, whose A page's own words needs nothing of this.
+
+Choices, to settle before any code:
+
+- **The mail isn't in it:** the starter's mail is English in its Go,
+  `"Verify your email for "` and the rest, and it isn't a request's to
+  say: a mail is made by a job, which would have to carry the language it
+  was pushed from, as `middleware.CarryRequestID` carries an ID, or read
+  one the user picked from a column the starter hasn't got. Its own
+  milestone, after this.
+- **The English is the key:** a text is its own key, as the catalog has it
+  since M20, so a page says the words it reads and a translation is keyed
+  by them. No `auth.login.submit` to look up, and no file of keys to keep
+  beside the pages.
+- **Said where it's read, not handed down:** a component could take its
+  words as props from the page that uses it, which would keep `useLang` to
+  the pages. The starter's components are the words' own place — a
+  button's label belongs to the button — and `tug lang` finds them
+  wherever they are.
+- **No translation shipped:** tug ships no `lang/vi.json`, here or
+  anywhere, as `tug lang` writes one for whoever wants a language, with
+  every text empty. The starter's `lang/` stays empty but for its
+  `.gitkeep`.
 
 ## Decisions
 
