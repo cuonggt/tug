@@ -61,6 +61,7 @@ to 3.8.0, October 2026), written against
 | M52 | The auth starter's words   | done   |
 | M53 | The mail's language        | done   |
 | M54 | Dates and numbers          | done   |
+| M55 | A language's direction     | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5181,6 +5182,74 @@ Choices made on the way:
   and how many digits it keeps is the deep end of CLDR, and sorting in a
   language's order is `x/text/collate`'s. The guide says both are the
   app's, as it says a language's own words are its file's.
+
+## M55 · A language's direction — later
+
+M50 to M54 made an app say everything in the reader's language: its words,
+its pages' own, its mail's, and its figures. An app in Arabic or Hebrew
+gets all of that and a page laid out backwards. The document says
+`<html lang="ar">` and no more, so the browser leaves the page left to
+right: each sentence reads right to left, as bidi has it, and everything
+around the sentences — the sidebar, the menus, what's padded on which
+side, the chevron that points at the next page — stays where an English
+page has it. The starters have forty-seven utilities that name a physical
+side, in six files each, `components/ui`'s among them, and one icon that
+points. A tag doesn't say its script, and `lang` keeps no table of them.
+To be released as v0.50.0.
+
+- **A table in `lang`:** the languages written right to left — Arabic,
+  Hebrew, Persian, Urdu, Pashto, Sindhi, Uyghur, Sorani Kurdish, Divehi,
+  Yiddish and the rest — with `Dir(locale)`, "rtl" or "ltr", as
+  `PluralIndex` is a function of a tag, and `Words.Dir()` beside it. A tag
+  that names a Latin script, `ar-Latn`, is left to right.
+- **The document says it:** `inertia.TemplateData.Dir`, which `WithDir`
+  carries as `WithLocale` carries the language, filled in by tug beside
+  it, so a root template is
+  `<html lang="{{ .Locale }}" dir="{{ .Dir }}">`. Package inertia keeps no
+  table of its own, as it imports no lang, the same line M50 drew for the
+  language.
+- **The pages know it too:** `lang.Texts` carries `Dir`, as it carries
+  `Zone`, for a page that mirrors something itself and for the component
+  kits, which need the direction in JavaScript, where a server render has
+  no document to read it from.
+- **The starters mirror:** every utility that names a side becomes the
+  logical one — `ms-` and `me-`, `ps-` and `pe-`, `text-start` and
+  `text-end`, `start-` and `end-`, `rounded-s-` and `rounded-e-` — and
+  the icon that points flips with Tailwind's `rtl:rotate-180`. What
+  mustn't flip stays as it is: a code span, a token, an address.
+- **The kits' own direction:** React's Radix takes a `DirectionProvider`,
+  Vue's reka-ui a `ConfigProvider` with `dir`, and Svelte's bits-ui
+  whatever it has, which this milestone finds out; each frontend's
+  `inertia.tsx` hands it `texts.dir`, as it hands Inertia's client the
+  nonce.
+- **Tests:** `lang`'s directions, a Latin script among them; the CLI's
+  served pages, `<html lang="ar" dir="rtl">` in every kind of app it
+  makes, as they already check the language; and the browser suite, a
+  frontend in Arabic, where the menu opens from the right and the layout's
+  own side is the other one.
+- **The guide:** Languages, a language's direction, and what stays as it
+  is; Pages, the root template's `dir`.
+
+Choices, to settle before any code:
+
+- **A table, not a tag's script:** a BCP 47 tag doesn't say which script
+  it's written in, and asking for one, `ar-Arab`, is no app's habit. The
+  languages written right to left are few and don't change, so a set of
+  them is the whole table, with a tag that does name a Latin script left
+  to right.
+- **Logical properties, not `rtl:` on everything:** Tailwind has both, and
+  a logical property mirrors by itself, in every language, with no variant
+  to forget. `rtl:` is for what a side can't say: an icon that points.
+- **The direction follows the language:** not a setting of the user's own,
+  as the zone follows the app. A language is written one way, and an app
+  that wants the choice writes `dir` itself.
+- **`components/ui` is the app's own:** mirroring means editing files a
+  registry wrote, which is shadcn's model — they're copied into the app,
+  not depended on — so the starters' own `components/ui` change with the
+  rest, and an app that adds a component later mirrors it as it lands.
+- **Still no translation shipped:** an Arabic app says English until
+  there's a `lang/ar.json`, as everything else does. The direction doesn't
+  wait for one: it follows `APP_LOCALE`.
 
 ## Decisions
 
