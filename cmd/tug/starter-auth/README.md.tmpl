@@ -105,9 +105,9 @@ go test ./...
 - `lang/`: the app's languages, a file each, as `tug lang vi` writes
   `lang/vi.json` with every text the app and its pages say, to translate.
   The binary embeds them, and `APP_LOCALE` is the one a browser gets that
-  asks for none of them. A page of the app's own says its words with
-  `useLang`, from `resources/js/lib/lang.ts`, and they go in the same
-  file; the pages the starter comes with are in English.
+  asks for none of them. Every page says its own words with `useLang`,
+  from `resources/js/lib/lang.ts`, as the starter's do, and `tug lang`
+  writes them into the same file as the Go's.
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
 - `AGENTS.md`: how to change the app, for a coding agent, its rules, and

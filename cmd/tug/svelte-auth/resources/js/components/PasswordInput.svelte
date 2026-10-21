@@ -3,7 +3,11 @@
   import EyeOff from '@lucide/svelte/icons/eye-off'
   import type { HTMLInputAttributes } from 'svelte/elements'
   import { Input } from '@/components/ui/input'
+  import { useLang } from '@/lib/lang'
   import { cn, type WithElementRef } from '@/lib/utils'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // PasswordInput is a password field with a button that shows what's been
   // typed, to check it on a phone's keyboard.
@@ -20,7 +24,7 @@
   <button
     type="button"
     onclick={() => (shown = !shown)}
-    aria-label={shown ? 'Hide the password' : 'Show the password'}
+    aria-label={shown ? t('Hide the password') : t('Show the password')}
     tabindex={-1}
     class="absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
   >

@@ -4,14 +4,19 @@
   import Heading from '@/components/Heading.svelte'
   import { buttonVariants } from '@/components/ui/button'
   import { Separator } from '@/components/ui/separator'
+  import { useLang } from '@/lib/lang'
   import { cn } from '@/lib/utils'
+  import { text } from '@/tug/lang'
   import { route } from '@/tug/routes'
 
+  // The page says its own words in the request's language.
+  const { t } = useLang()
+
   const pages = [
-    { title: 'Profile', href: route('profile.edit') },
-    { title: 'Security', href: route('security.edit') },
-    { title: 'API tokens', href: route('tokens.index') },
-    { title: 'Appearance', href: route('appearance.edit') },
+    { title: text('Profile'), href: route('profile.edit') },
+    { title: text('Security'), href: route('security.edit') },
+    { title: text('API tokens'), href: route('tokens.index') },
+    { title: text('Appearance'), href: route('appearance.edit') },
   ]
 
   // SettingsLayout is around the settings pages, inside the app's layout:
@@ -19,10 +24,10 @@
   let { children }: { children: Snippet } = $props()
 </script>
 
-<Heading title="Settings" description="Your profile, your account's security, your API tokens, and how the app looks" />
+<Heading title={t('Settings')} description={t("Your profile, your account's security, your API tokens, and how the app looks")} />
 <div class="flex flex-col gap-6 lg:flex-row lg:gap-12">
   <aside class="lg:w-48">
-    <nav aria-label="Settings" class="flex gap-1 lg:flex-col">
+    <nav aria-label={t('Settings')} class="flex gap-1 lg:flex-col">
       {#each pages as settings (settings.href)}
         <Link
           href={settings.href}
@@ -32,7 +37,7 @@
             page.url.startsWith(settings.href) && 'bg-muted',
           )}
         >
-          {settings.title}
+          {t(settings.title)}
         </Link>
       {/each}
     </nav>

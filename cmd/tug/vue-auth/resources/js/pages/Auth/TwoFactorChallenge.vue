@@ -6,16 +6,21 @@ import InputError from '@/components/InputError.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
 import { vFocus } from '@/lib/focus'
+  import { text } from '@/tug/lang'
 import { form, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // TwoFactorChallenge is the second step of logging in, for a user who has
 // turned two-factor logins on: a code from their authenticator app, or,
 // with the phone lost, one of their recovery codes.
 defineOptions({
   layout: {
-    title: 'Two-factor login',
-    description: 'The six-digit code your authenticator app shows for this account.',
+    title: text('Two-factor login'),
+    description: text('The six-digit code your authenticator app shows for this account.'),
   },
 })
 const recovery = ref(false)
@@ -26,7 +31,7 @@ const ChallengeForm = createForm<Inputs['two-factor.login.store']>()
 </script>
 
 <template>
-  <Head title="Two-factor login" />
+  <Head :title="t('Two-factor login')" />
   <ChallengeForm
     :key="recovery ? 'recovery' : 'code'"
     v-slot="{ errors, processing }"
@@ -35,20 +40,20 @@ const ChallengeForm = createForm<Inputs['two-factor.login.store']>()
     class="flex flex-col gap-6"
   >
     <div v-if="recovery" class="grid gap-2">
-      <Label for="recovery_code">Recovery code</Label>
+      <Label for="recovery_code">{{ t('Recovery code') }}</Label>
       <Input
         id="recovery_code"
         v-focus
         name="recovery_code"
         autocomplete="off"
-        placeholder="abcde-fghij"
+        :placeholder="t('abcde-fghij')"
         required
         :aria-invalid="!!errors.recovery_code"
       />
       <InputError :message="errors.recovery_code" />
     </div>
     <div v-else class="grid gap-2">
-      <Label for="code">Code</Label>
+      <Label for="code">{{ t('Code') }}</Label>
       <Input
         id="code"
         v-focus
@@ -64,12 +69,12 @@ const ChallengeForm = createForm<Inputs['two-factor.login.store']>()
       />
       <InputError :message="errors.code" />
     </div>
-    <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Log in</Button>
+    <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />{{ t('Log in') }}</Button>
   </ChallengeForm>
   <p class="mt-6 text-center text-sm text-muted-foreground">
-    {{ recovery ? 'Found your phone?' : 'Lost your phone?' }}
+    {{ recovery ? t('Found your phone?') : t('Lost your phone?') }}
     <button type="button" class="cursor-pointer text-foreground underline underline-offset-4" @click="recovery = !recovery">
-      {{ recovery ? 'Use a code from the app' : 'Use a recovery code' }}
+      {{ recovery ? t('Use a code from the app') : t('Use a recovery code') }}
     </button>
   </p>
 </template>

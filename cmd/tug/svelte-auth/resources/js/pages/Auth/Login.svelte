@@ -1,5 +1,5 @@
 <script module lang="ts">
-  export const layout = { title: 'Log in', description: 'Welcome back: your passkey, or your email and password, please.' }
+  export const layout = { title: text('Log in'), description: text('Welcome back: your passkey, or your email and password, please.') }
 </script>
 
 <script lang="ts">
@@ -15,8 +15,13 @@
   import { Checkbox } from '@/components/ui/checkbox'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
   import { autofillWorks, dismissed, getPasskey, type Json, optionsFrom, passkeysWork } from '@/lib/passkeys'
+  import { text } from '@/tug/lang'
   import { form, route, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // Login logs in with an email and password, or with a passkey, which the
   // browser offers in the email field's autofill too. passkeyLogin in
@@ -39,7 +44,7 @@
       const options = await optionsFrom(route('login.passkey.options'))
       if (options) logIn(await getPasskey(options, abort.signal))
     })().catch((err) => {
-      if (!dismissed(err)) failure = "Your browser didn't use a passkey: try again, or use your password."
+      if (!dismissed(err)) failure = t("Your browser didn't use a passkey: try again, or use your password.")
     })
     return () => abort.abort()
   })
@@ -51,7 +56,7 @@
       const options = await optionsFrom(route('login.passkey.options'))
       if (options) logIn(await getPasskey(options))
     } catch (err) {
-      if (!dismissed(err)) failure = "Your browser didn't use a passkey: try again, or use your password."
+      if (!dismissed(err)) failure = t("Your browser didn't use a passkey: try again, or use your password.")
     }
   }
 
@@ -60,11 +65,11 @@
   const LoginForm = createForm<Inputs['login.store']>()
 </script>
 
-<Head title="Log in" />
+<Head title={t('Log in')} />
 <LoginForm action={form('login.store')} resetOnError={['password']} class="flex flex-col gap-6">
   {#snippet children({ errors, processing })}
     <div class="grid gap-2">
-      <Label for="email">Email</Label>
+      <Label for="email">{t('Email')}</Label>
       <Input
         id="email"
         name="email"
@@ -79,21 +84,21 @@
     </div>
     <div class="grid gap-2">
       <div class="flex items-center">
-        <Label for="password">Password</Label>
-        <TextLink href={route('password.request')} class="ml-auto text-sm">Forgotten it?</TextLink>
+        <Label for="password">{t('Password')}</Label>
+        <TextLink href={route('password.request')} class="ml-auto text-sm">{t('Forgotten it?')}</TextLink>
       </div>
       <PasswordInput id="password" name="password" autocomplete="current-password" required />
       <InputError message={errors.password} />
     </div>
     <div class="flex items-center gap-3">
       <Checkbox id="remember" name="remember" bind:checked={remember} />
-      <Label for="remember" class="font-normal">Remember me for a month</Label>
+      <Label for="remember" class="font-normal">{t('Remember me for a month')}</Label>
     </div>
     <Button type="submit" class="w-full" disabled={processing}>
       {#if processing}
         <LoaderCircle class="animate-spin" />
       {/if}
-      Log in
+      {t('Log in')}
     </Button>
   {/snippet}
 </LoginForm>
@@ -101,11 +106,11 @@
   <div class="mt-4 grid gap-2">
     <Button type="button" variant="outline" class="w-full" onclick={withPasskey}>
       <KeyRound />
-      Log in with a passkey
+      {t('Log in with a passkey')}
     </Button>
     <InputError message={page.props.errors.passkey ?? failure} />
   </div>
 {/if}
 <p class="mt-6 text-center text-sm text-muted-foreground">
-  No account yet? <TextLink href={route('register')}>Register</TextLink>
+  {t('No account yet?')} <TextLink href={route('register')}>{t('Register')}</TextLink>
 </p>

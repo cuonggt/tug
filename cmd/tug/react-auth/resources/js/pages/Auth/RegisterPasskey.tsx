@@ -3,7 +3,9 @@ import { KeyRound, LoaderCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import InputError from '@/components/input-error'
 import { Button } from '@/components/ui/button'
+import { useLang } from '@/lib/lang'
 import { createPasskey, dismissed, optionsFrom, passkeysWork, Refused } from '@/lib/passkeys'
+import { text } from '@/tug/lang'
 import type { PageProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
@@ -12,6 +14,8 @@ import { route } from '@/tug/routes'
 // makes the account with it, its email verified by the link, with no
 // password.
 export default function RegisterPasskey({ token, email, name }: PageProps<'Auth/RegisterPasskey'>) {
+  const { t } = useLang()
+
   const { errors } = usePage().props
   const [making, setMaking] = useState(false)
   const [failure, setFailure] = useState<string>()
@@ -31,26 +35,26 @@ export default function RegisterPasskey({ token, email, name }: PageProps<'Auth/
     } catch (err) {
       setMaking(false)
       if (err instanceof Refused) setFailure(err.message)
-      else if (!dismissed(err)) setFailure("Your browser didn't make the passkey: try again.")
+      else if (!dismissed(err)) setFailure(t("Your browser didn't make the passkey: try again."))
     }
   }
 
   return (
     <>
-      <Head title="Make your passkey" />
+      <Head title={t('Make your passkey')} />
       <div className="flex flex-col gap-6">
         <p className="text-sm">
-          Your account is <strong>{name}</strong>, at <strong>{email}</strong>, with no password: your browser asks where to
-          keep the passkey.
+          {t('Your account is')} <strong>{name}</strong>{t(', at')} <strong>{email}</strong>
+          {t(', with no password: your browser asks where to keep the passkey.')}
         </p>
         <div className="grid gap-2">
           <Button type="button" className="w-full" onClick={make} disabled={making || !works}>
             {making ? <LoaderCircle className="animate-spin" /> : <KeyRound />}
-            Make your passkey
+            {t('Make your passkey')}
           </Button>
           <InputError message={errors.passkey ?? failure} />
           {works === false && (
-            <p className="text-sm text-muted-foreground">This browser doesn't make passkeys: open the link in one that does.</p>
+            <p className="text-sm text-muted-foreground">{t("This browser doesn't make passkeys: open the link in one that does.")}</p>
           )}
         </div>
       </div>
@@ -59,6 +63,6 @@ export default function RegisterPasskey({ token, email, name }: PageProps<'Auth/
 }
 
 RegisterPasskey.layout = {
-  title: 'Make your passkey',
-  description: 'It logs you in with your phone, laptop or password manager, and its PIN, fingerprint or face.',
+  title: text('Make your passkey'),
+  description: text('It logs you in with your phone, laptop or password manager, and its PIN, fingerprint or face.'),
 }

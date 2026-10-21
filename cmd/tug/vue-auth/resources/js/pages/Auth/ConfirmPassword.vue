@@ -6,10 +6,15 @@ import InputError from '@/components/InputError.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
 import { vFocus } from '@/lib/focus'
 import { dismissed, getPasskey, optionsFrom, passkeysWork } from '@/lib/passkeys'
+  import { text } from '@/tug/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // ConfirmPassword asks for the password again before the settings that
 // could hand the account to someone else: passwordConfirmed in auth.go
@@ -18,8 +23,8 @@ import { form, route, type Inputs } from '@/tug/routes'
 // password.
 defineOptions({
   layout: {
-    title: "Confirm it's you",
-    description: "You're on your way to your account's settings, which ask for your password or a passkey once in a while.",
+    title: text("Confirm it's you"),
+    description: text("You're on your way to your account's settings, which ask for your password or a passkey once in a while."),
   },
 })
 const props = defineProps<Pages['Auth/ConfirmPassword'] & SharedProps>()
@@ -47,7 +52,7 @@ const ConfirmForm = createForm<Inputs['password.confirm.store']>()
 </script>
 
 <template>
-  <Head title="Confirm it's you" />
+  <Head :title="t('Confirm it\'s you')" />
   <ConfirmForm
     v-if="password"
     v-slot="{ errors, processing }"
@@ -56,14 +61,14 @@ const ConfirmForm = createForm<Inputs['password.confirm.store']>()
     class="flex flex-col gap-6"
   >
     <div class="grid gap-2">
-      <Label for="password">Password</Label>
+      <Label for="password">{{ t('Password') }}</Label>
       <PasswordInput id="password" v-focus name="password" autocomplete="current-password" required />
       <InputError :message="errors.password" />
     </div>
-    <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Confirm</Button>
+    <Button type="submit" class="w-full" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />{{ t('Confirm') }}</Button>
   </ConfirmForm>
   <div v-if="passkeys && works" :class="password ? 'mt-4 grid gap-2' : 'grid gap-2'">
-    <Button type="button" :variant="password ? 'outline' : 'default'" class="w-full" @click="withPasskey"><KeyRound />Use a passkey</Button>
+    <Button type="button" :variant="password ? 'outline' : 'default'" class="w-full" @click="withPasskey"><KeyRound />{{ t('Use a passkey') }}</Button>
     <InputError :message="page.props.errors.passkey ?? failure" />
   </div>
 </template>

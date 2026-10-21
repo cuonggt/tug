@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useLang } from '@/lib/lang'
 import type { PageProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
 
@@ -16,6 +17,8 @@ import { form, route, type Inputs } from '@/tug/routes'
 // back from it; on, their recovery codes, and a button to stop. The
 // handlers are in twofactor.go.
 export default function TwoFactorSettings({ user, setup, recoveryCodes }: PageProps<'Settings/Security'>) {
+  const { t } = useLang()
+
   const { flash } = usePage()
   // The codes come once in the flash as two-factor logins are turned on, or
   // new ones are made, and the next visit empties it, as the bell's reload
@@ -32,10 +35,10 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
       <div className="flex items-start justify-between gap-4">
         <Heading
           small
-          title="Two-factor logins"
-          description="A code from an app on your phone, as well as your password, each time you log in."
+          title={t('Two-factor logins')}
+          description={t('A code from an app on your phone, as well as your password, each time you log in.')}
         />
-        <Badge variant={user.twoFactor ? 'default' : 'secondary'}>{user.twoFactor ? 'On' : 'Off'}</Badge>
+        <Badge variant={user.twoFactor ? 'default' : 'secondary'}>{user.twoFactor ? t('On') : t('Off')}</Badge>
       </div>
 
       {user.twoFactor ? (
@@ -45,17 +48,17 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Recovery codes log you in when your phone is lost: one code, one login.
+                {t('Recovery codes log you in when your phone is lost: one code, one login.')}
               </p>
               <Button variant="outline" onClick={() => router.reload({ only: ['recoveryCodes'] })}>
-                Show my recovery codes
+                {t('Show my recovery codes')}
               </Button>
             </div>
           )}
           <Form action={form('two-factor.disable')} options={{ preserveScroll: true }}>
             {({ processing }) => (
               <Button type="submit" variant="destructive" disabled={processing}>
-                Turn two-factor logins off
+                {t('Turn two-factor logins off')}
               </Button>
             )}
           </Form>
@@ -63,15 +66,15 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
       ) : setup ? (
         <div className="space-y-6">
           <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
-            <li>Scan this with an authenticator app, such as 1Password, Google Authenticator or Authy.</li>
-            <li>Type the code it shows, to be sure it's set up.</li>
+            <li>{t('Scan this with an authenticator app, such as 1Password, Google Authenticator or Authy.')}</li>
+            <li>{t("Type the code it shows, to be sure it's set up.")}</li>
           </ol>
           <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
             <div className="rounded-lg border bg-white p-3">
-              <QRCodeSVG value={setup.url} size={160} marginSize={0} title="The QR code for your authenticator app" />
+              <QRCodeSVG value={setup.url} size={160} marginSize={0} title={t('The QR code for your authenticator app')} />
             </div>
             <div className="space-y-1 text-sm">
-              <p className="text-muted-foreground">Can't scan it? Type this key into the app instead:</p>
+              <p className="text-muted-foreground">{t("Can't scan it? Type this key into the app instead:")}</p>
               <p className="font-mono text-base tracking-wider break-all select-all">
                 {setup.secret.match(/.{1,4}/g)?.join(' ')}
               </p>
@@ -81,7 +84,7 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
             {({ errors, processing }) => (
               <>
                 <div className="grid max-w-48 gap-2">
-                  <Label htmlFor="code">The code from the app</Label>
+                  <Label htmlFor="code">{t('The code from the app')}</Label>
                   <Input
                     id="code"
                     name="code"
@@ -99,14 +102,14 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
                 <div className="flex gap-2">
                   <Button type="submit" disabled={processing}>
                     {processing && <LoaderCircle className="animate-spin" />}
-                    Turn on
+                    {t('Turn on')}
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
                     onClick={() => router.delete(route('two-factor.disable'), { preserveScroll: true })}
                   >
-                    Cancel
+                    {t('Cancel')}
                   </Button>
                 </div>
               </>
@@ -118,7 +121,7 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
           {({ processing }) => (
             <Button type="submit" disabled={processing}>
               <ShieldCheck />
-              Turn two-factor logins on
+              {t('Turn two-factor logins on')}
             </Button>
           )}
         </Form>
@@ -130,6 +133,8 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
 // RecoveryCodes lists the user's recovery codes, to copy somewhere safe,
 // and makes new ones.
 function RecoveryCodes({ codes }: { codes: string[] }) {
+  const { t } = useLang()
+
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     await navigator.clipboard.writeText(codes.join('\n'))
@@ -139,7 +144,7 @@ function RecoveryCodes({ codes }: { codes: string[] }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Keep these somewhere safe, such as a password manager. Each logs you in once, when your phone is lost.
+        {t('Keep these somewhere safe, such as a password manager. Each logs you in once, when your phone is lost.')}
       </p>
       {codes.length > 0 ? (
         <ul className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg bg-muted p-4 font-mono text-sm">
@@ -148,19 +153,19 @@ function RecoveryCodes({ codes }: { codes: string[] }) {
           ))}
         </ul>
       ) : (
-        <p className="rounded-lg bg-muted p-4 text-sm">You've used them all: make new ones.</p>
+        <p className="rounded-lg bg-muted p-4 text-sm">{t("You've used them all: make new ones.")}</p>
       )}
       <div className="flex flex-wrap gap-2">
         {codes.length > 0 && (
           <Button type="button" variant="outline" onClick={copy}>
             {copied ? <Check /> : <Copy />}
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? t('Copied') : t('Copy')}
           </Button>
         )}
         <Form action={form('two-factor.recovery-codes')} options={{ preserveScroll: true }}>
           {({ processing }) => (
             <Button type="submit" variant="outline" disabled={processing}>
-              Make new codes
+              {t('Make new codes')}
             </Button>
           )}
         </Form>

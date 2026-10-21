@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useLang } from '@/lib/lang'
 import { initials } from '@/lib/utils'
 import type { PageProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
@@ -15,21 +16,23 @@ import { form, route, type Inputs } from '@/tug/routes'
 // in settings.go. The photo goes up as the form's file, with its progress
 // shown, and replaces the one before: updatePhoto in photos.go.
 export default function Profile({ user }: PageProps<'Settings/Profile'>) {
+  const { t } = useLang()
+
   return (
     <>
-      <Head title="Profile" />
+      <Head title={t('Profile')} />
       <section className="space-y-6">
-        <Heading small title="Profile" description="Your name, and the email we reach you at." />
+        <Heading small title={t('Profile')} description={t('Your name, and the email we reach you at.')} />
         <Form<Inputs['profile.update']> action={form('profile.update')} options={{ preserveScroll: true }} className="space-y-6">
           {({ errors, processing }) => (
             <>
               <div className="grid gap-2">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name">{t('Name')}</Label>
                 <Input id="name" name="name" defaultValue={user.name} autoComplete="name" required aria-invalid={!!errors.name} />
                 <InputError message={errors.name} />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('Email')}</Label>
                 <Input
                   id="email"
                   name="email"
@@ -42,7 +45,7 @@ export default function Profile({ user }: PageProps<'Settings/Profile'>) {
                 <InputError message={errors.email} />
                 {!user.emailVerifiedAt && (
                   <p className="text-sm text-muted-foreground">
-                    This email isn't verified yet.{' '}
+                    {t("This email isn't verified yet.")}{' '}
                     <Link
                       href={route('verification.send')}
                       method="post"
@@ -50,23 +53,23 @@ export default function Profile({ user }: PageProps<'Settings/Profile'>) {
                       preserveScroll
                       className="cursor-pointer text-foreground underline underline-offset-4"
                     >
-                      Send the link again
+                      {t('Send the link again')}
                     </Link>
                   </p>
                 )}
               </div>
               <Button type="submit" disabled={processing}>
-                Save
+                {t('Save')}
               </Button>
             </>
           )}
         </Form>
       </section>
       <section className="space-y-6">
-        <Heading small title="Photo" description="Shown in place of your initials: a PNG, JPEG or WebP, of 2 MB at most." />
+        <Heading small title={t('Photo')} description={t('Shown in place of your initials: a PNG, JPEG or WebP, of 2 MB at most.')} />
         <div className="flex items-start gap-6">
           <Avatar key={user.photo} className="size-16">
-            {user.photo && <AvatarImage src={user.photo} alt="Your photo" />}
+            {user.photo && <AvatarImage src={user.photo} alt={t('Your photo')} />}
             <AvatarFallback className="text-lg font-medium">{initials(user.name)}</AvatarFallback>
           </Avatar>
           <Form<Inputs['profile.photo.update']>
@@ -77,7 +80,7 @@ export default function Profile({ user }: PageProps<'Settings/Profile'>) {
           >
             {({ errors, processing, progress }) => (
               <>
-                <Label htmlFor="photo">Choose a photo</Label>
+                <Label htmlFor="photo">{t('Choose a photo')}</Label>
                 <Input
                   id="photo"
                   name="photo"
@@ -88,11 +91,11 @@ export default function Profile({ user }: PageProps<'Settings/Profile'>) {
                 />
                 <InputError message={errors.photo} />
                 {progress && (
-                  <progress value={progress.percentage} max={100} aria-label="Uploading" className="w-full accent-primary" />
+                  <progress value={progress.percentage} max={100} aria-label={t('Uploading')} className="w-full accent-primary" />
                 )}
                 <div className="flex gap-2">
                   <Button type="submit" disabled={processing}>
-                    Upload
+                    {t('Upload')}
                   </Button>
                   {user.photo && (
                     <Button
@@ -100,7 +103,7 @@ export default function Profile({ user }: PageProps<'Settings/Profile'>) {
                       variant="outline"
                       onClick={() => router.delete(route('profile.photo.destroy'), { preserveScroll: true })}
                     >
-                      Remove
+                      {t('Remove')}
                     </Button>
                   )}
                 </div>

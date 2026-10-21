@@ -16,8 +16,12 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
 import { dismissed, getPasskey, optionsFrom } from '@/lib/passkeys'
 import { form, route, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // DeleteAccount deletes the user's account, after asking for the password
 // once more, or for an account with none, a passkey: it can't be undone.
@@ -36,7 +40,7 @@ const withPasskey = async () => {
     router.delete(route('profile.destroy'), { data: { credential }, preserveScroll: true, onFinish: () => (deleting.value = false) })
   } catch (err) {
     deleting.value = false
-    if (!dismissed(err)) failure.value = "Your browser didn't use a passkey: try again."
+    if (!dismissed(err)) failure.value = t("Your browser didn't use a passkey: try again.")
   }
 }
 
@@ -47,17 +51,17 @@ const DeleteForm = createForm<Inputs['profile.destroy']>()
 
 <template>
   <section class="space-y-6">
-    <Heading small title="Delete your account" description="Your account, and everything in it, for good." />
+    <Heading small :title="t('Delete your account')" :description="t('Your account, and everything in it, for good.')" />
     <div class="space-y-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-      <p class="text-sm text-destructive">Once it's gone, it's gone: there's no undoing it.</p>
+      <p class="text-sm text-destructive">{{ t("Once it's gone, it's gone: there's no undoing it.") }}</p>
       <Dialog>
         <DialogTrigger as-child>
-          <Button variant="destructive">Delete my account</Button>
+          <Button variant="destructive">{{ t('Delete my account') }}</Button>
         </DialogTrigger>
         <DialogContent>
-          <DialogTitle>Delete your account?</DialogTitle>
+          <DialogTitle>{{ t('Delete your account?') }}</DialogTitle>
           <template v-if="page.props.auth.user?.password">
-            <DialogDescription>Everything in it goes too, and you're logged out everywhere. Type your password to say you mean it.</DialogDescription>
+            <DialogDescription>{{ t("Everything in it goes too, and you're logged out everywhere. Type your password to say you mean it.") }}</DialogDescription>
             <DeleteForm
               v-slot="{ errors, processing, resetAndClearErrors }"
               :action="form('profile.destroy')"
@@ -67,33 +71,33 @@ const DeleteForm = createForm<Inputs['profile.destroy']>()
               @error="field?.focus()"
             >
               <div class="grid gap-2">
-                <Label for="delete-password" class="sr-only">Password</Label>
+                <Label for="delete-password" class="sr-only">{{ t('Password') }}</Label>
                 <PasswordInput
                   id="delete-password"
                   ref="password"
                   name="password"
                   autocomplete="current-password"
-                  placeholder="Password"
+                  :placeholder="t('Password')"
                 />
                 <InputError :message="errors.password" />
               </div>
               <DialogFooter class="gap-2">
                 <DialogClose as-child>
-                  <Button type="button" variant="secondary" @click="resetAndClearErrors()">Keep it</Button>
+                  <Button type="button" variant="secondary" @click="resetAndClearErrors()">{{ t('Keep it') }}</Button>
                 </DialogClose>
-                <Button type="submit" variant="destructive" :disabled="processing">Delete my account</Button>
+                <Button type="submit" variant="destructive" :disabled="processing">{{ t('Delete my account') }}</Button>
               </DialogFooter>
             </DeleteForm>
           </template>
           <template v-else>
-            <DialogDescription>Everything in it goes too, and you're logged out everywhere. Use your passkey to say you mean it.</DialogDescription>
+            <DialogDescription>{{ t("Everything in it goes too, and you're logged out everywhere. Use your passkey to say you mean it.") }}</DialogDescription>
             <InputError :message="page.props.errors.passkey ?? failure" />
             <DialogFooter class="gap-2">
               <DialogClose as-child>
-                <Button type="button" variant="secondary">Keep it</Button>
+                <Button type="button" variant="secondary">{{ t('Keep it') }}</Button>
               </DialogClose>
               <Button type="button" variant="destructive" :disabled="deleting" @click="withPasskey">
-                <LoaderCircle v-if="deleting" class="animate-spin" />Delete my account
+                <LoaderCircle v-if="deleting" class="animate-spin" />{{ t('Delete my account') }}
               </Button>
             </DialogFooter>
           </template>

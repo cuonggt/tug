@@ -5,13 +5,18 @@
   import AppLogo from '@/components/AppLogo.svelte'
   import UserMenu from '@/components/UserMenu.svelte'
   import { buttonVariants } from '@/components/ui/button'
+  import { useLang } from '@/lib/lang'
   import { listen } from '@/lib/broadcasts'
   import { cn } from '@/lib/utils'
+  import { text } from '@/tug/lang'
   import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t, choice } = useLang()
 
   // nav is the app's own pages, for users who've logged in: add each page to
   // it as the app grows.
-  const nav = [{ title: 'Dashboard', href: route('dashboard') }]
+  const nav = [{ title: text('Dashboard'), href: route('dashboard') }]
 
   // AppLayout is around the app's pages: its name, where to go, and who's
   // logged in, or the way in for a guest, as on an error page. A link that
@@ -38,7 +43,7 @@
         <AppLogo />
       </Link>
       {#if user}
-        <nav aria-label="Main" class="flex items-center gap-1 text-sm">
+        <nav aria-label={t('Main')} class="flex items-center gap-1 text-sm">
           {#each nav as item (item.href)}
             <Link
               href={item.href}
@@ -47,7 +52,7 @@
                 page.url.startsWith(item.href) && 'bg-accent text-accent-foreground',
               )}
             >
-              {item.title}
+              {t(item.title)}
             </Link>
           {/each}
         </nav>
@@ -57,7 +62,7 @@
           <Link
             href={route('notifications.index')}
             class={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'relative')}
-            aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+            aria-label={unread > 0 ? choice('Notifications, 1 unread|Notifications, :count unread', unread) : t('Notifications')}
           >
             <Bell />
             {#if unread > 0}
@@ -70,8 +75,8 @@
           </Link>
           <UserMenu {user} />
         {:else}
-          <Link href={route('login')} class={buttonVariants({ variant: 'ghost', size: 'sm' })}>Log in</Link>
-          <Link href={route('register')} class={buttonVariants({ size: 'sm' })}>Register</Link>
+          <Link href={route('login')} class={buttonVariants({ variant: 'ghost', size: 'sm' })}>{t('Log in')}</Link>
+          <Link href={route('register')} class={buttonVariants({ size: 'sm' })}>{t('Register')}</Link>
         {/if}
       </div>
     </div>

@@ -574,7 +574,7 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 				title = "Welcome · blog"
 			}
 			if slices.Contains(kind.flags, "-ssr") {
-				rendersOnTheServer(t, dir, title)
+				rendersOnTheServer(t, dir, title, saysItsWordsInVietnamese(slices.Contains(kind.flags, "-auth")))
 			} else {
 				showsItsHead(t, dir, title)
 			}
@@ -938,7 +938,9 @@ func hasItsHead(t *testing.T, page, title string) {
 func showsItsHead(t *testing.T, dir, title string) {
 	t.Helper()
 	// In a language of its own, which the document around the page says.
-	withLanguage(t, dir, "vi")
+	// Its words are the browser's to say, which this test hasn't got: a
+	// page rendered on the server says them, in rendersOnTheServer.
+	withLanguage(t, dir, "vi", nil)
 	base, out := serveApp(t, dir, "APP_LOCALE=vi")
 	page, _ := firstVisit(t, base, out, "</html>")
 	hasItsHead(t, page, title)
@@ -947,13 +949,34 @@ func showsItsHead(t *testing.T, dir, title string) {
 
 // withLanguage gives the app in dir a language of its own, as tug lang
 // writes one, for APP_LOCALE to name: a language the catalog hasn't got is
-// an error as the app starts. The binary embeds lang/, so the file goes in
-// before serveApp builds it.
-func withLanguage(t *testing.T, dir, locale string) {
+// an error as the app starts. words are its words for the texts the app
+// says, tug's own and its pages', which a page rendered on the server
+// says in it. The binary embeds lang/, so the file goes in before serveApp
+// builds it.
+func withLanguage(t *testing.T, dir, locale string, words map[string]string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "lang", locale+".json"), []byte("{}\n"), 0o644); err != nil {
+	if words == nil {
+		words = map[string]string{} // an object of no texts, not null
+	}
+	file, err := json.Marshal(words)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "lang", locale+".json"), file, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// saysItsWordsInVietnamese is the words a made app's home page says, and
+// what it says them as, for a language of its own: the Go's, which the
+// page gets as a prop, and the page's own, which it says with t().
+func saysItsWordsInVietnamese(auth bool) map[string]string {
+	if auth {
+		// The auth starter's home page, in its layout: the links a guest
+		// has, and a card of what the starter comes with.
+		return map[string]string{"Log in": "ĐĂNG NHẬP", "Accounts": "TÀI KHOẢN"}
+	}
+	return map[string]string{"Say hello": "CHÀO", "What's your name?": "TÊN BẠN LÀ GÌ?"}
 }
 
 // hasItsLanguage checks the document around the page says the language the
@@ -968,16 +991,25 @@ func hasItsLanguage(t *testing.T, page, locale string) {
 
 // rendersOnTheServer runs the app in dir, as it runs deployed, and checks a
 // first visit comes back rendered on the server, by Node, with the home
-// page's head, whose title is title.
-func rendersOnTheServer(t *testing.T, dir, title string) {
+// page's head, whose title is title, and its words in the language the app
+// is in: words are what its language says them as.
+func rendersOnTheServer(t *testing.T, dir, title string, words map[string]string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(dir, "ssr/build/ssr.mjs")); err != nil {
 		t.Fatalf("the build has no SSR bundle where the server embeds it: %v", err)
 	}
-	withLanguage(t, dir, "vi")
+	withLanguage(t, dir, "vi", words)
 	base, out := serveApp(t, dir, "APP_LOCALE=vi")
 	page, header := firstVisit(t, base, out, `data-server-rendered="true"`)
 	hasItsLanguage(t, page, "vi")
+	// The page says its own words in the request's language, as the server
+	// says its own: the texts it gives t() are the language's here, so the
+	// HTML it rendered has them.
+	for text, said := range words {
+		if !strings.Contains(page, said) {
+			t.Errorf("the page doesn't say %q as %q, which its language has:\n%.400s", text, said, page)
+		}
+	}
 
 	// The page says what a browser may do with it, and its scripts carry
 	// the nonce its policy runs scripts by: the template's, Vite's, and

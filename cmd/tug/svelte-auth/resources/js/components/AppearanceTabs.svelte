@@ -3,19 +3,24 @@
   import Monitor from '@lucide/svelte/icons/monitor'
   import Moon from '@lucide/svelte/icons/moon'
   import Sun from '@lucide/svelte/icons/sun'
+  import { useLang } from '@/lib/lang'
   import { appearance, type Appearance } from '@/lib/appearance.svelte'
   import { cn } from '@/lib/utils'
+  import { text } from '@/tug/lang'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   const choices: { value: Appearance; icon: LucideIcon; label: string }[] = [
-    { value: 'light', icon: Sun, label: 'Light' },
-    { value: 'dark', icon: Moon, label: 'Dark' },
-    { value: 'system', icon: Monitor, label: 'System' },
+    { value: 'light', icon: Sun, label: text('Light') },
+    { value: 'dark', icon: Moon, label: text('Dark') },
+    { value: 'system', icon: Monitor, label: text('System') },
   ]
 
   // AppearanceTabs choose light, dark, or the system's appearance.
 </script>
 
-<div role="radiogroup" aria-label="Appearance" class="inline-flex gap-1 rounded-lg bg-muted p-1">
+<div role="radiogroup" aria-label={t('Appearance')} class="inline-flex gap-1 rounded-lg bg-muted p-1">
   {#each choices as { value, icon: Icon, label } (value)}
     <button
       type="button"
@@ -30,7 +35,7 @@
       )}
     >
       <Icon class="size-4" />
-      {label}
+      {t(label)}
     </button>
   {/each}
 </div>

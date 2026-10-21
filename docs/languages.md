@@ -227,6 +227,18 @@ has, so a count reads the same on the page as it does from the server.
 A component that isn't a page uses `useLang` as a page does; `tug lang`
 finds what both say.
 
+A word said where a hook can't reach — the title a page gives its layout
+in a static `layout`, or a nav item's — is marked with `text()`, from the
+same file, which says it as it is for `tug lang` to find; whatever reads
+it says it with `t()`, as the starters' layouts do:
+
+```tsx
+Login.layout = { title: text('Log in'), description: text('Your email and password.') }
+
+// in the layout that shows it
+<h1>{title && t(title)}</h1>
+```
+
 The words themselves are the `texts` prop the app shares, the language's
 whole file, which the app's `main.go` shares as a once prop: the client
 keeps it, so it travels once a language rather than with every page, and a

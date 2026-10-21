@@ -5,7 +5,9 @@ import InputError from '@/components/input-error'
 import PasswordInput from '@/components/password-input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { useLang } from '@/lib/lang'
 import { dismissed, getPasskey, optionsFrom, passkeysWork } from '@/lib/passkeys'
+import { text } from '@/tug/lang'
 import type { PageProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
 
@@ -15,6 +17,8 @@ import { form, route, type Inputs } from '@/tug/routes'
 // their passkeys says it's them as well, and alone for an account with no
 // password.
 export default function ConfirmPassword({ password, passkeys }: PageProps<'Auth/ConfirmPassword'>) {
+  const { t } = useLang()
+
   const { errors } = usePage().props
   const [works, setWorks] = useState(false)
   const [failure, setFailure] = useState<string>()
@@ -33,19 +37,19 @@ export default function ConfirmPassword({ password, passkeys }: PageProps<'Auth/
 
   return (
     <>
-      <Head title="Confirm it's you" />
+      <Head title={t("Confirm it's you")} />
       {password && (
         <Form<Inputs['password.confirm.store']> action={form('password.confirm.store')} resetOnError className="flex flex-col gap-6">
           {({ errors, processing }) => (
             <>
               <div className="grid gap-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('Password')}</Label>
                 <PasswordInput id="password" name="password" autoComplete="current-password" required autoFocus />
                 <InputError message={errors.password} />
               </div>
               <Button type="submit" className="w-full" disabled={processing}>
                 {processing && <LoaderCircle className="animate-spin" />}
-                Confirm
+                {t('Confirm')}
               </Button>
             </>
           )}
@@ -55,7 +59,7 @@ export default function ConfirmPassword({ password, passkeys }: PageProps<'Auth/
         <div className={password ? 'mt-4 grid gap-2' : 'grid gap-2'}>
           <Button type="button" variant={password ? 'outline' : 'default'} className="w-full" onClick={withPasskey}>
             <KeyRound />
-            Use a passkey
+            {t('Use a passkey')}
           </Button>
           <InputError message={errors.passkey ?? failure} />
         </div>
@@ -65,6 +69,6 @@ export default function ConfirmPassword({ password, passkeys }: PageProps<'Auth/
 }
 
 ConfirmPassword.layout = {
-  title: "Confirm it's you",
-  description: "You're on your way to your account's settings, which ask for your password or a passkey once in a while.",
+  title: text("Confirm it's you"),
+  description: text("You're on your way to your account's settings, which ask for your password or a passkey once in a while."),
 }

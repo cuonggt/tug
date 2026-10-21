@@ -4,17 +4,21 @@ import { type ReactNode, useEffect } from 'react'
 import AppLogo from '@/components/app-logo'
 import UserMenu from '@/components/user-menu'
 import { Button } from '@/components/ui/button'
+import { useLang } from '@/lib/lang'
 import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
+import { text } from '@/tug/lang'
 import { route } from '@/tug/routes'
 
 // nav is the app's own pages, for users who've logged in: add each page to
 // it as the app grows.
-const nav = [{ title: 'Dashboard', href: route('dashboard') }]
+const nav = [{ title: text('Dashboard'), href: route('dashboard') }]
 
 // AppLayout is around the app's pages: its name, where to go, and who's
 // logged in, or the way in for a guest, as on an error page.
 export default function AppLayout({ children }: { children: ReactNode }) {
+  const { t, choice } = useLang()
+
   const { props, url } = usePage()
   const user = props.auth.user
   const unread = props.bell.unread
@@ -32,7 +36,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <AppLogo />
           </Link>
           {user && (
-            <nav aria-label="Main" className="flex items-center gap-1 text-sm">
+            <nav aria-label={t('Main')} className="flex items-center gap-1 text-sm">
               {nav.map((item) => (
                 <Link
                   key={item.href}
@@ -42,7 +46,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     url.startsWith(item.href) && 'bg-accent text-accent-foreground',
                   )}
                 >
-                  {item.title}
+                  {t(item.title)}
                 </Link>
               ))}
             </nav>
@@ -53,7 +57,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <Button variant="ghost" size="icon" className="relative" asChild>
                   <Link
                     href={route('notifications.index')}
-                    aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+                    aria-label={unread > 0 ? choice('Notifications, 1 unread|Notifications, :count unread', unread) : t('Notifications')}
                   >
                     <Bell />
                     {unread > 0 && (
@@ -68,10 +72,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             ) : (
               <>
                 <Button variant="ghost" size="sm" asChild>
-                  <Link href={route('login')}>Log in</Link>
+                  <Link href={route('login')}>{t('Log in')}</Link>
                 </Button>
                 <Button size="sm" asChild>
-                  <Link href={route('register')}>Register</Link>
+                  <Link href={route('register')}>{t('Register')}</Link>
                 </Button>
               </>
             )}

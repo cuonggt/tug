@@ -9,9 +9,14 @@ import TextLink from '@/components/TextLink.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
 import { vFocus } from '@/lib/focus'
 import { passkeysWork } from '@/lib/passkeys'
+  import { text } from '@/tug/lang'
 import { form, route, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // Register checks each field with the server as it's left, as BindValid in
 // auth.go answers: a taken email shows before the form is sent. Where the
@@ -19,7 +24,7 @@ import { form, route, type Inputs } from '@/tug/routes'
 // the form sends the name and the email alone, and registerWithPasskey in
 // passkeys.go mails a link, whose page makes the passkey and the account.
 defineOptions({
-  layout: { title: 'Make an account', description: 'Your name, your email, and a password of 8 characters or more, or a passkey.' },
+  layout: { title: text('Make an account'), description: text('Your name, your email, and a password of 8 characters or more, or a passkey.') },
 })
 
 // Known once the page is in the browser, so the server's HTML is the same.
@@ -45,7 +50,7 @@ const RegisterForm = createForm<Inputs['register.store']>()
 </script>
 
 <template>
-  <Head title="Register" />
+  <Head :title="t('Register')" />
   <RegisterForm
     ref="registration"
     v-slot="{ errors, processing, validate, invalid }"
@@ -56,7 +61,7 @@ const RegisterForm = createForm<Inputs['register.store']>()
     @start="dropCheck"
   >
     <div class="grid gap-2">
-      <Label for="name">Name</Label>
+      <Label for="name">{{ t('Name') }}</Label>
       <Input
         id="name"
         v-focus
@@ -69,7 +74,7 @@ const RegisterForm = createForm<Inputs['register.store']>()
       <InputError :message="errors.name" />
     </div>
     <div class="grid gap-2">
-      <Label for="email">Email</Label>
+      <Label for="email">{{ t('Email') }}</Label>
       <Input
         id="email"
         name="email"
@@ -83,11 +88,11 @@ const RegisterForm = createForm<Inputs['register.store']>()
       <InputError :message="errors.email" />
     </div>
     <p v-if="withPasskey" class="text-sm text-muted-foreground">
-      We'll mail you a link: it makes your passkey, and your account with it, with no password.
+      {{ t("We'll mail you a link: it makes your passkey, and your account with it, with no password.") }}
     </p>
     <template v-else>
       <div class="grid gap-2">
-        <Label for="password">Password</Label>
+        <Label for="password">{{ t('Password') }}</Label>
         <PasswordInput
           id="password"
           name="password"
@@ -99,7 +104,7 @@ const RegisterForm = createForm<Inputs['register.store']>()
         <InputError :message="errors.password" />
       </div>
       <div class="grid gap-2">
-        <Label for="password_confirmation">Password again</Label>
+        <Label for="password_confirmation">{{ t('Password again') }}</Label>
         <PasswordInput
           id="password_confirmation"
           name="password_confirmation"
@@ -112,11 +117,11 @@ const RegisterForm = createForm<Inputs['register.store']>()
       </div>
     </template>
     <Button type="submit" class="w-full" :disabled="processing">
-      <LoaderCircle v-if="processing" class="animate-spin" />{{ withPasskey ? 'Mail me a link' : 'Register' }}
+      <LoaderCircle v-if="processing" class="animate-spin" />{{ withPasskey ? t('Mail me a link') : t('Register') }}
     </Button>
   </RegisterForm>
   <Button v-if="works" type="button" variant="outline" class="mt-4 w-full" @click="withPasskey = !withPasskey">
-    <LockKeyhole v-if="withPasskey" /><KeyRound v-else />{{ withPasskey ? 'Use a password instead' : 'Use a passkey instead' }}
+    <LockKeyhole v-if="withPasskey" /><KeyRound v-else />{{ withPasskey ? t('Use a password instead') : t('Use a passkey instead') }}
   </Button>
-  <p class="mt-6 text-center text-sm text-muted-foreground">Have an account? <TextLink :href="route('login')">Log in</TextLink></p>
+  <p class="mt-6 text-center text-sm text-muted-foreground">{{ t('Have an account?') }} <TextLink :href="route('login')">{{ t('Log in') }}</TextLink></p>
 </template>

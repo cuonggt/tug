@@ -15,8 +15,12 @@
     DialogTrigger,
   } from '@/components/ui/dialog'
   import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
   import { dismissed, getPasskey, optionsFrom } from '@/lib/passkeys'
   import { form, route, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // DeleteAccount deletes the user's account, after asking for the password
   // once more, or for an account with none, a passkey: it can't be undone.
@@ -34,7 +38,7 @@
       router.delete(route('profile.destroy'), { data: { credential }, preserveScroll: true, onFinish: () => (deleting = false) })
     } catch (err) {
       deleting = false
-      if (!dismissed(err)) failure = "Your browser didn't use a passkey: try again."
+      if (!dismissed(err)) failure = t("Your browser didn't use a passkey: try again.")
     }
   }
 
@@ -44,20 +48,20 @@
 </script>
 
 <section class="space-y-6">
-  <Heading small title="Delete your account" description="Your account, and everything in it, for good." />
+  <Heading small title={t('Delete your account')} description={t('Your account, and everything in it, for good.')} />
   <div class="space-y-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-    <p class="text-sm text-destructive">Once it's gone, it's gone: there's no undoing it.</p>
+    <p class="text-sm text-destructive">{t("Once it's gone, it's gone: there's no undoing it.")}</p>
     <Dialog>
       <DialogTrigger>
         {#snippet child({ props })}
-          <Button {...props} variant="destructive">Delete my account</Button>
+          <Button {...props} variant="destructive">{t('Delete my account')}</Button>
         {/snippet}
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>Delete your account?</DialogTitle>
+        <DialogTitle>{t('Delete your account?')}</DialogTitle>
         {#if page.props.auth.user?.password}
           <DialogDescription>
-            Everything in it goes too, and you're logged out everywhere. Type your password to say you mean it.
+            {t("Everything in it goes too, and you're logged out everywhere. Type your password to say you mean it.")}
           </DialogDescription>
           <DeleteForm
             action={form('profile.destroy')}
@@ -68,42 +72,42 @@
           >
             {#snippet children({ errors, processing, resetAndClearErrors })}
               <div class="grid gap-2">
-                <Label for="delete-password" class="sr-only">Password</Label>
+                <Label for="delete-password" class="sr-only">{t('Password')}</Label>
                 <PasswordInput
                   id="delete-password"
                   name="password"
                   bind:ref={password}
                   autocomplete="current-password"
-                  placeholder="Password"
+                  placeholder={t('Password')}
                 />
                 <InputError message={errors.password} />
               </div>
               <DialogFooter class="gap-2">
                 <DialogClose onclick={() => resetAndClearErrors()}>
                   {#snippet child({ props })}
-                    <Button {...props} type="button" variant="secondary">Keep it</Button>
+                    <Button {...props} type="button" variant="secondary">{t('Keep it')}</Button>
                   {/snippet}
                 </DialogClose>
-                <Button type="submit" variant="destructive" disabled={processing}>Delete my account</Button>
+                <Button type="submit" variant="destructive" disabled={processing}>{t('Delete my account')}</Button>
               </DialogFooter>
             {/snippet}
           </DeleteForm>
         {:else}
           <DialogDescription>
-            Everything in it goes too, and you're logged out everywhere. Use your passkey to say you mean it.
+            {t("Everything in it goes too, and you're logged out everywhere. Use your passkey to say you mean it.")}
           </DialogDescription>
           <InputError message={page.props.errors.passkey ?? failure} />
           <DialogFooter class="gap-2">
             <DialogClose>
               {#snippet child({ props })}
-                <Button {...props} type="button" variant="secondary">Keep it</Button>
+                <Button {...props} type="button" variant="secondary">{t('Keep it')}</Button>
               {/snippet}
             </DialogClose>
             <Button type="button" variant="destructive" disabled={deleting} onclick={withPasskey}>
               {#if deleting}
                 <LoaderCircle class="animate-spin" />
               {/if}
-              Delete my account
+              {t('Delete my account')}
             </Button>
           </DialogFooter>
         {/if}

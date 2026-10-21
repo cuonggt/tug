@@ -3,8 +3,12 @@ import { Head, Link } from '@inertiajs/vue3'
 import { computed } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+  import { useLang } from '@/lib/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // Dashboard is for users who've verified their email: its route in main.go
 // wraps it in usersOnly and verified, and its handler is handed the user.
@@ -20,36 +24,36 @@ const code = 'font-mono text-foreground'
 </script>
 
 <template>
-  <Head title="Dashboard" />
+  <Head :title="t('Dashboard')" />
   <div class="space-y-8">
     <div class="space-y-1">
-      <h1 class="text-2xl font-semibold tracking-tight">Hello, {{ user.name }}</h1>
-      <p class="text-muted-foreground">You've had an account since {{ since }}.</p>
+      <h1 class="text-2xl font-semibold tracking-tight">{{ t('Hello, :name', { name: user.name }) }}</h1>
+      <p class="text-muted-foreground">{{ t("You've had an account since :date.", { date: since }) }}</p>
     </div>
     <div class="grid gap-4 md:grid-cols-3">
       <Card>
         <CardHeader>
-          <CardTitle>Your app goes here</CardTitle>
+          <CardTitle>{{ t('Your app goes here') }}</CardTitle>
           <CardDescription>This page is <code :class="code">resources/js/pages/Dashboard.vue</code>, and its handler is
             <code :class="code">dashboard</code> in <code :class="code">main.go</code>.</CardDescription>
         </CardHeader>
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Add a page</CardTitle>
+          <CardTitle>{{ t('Add a page') }}</CardTitle>
           <CardDescription>Declare it in Go with <code :class="code">tug.Page[Props]("Name")</code>, route it, and write
             <code :class="code">pages/Name.vue</code>. tug dev writes the types of its props.</CardDescription>
         </CardHeader>
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Your account</CardTitle>
-          <CardDescription>Two-factor logins are {{ user.twoFactor ? 'on' : 'off' }}. Your password, profile and appearance are in your
-            settings too.</CardDescription>
+          <CardTitle>{{ t('Your account') }}</CardTitle>
+          <CardDescription>{{ user.twoFactor ? t('Two-factor logins are on.') : t('Two-factor logins are off.') }}
+            {{ t('Your password, profile and appearance are in your settings too.') }}</CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="outline" size="sm" as-child>
-            <Link :href="route('security.edit')">Security settings</Link>
+            <Link :href="route('security.edit')">{{ t('Security settings') }}</Link>
           </Button>
         </CardContent>
       </Card>

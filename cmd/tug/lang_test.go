@@ -183,3 +183,43 @@ func TestLangTakesALanguagesTag(t *testing.T) {
 		}
 	}
 }
+
+// TestTheStartersFrontendsSayTheSameWords keeps the auth starter one app in
+// three frontends: a word said in React's pages is said in Vue's and
+// Svelte's, so one language file translates any of them. Two exceptions: a
+// frontend's own name, which its pages say, and the home page's title,
+// which Svelte alone says in its page, as Svelte keeps the document's
+// title by its own Head.
+func TestTheStartersFrontendsSayTheSameWords(t *testing.T) {
+	frontends := []string{"react-auth", "vue-auth", "svelte-auth"}
+	names := strings.NewReplacer("React", "<frontend>", "Vue", "<frontend>", "Svelte", "<frontend>")
+	said := map[string]map[string]bool{}
+	for _, front := range frontends {
+		texts, err := pageTexts(filepath.Join(front, "resources", "js"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(texts) < 50 {
+			t.Fatalf("%s says %d texts, which is too few to be its words", front, len(texts))
+		}
+		said[front] = map[string]bool{}
+		for _, text := range texts {
+			said[front][names.Replace(text)] = true
+		}
+	}
+	for _, front := range frontends {
+		for _, other := range frontends {
+			if front == other {
+				continue
+			}
+			for text := range said[front] {
+				if text == "Welcome" {
+					continue // the home page's title: see above
+				}
+				if !said[other][text] {
+					t.Errorf("%s says %q and %s doesn't", front, text, other)
+				}
+			}
+		}
+	}
+}

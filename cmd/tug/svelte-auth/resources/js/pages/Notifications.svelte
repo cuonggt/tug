@@ -11,9 +11,13 @@
   import { onMount } from 'svelte'
   import Head from '@/Head.svelte'
   import { buttonVariants } from '@/components/ui/button'
+  import { useLang } from '@/lib/lang'
   import { listen } from '@/lib/broadcasts'
   import { cn } from '@/lib/utils'
   import type { PageProps } from '@/tug/pages'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // Notifications is what happened to the user's account, the newest first,
   // a page at a time, which its handler, in notifications.go, marks read as
@@ -24,14 +28,14 @@
   onMount(() => listen('notification', () => router.reload({ only: ['list', 'bell'] })))
 </script>
 
-<Head title="Notifications" />
+<Head title={t('Notifications')} />
 <div class="space-y-8">
   <div class="space-y-1">
-    <h1 class="text-2xl font-semibold tracking-tight">Notifications</h1>
-    <p class="text-muted-foreground">What happened to your account, the newest first.</p>
+    <h1 class="text-2xl font-semibold tracking-tight">{t('Notifications')}</h1>
+    <p class="text-muted-foreground">{t('What happened to your account, the newest first.')}</p>
   </div>
   {#if list.data.length === 0}
-    <p class="text-muted-foreground">Nothing has happened yet.</p>
+    <p class="text-muted-foreground">{t('Nothing has happened yet.')}</p>
   {:else}
     <ul class="divide-y rounded-lg border">
       {#each list.data as n (n.id)}
@@ -40,7 +44,7 @@
             <span class={cn('mt-1.5 size-2 shrink-0 rounded-full', n.new && 'bg-primary')}></span>
             <span class="min-w-0 flex-1">
               <span class={cn('block text-sm', n.new && 'font-medium')}>
-                {#if n.new}<span class="sr-only">New: </span>{/if}{n.line}
+                {#if n.new}<span class="sr-only">{t('New:')} </span>{/if}{n.line}
               </span>
               <span class="block text-xs text-muted-foreground">{when(n.createdAt)}</span>
             </span>
@@ -50,14 +54,14 @@
     </ul>
   {/if}
   {#if list.prev_page_url || list.next_page_url}
-    <nav aria-label="Pages" class="flex justify-between">
+    <nav aria-label={t('Pages')} class="flex justify-between">
       {#if list.prev_page_url}
-        <Link href={list.prev_page_url} class={buttonVariants({ variant: 'outline', size: 'sm' })}>Newer</Link>
+        <Link href={list.prev_page_url} class={buttonVariants({ variant: 'outline', size: 'sm' })}>{t('Newer')}</Link>
       {:else}
         <span></span>
       {/if}
       {#if list.next_page_url}
-        <Link href={list.next_page_url} class={buttonVariants({ variant: 'outline', size: 'sm' })}>Older</Link>
+        <Link href={list.next_page_url} class={buttonVariants({ variant: 'outline', size: 'sm' })}>{t('Older')}</Link>
       {/if}
     </nav>
   {/if}

@@ -135,6 +135,14 @@ takes `ADDR=127.0.0.1:8080`, as the default listens on every interface.
 4. A link to it is `route('posts.index')`, from `@/tug/routes`, which
    knows each named route, and the values of its wildcards, by name.
 
+5. Its own words go through `useLang`, from `@/lib/lang`, as every page
+   here does: `t('Save')` says a word in the request's language, and
+   `choice(':count post|:count posts', n)` says one for a count. A word
+   said outside the markup, as a static `layout`'s title, is marked with
+   `text()`, from `@/tug/lang`, and said with `t()` where it's read.
+   `tug lang vi` writes them all into `lang/<language>.json`, beside what
+   the Go says, to translate.
+
 ## Add a form
 
 1. Its input, with validate's tags, and a handler that binds it:

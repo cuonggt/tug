@@ -1,7 +1,7 @@
 <script module lang="ts">
   export const layout = {
-    title: "Confirm it's you",
-    description: "You're on your way to your account's settings, which ask for your password or a passkey once in a while.",
+    title: text("Confirm it's you"),
+    description: text("You're on your way to your account's settings, which ask for your password or a passkey once in a while."),
   }
 </script>
 
@@ -15,9 +15,14 @@
   import PasswordInput from '@/components/PasswordInput.svelte'
   import { Button } from '@/components/ui/button'
   import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
   import { dismissed, getPasskey, optionsFrom, passkeysWork } from '@/lib/passkeys'
+  import { text } from '@/tug/lang'
   import type { PageProps } from '@/tug/pages'
   import { form, route, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // ConfirmPassword asks for the password again before the settings that
   // could hand the account to someone else: passwordConfirmed in auth.go
@@ -49,12 +54,12 @@
   const ConfirmForm = createForm<Inputs['password.confirm.store']>()
 </script>
 
-<Head title="Confirm it's you" />
+<Head title={t("Confirm it's you")} />
 {#if password}
   <ConfirmForm action={form('password.confirm.store')} resetOnError class="flex flex-col gap-6">
     {#snippet children({ errors, processing })}
       <div class="grid gap-2">
-        <Label for="password">Password</Label>
+        <Label for="password">{t('Password')}</Label>
         <PasswordInput id="password" name="password" autocomplete="current-password" required autofocus />
         <InputError message={errors.password} />
       </div>
@@ -62,7 +67,7 @@
         {#if processing}
           <LoaderCircle class="animate-spin" />
         {/if}
-        Confirm
+        {t('Confirm')}
       </Button>
     {/snippet}
   </ConfirmForm>
@@ -71,7 +76,7 @@
   <div class={password ? 'mt-4 grid gap-2' : 'grid gap-2'}>
     <Button type="button" variant={password ? 'outline' : 'default'} class="w-full" onclick={withPasskey}>
       <KeyRound />
-      Use a passkey
+      {t('Use a passkey')}
     </Button>
     <InputError message={page.props.errors.passkey ?? failure} />
   </div>

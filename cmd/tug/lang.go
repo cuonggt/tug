@@ -240,6 +240,9 @@ func addTexts(path string, texts []string) (int, int, error) {
 		if err := json.Unmarshal(data, &have); err != nil {
 			return 0, 0, fmt.Errorf("%s isn't an object of texts, each a string: %w", path, err)
 		}
+		if have == nil {
+			have = map[string]string{} // the file is null, which reads as no texts
+		}
 	case !errors.Is(err, fs.ErrNotExist):
 		return 0, 0, err
 	}
@@ -266,8 +269,8 @@ func addTexts(path string, texts []string) (int, int, error) {
 	return added, len(have), os.WriteFile(path, b.Bytes(), 0o644)
 }
 
-// pageTexts are the texts a frontend's pages say: the literal a t() or a
-// choice() call takes first, in the files under dir, which is
+// pageTexts are the texts a frontend's pages say: the literal a t(), a
+// text() or a choice() call takes first, in the files under dir, which is
 // resources/js. A page says them as the Go says its own, through the
 // TypeScript tug gen writes, so one file is a language, both sides of it.
 // A text made as the page runs, of a variable, is the translator's to add,
@@ -315,11 +318,11 @@ func pageTexts(dir string) ([]string, error) {
 // pageFiles are the files a page's words are in, by extension.
 var pageFiles = []string{".ts", ".tsx", ".js", ".jsx", ".vue", ".svelte"}
 
-// saidInPages finds a t() or a choice() call's text: a JavaScript string
+// saidInPages finds a t(), a text() or a choice() call's text: a JavaScript string
 // in any of its quotes, which a group each reads, as a regexp here can't
 // say "the quote it opened with"; and nothing of a call on something
 // else, as format( or $t(, which the character before the name rules out.
-var saidInPages = regexp.MustCompile(`(?:^|[^\w$.])(?:t|choice)\(\s*(?:` +
+var saidInPages = regexp.MustCompile(`(?:^|[^\w$.])(?:t|text|choice)\(\s*(?:` +
 	`'((?:[^'\\]|\\.)*)'|` +
 	`"((?:[^"\\]|\\.)*)"|` +
 	"`((?:[^`" + `\\]|\\.)*)` + "`" + `)`)

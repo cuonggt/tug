@@ -1,6 +1,7 @@
 import { Head, Link, router } from '@inertiajs/react'
 import { useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import { useLang } from '@/lib/lang'
 import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
 import type { PageProps } from '@/tug/pages'
@@ -10,17 +11,19 @@ import type { PageProps } from '@/tug/pages'
 // it shows them: the ones new to this page have a dot. A notification made
 // while it's open shows at once.
 export default function Notifications({ list }: PageProps<'Notifications'>) {
+  const { t } = useLang()
+
   useEffect(() => listen('notification', () => router.reload({ only: ['list', 'bell'] })), [])
   return (
     <>
-      <Head title="Notifications" />
+      <Head title={t('Notifications')} />
       <div className="space-y-8">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Notifications</h1>
-          <p className="text-muted-foreground">What happened to your account, the newest first.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('Notifications')}</h1>
+          <p className="text-muted-foreground">{t('What happened to your account, the newest first.')}</p>
         </div>
         {list.data.length === 0 ? (
-          <p className="text-muted-foreground">Nothing has happened yet.</p>
+          <p className="text-muted-foreground">{t('Nothing has happened yet.')}</p>
         ) : (
           <ul className="divide-y rounded-lg border">
             {list.data.map((n) => (
@@ -29,7 +32,7 @@ export default function Notifications({ list }: PageProps<'Notifications'>) {
                   <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', n.new && 'bg-primary')} />
                   <span className="min-w-0 flex-1">
                     <span className={cn('block text-sm', n.new && 'font-medium')}>
-                      {n.new && <span className="sr-only">New: </span>}
+                      {n.new && <span className="sr-only">{t('New:')} </span>}
                       {n.line}
                     </span>
                     <span className="block text-xs text-muted-foreground">{when(n.createdAt)}</span>
@@ -40,17 +43,17 @@ export default function Notifications({ list }: PageProps<'Notifications'>) {
           </ul>
         )}
         {(list.prev_page_url || list.next_page_url) && (
-          <nav aria-label="Pages" className="flex justify-between">
+          <nav aria-label={t('Pages')} className="flex justify-between">
             {list.prev_page_url ? (
               <Button variant="outline" size="sm" asChild>
-                <Link href={list.prev_page_url}>Newer</Link>
+                <Link href={list.prev_page_url}>{t('Newer')}</Link>
               </Button>
             ) : (
               <span />
             )}
             {list.next_page_url && (
               <Button variant="outline" size="sm" asChild>
-                <Link href={list.next_page_url}>Older</Link>
+                <Link href={list.next_page_url}>{t('Older')}</Link>
               </Button>
             )}
           </nav>

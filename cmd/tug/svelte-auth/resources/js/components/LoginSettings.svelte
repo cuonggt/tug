@@ -19,8 +19,12 @@
   import Heading from '@/components/Heading.svelte'
   import { Badge } from '@/components/ui/badge'
   import { Button } from '@/components/ui/button'
+  import { useLang } from '@/lib/lang'
   import type { PageProps } from '@/tug/pages'
   import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // LoginSettings lists the browsers the user is logged in from, this one
   // first, and logs one of the others out, or all of them: a browser left
@@ -29,7 +33,7 @@
 </script>
 
 <section class="space-y-6">
-  <Heading small title="Browsers" description="Where you're logged in. Log out of one you don't know, or of every one but this." />
+  <Heading small title={t('Browsers')} description={t("Where you're logged in. Log out of one you don't know, or of every one but this.")} />
   {#if browsers.length > 0}
     <ul class="divide-y rounded-lg border">
       {#each browsers as browser (browser.id)}
@@ -39,7 +43,7 @@
             <p class="flex items-center gap-2 font-medium">
               <span class="truncate">{capital(browser.name)}</span>
               {#if browser.current}
-                <Badge variant="secondary">This browser</Badge>
+                <Badge variant="secondary">{t('This browser')}</Badge>
               {/if}
             </p>
             <p class="text-muted-foreground">
@@ -50,7 +54,7 @@
             <Button
               variant="ghost"
               size="icon"
-              aria-label={`Log out of ${browser.name}`}
+              aria-label={t('Log out of :name', { name: browser.name })}
               onclick={() => router.delete(route('logins.destroy', { id: browser.id }), { preserveScroll: true })}
             >
               <LogOut />
@@ -63,7 +67,7 @@
   {#if browsers.length > 1}
     <Button variant="outline" onclick={() => router.delete(route('logins.destroy-others'), { preserveScroll: true })}>
       <LogOut />
-      Log out of every other browser
+      {t('Log out of every other browser')}
     </Button>
   {/if}
 </section>

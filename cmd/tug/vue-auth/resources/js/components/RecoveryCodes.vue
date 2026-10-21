@@ -3,7 +3,11 @@ import { Form } from '@inertiajs/vue3'
 import { Check, Copy } from '@lucide/vue'
 import { ref } from 'vue'
 import { Button } from '@/components/ui/button'
+  import { useLang } from '@/lib/lang'
 import { form } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // RecoveryCodes lists the user's recovery codes, to copy somewhere safe,
 // and makes new ones. TwoFactorSettings shows it.
@@ -18,18 +22,18 @@ const copy = async () => {
 
 <template>
   <div class="space-y-3">
-    <p class="text-sm text-muted-foreground">Keep these somewhere safe, such as a password manager. Each logs you in once, when your phone is lost.</p>
+    <p class="text-sm text-muted-foreground">{{ t('Keep these somewhere safe, such as a password manager. Each logs you in once, when your phone is lost.') }}</p>
     <ul v-if="codes.length > 0" class="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg bg-muted p-4 font-mono text-sm">
       <li v-for="code in codes" :key="code">{{ code }}</li>
     </ul>
-    <p v-else class="rounded-lg bg-muted p-4 text-sm">You've used them all: make new ones.</p>
+    <p v-else class="rounded-lg bg-muted p-4 text-sm">{{ t("You've used them all: make new ones.") }}</p>
     <div class="flex flex-wrap gap-2">
       <Button v-if="codes.length > 0" type="button" variant="outline" @click="copy">
         <Check v-if="copied" />
-        <Copy v-else />{{ copied ? 'Copied' : 'Copy' }}
+        <Copy v-else />{{ copied ? t('Copied') : t('Copy') }}
       </Button>
       <Form v-slot="{ processing }" :action="form('two-factor.recovery-codes')" :options="{ preserveScroll: true }">
-        <Button type="submit" variant="outline" :disabled="processing">Make new codes</Button>
+        <Button type="submit" variant="outline" :disabled="processing">{{ t('Make new codes') }}</Button>
       </Form>
     </div>
   </div>

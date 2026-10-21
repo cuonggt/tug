@@ -58,7 +58,7 @@ to 3.8.0, October 2026), written against
 | M49 | Sessions kept server-side  | done   |
 | M50 | A page's own language      | done   |
 | M51 | A page's own words         | done   |
-| M52 | The auth starter's words   | later  |
+| M52 | The auth starter's words   | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -4924,17 +4924,17 @@ Choices made on the way:
   `format(` and `obj.t(` out, which a test checks along with the quotes,
   the escapes and the files it passes over.
 
-## M52 · The auth starter's words — later
+## M52 · The auth starter's words — done
 
 M51 gave a page its own words in the request's language, `t()` and
 `choice()` over the same file the server says its texts from, and the
-plain starter's home page says two of its words that way. The starter
-people build on doesn't: every word of the auth starter's pages is English
-in its components, whatever `APP_LOCALE` says, so an app that starts from
-it shows Vietnamese form errors beside English labels, buttons and titles
-— the very thing M51 set out to end. It ships `useLang` and the texts
-prop, and uses neither. There are about 110 texts a frontend, in about 150
-places, and the three frontends say the same words, as they're one app
+plain starter's home page said two of its words that way. The starter
+people build on didn't: every word of the auth starter's pages was English
+in its components, whatever `APP_LOCALE` said, so an app that started from
+it showed Vietnamese form errors beside English labels, buttons and titles
+— the very thing M51 set out to end. It shipped `useLang` and the texts
+prop, and used neither. There were about 110 texts a frontend, in about
+150 places, and the three frontends say the same words, as they're one app
 word for word. To be released as v0.47.0.
 
 - **Every page, component and layout:** `useLang`, and `t()` where the
@@ -4942,30 +4942,40 @@ word for word. To be released as v0.47.0.
   placeholder and an `aria-label` among them, in a page's title,
   `<Head title={t('Log in')} />`, which the auth starter's pages give
   themselves, and in what a handler says, as a passkey's
-  "Your browser didn't use a passkey".
-- **Left in English:** the app's own name, an example address, as
-  `you@example.com`, the names of files and the code a page shows, and the
-  components the shadcn registry wrote, which the app takes as they come
-  and tug doesn't translate for it.
-- **No counts yet:** the starter says no sentence with a count in it, so
-  `choice()` stays the guide's example and the plain starter's; a page of
-  an app's own says its counts with it.
+  "Your browser didn't use a passkey". 26 components in React took the
+  hook, 27 in Vue and 27 in Svelte.
+- **`text()`, for a word a hook can't reach:** new in the TypeScript tug
+  gen writes, it says a text as it is, for `tug lang` to find, and what
+  reads it says it with `t()`: a page's static `layout` title and
+  description, the nav's and the settings pages' names, the error page's
+  statuses, and the home page's cards, each an array the page keeps
+  outside its markup.
+- **A count, after all:** the bell's label is the one text the starter has
+  with a count in it, "Notifications, 1 unread|Notifications, :count
+  unread", which `choice()` says, so a language gives it the forms it has.
+  The plan said there were none.
+- **Left in English:** the app's own name, an example address, the names of
+  files and the code the dashboard's hint cards and the home page's footer
+  show, whose sentences are woven through `<code>` elements, and the
+  components the shadcn registry wrote, which an app takes as they come.
 - **Nothing reads differently until there's a file:** with no
-  `lang/<tag>.json`, every text says itself, so the pages read as they do
-  now, and the browser suite, which finds them by their words, passes
+  `lang/<tag>.json`, every text says itself, so the pages read as they did
+  and the browser suite, which finds them by their words, passes
   unchanged.
 - **Checked by a language, not by the wrapping:** a text that says itself
-  looks right whether or not it ever reached the catalog, so the test
-  writes a `lang/vi.json` with a few of the starter's own words, through
-  `tug_test.go`'s `withLanguage`, runs the app in Vietnamese, and reads
-  them back from the page.
-- **The three say the same words:** a test over the frontends' own
-  sources, by `tug lang`'s `pageTexts`, that the texts of the React, Vue
-  and Svelte starters are one set, as their pages are one app.
-- **The guide:** Accounts, what the starter says and where its words are;
-  Languages, whose A page's own words needs nothing of this.
+  looks right whether or not it ever reached the catalog, so
+  `tug_test.go`'s `withLanguage` writes a `lang/vi.json` with words for
+  what a made app's home page says, and `rendersOnTheServer` reads them
+  back out of the HTML Node rendered, for every kind with `-ssr`: the auth
+  app's "Log in" and "Accounts", and the plain one's "Say hello".
+- **The three say the same words:** `tug lang`'s `pageTexts` over the
+  frontends' own sources, as a test, says that React's, Vue's and Svelte's
+  texts are one set, but for a frontend's own name and the home page's
+  title, which Svelte alone says in its page.
+- **The guide:** Accounts, what the starter says and what stays English;
+  Languages, `text()` and where it's read.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **The mail isn't in it:** the starter's mail is English in its Go,
   `"Verify your email for "` and the rest, and it isn't a request's to
@@ -4982,6 +4992,16 @@ Choices, to settle before any code:
   the pages. The starter's components are the words' own place — a
   button's label belongs to the button — and `tug lang` finds them
   wherever they are.
+- **A sentence of parts stays parts:** a sentence woven through an element,
+  as "Added :date, last used :date" is through a date, is a text for each
+  part, each with its own placeholders, rather than one text for every
+  combination of them. A translator sees the parts in order in the file.
+  Where a sentence has two states, as the dashboard's two-factor line, it
+  is a whole text for each, so a language can put it in its own order.
+- **The hook goes after the imports:** in Vue and Svelte it sat at the end
+  of the script, which read well until an error page's derived title said
+  a word before it: Svelte's checker calls that a variable used before its
+  declaration. It goes above what uses it now.
 - **No translation shipped:** tug ships no `lang/vi.json`, here or
   anywhere, as `tug lang` writes one for whoever wants a language, with
   every text empty. The starter's `lang/` stays empty but for its

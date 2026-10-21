@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useLang } from '@/lib/lang'
 import type { PageProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
@@ -16,6 +17,8 @@ import { route } from '@/tug/routes'
 // in place of a login; shows a new one once; lists them; and revokes them.
 // The handlers are in tokens.go.
 export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens'>) {
+  const { t } = useLang()
+
   const { flash, props } = usePage()
   // A new token comes once, in the flash, which the next visit empties, as
   // the bell's reload does when the token's notification rings it: kept
@@ -55,23 +58,23 @@ export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens
 
   return (
     <>
-      <Head title="API tokens" />
+      <Head title={t('API tokens')} />
       <section className="space-y-6">
         <Heading
           small
-          title="API tokens"
-          description="For a script, your phone's app or another service, which sends one to the app's API in place of logging in."
+          title={t('API tokens')}
+          description={t("For a script, your phone's app or another service, which sends one to the app's API in place of logging in.")}
         />
         {newToken && (
           <div className="space-y-3 rounded-lg border p-4">
-            <p className="text-sm">Your new token. Copy it now: it won't be shown again.</p>
+            <p className="text-sm">{t("Your new token. Copy it now: it won't be shown again.")}</p>
             <div className="flex items-start gap-2">
               <code data-testid="new-token" className="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-sm break-all">
                 {newToken}
               </code>
               <Button variant="outline" size="sm" onClick={() => copy(newToken)}>
                 {copied ? <Check /> : <Copy />}
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? t('Copied') : t('Copy')}
               </Button>
             </div>
           </div>
@@ -91,15 +94,15 @@ export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens
                     ))}
                   </p>
                   <p className="text-muted-foreground">
-                    Made {day(token.createdAt)}
-                    {token.lastUsedAt ? `, last used ${day(token.lastUsedAt)}` : ', not used yet'}
-                    {token.expiresAt ? `, expires ${day(token.expiresAt)}` : ', never expires'}
+                    {t('Made :date', { date: day(token.createdAt) })}
+                    {token.lastUsedAt ? t(', last used :date', { date: day(token.lastUsedAt) }) : t(', not used yet')}
+                    {token.expiresAt ? t(', expires :date', { date: day(token.expiresAt) }) : t(', never expires')}
                   </p>
                 </div>
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label={`Revoke ${token.name}`}
+                  aria-label={t('Revoke :name', { name: token.name })}
                   onClick={() => router.delete(route('tokens.destroy', { id: token.id }), { preserveScroll: true })}
                 >
                   <Trash2 />
@@ -110,22 +113,22 @@ export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens
         )}
       </section>
       <section className="space-y-6">
-        <Heading small title="Make a token" description="Name it for what uses it, and give it no more than that needs." />
+        <Heading small title={t('Make a token')} description={t('Name it for what uses it, and give it no more than that needs.')} />
         <form onSubmit={make} className="space-y-6">
           <div className="grid gap-2">
-            <Label htmlFor="token-name">Name</Label>
+            <Label htmlFor="token-name">{t('Name')}</Label>
             <Input
               id="token-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="My script"
+              placeholder={t('My script')}
               maxLength={100}
               required
             />
             <InputError message={props.errors.name} />
           </div>
           <fieldset className="grid gap-3">
-            <legend className="mb-2 text-sm font-medium">What it may do</legend>
+            <legend className="mb-2 text-sm font-medium">{t('What it may do')}</legend>
             {abilities.map((ability) => (
               <div key={ability} className="flex items-center gap-3">
                 <Checkbox
@@ -143,22 +146,22 @@ export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens
             <InputError message={props.errors.abilities} />
           </fieldset>
           <div className="grid gap-2">
-            <Label htmlFor="token-expires">Expires</Label>
+            <Label htmlFor="token-expires">{t('Expires')}</Label>
             <select
               id="token-expires"
               value={expires}
               onChange={(e) => setExpires(e.target.value)}
               className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
             >
-              <option value="30">In 30 days</option>
-              <option value="365">In a year</option>
-              <option value="0">Never</option>
+              <option value="30">{t('In 30 days')}</option>
+              <option value="365">{t('In a year')}</option>
+              <option value="0">{t('Never')}</option>
             </select>
             <InputError message={props.errors.expires} />
           </div>
           <Button type="submit" disabled={making}>
             {making && <LoaderCircle className="animate-spin" />}
-            Make a token
+            {t('Make a token')}
           </Button>
         </form>
       </section>

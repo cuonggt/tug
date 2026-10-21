@@ -1,7 +1,7 @@
 <script module lang="ts">
   export const layout = {
-    title: 'Two-factor login',
-    description: 'The six-digit code your authenticator app shows for this account.',
+    title: text('Two-factor login'),
+    description: text('The six-digit code your authenticator app shows for this account.'),
   }
 </script>
 
@@ -14,7 +14,12 @@
   import { Button } from '@/components/ui/button'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
+  import { text } from '@/tug/lang'
   import { form, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // TwoFactorChallenge is the second step of logging in, for a user who has
   // turned two-factor logins on: a code from their authenticator app, or,
@@ -30,7 +35,7 @@
   const ChallengeForm = createForm<Inputs['two-factor.login.store']>()
 </script>
 
-<Head title="Two-factor login" />
+<Head title={t('Two-factor login')} />
 <!-- The form is made again as they switch, with no errors from the other,
      and the field it shows focused. -->
 {#key recovery}
@@ -38,12 +43,12 @@
     {#snippet children({ errors, processing })}
       {#if recovery}
         <div class="grid gap-2">
-          <Label for="recovery_code">Recovery code</Label>
+          <Label for="recovery_code">{t('Recovery code')}</Label>
           <Input
             id="recovery_code"
             name="recovery_code"
             autocomplete="off"
-            placeholder="abcde-fghij"
+            placeholder={t('abcde-fghij')}
             required
             autofocus
             {@attach focus}
@@ -53,7 +58,7 @@
         </div>
       {:else}
         <div class="grid gap-2">
-          <Label for="code">Code</Label>
+          <Label for="code">{t('Code')}</Label>
           <Input
             id="code"
             name="code"
@@ -75,18 +80,18 @@
         {#if processing}
           <LoaderCircle class="animate-spin" />
         {/if}
-        Log in
+        {t('Log in')}
       </Button>
     {/snippet}
   </ChallengeForm>
 {/key}
 <p class="mt-6 text-center text-sm text-muted-foreground">
-  {recovery ? 'Found your phone?' : 'Lost your phone?'}
+  {recovery ? t('Found your phone?') : t('Lost your phone?')}
   <button
     type="button"
     onclick={() => (recovery = !recovery)}
     class="cursor-pointer text-foreground underline underline-offset-4"
   >
-    {recovery ? 'Use a code from the app' : 'Use a recovery code'}
+    {recovery ? t('Use a code from the app') : t('Use a recovery code')}
   </button>
 </p>

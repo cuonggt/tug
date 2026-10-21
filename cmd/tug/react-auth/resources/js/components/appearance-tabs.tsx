@@ -1,18 +1,22 @@
 import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react'
 import { useAppearance, type Appearance } from '@/hooks/use-appearance'
+import { useLang } from '@/lib/lang'
 import { cn } from '@/lib/utils'
+import { text } from '@/tug/lang'
 
 const choices: { value: Appearance; icon: LucideIcon; label: string }[] = [
-  { value: 'light', icon: Sun, label: 'Light' },
-  { value: 'dark', icon: Moon, label: 'Dark' },
-  { value: 'system', icon: Monitor, label: 'System' },
+  { value: 'light', icon: Sun, label: text('Light') },
+  { value: 'dark', icon: Moon, label: text('Dark') },
+  { value: 'system', icon: Monitor, label: text('System') },
 ]
 
 // AppearanceTabs choose light, dark, or the system's appearance.
 export default function AppearanceTabs() {
+  const { t } = useLang()
+
   const { appearance, setAppearance } = useAppearance()
   return (
-    <div role="radiogroup" aria-label="Appearance" className="inline-flex gap-1 rounded-lg bg-muted p-1">
+    <div role="radiogroup" aria-label={t('Appearance')} className="inline-flex gap-1 rounded-lg bg-muted p-1">
       {choices.map(({ value, icon: Icon, label }) => (
         <button
           key={value}
@@ -28,7 +32,7 @@ export default function AppearanceTabs() {
           )}
         >
           <Icon className="size-4" />
-          {label}
+          {t(label)}
         </button>
       ))}
     </div>

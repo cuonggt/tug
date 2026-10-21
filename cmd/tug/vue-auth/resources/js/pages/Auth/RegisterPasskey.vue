@@ -4,9 +4,14 @@ import { KeyRound, LoaderCircle } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
 import InputError from '@/components/InputError.vue'
 import { Button } from '@/components/ui/button'
+  import { useLang } from '@/lib/lang'
 import { createPasskey, dismissed, optionsFrom, passkeysWork, Refused } from '@/lib/passkeys'
+  import { text } from '@/tug/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // RegisterPasskey is the page the link mailed to register with a passkey
 // opens: the browser makes the passkey, and registerPasskey in passkeys.go
@@ -14,8 +19,8 @@ import { route } from '@/tug/routes'
 // password.
 defineOptions({
   layout: {
-    title: 'Make your passkey',
-    description: 'It logs you in with your phone, laptop or password manager, and its PIN, fingerprint or face.',
+    title: text('Make your passkey'),
+    description: text('It logs you in with your phone, laptop or password manager, and its PIN, fingerprint or face.'),
   },
 })
 const props = defineProps<Pages['Auth/RegisterPasskey'] & SharedProps>()
@@ -42,23 +47,23 @@ const make = async () => {
   } catch (err) {
     making.value = false
     if (err instanceof Refused) failure.value = err.message
-    else if (!dismissed(err)) failure.value = "Your browser didn't make the passkey: try again."
+    else if (!dismissed(err)) failure.value = t("Your browser didn't make the passkey: try again.")
   }
 }
 </script>
 
 <template>
-  <Head title="Make your passkey" />
+  <Head :title="t('Make your passkey')" />
   <div class="flex flex-col gap-6">
     <p class="text-sm">
-      Your account is <strong>{{ name }}</strong>, at <strong>{{ email }}</strong>, with no password: your browser asks where to keep the passkey.
+      {{ t('Your account is') }} <strong>{{ name }}</strong>{{ t(', at') }} <strong>{{ email }}</strong>{{ t(', with no password: your browser asks where to keep the passkey.') }}
     </p>
     <div class="grid gap-2">
       <Button type="button" class="w-full" :disabled="making || !works" @click="make">
-        <LoaderCircle v-if="making" class="animate-spin" /><KeyRound v-else />Make your passkey
+        <LoaderCircle v-if="making" class="animate-spin" /><KeyRound v-else />{{ t('Make your passkey') }}
       </Button>
       <InputError :message="page.props.errors.passkey ?? failure" />
-      <p v-if="works === false" class="text-sm text-muted-foreground">This browser doesn't make passkeys: open the link in one that does.</p>
+      <p v-if="works === false" class="text-sm text-muted-foreground">{{ t("This browser doesn't make passkeys: open the link in one that does.") }}</p>
     </div>
   </div>
 </template>

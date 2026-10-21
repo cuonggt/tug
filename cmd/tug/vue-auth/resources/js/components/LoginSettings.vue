@@ -4,8 +4,12 @@ import { LogOut, Monitor } from '@lucide/vue'
 import Heading from '@/components/Heading.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+  import { useLang } from '@/lib/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // LoginSettings lists the browsers the user is logged in from, this one
 // first, and logs one of the others out, or all of them: a browser left
@@ -27,7 +31,7 @@ function day(at: string): string {
 
 <template>
   <section class="space-y-6">
-    <Heading small title="Browsers" description="Where you're logged in. Log out of one you don't know, or of every one but this." />
+    <Heading small :title="t('Browsers')" :description="t('Where you\'re logged in. Log out of one you don\'t know, or of every one but this.')" />
     <ul v-if="browsers.length > 0" class="divide-y rounded-lg border">
       <li v-for="browser in browsers" :key="browser.id" class="flex items-center gap-3 p-3">
         <Monitor class="size-4 shrink-0 text-muted-foreground" />
@@ -35,7 +39,7 @@ function day(at: string): string {
           <p class="flex items-center gap-2 font-medium">
             <span class="truncate">{{ capital(browser.name) }}</span>
             <!-- A span, as shadcn's React Badge is: a div can't be in a p. -->
-            <Badge v-if="browser.current" as="span" variant="secondary">This browser</Badge>
+            <Badge v-if="browser.current" as="span" variant="secondary">{{ t('This browser') }}</Badge>
           </p>
           <p class="text-muted-foreground">{{ browser.ip }}, logged in {{ day(browser.began) }}, last seen {{ day(browser.lastSeen) }}</p>
         </div>
@@ -43,7 +47,7 @@ function day(at: string): string {
           v-if="!browser.current"
           variant="ghost"
           size="icon"
-          :aria-label="`Log out of ${browser.name}`"
+          :aria-label="t('Log out of :name', { name: browser.name })"
           @click="router.delete(route('logins.destroy', { id: browser.id }), { preserveScroll: true })"
         >
           <LogOut />
@@ -51,7 +55,7 @@ function day(at: string): string {
       </li>
     </ul>
     <Button v-if="browsers.length > 1" variant="outline" @click="router.delete(route('logins.destroy-others'), { preserveScroll: true })">
-      <LogOut />Log out of every other browser
+      <LogOut />{{ t('Log out of every other browser') }}
     </Button>
   </section>
 </template>

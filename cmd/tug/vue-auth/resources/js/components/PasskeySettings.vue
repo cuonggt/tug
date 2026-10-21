@@ -17,9 +17,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
 import { createPasskey, dismissed, optionsFrom, passkeysWork, Refused } from '@/lib/passkeys'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // PasskeySettings lists the user's passkeys, which log in with no
 // password, adds one, as the browser makes it, and removes them. The
@@ -56,7 +60,7 @@ const add = async () => {
   } catch (err) {
     adding.value = false
     if (err instanceof Refused) failure.value = err.message
-    else if (!dismissed(err)) failure.value = "Your browser didn't make the passkey: try again."
+    else if (!dismissed(err)) failure.value = t("Your browser didn't make the passkey: try again.")
   }
 }
 
@@ -71,8 +75,8 @@ function day(at: string): string {
   <section class="space-y-6">
     <Heading
       small
-      title="Passkeys"
-      description="Log in with your phone, laptop or password manager, and its PIN, fingerprint or face: no password, and no code."
+      :title="t('Passkeys')"
+      :description="t('Log in with your phone, laptop or password manager, and its PIN, fingerprint or face: no password, and no code.')"
     />
     <ul v-if="passkeys.length > 0" class="divide-y rounded-lg border">
       <li v-for="passkey in passkeys" :key="passkey.id" class="flex items-center gap-3 p-3">
@@ -81,14 +85,17 @@ function day(at: string): string {
           <p class="flex items-center gap-2 font-medium">
             <span class="truncate">{{ passkey.name }}</span>
             <!-- A span, as shadcn's React Badge is: a div can't be in a p. -->
-            <Badge v-if="passkey.synced" as="span" variant="secondary">Synced</Badge>
+            <Badge v-if="passkey.synced" as="span" variant="secondary">{{ t('Synced') }}</Badge>
           </p>
-          <p class="text-muted-foreground">Added {{ day(passkey.createdAt) }}{{ passkey.lastUsedAt ? `, last used ${day(passkey.lastUsedAt)}` : ', not used yet' }}</p>
+          <p class="text-muted-foreground">
+            {{ t('Added :date', { date: day(passkey.createdAt) }) }}
+            {{ passkey.lastUsedAt ? t(', last used :date', { date: day(passkey.lastUsedAt) }) : t(', not used yet') }}
+          </p>
         </div>
         <Button
           variant="ghost"
           size="icon"
-          :aria-label="`Remove ${passkey.name}`"
+          :aria-label="t('Remove :name', { name: passkey.name })"
           @click="router.delete(route('passkeys.destroy', { id: passkey.id }), { preserveScroll: true })"
         >
           <Trash2 />
@@ -98,31 +105,31 @@ function day(at: string): string {
     <InputError :message="page.props.errors.passkey" />
     <Dialog v-if="works" v-model:open="open">
       <DialogTrigger as-child>
-        <Button variant="outline"><KeyRound />Add a passkey</Button>
+        <Button variant="outline"><KeyRound />{{ t('Add a passkey') }}</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>Add a passkey</DialogTitle>
-        <DialogDescription>Name it for where it's kept, such as your phone, then your browser asks where to keep it.</DialogDescription>
+        <DialogTitle>{{ t('Add a passkey') }}</DialogTitle>
+        <DialogDescription>{{ t("Name it for where it's kept, such as your phone, then your browser asks where to keep it.") }}</DialogDescription>
         <form class="space-y-6" @submit.prevent="add">
           <div class="grid gap-2">
-            <Label for="passkey-name">Name</Label>
+            <Label for="passkey-name">{{ t('Name') }}</Label>
             <!-- React's has autoFocus here; this has no v-focus. The dialog
                  puts the cursor in its first field itself, and as it closes
                  gives focus back to what had it as it opened: with v-focus,
                  that would be this field, gone by then, rather than the Add
                  a passkey button. -->
-            <Input id="passkey-name" v-model="name" placeholder="My phone" maxlength="100" required />
+            <Input id="passkey-name" v-model="name" :placeholder="t('My phone')" maxlength="100" required />
             <InputError :message="page.props.errors.name ?? failure" />
           </div>
           <DialogFooter class="gap-2">
             <DialogClose as-child>
-              <Button type="button" variant="secondary">Cancel</Button>
+              <Button type="button" variant="secondary">{{ t('Cancel') }}</Button>
             </DialogClose>
-            <Button type="submit" :disabled="adding"><LoaderCircle v-if="adding" class="animate-spin" />Add</Button>
+            <Button type="submit" :disabled="adding"><LoaderCircle v-if="adding" class="animate-spin" />{{ t('Add') }}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
-    <p v-else-if="works === false" class="text-sm text-muted-foreground">This browser doesn't make passkeys.</p>
+    <p v-else-if="works === false" class="text-sm text-muted-foreground">{{ t("This browser doesn't make passkeys.") }}</p>
   </section>
 </template>

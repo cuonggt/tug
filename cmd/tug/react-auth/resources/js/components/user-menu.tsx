@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useLang } from '@/lib/lang'
 import { initials } from '@/lib/utils'
 import type { User } from '@/tug/pages'
 import { route } from '@/tug/routes'
@@ -17,10 +18,12 @@ import { route } from '@/tug/routes'
 // UserMenu is who's logged in, in the header, and what's theirs to do:
 // their settings, and logging out.
 export default function UserMenu({ user }: { user: User }) {
+  const { t } = useLang()
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-9 gap-2 px-2" aria-label="Your account">
+        <Button variant="ghost" className="h-9 gap-2 px-2" aria-label={t('Your account')}>
           {/* A new photo, or none, is a new avatar: one keeps the image it loaded. */}
           <Avatar key={user.photo} className="size-7">
             {user.photo && <AvatarImage src={user.photo} alt="" />}
@@ -37,13 +40,13 @@ export default function UserMenu({ user }: { user: User }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href={route('profile.edit')} className="w-full cursor-pointer">
-            <Settings /> Settings
+            <Settings /> {t('Settings')}
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href={route('logout')} method="post" as="button" className="w-full cursor-pointer">
-            <LogOut /> Log out
+            <LogOut /> {t('Log out')}
           </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>

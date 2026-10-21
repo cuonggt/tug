@@ -10,9 +10,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
 import { vFocus } from '@/lib/focus'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // TwoFactorSettings turns two-factor logins on and off: off, a button to
 // start; starting, a QR code for the user's authenticator app and a code
@@ -46,33 +50,33 @@ const ConfirmCodeForm = createForm<Inputs['two-factor.confirm']>()
     <div class="flex items-start justify-between gap-4">
       <Heading
         small
-        title="Two-factor logins"
-        description="A code from an app on your phone, as well as your password, each time you log in."
+        :title="t('Two-factor logins')"
+        :description="t('A code from an app on your phone, as well as your password, each time you log in.')"
       />
-      <Badge as="span" :variant="user.twoFactor ? 'default' : 'secondary'">{{ user.twoFactor ? 'On' : 'Off' }}</Badge>
+      <Badge as="span" :variant="user.twoFactor ? 'default' : 'secondary'">{{ user.twoFactor ? t('On') : t('Off') }}</Badge>
     </div>
 
     <template v-if="user.twoFactor">
       <RecoveryCodes v-if="codes" :codes="codes" />
       <div v-else class="space-y-3">
-        <p class="text-sm text-muted-foreground">Recovery codes log you in when your phone is lost: one code, one login.</p>
-        <Button variant="outline" @click="router.reload({ only: ['recoveryCodes'] })">Show my recovery codes</Button>
+        <p class="text-sm text-muted-foreground">{{ t('Recovery codes log you in when your phone is lost: one code, one login.') }}</p>
+        <Button variant="outline" @click="router.reload({ only: ['recoveryCodes'] })">{{ t('Show my recovery codes') }}</Button>
       </div>
       <Form v-slot="{ processing }" :action="form('two-factor.disable')" :options="{ preserveScroll: true }">
-        <Button type="submit" variant="destructive" :disabled="processing">Turn two-factor logins off</Button>
+        <Button type="submit" variant="destructive" :disabled="processing">{{ t('Turn two-factor logins off') }}</Button>
       </Form>
     </template>
     <div v-else-if="setup" class="space-y-6">
       <ol class="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
-        <li>Scan this with an authenticator app, such as 1Password, Google Authenticator or Authy.</li>
-        <li>Type the code it shows, to be sure it's set up.</li>
+        <li>{{ t('Scan this with an authenticator app, such as 1Password, Google Authenticator or Authy.') }}</li>
+        <li>{{ t("Type the code it shows, to be sure it's set up.") }}</li>
       </ol>
       <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
         <div class="rounded-lg border bg-white p-3">
-          <QrcodeSvg :value="setup.url" :size="160" :margin="0" aria-label="The QR code for your authenticator app" />
+          <QrcodeSvg :value="setup.url" :size="160" :margin="0" :aria-label="t('The QR code for your authenticator app')" />
         </div>
         <div class="space-y-1 text-sm">
-          <p class="text-muted-foreground">Can't scan it? Type this key into the app instead:</p>
+          <p class="text-muted-foreground">{{ t("Can't scan it? Type this key into the app instead:") }}</p>
           <p class="font-mono text-base tracking-wider break-all select-all">{{ key }}</p>
         </div>
       </div>
@@ -84,7 +88,7 @@ const ConfirmCodeForm = createForm<Inputs['two-factor.confirm']>()
         class="space-y-4"
       >
         <div class="grid max-w-48 gap-2">
-          <Label for="code">The code from the app</Label>
+          <Label for="code">{{ t('The code from the app') }}</Label>
           <Input
             id="code"
             v-focus
@@ -100,13 +104,13 @@ const ConfirmCodeForm = createForm<Inputs['two-factor.confirm']>()
         </div>
         <InputError :message="errors.code" />
         <div class="flex gap-2">
-          <Button type="submit" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />Turn on</Button>
-          <Button type="button" variant="ghost" @click="router.delete(route('two-factor.disable'), { preserveScroll: true })">Cancel</Button>
+          <Button type="submit" :disabled="processing"><LoaderCircle v-if="processing" class="animate-spin" />{{ t('Turn on') }}</Button>
+          <Button type="button" variant="ghost" @click="router.delete(route('two-factor.disable'), { preserveScroll: true })">{{ t('Cancel') }}</Button>
         </div>
       </ConfirmCodeForm>
     </div>
     <Form v-else v-slot="{ processing }" :action="form('two-factor.enable')" :options="{ preserveScroll: true }">
-      <Button type="submit" :disabled="processing"><ShieldCheck />Turn two-factor logins on</Button>
+      <Button type="submit" :disabled="processing"><ShieldCheck />{{ t('Turn two-factor logins on') }}</Button>
     </Form>
   </section>
 </template>

@@ -11,8 +11,12 @@
   import { Button } from '@/components/ui/button'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
   import type { PageProps } from '@/tug/pages'
   import { form, route, type Inputs } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // TwoFactorSettings turns two-factor logins on and off: off, a button to
   // start; starting, a QR code for the user's authenticator app and a code
@@ -45,10 +49,10 @@
   <div class="flex items-start justify-between gap-4">
     <Heading
       small
-      title="Two-factor logins"
-      description="A code from an app on your phone, as well as your password, each time you log in."
+      title={t('Two-factor logins')}
+      description={t('A code from an app on your phone, as well as your password, each time you log in.')}
     />
-    <Badge variant={user.twoFactor ? 'default' : 'secondary'}>{user.twoFactor ? 'On' : 'Off'}</Badge>
+    <Badge variant={user.twoFactor ? 'default' : 'secondary'}>{user.twoFactor ? t('On') : t('Off')}</Badge>
   </div>
 
   {#if user.twoFactor}
@@ -57,23 +61,23 @@
     {:else}
       <div class="space-y-3">
         <p class="text-sm text-muted-foreground">
-          Recovery codes log you in when your phone is lost: one code, one login.
+          {t('Recovery codes log you in when your phone is lost: one code, one login.')}
         </p>
         <Button variant="outline" onclick={() => router.reload({ only: ['recoveryCodes'] })}>
-          Show my recovery codes
+          {t('Show my recovery codes')}
         </Button>
       </div>
     {/if}
     <Form action={form('two-factor.disable')} options={{ preserveScroll: true }}>
       {#snippet children({ processing })}
-        <Button type="submit" variant="destructive" disabled={processing}>Turn two-factor logins off</Button>
+        <Button type="submit" variant="destructive" disabled={processing}>{t('Turn two-factor logins off')}</Button>
       {/snippet}
     </Form>
   {:else if setup}
     <div class="space-y-6">
       <ol class="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
-        <li>Scan this with an authenticator app, such as 1Password, Google Authenticator or Authy.</li>
-        <li>Type the code it shows, to be sure it's set up.</li>
+        <li>{t('Scan this with an authenticator app, such as 1Password, Google Authenticator or Authy.')}</li>
+        <li>{t("Type the code it shows, to be sure it's set up.")}</li>
       </ol>
       <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
         <div class="rounded-lg border bg-white p-3">
@@ -88,11 +92,11 @@
             correction="L"
             class="text-black"
             role="img"
-            aria-label="The QR code for your authenticator app"
+            aria-label={t('The QR code for your authenticator app')}
           />
         </div>
         <div class="space-y-1 text-sm">
-          <p class="text-muted-foreground">Can't scan it? Type this key into the app instead:</p>
+          <p class="text-muted-foreground">{t("Can't scan it? Type this key into the app instead:")}</p>
           <p class="font-mono text-base tracking-wider break-all select-all">
             {setup.secret.match(/.{1,4}/g)?.join(' ')}
           </p>
@@ -106,7 +110,7 @@
       >
         {#snippet children({ errors, processing })}
           <div class="grid max-w-48 gap-2">
-            <Label for="code">The code from the app</Label>
+            <Label for="code">{t('The code from the app')}</Label>
             <Input
               id="code"
               name="code"
@@ -126,14 +130,14 @@
               {#if processing}
                 <LoaderCircle class="animate-spin" />
               {/if}
-              Turn on
+              {t('Turn on')}
             </Button>
             <Button
               type="button"
               variant="ghost"
               onclick={() => router.delete(route('two-factor.disable'), { preserveScroll: true })}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
           </div>
         {/snippet}
@@ -144,7 +148,7 @@
       {#snippet children({ processing })}
         <Button type="submit" disabled={processing}>
           <ShieldCheck />
-          Turn two-factor logins on
+          {t('Turn two-factor logins on')}
         </Button>
       {/snippet}
     </Form>
@@ -156,7 +160,7 @@
 {#snippet recoveryCodesList(codes: string[])}
   <div class="space-y-3">
     <p class="text-sm text-muted-foreground">
-      Keep these somewhere safe, such as a password manager. Each logs you in once, when your phone is lost.
+      {t('Keep these somewhere safe, such as a password manager. Each logs you in once, when your phone is lost.')}
     </p>
     {#if codes.length > 0}
       <ul class="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg bg-muted p-4 font-mono text-sm">
@@ -165,7 +169,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="rounded-lg bg-muted p-4 text-sm">You've used them all: make new ones.</p>
+      <p class="rounded-lg bg-muted p-4 text-sm">{t("You've used them all: make new ones.")}</p>
     {/if}
     <div class="flex flex-wrap gap-2">
       {#if codes.length > 0}
@@ -175,12 +179,12 @@
           {:else}
             <Copy />
           {/if}
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? t('Copied') : t('Copy')}
         </Button>
       {/if}
       <Form action={form('two-factor.recovery-codes')} options={{ preserveScroll: true }}>
         {#snippet children({ processing })}
-          <Button type="submit" variant="outline" disabled={processing}>Make new codes</Button>
+          <Button type="submit" variant="outline" disabled={processing}>{t('Make new codes')}</Button>
         {/snippet}
       </Form>
     </div>

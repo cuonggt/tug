@@ -987,12 +987,22 @@ Radix, and lucide's icons. `components.json` is shadcn's, so
 fits the rest. The theme is in `resources/css/app.css`: colours as
 variables, one set for light and one for dark.
 
+Its pages say their own words in the request's language, as the server
+says its own: `useLang`, from `resources/js/lib/lang.ts`, gives them `t()`
+and `choice()` ([A page's own words](languages.md#a-pages-own-words)), and
+`tug lang vi` writes every text they say into `lang/vi.json`, beside what
+the Go says. English stays where a translation would be wrong or no use:
+the app's own name, an example address, the names of files and the code
+the dashboard's hint cards show, and the components shadcn's registry
+wrote, which the app takes as they come.
+
 `inertia.tsx` picks each page's layout by its name:
 `layouts/auth-layout.tsx`, the card around a form, for `Auth/...`;
 `layouts/settings-layout.tsx` inside `layouts/app-layout.tsx` for
 `Settings/...`; `app-layout` for the rest; and none for `Home`, the
 landing page. A page names its card's title with a static `layout`, as
-`Login.layout = { title: 'Log in', ... }`. The landing page has its title
+`Login.layout = { title: text('Log in'), ... }`, which the layout says in
+the request's language. The landing page has its title
 and description from its handler, `home` in `main.go`, with `c.Head`, so
 a search engine, and a link's preview, have them without SSR
 ([A page's head](pages.md#a-pages-head)); the other pages, behind a login,

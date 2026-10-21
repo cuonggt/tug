@@ -3,18 +3,23 @@ import { Link } from '@inertiajs/vue3'
 import { Database, KeyRound, LayoutDashboard, Mail, Package, ShieldCheck } from '@lucide/vue'
 import AppLogo from '@/components/AppLogo.vue'
 import { Button } from '@/components/ui/button'
+  import { useLang } from '@/lib/lang'
+  import { text } from '@/tug/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
 // what is what the app comes with, and where it is, until this page says
 // what the app is for.
 const what = [
-  { icon: KeyRound, title: 'Accounts', text: 'Registering, logging in, and a forgotten password reset by mail.', where: 'auth.go' },
-  { icon: Mail, title: 'Verified email', text: 'A link mailed to each new email, which the dashboard waits for.', where: 'verify.go' },
-  { icon: ShieldCheck, title: 'Two-factor logins', text: 'Codes from an authenticator app, and recovery codes.', where: 'twofactor.go' },
-  { icon: LayoutDashboard, title: 'Settings', text: 'Profile, email, password, appearance, and deleting the account.', where: 'settings.go' },
-  { icon: Database, title: 'SQLite', text: 'Users in database/sql, and migrations that run at start.', where: 'users.go' },
-  { icon: Package, title: 'One binary', text: 'tug build puts the frontend inside the Go server.', where: 'Dockerfile' },
+  { icon: KeyRound, title: text('Accounts'), text: text('Registering, logging in, and a forgotten password reset by mail.'), where: 'auth.go' },
+  { icon: Mail, title: text('Verified email'), text: text('A link mailed to each new email, which the dashboard waits for.'), where: 'verify.go' },
+  { icon: ShieldCheck, title: text('Two-factor logins'), text: text('Codes from an authenticator app, and recovery codes.'), where: 'twofactor.go' },
+  { icon: LayoutDashboard, title: text('Settings'), text: text('Profile, email, password, appearance, and deleting the account.'), where: 'settings.go' },
+  { icon: Database, title: text('SQLite'), text: text('Users in database/sql, and migrations that run at start.'), where: 'users.go' },
+  { icon: Package, title: text('One binary'), text: text('tug build puts the frontend inside the Go server.'), where: 'Dockerfile' },
 ]
 
 // Home is the landing page, main.go's home, with no layout around it. Vue
@@ -29,14 +34,14 @@ defineProps<Pages['Home'] & SharedProps>()
       <AppLogo />
       <nav class="flex items-center gap-2">
         <Button v-if="auth.user" size="sm" as-child>
-          <Link :href="route('dashboard')">Dashboard</Link>
+          <Link :href="route('dashboard')">{{ t('Dashboard') }}</Link>
         </Button>
         <template v-else>
           <Button variant="ghost" size="sm" as-child>
-            <Link :href="route('login')">Log in</Link>
+            <Link :href="route('login')">{{ t('Log in') }}</Link>
           </Button>
           <Button size="sm" as-child>
-            <Link :href="route('register')">Register</Link>
+            <Link :href="route('register')">{{ t('Register') }}</Link>
           </Button>
         </template>
       </nav>
@@ -45,11 +50,16 @@ defineProps<Pages['Home'] & SharedProps>()
     <main class="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-16 px-4 py-16">
       <div class="max-w-2xl space-y-6">
         <h1 class="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">{{ appName }}</h1>
-        <p class="text-lg text-muted-foreground">Go handlers render Vue pages, with Inertia in between and no API to write. People make accounts, verify
-          their email, and log in with a second factor if they like.</p>
+        <p class="text-lg text-muted-foreground">
+          {{
+            t(
+              'Go handlers render Vue pages, with Inertia in between and no API to write. People make accounts, verify their email, and log in with a second factor if they like.',
+            )
+          }}
+        </p>
         <div class="flex gap-3">
           <Button size="lg" as-child>
-            <Link :href="auth.user ? route('dashboard') : route('register')">{{ auth.user ? 'Your dashboard' : 'Get started' }}</Link>
+            <Link :href="auth.user ? route('dashboard') : route('register')">{{ auth.user ? t('Your dashboard') : t('Get started') }}</Link>
           </Button>
         </div>
       </div>
@@ -57,8 +67,8 @@ defineProps<Pages['Home'] & SharedProps>()
       <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <li v-for="{ icon, title, text, where } in what" :key="title" class="rounded-xl border p-5">
           <component :is="icon" class="size-5 text-muted-foreground" />
-          <h2 class="mt-3 font-medium">{{ title }}</h2>
-          <p class="mt-1 text-sm text-muted-foreground">{{ text }}</p>
+          <h2 class="mt-3 font-medium">{{ t(title) }}</h2>
+          <p class="mt-1 text-sm text-muted-foreground">{{ t(text) }}</p>
           <code class="mt-3 inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{{ where }}</code>
         </li>
       </ul>

@@ -8,13 +8,17 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useLang } from '@/lib/lang'
 import { autofillWorks, dismissed, getPasskey, type Json, optionsFrom, passkeysWork } from '@/lib/passkeys'
+import { text } from '@/tug/lang'
 import { form, route, type Inputs } from '@/tug/routes'
 
 // Login logs in with an email and password, or with a passkey, which the
 // browser offers in the email field's autofill too. passkeyLogin in
 // passkeys.go takes the passkey's.
 export default function Login() {
+  const { t } = useLang()
+
   const { errors } = usePage().props
   const [remember, setRemember] = useState(false)
   const remembered = useRef(remember)
@@ -37,7 +41,7 @@ export default function Login() {
       const options = await optionsFrom(route('login.passkey.options'))
       if (options) logIn(await getPasskey(options, abort.signal))
     })().catch((err) => {
-      if (!dismissed(err)) setFailure("Your browser didn't use a passkey: try again, or use your password.")
+      if (!dismissed(err)) setFailure(t("Your browser didn't use a passkey: try again, or use your password."))
     })
     return () => abort.abort()
   }, [])
@@ -49,13 +53,13 @@ export default function Login() {
       const options = await optionsFrom(route('login.passkey.options'))
       if (options) logIn(await getPasskey(options))
     } catch (err) {
-      if (!dismissed(err)) setFailure("Your browser didn't use a passkey: try again, or use your password.")
+      if (!dismissed(err)) setFailure(t("Your browser didn't use a passkey: try again, or use your password."))
     }
   }
 
   return (
     <>
-      <Head title="Log in" />
+      <Head title={t('Log in')} />
       <Form<Inputs['login.store']>
         action={form('login.store')}
         resetOnError={['password']}
@@ -64,7 +68,7 @@ export default function Login() {
         {({ errors, processing }) => (
           <>
             <div className="grid gap-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t('Email')}</Label>
               <Input
                 id="email"
                 name="email"
@@ -79,9 +83,9 @@ export default function Login() {
             </div>
             <div className="grid gap-2">
               <div className="flex items-center">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('Password')}</Label>
                 <TextLink href={route('password.request')} className="ml-auto text-sm">
-                  Forgotten it?
+                  {t('Forgotten it?')}
                 </TextLink>
               </div>
               <PasswordInput id="password" name="password" autoComplete="current-password" required />
@@ -95,12 +99,12 @@ export default function Login() {
                 onCheckedChange={(checked) => setRemember(checked === true)}
               />
               <Label htmlFor="remember" className="font-normal">
-                Remember me for a month
+                {t('Remember me for a month')}
               </Label>
             </div>
             <Button type="submit" className="w-full" disabled={processing}>
               {processing && <LoaderCircle className="animate-spin" />}
-              Log in
+              {t('Log in')}
             </Button>
           </>
         )}
@@ -109,16 +113,16 @@ export default function Login() {
         <div className="mt-4 grid gap-2">
           <Button type="button" variant="outline" className="w-full" onClick={withPasskey}>
             <KeyRound />
-            Log in with a passkey
+            {t('Log in with a passkey')}
           </Button>
           <InputError message={errors.passkey ?? failure} />
         </div>
       )}
       <p className="mt-6 text-center text-sm text-muted-foreground">
-        No account yet? <TextLink href={route('register')}>Register</TextLink>
+        {t('No account yet?')} <TextLink href={route('register')}>{t('Register')}</TextLink>
       </p>
     </>
   )
 }
 
-Login.layout = { title: 'Log in', description: 'Welcome back: your passkey, or your email and password, please.' }
+Login.layout = { title: text('Log in'), description: text('Welcome back: your passkey, or your email and password, please.') }

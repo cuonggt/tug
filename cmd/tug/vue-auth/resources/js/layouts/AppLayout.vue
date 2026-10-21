@@ -5,13 +5,18 @@ import { computed, onMounted, onUnmounted, watch } from 'vue'
 import AppLogo from '@/components/AppLogo.vue'
 import UserMenu from '@/components/UserMenu.vue'
 import { Button } from '@/components/ui/button'
+  import { useLang } from '@/lib/lang'
 import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
+  import { text } from '@/tug/lang'
 import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t, choice } = useLang()
 
 // nav is the app's own pages, for users who've logged in: add each page to
 // it as the app grows.
-const nav = [{ title: 'Dashboard', href: route('dashboard') }]
+const nav = [{ title: text('Dashboard'), href: route('dashboard') }]
 
 // AppLayout is around the app's pages: its name, where to go, and who's
 // logged in, or the way in for a guest, as on an error page.
@@ -40,7 +45,7 @@ onUnmounted(() => stop?.())
         <Link :href="user ? route('dashboard') : route('home')" class="rounded-md">
           <AppLogo />
         </Link>
-        <nav v-if="user" aria-label="Main" class="flex items-center gap-1 text-sm">
+        <nav v-if="user" :aria-label="t('Main')" class="flex items-center gap-1 text-sm">
           <Link
             v-for="item in nav"
             :key="item.href"
@@ -52,13 +57,13 @@ onUnmounted(() => stop?.())
               )
             "
           >
-            {{ item.title }}
+            {{ t(item.title) }}
           </Link>
         </nav>
         <div class="ml-auto flex items-center gap-2">
           <template v-if="user">
             <Button variant="ghost" size="icon" class="relative" as-child>
-              <Link :href="route('notifications.index')" :aria-label="unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'">
+              <Link :href="route('notifications.index')" :aria-label="unread > 0 ? choice('Notifications, 1 unread|Notifications, :count unread', unread) : t('Notifications')">
                 <Bell />
                 <span
                   v-if="unread > 0"
@@ -72,10 +77,10 @@ onUnmounted(() => stop?.())
           </template>
           <template v-else>
             <Button variant="ghost" size="sm" as-child>
-              <Link :href="route('login')">Log in</Link>
+              <Link :href="route('login')">{{ t('Log in') }}</Link>
             </Button>
             <Button size="sm" as-child>
-              <Link :href="route('register')">Register</Link>
+              <Link :href="route('register')">{{ t('Register') }}</Link>
             </Button>
           </template>
         </div>

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useLang } from '@/lib/lang'
 import { createPasskey, dismissed, optionsFrom, passkeysWork, Refused } from '@/lib/passkeys'
 import type { PageProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
@@ -24,6 +25,8 @@ import { route } from '@/tug/routes'
 // password, adds one, as the browser makes it, and removes them. The
 // handlers are in passkeys.go.
 export default function PasskeySettings({ passkeys }: PageProps<'Settings/Security'>) {
+  const { t } = useLang()
+
   const { errors } = usePage().props
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -56,7 +59,7 @@ export default function PasskeySettings({ passkeys }: PageProps<'Settings/Securi
     } catch (err) {
       setAdding(false)
       if (err instanceof Refused) setFailure(err.message)
-      else if (!dismissed(err)) setFailure("Your browser didn't make the passkey: try again.")
+      else if (!dismissed(err)) setFailure(t("Your browser didn't make the passkey: try again."))
     }
   }
 
@@ -64,8 +67,8 @@ export default function PasskeySettings({ passkeys }: PageProps<'Settings/Securi
     <section className="space-y-6">
       <Heading
         small
-        title="Passkeys"
-        description="Log in with your phone, laptop or password manager, and its PIN, fingerprint or face: no password, and no code."
+        title={t('Passkeys')}
+        description={t('Log in with your phone, laptop or password manager, and its PIN, fingerprint or face: no password, and no code.')}
       />
       {passkeys.length > 0 && (
         <ul className="divide-y rounded-lg border">
@@ -75,17 +78,17 @@ export default function PasskeySettings({ passkeys }: PageProps<'Settings/Securi
               <div className="min-w-0 flex-1 text-sm">
                 <p className="flex items-center gap-2 font-medium">
                   <span className="truncate">{passkey.name}</span>
-                  {passkey.synced && <Badge variant="secondary">Synced</Badge>}
+                  {passkey.synced && <Badge variant="secondary">{t('Synced')}</Badge>}
                 </p>
                 <p className="text-muted-foreground">
-                  Added {day(passkey.createdAt)}
-                  {passkey.lastUsedAt ? `, last used ${day(passkey.lastUsedAt)}` : ', not used yet'}
+                  {t('Added :date', { date: day(passkey.createdAt) })}
+                  {passkey.lastUsedAt ? t(', last used :date', { date: day(passkey.lastUsedAt) }) : t(', not used yet')}
                 </p>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label={`Remove ${passkey.name}`}
+                aria-label={t('Remove :name', { name: passkey.name })}
                 onClick={() => router.delete(route('passkeys.destroy', { id: passkey.id }), { preserveScroll: true })}
               >
                 <Trash2 />
@@ -100,22 +103,22 @@ export default function PasskeySettings({ passkeys }: PageProps<'Settings/Securi
           <DialogTrigger asChild>
             <Button variant="outline">
               <KeyRound />
-              Add a passkey
+              {t('Add a passkey')}
             </Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogTitle>Add a passkey</DialogTitle>
+            <DialogTitle>{t('Add a passkey')}</DialogTitle>
             <DialogDescription>
-              Name it for where it's kept, such as your phone, then your browser asks where to keep it.
+              {t("Name it for where it's kept, such as your phone, then your browser asks where to keep it.")}
             </DialogDescription>
             <form onSubmit={add} className="space-y-6">
               <div className="grid gap-2">
-                <Label htmlFor="passkey-name">Name</Label>
+                <Label htmlFor="passkey-name">{t('Name')}</Label>
                 <Input
                   id="passkey-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="My phone"
+                  placeholder={t('My phone')}
                   maxLength={100}
                   required
                   autoFocus
@@ -125,19 +128,19 @@ export default function PasskeySettings({ passkeys }: PageProps<'Settings/Securi
               <DialogFooter className="gap-2">
                 <DialogClose asChild>
                   <Button type="button" variant="secondary">
-                    Cancel
+                    {t('Cancel')}
                   </Button>
                 </DialogClose>
                 <Button type="submit" disabled={adding}>
                   {adding && <LoaderCircle className="animate-spin" />}
-                  Add
+                  {t('Add')}
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
       ) : (
-        works === false && <p className="text-sm text-muted-foreground">This browser doesn't make passkeys.</p>
+        works === false && <p className="text-sm text-muted-foreground">{t("This browser doesn't make passkeys.")}</p>
       )}
     </section>
   )

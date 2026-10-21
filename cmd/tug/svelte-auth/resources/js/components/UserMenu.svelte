@@ -12,9 +12,13 @@
     DropdownMenuSeparator,
     DropdownMenuTrigger,
   } from '@/components/ui/dropdown-menu'
+  import { useLang } from '@/lib/lang'
   import { initials } from '@/lib/utils'
   import type { User } from '@/tug/pages'
   import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // UserMenu is who's logged in, in the header, and what's theirs to do:
   // their settings, and logging out. Its items are Inertia's links, which
@@ -25,7 +29,7 @@
 <DropdownMenu>
   <DropdownMenuTrigger>
     {#snippet child({ props })}
-      <Button {...props} variant="ghost" class="h-9 gap-2 px-2" aria-label="Your account">
+      <Button {...props} variant="ghost" class="h-9 gap-2 px-2" aria-label={t('Your account')}>
         <!-- A new photo, or none, is a new avatar: one keeps the image it loaded. -->
         {#key user.photo}
           <Avatar class="size-7">
@@ -41,7 +45,7 @@
   </DropdownMenuTrigger>
   <!-- Named for the button that opens it, as a menu should be: bits-ui
        leaves it unnamed. -->
-  <DropdownMenuContent align="end" class="w-60" aria-label="Your account">
+  <DropdownMenuContent align="end" class="w-60" aria-label={t('Your account')}>
     <DropdownMenuLabel class="grid font-normal">
       <span class="truncate font-medium">{user.name}</span>
       <span class="truncate text-xs text-muted-foreground">{user.email}</span>
@@ -49,13 +53,13 @@
     <DropdownMenuSeparator />
     <DropdownMenuItem class="w-full cursor-pointer">
       {#snippet child({ props })}
-        <Link href={route('profile.edit')} {...props}><Settings /> Settings</Link>
+        <Link href={route('profile.edit')} {...props}><Settings /> {t('Settings')}</Link>
       {/snippet}
     </DropdownMenuItem>
     <DropdownMenuSeparator />
     <DropdownMenuItem class="w-full cursor-pointer">
       {#snippet child({ props })}
-        <Link href={route('logout')} method="post" as="button" {...props}><LogOut /> Log out</Link>
+        <Link href={route('logout')} method="post" as="button" {...props}><LogOut /> {t('Log out')}</Link>
       {/snippet}
     </DropdownMenuItem>
   </DropdownMenuContent>

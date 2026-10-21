@@ -21,8 +21,12 @@
   import { Checkbox } from '@/components/ui/checkbox'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
   import type { PageProps } from '@/tug/pages'
   import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // Tokens makes the user's API tokens, for a script, their phone's app or
   // another service, which a request to /api sends in Authorization: Bearer
@@ -70,25 +74,25 @@
   }
 </script>
 
-<Head title="API tokens" />
+<Head title={t('API tokens')} />
 <section class="space-y-6">
   <Heading
     small
-    title="API tokens"
-    description="For a script, your phone's app or another service, which sends one to the app's API in place of logging in."
+    title={t('API tokens')}
+    description={t("For a script, your phone's app or another service, which sends one to the app's API in place of logging in.")}
   />
   {#if newToken}
     <div class="space-y-3 rounded-lg border p-4">
-      <p class="text-sm">Your new token. Copy it now: it won't be shown again.</p>
+      <p class="text-sm">{t("Your new token. Copy it now: it won't be shown again.")}</p>
       <div class="flex items-start gap-2">
         <code data-testid="new-token" class="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-sm break-all">{newToken}</code>
         <Button variant="outline" size="sm" onclick={() => copy(newToken!)}>
           {#if copied}
             <Check />
-            Copied
+            {t('Copied')}
           {:else}
             <Copy />
-            Copy
+            {t('Copy')}
           {/if}
         </Button>
       </div>
@@ -107,15 +111,17 @@
               {/each}
             </p>
             <p class="text-muted-foreground">
-              Made {day(token.createdAt)}{token.lastUsedAt ? `, last used ${day(token.lastUsedAt)}` : ', not used yet'}{token.expiresAt
-                ? `, expires ${day(token.expiresAt)}`
-                : ', never expires'}
+              {t('Made :date', { date: day(token.createdAt) })}{token.lastUsedAt
+                ? t(', last used :date', { date: day(token.lastUsedAt) })
+                : t(', not used yet')}{token.expiresAt
+                ? t(', expires :date', { date: day(token.expiresAt) })
+                : t(', never expires')}
             </p>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            aria-label={`Revoke ${token.name}`}
+            aria-label={t('Revoke :name', { name: token.name })}
             onclick={() => router.delete(route('tokens.destroy', { id: token.id }), { preserveScroll: true })}
           >
             <Trash2 />
@@ -126,15 +132,15 @@
   {/if}
 </section>
 <section class="space-y-6">
-  <Heading small title="Make a token" description="Name it for what uses it, and give it no more than that needs." />
+  <Heading small title={t('Make a token')} description={t('Name it for what uses it, and give it no more than that needs.')} />
   <form onsubmit={make} class="space-y-6">
     <div class="grid gap-2">
-      <Label for="token-name">Name</Label>
-      <Input id="token-name" bind:value={name} placeholder="My script" maxlength={100} required />
+      <Label for="token-name">{t('Name')}</Label>
+      <Input id="token-name" bind:value={name} placeholder={t('My script')} maxlength={100} required />
       <InputError message={page.props.errors.name} />
     </div>
     <fieldset class="grid gap-3">
-      <legend class="mb-2 text-sm font-medium">What it may do</legend>
+      <legend class="mb-2 text-sm font-medium">{t('What it may do')}</legend>
       {#each abilities as ability (ability)}
         <div class="flex items-center gap-3">
           <Checkbox
@@ -148,15 +154,15 @@
       <InputError message={page.props.errors.abilities} />
     </fieldset>
     <div class="grid gap-2">
-      <Label for="token-expires">Expires</Label>
+      <Label for="token-expires">{t('Expires')}</Label>
       <select
         id="token-expires"
         bind:value={expires}
         class="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
       >
-        <option value="30">In 30 days</option>
-        <option value="365">In a year</option>
-        <option value="0">Never</option>
+        <option value="30">{t('In 30 days')}</option>
+        <option value="365">{t('In a year')}</option>
+        <option value="0">{t('Never')}</option>
       </select>
       <InputError message={page.props.errors.expires} />
     </div>
@@ -164,7 +170,7 @@
       {#if making}
         <LoaderCircle class="animate-spin" />
       {/if}
-      Make a token
+      {t('Make a token')}
     </Button>
   </form>
 </section>

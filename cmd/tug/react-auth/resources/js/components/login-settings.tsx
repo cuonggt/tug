@@ -3,6 +3,7 @@ import { LogOut, Monitor } from 'lucide-react'
 import Heading from '@/components/heading'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useLang } from '@/lib/lang'
 import type { PageProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
@@ -10,9 +11,11 @@ import { route } from '@/tug/routes'
 // first, and logs one of the others out, or all of them: a browser left
 // logged in on a lost laptop, say. The handlers are in logins.go.
 export default function LoginSettings({ browsers }: PageProps<'Settings/Security'>) {
+  const { t } = useLang()
+
   return (
     <section className="space-y-6">
-      <Heading small title="Browsers" description="Where you're logged in. Log out of one you don't know, or of every one but this." />
+      <Heading small title={t('Browsers')} description={t("Where you're logged in. Log out of one you don't know, or of every one but this.")} />
       {browsers.length > 0 && (
         <ul className="divide-y rounded-lg border">
           {browsers.map((browser) => (
@@ -21,7 +24,7 @@ export default function LoginSettings({ browsers }: PageProps<'Settings/Security
               <div className="min-w-0 flex-1 text-sm">
                 <p className="flex items-center gap-2 font-medium">
                   <span className="truncate">{capital(browser.name)}</span>
-                  {browser.current && <Badge variant="secondary">This browser</Badge>}
+                  {browser.current && <Badge variant="secondary">{t('This browser')}</Badge>}
                 </p>
                 <p className="text-muted-foreground">
                   {browser.ip}, logged in {day(browser.began)}, last seen {day(browser.lastSeen)}
@@ -31,7 +34,7 @@ export default function LoginSettings({ browsers }: PageProps<'Settings/Security
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label={`Log out of ${browser.name}`}
+                  aria-label={t('Log out of :name', { name: browser.name })}
                   onClick={() => router.delete(route('logins.destroy', { id: browser.id }), { preserveScroll: true })}
                 >
                   <LogOut />
@@ -44,7 +47,7 @@ export default function LoginSettings({ browsers }: PageProps<'Settings/Security
       {browsers.length > 1 && (
         <Button variant="outline" onClick={() => router.delete(route('logins.destroy-others'), { preserveScroll: true })}>
           <LogOut />
-          Log out of every other browser
+          {t('Log out of every other browser')}
         </Button>
       )}
     </section>

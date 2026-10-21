@@ -5,16 +5,20 @@ import InputError from '@/components/input-error'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useLang } from '@/lib/lang'
+import { text } from '@/tug/lang'
 import { form, type Inputs } from '@/tug/routes'
 
 // TwoFactorChallenge is the second step of logging in, for a user who has
 // turned two-factor logins on: a code from their authenticator app, or,
 // with the phone lost, one of their recovery codes.
 export default function TwoFactorChallenge() {
+  const { t } = useLang()
+
   const [recovery, setRecovery] = useState(false)
   return (
     <>
-      <Head title="Two-factor login" />
+      <Head title={t('Two-factor login')} />
       <Form<Inputs['two-factor.login.store']>
         key={recovery ? 'recovery' : 'code'}
         action={form('two-factor.login.store')}
@@ -25,12 +29,12 @@ export default function TwoFactorChallenge() {
           <>
             {recovery ? (
               <div className="grid gap-2">
-                <Label htmlFor="recovery_code">Recovery code</Label>
+                <Label htmlFor="recovery_code">{t('Recovery code')}</Label>
                 <Input
                   id="recovery_code"
                   name="recovery_code"
                   autoComplete="off"
-                  placeholder="abcde-fghij"
+                  placeholder={t('abcde-fghij')}
                   required
                   autoFocus
                   aria-invalid={!!errors.recovery_code}
@@ -39,7 +43,7 @@ export default function TwoFactorChallenge() {
               </div>
             ) : (
               <div className="grid gap-2">
-                <Label htmlFor="code">Code</Label>
+                <Label htmlFor="code">{t('Code')}</Label>
                 <Input
                   id="code"
                   name="code"
@@ -58,15 +62,15 @@ export default function TwoFactorChallenge() {
             )}
             <Button type="submit" className="w-full" disabled={processing}>
               {processing && <LoaderCircle className="animate-spin" />}
-              Log in
+              {t('Log in')}
             </Button>
           </>
         )}
       </Form>
       <p className="mt-6 text-center text-sm text-muted-foreground">
-        {recovery ? 'Found your phone? ' : 'Lost your phone? '}
+        {recovery ? t('Found your phone?') : t('Lost your phone?')}{' '}
         <button type="button" onClick={() => setRecovery(!recovery)} className="cursor-pointer text-foreground underline underline-offset-4">
-          {recovery ? 'Use a code from the app' : 'Use a recovery code'}
+          {recovery ? t('Use a code from the app') : t('Use a recovery code')}
         </button>
       </p>
     </>
@@ -74,6 +78,6 @@ export default function TwoFactorChallenge() {
 }
 
 TwoFactorChallenge.layout = {
-  title: 'Two-factor login',
-  description: 'The six-digit code your authenticator app shows for this account.',
+  title: text('Two-factor login'),
+  description: text('The six-digit code your authenticator app shows for this account.'),
 }

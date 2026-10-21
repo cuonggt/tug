@@ -27,9 +27,13 @@
   } from '@/components/ui/dialog'
   import { Input } from '@/components/ui/input'
   import { Label } from '@/components/ui/label'
+  import { useLang } from '@/lib/lang'
   import { createPasskey, dismissed, optionsFrom, passkeysWork, Refused } from '@/lib/passkeys'
   import type { PageProps } from '@/tug/pages'
   import { route } from '@/tug/routes'
+
+  // The page says its own words in the request's language.
+  const { t } = useLang()
 
   // PasskeySettings lists the user's passkeys, which log in with no
   // password, adds one, as the browser makes it, and removes them. The
@@ -68,7 +72,7 @@
     } catch (err) {
       adding = false
       if (err instanceof Refused) failure = err.message
-      else if (!dismissed(err)) failure = "Your browser didn't make the passkey: try again."
+      else if (!dismissed(err)) failure = t("Your browser didn't make the passkey: try again.")
     }
   }
 </script>
@@ -76,8 +80,8 @@
 <section class="space-y-6">
   <Heading
     small
-    title="Passkeys"
-    description="Log in with your phone, laptop or password manager, and its PIN, fingerprint or face: no password, and no code."
+    title={t('Passkeys')}
+    description={t('Log in with your phone, laptop or password manager, and its PIN, fingerprint or face: no password, and no code.')}
   />
   {#if passkeys.length > 0}
     <ul class="divide-y rounded-lg border">
@@ -88,17 +92,19 @@
             <p class="flex items-center gap-2 font-medium">
               <span class="truncate">{passkey.name}</span>
               {#if passkey.synced}
-                <Badge variant="secondary">Synced</Badge>
+                <Badge variant="secondary">{t('Synced')}</Badge>
               {/if}
             </p>
             <p class="text-muted-foreground">
-              Added {day(passkey.createdAt)}{passkey.lastUsedAt ? `, last used ${day(passkey.lastUsedAt)}` : ', not used yet'}
+              {t('Added :date', { date: day(passkey.createdAt) })}{passkey.lastUsedAt
+                ? t(', last used :date', { date: day(passkey.lastUsedAt) })
+                : t(', not used yet')}
             </p>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            aria-label={`Remove ${passkey.name}`}
+            aria-label={t('Remove :name', { name: passkey.name })}
             onclick={() => router.delete(route('passkeys.destroy', { id: passkey.id }), { preserveScroll: true })}
           >
             <Trash2 />
@@ -114,22 +120,22 @@
         {#snippet child({ props })}
           <Button {...props} variant="outline">
             <KeyRound />
-            Add a passkey
+            {t('Add a passkey')}
           </Button>
         {/snippet}
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>Add a passkey</DialogTitle>
+        <DialogTitle>{t('Add a passkey')}</DialogTitle>
         <DialogDescription>
-          Name it for where it's kept, such as your phone, then your browser asks where to keep it.
+          {t("Name it for where it's kept, such as your phone, then your browser asks where to keep it.")}
         </DialogDescription>
         <form onsubmit={add} class="space-y-6">
           <div class="grid gap-2">
-            <Label for="passkey-name">Name</Label>
+            <Label for="passkey-name">{t('Name')}</Label>
             <Input
               id="passkey-name"
               bind:value={name}
-              placeholder="My phone"
+              placeholder={t('My phone')}
               maxlength={100}
               required
               autofocus
@@ -139,20 +145,20 @@
           <DialogFooter class="gap-2">
             <DialogClose>
               {#snippet child({ props })}
-                <Button {...props} type="button" variant="secondary">Cancel</Button>
+                <Button {...props} type="button" variant="secondary">{t('Cancel')}</Button>
               {/snippet}
             </DialogClose>
             <Button type="submit" disabled={adding}>
               {#if adding}
                 <LoaderCircle class="animate-spin" />
               {/if}
-              Add
+              {t('Add')}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   {:else if works === false}
-    <p class="text-sm text-muted-foreground">This browser doesn't make passkeys.</p>
+    <p class="text-sm text-muted-foreground">{t("This browser doesn't make passkeys.")}</p>
   {/if}
 </section>
