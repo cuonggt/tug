@@ -23,14 +23,29 @@ func TestNewWithoutAConfigReadsTheEnvironment(t *testing.T) {
 	t.Setenv("PORT", "9999")
 	t.Setenv("APP_DEBUG", "true")
 	t.Setenv("APP_EDITOR", "vscode")
-	if app := New(); app.config.Addr != ":9999" || !app.config.Debug || app.config.Editor != "vscode" {
-		t.Fatalf("read %+v from PORT=9999 APP_DEBUG=true APP_EDITOR=vscode", app.config)
+	t.Setenv("APP_TIMEZONE", "Asia/Ho_Chi_Minh")
+	if app := New(); app.config.Addr != ":9999" || !app.config.Debug || app.config.Editor != "vscode" ||
+		app.config.Zone != "Asia/Ho_Chi_Minh" {
+		t.Fatalf("read %+v from PORT=9999 APP_DEBUG=true APP_EDITOR=vscode APP_TIMEZONE=Asia/Ho_Chi_Minh", app.config)
 	}
 
 	t.Setenv("ADDR", "127.0.0.1:7000")
 	if app := New(); app.config.Addr != "127.0.0.1:7000" {
 		t.Errorf("Addr = %q, want ADDR over PORT", app.config.Addr)
 	}
+}
+
+// A zone the host has no files for is a mistake worth stopping for: every
+// time the app's pages show would be in another zone than it says.
+func TestAZoneThatIsntOneStopsTheApp(t *testing.T) {
+	defer func() {
+		said, ok := recover().(string)
+		if !ok || !strings.Contains(said, "Config.Zone") {
+			t.Errorf("New panicked with %v, want one that says Config.Zone", said)
+		}
+	}()
+	New(Config{Zone: "Nowhere/Here"})
+	t.Error("New took a zone that isn't one")
 }
 
 func TestAConfigPassedInIsUsedAsItIs(t *testing.T) {

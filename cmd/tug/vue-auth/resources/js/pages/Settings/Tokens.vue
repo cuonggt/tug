@@ -9,12 +9,12 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t, d } = useLang()
 
 // Tokens makes the user's API tokens, for a script, their phone's app or
 // another service, which a request to /api sends in Authorization: Bearer
@@ -65,11 +65,9 @@ const copy = async (token: string) => {
   copied.value = true
 }
 
-// day is a date as the page shows it, the same on the server as in any
-// browser, whatever its language or zone.
-function day(at: string): string {
-  return new Date(at).toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
-}
+// day is a date as the page shows it, in the page's own language, and in
+// the reader's own zone once the page is in their browser.
+const day = (at: string) => d(at, { dateStyle: 'medium' })
 </script>
 
 <template>

@@ -2,13 +2,13 @@
 import { Head, Link, router } from '@inertiajs/vue3'
 import { onMounted, onUnmounted } from 'vue'
 import { Button } from '@/components/ui/button'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
 import type { Pages, SharedProps } from '@/tug/pages'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t, d } = useLang()
 
 // Notifications is what happened to the user's account, the newest first,
 // a page at a time, which its handler, in notifications.go, marks read as
@@ -20,11 +20,10 @@ let stop: (() => void) | undefined
 onMounted(() => (stop = listen('notification', () => router.reload({ only: ['list', 'bell'] }))))
 onUnmounted(() => stop?.())
 
-// when is a time as the page shows it, the same on the server as in any
-// browser, whatever its language or zone.
-function when(at: string): string {
-  return `${new Date(at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC`
-}
+// when is a time as the page shows it, with the name of the zone it's in:
+// the app's own, and the reader's once the page is in their browser.
+const when = (at: string) =>
+  d(at, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
 </script>
 
 <template>

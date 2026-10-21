@@ -11,7 +11,11 @@ import type { PageProps } from '@/tug/pages'
 // it shows them: the ones new to this page have a dot. A notification made
 // while it's open shows at once.
 export default function Notifications({ list }: PageProps<'Notifications'>) {
-  const { t } = useLang()
+  const { t, d } = useLang()
+  // when is a time as the page shows it, with the name of the zone it's
+  // in: the app's own, and the reader's once the page is in their browser.
+  const when = (at: string) =>
+    d(at, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
 
   useEffect(() => listen('notification', () => router.reload({ only: ['list', 'bell'] })), [])
   return (
@@ -61,10 +65,4 @@ export default function Notifications({ list }: PageProps<'Notifications'>) {
       </div>
     </>
   )
-}
-
-// when is a time as the page shows it, the same on the server as in any
-// browser, whatever its language or zone.
-function when(at: string): string {
-  return `${new Date(at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC`
 }

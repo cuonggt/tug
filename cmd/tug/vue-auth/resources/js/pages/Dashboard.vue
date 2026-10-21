@@ -3,23 +3,20 @@ import { Head, Link } from '@inertiajs/vue3'
 import { computed } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t, d } = useLang()
 
 // Dashboard is for users who've verified their email: its route in main.go
 // wraps it in usersOnly and verified, and its handler is handed the user.
 const props = defineProps<Pages['Dashboard'] & SharedProps>()
 
-// In a language and zone of its own, so the date reads the same rendered
-// on the server as in a browser, whose own may differ, and a page
-// rendered on the server hydrates as it came.
-const since = computed(() =>
-  new Date(props.user.createdAt).toLocaleDateString('en-US', { dateStyle: 'long', timeZone: 'UTC' }),
-)
+// The date is in the page's own language, and in the reader's own zone
+// once the page is in their browser.
+const since = computed(() => d(props.user.createdAt, { dateStyle: 'long' }))
 const code = 'font-mono text-foreground'
 </script>
 

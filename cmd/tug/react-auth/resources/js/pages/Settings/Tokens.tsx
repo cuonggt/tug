@@ -17,7 +17,10 @@ import { route } from '@/tug/routes'
 // in place of a login; shows a new one once; lists them; and revokes them.
 // The handlers are in tokens.go.
 export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens'>) {
-  const { t } = useLang()
+  const { t, d } = useLang()
+  // day is a date as the page shows it, in the page's own language, and in
+  // the reader's own zone once the page is in their browser.
+  const day = (at: string) => d(at, { dateStyle: 'medium' })
 
   const { flash, props } = usePage()
   // A new token comes once, in the flash, which the next visit empties, as
@@ -167,10 +170,4 @@ export default function Tokens({ tokens, abilities }: PageProps<'Settings/Tokens
       </section>
     </>
   )
-}
-
-// day is a date as the page shows it, the same on the server as in any
-// browser, whatever its language or zone.
-function day(at: string): string {
-  return new Date(at).toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
 }

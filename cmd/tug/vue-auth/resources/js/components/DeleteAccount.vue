@@ -16,12 +16,12 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { dismissed, getPasskey, optionsFrom } from '@/lib/passkeys'
 import { form, route, type Inputs } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // DeleteAccount deletes the user's account, after asking for the password
 // once more, or for an account with none, a passkey: it can't be undone.

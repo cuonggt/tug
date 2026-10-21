@@ -11,13 +11,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { initials } from '@/lib/utils'
 import type { User } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // UserMenu is who's logged in, in the header, and what's theirs to do:
 // their settings, and logging out.

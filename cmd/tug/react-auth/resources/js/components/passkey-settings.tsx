@@ -25,7 +25,10 @@ import { route } from '@/tug/routes'
 // password, adds one, as the browser makes it, and removes them. The
 // handlers are in passkeys.go.
 export default function PasskeySettings({ passkeys }: PageProps<'Settings/Security'>) {
-  const { t } = useLang()
+  const { t, d } = useLang()
+  // day is a date as the page shows it, in the page's own language, and in
+  // the reader's own zone once the page is in their browser.
+  const day = (at: string) => d(at, { dateStyle: 'medium' })
 
   const { errors } = usePage().props
   const [open, setOpen] = useState(false)
@@ -144,10 +147,4 @@ export default function PasskeySettings({ passkeys }: PageProps<'Settings/Securi
       )}
     </section>
   )
-}
-
-// day is a date as the page shows it, the same on the server as in any
-// browser, whatever its language or zone.
-function day(at: string): string {
-  return new Date(at).toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
 }

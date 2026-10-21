@@ -4,16 +4,24 @@
  * Texts are the words a page says, in the language of the request it came
  * with: the texts prop the app shares. words has the words for each text
  * the language has any for, and from names the language a text's words are
- * in where that isn't locale, whose rules give a count its form.
+ * in where that isn't locale, whose rules give a count its form. zone is
+ * the app's own time zone, which date() writes a time in.
  */
 export interface Texts {
   locale: string
   words: Record<string, string>
   from?: Record<string, string>
+  zone?: string
 }
 
 /** TextArgs are the values a text's placeholders are filled with, by name. */
 export type TextArgs = Record<string, string | number>
+
+/**
+ * DateLike is a moment a page can say: a Date, the milliseconds since the
+ * epoch, or a string a Date takes, as a Go time.Time's JSON is.
+ */
+export type DateLike = Date | number | string
 
 // forms is the index of the form a count takes, by language, from the
 // rules package lang has: a digit for each count below 100, and then one
@@ -50,7 +58,30 @@ export function text(said: string): string {
  */
 export function choice(texts: Texts, text: string, count: number, args?: TextArgs): string {
   const [words, locale] = wordsFor(texts, text)
-  return fill(choose(words, count, locale), { count, ...args })
+  return fill(choose(words, count, locale), { count: number(texts, count), ...args })
+}
+
+/**
+ * number says n as the language texts is in writes a number, its thousands
+ * apart: number(texts, 1234567) is '1,234,567' in English and '1.234.567'
+ * in Vietnamese. options are Intl.NumberFormat's, as { maximumFractionDigits:
+ * 1 } for a number with a fraction.
+ */
+export function number(texts: Texts, n: number, options?: Intl.NumberFormatOptions): string {
+  return new Intl.NumberFormat(texts.locale, options).format(n)
+}
+
+/**
+ * date says at as the language texts is in writes a date, in the app's own
+ * zone, texts.zone, or UTC without one: date(texts, user.createdAt, {
+ * dateStyle: 'long' }). options are Intl.DateTimeFormat's, timeZone among
+ * them, which each frontend's d() gives the reader's own once the page is
+ * in their browser, where there's no server render to differ from.
+ */
+export function date(texts: Texts, at: DateLike, options?: Intl.DateTimeFormatOptions): string {
+  const { timeZone, ...rest } = options ?? {}
+  const when = at instanceof Date ? at : new Date(at)
+  return new Intl.DateTimeFormat(texts.locale, { timeZone: timeZone || texts.zone || 'UTC', ...rest }).format(when)
 }
 
 // wordsFor is a text's words, and the language whose rules give a count

@@ -6,15 +6,15 @@ import InputError from '@/components/InputError.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { vFocus } from '@/lib/focus'
 import { dismissed, getPasskey, optionsFrom, passkeysWork } from '@/lib/passkeys'
   import { text } from '@/tug/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // ConfirmPassword asks for the password again before the settings that
 // could hand the account to someone else: passwordConfirmed in auth.go

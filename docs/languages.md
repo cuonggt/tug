@@ -276,11 +276,70 @@ A page that would rather have a library than this has one: react-i18next,
 vue-i18n and svelte-i18n each do more, ICU messages among it, with files
 of their own to keep beside `lang/`.
 
+## Dates and numbers
+
+```tsx
+const { n, d } = useLang()
+
+<p>{n(post.views)}</p>
+<p>{d(post.publishedAt, { dateStyle: 'long' })}</p>
+```
+
+A figure is written differently in each language: 1,234,567 in English,
+1.234.567 in Vietnamese, and in Russian with a space between the thousands
+that doesn't break. `n(value, options)` and `d(at, options)` say a number
+and a time the way the page's language writes them, through the browser's
+own `Intl`, whose options they take, `Intl.NumberFormat`'s and
+`Intl.DateTimeFormat`'s; tug gen writes them beside `t()`, in
+`resources/js/tug/lang.ts`.
+
+A time needs a zone, and the server can't know the browser's: a first
+visit is rendered by Node, before there's a browser to ask. So `d` says a
+time in the app's own zone while the page is rendered, and in the reader's
+own once the page is in their browser, where there's no render to agree
+with any more. A page that said it in the reader's zone from the start
+wouldn't be the markup the browser hydrates.
+
+```bash
+APP_TIMEZONE=Asia/Ho_Chi_Minh
+```
+
+The app's zone is `Config.Zone`, which `ConfigFromEnv` reads from
+`APP_TIMEZONE`, an IANA name; empty is UTC. `tug.New` stops for a name
+that isn't a zone. It travels to the pages in the `texts` prop, beside the
+language, which the starters' `main.go` fills in.
+
+In Go, `Words.Number` and `Words.Decimal` write a number as the language
+does, for what Go says itself: a mail, a log line, a command's output.
+
+```go
+w := a.lang.In(u.Locale)
+w.Number(1234567)   // "1.234.567" in Vietnamese
+w.Decimal(19.9, 1)  // "19,9" in Spanish
+```
+
+A text's `:count` is said that way too, by `c.Choice` and a page's
+`choice()` alike, as a count is a quantity: `":count post|:count posts"`
+with 1234 says "1.234 bài viết". The other values a text names are
+written as they come, since a year, a port or an ID isn't a quantity.
+
+Package `lang` has the separators of the languages it knows, and a
+language it doesn't know writes its numbers as English does. Left out are
+the languages whose digits aren't the Latin ones Go writes, as Arabic's,
+and those whose thousands go in twos past the first three, as Hindi's
+lakh. A page says both right all the same, as `Intl` has every language's
+way.
+
 ## What's not here yet
 
-- **Dates, numbers and money** in a language's own way, and sorting in
-  its order: Go's `time` and `strconv` write them one way, `slices` and
-  `sort` compare bytes, and a browser's `Intl` does both well.
+- **A date in Go**: a number is `Words.Number`'s ([Dates and
+  numbers](#dates-and-numbers)), and a date is left, as it needs an order
+  for each language and the names of its months, and nothing tug or the
+  starters say in Go has a date in it. A page's dates are `Intl`'s.
+- **Money**, a currency's symbol and where it goes, and **sorting** in a
+  language's order: a page has the first in `Intl.NumberFormat`'s `style:
+  'currency'`, and Go the second in `golang.org/x/text/collate`, which is
+  the app's to take.
 - **A language's direction**: `TemplateData.Locale` says which language a
   page is in, and `dir="rtl"` for one written right to left is the
   template's to say. A tag doesn't say its script, and package `lang`

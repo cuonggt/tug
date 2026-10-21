@@ -117,6 +117,13 @@ type Config struct {
 	// session; in the App's own middleware, there's none yet.
 	Locale func(r *http.Request) string
 
+	// Zone is the app's own time zone, an IANA name as "Asia/Ho_Chi_Minh",
+	// which its pages write their times in: lang.Texts carries it to them
+	// beside the language, for the date() tug gen writes. Empty is UTC. New
+	// stops for a name that isn't a zone, which it reads from the host's own
+	// files, as an image needs them too.
+	Zone string
+
 	// DevTools records each request for Inertia's DevTools, a panel of the
 	// browser's, as an extension, which shows each visit's props, route,
 	// headers and bodies, and where the page was rendered: an entry each,
@@ -147,6 +154,7 @@ func ConfigFromEnv() Config {
 	c.TLS.KeyFile = os.Getenv("TLS_KEY")
 	c.TLS.HTTPAddr = os.Getenv("HTTP_ADDR")
 	c.DevTools = os.Getenv("TUG_DEV") != ""
+	c.Zone = os.Getenv("APP_TIMEZONE")
 	return c
 }
 
@@ -231,6 +239,11 @@ func New(config ...Config) *App {
 			panic("tug: " + err.Error())
 		}
 		cfg.URL = base
+	}
+	if cfg.Zone != "" {
+		if _, err := time.LoadLocation(cfg.Zone); err != nil {
+			panic("tug: Config.Zone: " + err.Error())
+		}
 	}
 
 	a := &App{config: cfg, mux: http.NewServeMux(), names: make(map[string]*Route)}

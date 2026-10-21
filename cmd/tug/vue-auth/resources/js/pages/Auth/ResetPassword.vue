@@ -7,14 +7,14 @@ import TextLink from '@/components/TextLink.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { vFocus } from '@/lib/focus'
   import { text } from '@/tug/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // ResetPassword is where the link in a reset mail leads: its token, and
 // the email it went to, come in the props.

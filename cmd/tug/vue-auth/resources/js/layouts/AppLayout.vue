@@ -5,14 +5,14 @@ import { computed, onMounted, onUnmounted, watch } from 'vue'
 import AppLogo from '@/components/AppLogo.vue'
 import UserMenu from '@/components/UserMenu.vue'
 import { Button } from '@/components/ui/button'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
   import { text } from '@/tug/lang'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t, choice } = useLang()
+// The page says its own words in the request's language.
+const { t, choice } = useLang()
 
 // nav is the app's own pages, for users who've logged in: add each page to
 // it as the app grows.

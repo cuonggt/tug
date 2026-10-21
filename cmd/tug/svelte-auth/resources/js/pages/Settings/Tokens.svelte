@@ -1,11 +1,3 @@
-<script module lang="ts">
-  // day is a date as the page shows it, the same on the server as in any
-  // browser, whatever its language or zone.
-  function day(at: string): string {
-    return new Date(at).toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
-  }
-</script>
-
 <script lang="ts">
   import { page, router } from '@inertiajs/svelte'
   import Check from '@lucide/svelte/icons/check'
@@ -26,7 +18,7 @@
   import { route } from '@/tug/routes'
 
   // The page says its own words in the request's language.
-  const { t } = useLang()
+  const { t, d } = useLang()
 
   // Tokens makes the user's API tokens, for a script, their phone's app or
   // another service, which a request to /api sends in Authorization: Bearer
@@ -72,6 +64,10 @@
     await navigator.clipboard.writeText(token)
     copied = true
   }
+
+  // day is a date as the page shows it, in the page's own language, and in
+  // the reader's own zone once the page is in their browser.
+  const day = (at: string) => d(at, { dateStyle: 'medium' })
 </script>
 
 <Head title={t('API tokens')} />

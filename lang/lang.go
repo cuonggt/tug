@@ -236,11 +236,12 @@ func (w Words) T(text string, args ...any) string {
 
 // Choice says text for a count, n, as T does: a text with forms, split by
 // |, as ":count post|:count posts", says the form the language's rules
-// have for n, and :count is n. A form may name the counts it's for, as
-// Laravel's do: "{0} no posts|{1} one post|[2,*] :count posts".
+// have for n, and :count is n as Number says it, a thousand apart. A form
+// may name the counts it's for, as Laravel's do: "{0} no posts|{1} one
+// post|[2,*] :count posts".
 func (w Words) Choice(text string, n int, args ...any) string {
 	s, locale := w.lookup(text)
-	return fill(choose(s, n, locale), append([]any{"count", n}, args...))
+	return fill(choose(s, n, locale), append([]any{"count", w.Number(n)}, args...))
 }
 
 // Texts are the words a language says an app's texts in, all of them, for
@@ -248,11 +249,14 @@ func (w Words) Choice(text string, n int, args ...any) string {
 // language, Words the words for each text the language has any for, its
 // own and the rest from English, and From names the language a text's
 // words are in where that isn't Locale, so a count takes the forms that
-// language's rules give it, as Choice gives it them here.
+// language's rules give it, as Choice gives it them here. Zone is the app's
+// own time zone, which the app fills in, as tug.Config.Zone has it: the
+// language says how a date is written, and the zone which moment it is.
 type Texts struct {
 	Locale string            `json:"locale"`
 	Words  map[string]string `json:"words"`
 	From   map[string]string `json:"from,omitempty"`
+	Zone   string            `json:"zone,omitempty"`
 }
 
 // Texts is everything w says, for a page to say its own words in the same

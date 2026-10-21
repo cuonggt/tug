@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3'
 import AppLogoIcon from '@/components/AppLogoIcon.vue'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
   import { text } from '@/tug/lang'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // AuthLayout is around logging in, registering and the rest of Auth/: the
 // app's mark, the page's title and what to do, and a card for the form.

@@ -60,7 +60,7 @@ to 3.8.0, October 2026), written against
 | M51 | A page's own words         | done   |
 | M52 | The auth starter's words   | done   |
 | M53 | The mail's language        | done   |
-| M54 | Dates and numbers          | later  |
+| M54 | Dates and numbers          | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5079,63 +5079,69 @@ Choices made on the way:
 - **Still no translation shipped:** the mail says English until there's a
   `lang/<tag>.json`, as everything else does.
 
-## M54 · Dates and numbers — later
+## M54 · Dates and numbers — done
 
 M50 to M53 put every word in the reader's language and left the figures in
-English. A Vietnamese app writes 21 Oct 2026, in American order, with a
-literal UTC after it: the three starters say every date with
+English. A Vietnamese app wrote 21 Oct 2026, in American order, with a
+literal UTC after it: the three starters said every date with
 `toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' })`,
-in fifteen places, the locale written in though the page has carried its
-own since M51's texts prop. Go is no better off: `Choice` fills `:count`
-with `fmt.Sprint`, so ":count bài viết" says 1234 where Vietnamese writes
+in fifteen places, the locale written in though the page had carried its
+own since M51's texts prop. Go was no better off: `Choice` filled `:count`
+with `fmt.Sprint`, so ":count bài viết" said 1234 where Vietnamese writes
 1.234. The browser has all of this right in `Intl`, and the Node that
 renders a first visit has the same ICU; Go has `strconv` and no table of
 what a language does. To be released as v0.49.0.
 
-- **Numbers in `lang`:** what a language puts between its thousands and
-  before a fraction, a `group` and a `point` for each, as
-  `site/languages.go` already keeps for the five the website is in, from
-  CLDR. `Words.Number(n)` says a whole number or a float by them, for
-  what Go writes itself: a mail, a log line, a command's output.
-- **The count, which is a quantity:** `Choice` fills `:count` through
-  `Number`, as a count is a quantity by definition. The other values a
-  text names stay `fmt.Sprint`'s: a year, a port, an ID or a version
-  isn't a quantity, and 2.026 would be wrong.
-- **The zone the app names:** `Config.Zone`, an IANA name as
-  `Asia/Ho_Chi_Minh`, which `ConfigFromEnv` reads from `APP_TIMEZONE` and
-  `New` checks, as it checks `URL`; empty is UTC, which is what the apps
-  show today. `lang.Texts` carries it beside the locale, so a page has
-  the pair in the once prop it already gets.
+- **Numbers in `lang`:** `number.go`, a `group` and a `point` for
+  forty-six languages and for Mexican Spanish, whose numbers aren't
+  Spain's, as CLDR has them, with `Words.Number(n)` and
+  `Words.Decimal(n, digits)` by them, for the numbers Go says itself: a
+  mail, a log line, a command's output. A language the table doesn't name
+  says its numbers as English does.
+- **The count, which is a quantity:** `Choice` says `:count` through
+  `Number`, and a page's `choice()` through the `number()` beside it, so
+  the two still say a count alike. The other values a text names are
+  `fmt.Sprint`'s still: a year, a port, an ID or a version isn't a
+  quantity, and 2.026 would be wrong.
+- **The zone the app names:** `Config.Zone`, an IANA name, which
+  `ConfigFromEnv` reads from `APP_TIMEZONE` and `New` checks with
+  `time.LoadLocation`, as it checks `URL`; empty is UTC, which is what the
+  apps showed before. `lang.Texts` carries it, `Zone`, which the starters
+  fill in beside the words, in the once prop the pages already get.
 - **Dates and numbers in the page:** tug gen writes `number()` and
-  `date()` into `resources/js/tug/lang.ts`, beside `t()`, `choice()` and
-  `text()`: `Intl.NumberFormat` and `Intl.DateTimeFormat` over the page's
-  own locale, with a style by name, as the pages ask for `medium` and
-  `long` now. Each frontend's `useLang()` hands back `n()` and `d()`,
-  filled in with the page's texts, as it does `t()`.
-- **The reader's own zone, once the page is mounted:** a first visit is
-  rendered by Node, which can't know the browser's zone, so a date in it
-  wouldn't be the markup the browser hydrates. `d()` says the app's zone
-  while the page is rendered and the reader's once it's mounted — a flag
-  each frontend sets its own way, `useEffect`, `onMounted`, `onMount` —
-  and the zone's own short name goes where the written-in UTC is.
+  `date()` into `resources/js/tug/lang.ts`, `Intl.NumberFormat`'s and
+  `Intl.DateTimeFormat`'s of the page's own locale, with their own
+  options, and `DateLike`, what a page can say a time from: a `Date`, the
+  milliseconds, or the string a Go `time.Time` is in JSON.
+- **The reader's own zone, once the page is mounted:** each frontend's
+  `useLang()` hands back `n()` and `d()`, and `d()` gives `date()` the
+  reader's zone once the page is in their browser, and the app's until
+  then, which is what the server rendered: React keeps it in `useState`,
+  from an effect; Vue in a `ref` of the module, from `onMounted`, as every
+  page is in the one browser; and Svelte in a `$state`, in
+  `lib/zone.svelte.ts`, as a rune outside a component needs a `.svelte.ts`
+  module of its own.
 - **The fifteen places:** the dashboard's "since", the logins' and the
-  passkeys' last use, the tokens' and the notifications' times, five
-  pages in each of React, Vue and Svelte, which are one app word for
-  word.
-- **Tests:** `lang`'s numbers in each language of the table, and a count
-  grouped by `Choice`; `internal/typegen`'s for what it writes; the CLI's
-  served-app tests reading a Vietnamese date out of a page's HTML, and
-  `rendersOnTheServer`'s in the app's zone; and the e2e suite seeing the
-  reader's zone once the page is up.
-- **The guide:** Languages, dates and numbers, with the zone;
-  Deployment, `APP_TIMEZONE` in its table; Accounts, the times its pages
-  show.
+  passkeys' last use, the tokens' dates and the notifications' times, five
+  pages in each of React, Vue and Svelte, which are one app word for word.
+  Each page's helper is an arrow now, `d(at, { dateStyle: 'medium' })`,
+  where the hook reaches it, and the notifications page's time says the
+  name of the zone it's in where it said a written-in UTC.
+- **Tests:** `lang`'s numbers in each shape the table has, a count a
+  thousand apart, and a value of the app's own written as it comes;
+  typegen's, for what it writes; tug's, for the zone read from the
+  environment and a name that isn't one; the CLI's, that a served app's
+  page carries the zone, in every kind of app it makes; and the browser
+  suite's `dates.spec.ts`, in a browser in Ho Chi Minh, which sees the
+  zone's own name where the server rendered UTC.
+- **The guide:** Languages, Dates and numbers, with the zone and what's
+  left for an app; Deployment, `APP_TIMEZONE` in its table.
 
-Choices, to settle before any code:
+Choices made on the way:
 
-- **`Intl` in the page, a table in Go:** the other way is Go formatting
-  and the page taking a string, as an inertia-laravel app's Carbon does.
-  A string can't be said again another way, the reader's zone is the
+- **`Intl` in the page, a table in Go:** the other way was Go formatting
+  and the page taking a string, as an inertia-laravel app's Carbon does. A
+  string can't be said again another way, the reader's zone is the
   browser's to know, and the Node that renders a first visit has the ICU
   the browser has, so a page is where a date belongs. Go says what has no
   browser to say it.
@@ -5143,22 +5149,38 @@ Choices, to settle before any code:
   every language, and they would be in every app's build, as `lang` is a
   package tug itself imports — unlike autocert, which only package
   `letsencrypt` has. Of all CLDR holds, two fields are what a number
-  needs. An app that wants the rest takes `x/text` itself, as the
-  starters take their database drivers.
-- **Dates in Go wait for a mail that says one:** nothing tug or the
-  starters mail says a date today, and a date needs more than two fields:
-  an order for each language, and month names, which would be texts in
-  the catalog for `tug lang` to ask for. The table is shaped to take a
-  layout when the first mail wants one, and `Config.Zone` is there for
-  it, with the zone's own files, which the images carry and an app on
+  needs. An app that wants the rest takes `x/text` itself, as the starters
+  take their database drivers.
+- **Two fields, so some languages wait:** left out of the table are the
+  languages whose digits aren't the Latin ones Go writes, as Arabic's, and
+  those whose thousands go in twos past the first three, as Hindi's lakh,
+  which a separator alone can't say. They say their numbers as English
+  does in Go, and right in a page, where `Intl` has every language's way.
+- **Dates in Go still wait for a mail that says one:** nothing tug or the
+  starters mail says a date, and a date needs more than two fields: an
+  order for each language, and month names, which would be texts in the
+  catalog for `tug lang` to ask for. `Config.Zone` is there for it, and
+  the zone's own files, which the distroless images carry and an app on
   `scratch` adds with `time/tzdata`.
-- **The app's zone, not the machine's:** `time.Local` is whatever the
-  host says, and two instances of one app can disagree; a zone is a
-  choice, and an app that makes none gets UTC.
-- **Money and sorting stay the app's:** a currency's symbol, where it
-  goes and how many digits it keeps is the deep end of CLDR, and sorting
-  in a language's order is `x/text/collate`'s. The guide says both are
-  the app's, as it says a language's own words are its file's.
+- **The time's parts, not its styles:** `Intl` throws for `dateStyle` or
+  `timeStyle` beside a part of its own, `timeZoneName` among them, so the
+  notifications page, which wants the zone's name with its time, names the
+  parts it wants instead: the day, the month, the year, the hour, the
+  minute, and the zone, short.
+- **No date in the CLI's served pages:** the plan had one read out of a
+  page's HTML. The pages that show a date are behind a login, which those
+  tests' first visit can't do, and the plain starter's home page has none,
+  so they check the zone reaches the page instead, and the browser suite
+  checks the date, where a browser logs in and the console the suite
+  watches fails a page that says a hydration mismatch.
+- **Vue's hook, straightened:** M52's insertion left `import { useLang }`
+  and the hook indented by two spaces in twenty-seven Vue files, where a
+  `<script setup>` block has none. Five of them were open for their dates;
+  the rest went the same way.
+- **Money and sorting stay the app's:** a currency's symbol, where it goes
+  and how many digits it keeps is the deep end of CLDR, and sorting in a
+  language's order is `x/text/collate`'s. The guide says both are the
+  app's, as it says a language's own words are its file's.
 
 ## Decisions
 

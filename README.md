@@ -14,7 +14,8 @@ disk or in S3, limits on routes and on guessing passwords, counted across
 the app's instances, the client's address behind its proxies, signed
 links, what tug and the app say in the request's language, a page's own
 words among it, which the document around it says it's in, the mail an
-account gets in the language it keeps, lists in
+account gets in the language it keeps, a date and a number written as that
+language writes them, a time in the reader's own zone, lists in
 pages, the app's own commands, a cache and locks across the instances,
 mail with copies, files and a link to unsubscribe, downloads, streams and
 server-sent events, the app's own values encrypted, events broadcast to
@@ -193,7 +194,11 @@ func showPost(c *tug.Ctx) error {
   say, and the root template says the language a page is in,
   `<html lang="{{ .Locale }}">`. Mail has no request to ask: a job says
   its words in the reader's own language, `lang.Catalog.In`'s, which the
-  auth starter keeps in a column of the account.
+  auth starter keeps in a column of the account. A date and a number are
+  written the language's way too: `n()` and `d()` in a page, the browser's
+  own `Intl`, and `Words.Number` in Go, which a text's `:count` goes
+  through. A time is in the app's zone, `APP_TIMEZONE`'s, and in the
+  reader's own once the page is in their browser.
 - **Encryption** (package `crypt`): the app's own values, as a token for
   another service kept in a column, sealed with AES-256-GCM, under a key
   for their purpose alone, derived from `APP_KEY`, bound to their row if

@@ -4,14 +4,14 @@ import { KeyRound, LoaderCircle } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
 import InputError from '@/components/InputError.vue'
 import { Button } from '@/components/ui/button'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { createPasskey, dismissed, optionsFrom, passkeysWork, Refused } from '@/lib/passkeys'
   import { text } from '@/tug/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // RegisterPasskey is the page the link mailed to register with a passkey
 // opens: the browser makes the passkey, and registerPasskey in passkeys.go

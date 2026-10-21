@@ -3,13 +3,13 @@ import { Link, usePage } from '@inertiajs/vue3'
 import Heading from '@/components/Heading.vue'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { cn } from '@/lib/utils'
   import { text } from '@/tug/lang'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 const pages = [
   { title: text('Profile'), href: route('profile.edit') },

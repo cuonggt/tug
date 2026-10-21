@@ -3,13 +3,13 @@ import { Link } from '@inertiajs/vue3'
 import { Database, KeyRound, LayoutDashboard, Mail, Package, ShieldCheck } from '@lucide/vue'
 import AppLogo from '@/components/AppLogo.vue'
 import { Button } from '@/components/ui/button'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
   import { text } from '@/tug/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // what is what the app comes with, and where it is, until this page says
 // what the app is for.

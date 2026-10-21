@@ -420,18 +420,21 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	}
 	// The words a page says its own in, in the language of the request it
 	// came with, as the server says its own: t() and choice(), which tug
-	// gen writes into resources/js/tug/lang.ts, read them. Share says
+	// gen writes into resources/js/tug/lang.ts, read them, with the app's
+	// zone, APP_TIMEZONE's, which its dates are written in. Share says
 	// their type, for the TypeScript, and the client keeps them, so they
 	// travel once a language rather than with every page.
 	// The app says a mail in the language its reader keeps, with no request
 	// to ask: the catalog is its own.
 	a.lang = cfg.Lang
-	catalog := cfg.Lang
+	catalog, zone := cfg.Lang, cfg.Zone
 	pages.Share("texts", lang.Texts{})
 	pages.ShareFunc(func(r *http.Request) inertia.Props {
 		locale := inertia.LocaleFrom(r.Context())
 		return inertia.Props{"texts": inertia.Once(func() (lang.Texts, error) {
-			return catalog.In(locale).Texts(), nil
+			texts := catalog.In(locale).Texts()
+			texts.Zone = zone
+			return texts, nil
 		}, inertia.As("texts:"+locale))}
 	})
 

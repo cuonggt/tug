@@ -2,13 +2,13 @@
 import { Head, Link } from '@inertiajs/vue3'
 import { computed } from 'vue'
 import { Button } from '@/components/ui/button'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
   import { text } from '@/tug/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 const titles: Record<number, string> = {
   403: text('Not allowed'),

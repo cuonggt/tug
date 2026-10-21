@@ -4,13 +4,13 @@ import { LoaderCircle } from '@lucide/vue'
 import { onMounted, onUnmounted } from 'vue'
 import TextLink from '@/components/TextLink.vue'
 import { Button } from '@/components/ui/button'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { listen } from '@/lib/broadcasts'
   import { text } from '@/tug/lang'
 import { form, route } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // VerifyEmail is where the pages for verified users send someone who
 // hasn't followed the link mailed to them yet. In development, without

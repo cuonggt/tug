@@ -6,13 +6,13 @@ import InputError from '@/components/InputError.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { vFocus } from '@/lib/focus'
   import { text } from '@/tug/lang'
 import { form, type Inputs } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // TwoFactorChallenge is the second step of logging in, for a user who has
 // turned two-factor logins on: a code from their authenticator app, or,

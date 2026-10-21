@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { type LucideIcon, Monitor, Moon, Sun } from '@lucide/vue'
 import { type Appearance, useAppearance } from '@/composables/useAppearance'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { cn } from '@/lib/utils'
   import { text } from '@/tug/lang'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 const choices: { value: Appearance; icon: LucideIcon; label: string }[] = [
   { value: 'light', icon: Sun, label: text('Light') },

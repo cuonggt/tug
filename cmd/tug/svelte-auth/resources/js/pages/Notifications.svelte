@@ -1,11 +1,3 @@
-<script module lang="ts">
-  // when is a time as the page shows it, the same on the server as in any
-  // browser, whatever its language or zone.
-  function when(at: string): string {
-    return `${new Date(at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC`
-  }
-</script>
-
 <script lang="ts">
   import { Link, router } from '@inertiajs/svelte'
   import { onMount } from 'svelte'
@@ -17,7 +9,7 @@
   import type { PageProps } from '@/tug/pages'
 
   // The page says its own words in the request's language.
-  const { t } = useLang()
+  const { t, d } = useLang()
 
   // Notifications is what happened to the user's account, the newest first,
   // a page at a time, which its handler, in notifications.go, marks read as
@@ -26,6 +18,11 @@
   let { list }: PageProps<'Notifications'> = $props()
 
   onMount(() => listen('notification', () => router.reload({ only: ['list', 'bell'] })))
+
+  // when is a time as the page shows it, with the name of the zone it's in:
+  // the app's own, and the reader's once the page is in their browser.
+  const when = (at: string) =>
+    d(at, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
 </script>
 
 <Head title={t('Notifications')} />

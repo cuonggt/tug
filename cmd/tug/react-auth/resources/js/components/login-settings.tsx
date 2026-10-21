@@ -11,7 +11,10 @@ import { route } from '@/tug/routes'
 // first, and logs one of the others out, or all of them: a browser left
 // logged in on a lost laptop, say. The handlers are in logins.go.
 export default function LoginSettings({ browsers }: PageProps<'Settings/Security'>) {
-  const { t } = useLang()
+  const { t, d } = useLang()
+  // day is a date as the page shows it, in the page's own language, and in
+  // the reader's own zone once the page is in their browser.
+  const day = (at: string) => d(at, { dateStyle: 'medium' })
 
   return (
     <section className="space-y-6">
@@ -58,10 +61,4 @@ export default function LoginSettings({ browsers }: PageProps<'Settings/Security
 // Linux", one the app doesn't know, as "A browser on Linux".
 function capital(name: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1)
-}
-
-// day is a date as the page shows it, the same on the server as in any
-// browser, whatever its language or zone.
-function day(at: string): string {
-  return new Date(at).toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
 }

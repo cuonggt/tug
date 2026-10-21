@@ -273,6 +273,13 @@ func TestLangHasTheFormsEachOfTheAppsLanguagesGivesACount(t *testing.T) {
 		"export interface Texts {",
 		"export function t(texts: Texts, text: string, args?: TextArgs): string {",
 		"export function choice(texts: Texts, text: string, count: number, args?: TextArgs): string {",
+		// A figure is said as the language writes one, by the browser's
+		// Intl, in the app's own zone the texts carry, and a count is said
+		// that way too, as Words.Choice says it.
+		"  zone?: string",
+		"export function number(texts: Texts, n: number, options?: Intl.NumberFormatOptions): string {",
+		"export function date(texts: Texts, at: DateLike, options?: Intl.DateTimeFormatOptions): string {",
+		"{ count: number(texts, count), ...args }",
 		// A table for each, by the tag package lang keys its rules by.
 		"'en': '",
 		"'vi': '",

@@ -96,7 +96,10 @@ interface.
    the home page's do: `t('Save')` says a word in the request's language,
    and `choice(':count post|:count posts', n)` says one for a count.
    `tug lang vi` writes them into `lang/<language>.json`, beside what the
-   Go says, to translate.
+   Go says, to translate. `n(1234)` and `d(post.createdAt, { dateStyle:
+   'long' })` say a number and a time the way the language writes them: a
+   time in the app's zone, `APP_TIMEZONE`'s, and in the reader's own once
+   the page is open in their browser.
 
 ## Add a form
 

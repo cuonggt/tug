@@ -8,12 +8,12 @@ import PasswordInput from '@/components/PasswordInput.vue'
 import TwoFactorSettings from '@/components/TwoFactorSettings.vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // Security changes the user's password, which logs them out everywhere
 // else, or sets one, for an account made with a passkey, or removes it,

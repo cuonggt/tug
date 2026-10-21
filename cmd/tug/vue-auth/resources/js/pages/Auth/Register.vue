@@ -9,14 +9,14 @@ import TextLink from '@/components/TextLink.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { vFocus } from '@/lib/focus'
 import { passkeysWork } from '@/lib/passkeys'
   import { text } from '@/tug/lang'
 import { form, route, type Inputs } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // Register checks each field with the server as it's left, as BindValid in
 // auth.go answers: a taken email shows before the form is sent. Where the

@@ -141,7 +141,11 @@ takes `ADDR=127.0.0.1:8080`, as the default listens on every interface.
    said outside the markup, as a static `layout`'s title, is marked with
    `text()`, from `@/tug/lang`, and said with `t()` where it's read.
    `tug lang vi` writes them all into `lang/<language>.json`, beside what
-   the Go says, to translate.
+   the Go says, to translate. `n(1234)` and `d(post.createdAt, { dateStyle:
+   'long' })` say a number and a time the way the language writes them, as
+   the dashboard says the day the account was made: a time is in the app's
+   zone, `APP_TIMEZONE`'s, and in the reader's own once the page is open in
+   their browser.
 
 ## Add a form
 

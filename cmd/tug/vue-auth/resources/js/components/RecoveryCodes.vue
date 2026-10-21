@@ -3,11 +3,11 @@ import { Form } from '@inertiajs/vue3'
 import { Check, Copy } from '@lucide/vue'
 import { ref } from 'vue'
 import { Button } from '@/components/ui/button'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { form } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // RecoveryCodes lists the user's recovery codes, to copy somewhere safe,
 // and makes new ones. TwoFactorSettings shows it.

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"go/format"
+	"html"
 	"io"
 	"io/fs"
 	"net"
@@ -937,14 +938,16 @@ func hasItsHead(t *testing.T, page, title string) {
 // without running its scripts.
 func showsItsHead(t *testing.T, dir, title string) {
 	t.Helper()
-	// In a language of its own, which the document around the page says.
-	// Its words are the browser's to say, which this test hasn't got: a
-	// page rendered on the server says them, in rendersOnTheServer.
+	// In a language and a zone of its own, which the document around the
+	// page says, and the texts it carries. Its words are the browser's to
+	// say, which this test hasn't got: a page rendered on the server says
+	// them, in rendersOnTheServer.
 	withLanguage(t, dir, "vi", nil)
-	base, out := serveApp(t, dir, "APP_LOCALE=vi")
+	base, out := serveApp(t, dir, "APP_LOCALE=vi", "APP_TIMEZONE=Asia/Ho_Chi_Minh")
 	page, _ := firstVisit(t, base, out, "</html>")
 	hasItsHead(t, page, title)
 	hasItsLanguage(t, page, "vi")
+	hasItsZone(t, page, "Asia/Ho_Chi_Minh")
 }
 
 // withLanguage gives the app in dir a language of its own, as tug lang
@@ -986,6 +989,16 @@ func hasItsLanguage(t *testing.T, page, locale string) {
 	t.Helper()
 	if !strings.Contains(page, `<html lang="`+locale+`">`) {
 		t.Errorf("the page's document doesn't say it's in %s:\n%.200s", locale, page)
+	}
+}
+
+// hasItsZone checks the page carries the app's own time zone,
+// APP_TIMEZONE's, with the words it says its texts in: a page writes a time
+// in that zone until it's open in a browser, whose own it then takes.
+func hasItsZone(t *testing.T, page, zone string) {
+	t.Helper()
+	if want := `"zone":"` + zone + `"`; !strings.Contains(html.UnescapeString(page), want) {
+		t.Errorf("the page doesn't carry the app's zone, %s:\n%.400s", zone, page)
 	}
 }
 

@@ -2,11 +2,11 @@
 import { Eye, EyeOff } from '@lucide/vue'
 import { type HTMLAttributes, ref, useTemplateRef } from 'vue'
 import { Input } from '@/components/ui/input'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { cn } from '@/lib/utils'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // PasswordInput is a password field with a button that shows what's been
 // typed, to check it on a phone's keyboard. What it's given, as its id and

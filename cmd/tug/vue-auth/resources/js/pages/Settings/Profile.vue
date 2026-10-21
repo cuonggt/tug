@@ -7,13 +7,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 import { initials } from '@/lib/utils'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { form, route, type Inputs } from '@/tug/routes'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // Profile changes the user's name and email, and their photo. A new email
 // is mailed a link, and isn't verified until it's followed: updateProfile

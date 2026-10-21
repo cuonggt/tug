@@ -2,10 +2,10 @@
 import { Head } from '@inertiajs/vue3'
 import AppearanceTabs from '@/components/AppearanceTabs.vue'
 import Heading from '@/components/Heading.vue'
-  import { useLang } from '@/lib/lang'
+import { useLang } from '@/lib/lang'
 
-  // The page says its own words in the request's language.
-  const { t } = useLang()
+// The page says its own words in the request's language.
+const { t } = useLang()
 
 // Appearance picks light, dark, or the system's, for this browser.
 </script>
