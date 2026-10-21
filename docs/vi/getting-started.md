@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 9818999d77fc -->
+<!-- translated from docs/getting-started.md at d860cbf3ec60 -->
 
 # Bắt đầu
 
@@ -23,7 +23,7 @@ tug version
 
 `go install` đặt `tug` vào `$(go env GOPATH)/bin`, hoặc vào `$GOBIN` nếu
 biến này có giá trị, và thư mục đó cần nằm trong `PATH` của bạn.
-`tug version` in ra phiên bản đã cài, chẳng hạn `tug v0.46.0`. Các ứng
+`tug version` in ra phiên bản đã cài, chẳng hạn `tug v0.47.0`. Các ứng
 dụng do `tug new` tạo ra đều yêu cầu đúng phiên bản đó.
 
 ## Tạo một ứng dụng

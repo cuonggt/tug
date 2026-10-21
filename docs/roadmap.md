@@ -4935,7 +4935,7 @@ it showed Vietnamese form errors beside English labels, buttons and titles
 — the very thing M51 set out to end. It shipped `useLang` and the texts
 prop, and used neither. There were about 110 texts a frontend, in about
 150 places, and the three frontends say the same words, as they're one app
-word for word. To be released as v0.47.0.
+word for word. Released as v0.47.0.
 
 - **Every page, component and layout:** `useLang`, and `t()` where the
   words are: in the markup, in the attributes a person reads, a
