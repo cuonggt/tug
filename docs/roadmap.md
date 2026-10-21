@@ -5017,7 +5017,7 @@ about the button that didn't work — and a mail isn't a request's to say:
 it's made by a job, which has no `Ctx`, no `Accept-Language`, and nothing
 to ask. tug had the catalog, `lang.Catalog.In`, which is there for exactly
 this, `Config.Locale`, which the guide already told an app to read a user's
-row with, and jobs that carry what they're pushed with. To be released as
+row with, and jobs that carry what they're pushed with. Released as
 v0.48.0.
 
 - **A language on the account:** a `locale` column in the `users` table of
