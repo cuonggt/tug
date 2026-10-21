@@ -103,18 +103,19 @@ func TestTheRootTemplateHasTheResponsesNonce(t *testing.T) {
 	}
 }
 
-func TestTheRootTemplateHasThePagesLanguage(t *testing.T) {
-	i := newInertia(t, Config{Template: `<html lang="{{ .Locale }}">{{ .Inertia }}</html>`})
+func TestTheRootTemplateHasThePagesLanguageAndWhichWayItsWritten(t *testing.T) {
+	i := newInertia(t, Config{Template: `<html lang="{{ .Locale }}" dir="{{ .Dir }}">{{ .Inertia }}</html>`})
 	r := httptest.NewRequest("GET", "/posts", nil)
-	rec, _ := render(t, i, r.WithContext(WithLocale(r.Context(), "vi")), "Posts/Index", nil)
-	if body := rec.Body.String(); !strings.HasPrefix(body, `<html lang="vi">`) {
+	ctx := WithDir(WithLocale(r.Context(), "ar"), "rtl")
+	rec, _ := render(t, i, r.WithContext(ctx), "Posts/Index", nil)
+	if body := rec.Body.String(); !strings.HasPrefix(body, `<html lang="ar" dir="rtl">`) {
 		t.Errorf("got %s", body)
 	}
 	// A document has to say something, and lang="" says nothing a browser
 	// can use: without a language it's English, as a template that says it
 	// itself would have it.
 	rec, _ = render(t, i, httptest.NewRequest("GET", "/posts", nil), "Posts/Index", nil)
-	if body := rec.Body.String(); !strings.HasPrefix(body, `<html lang="en">`) {
+	if body := rec.Body.String(); !strings.HasPrefix(body, `<html lang="en" dir="ltr">`) {
 		t.Errorf("got %s", body)
 	}
 }

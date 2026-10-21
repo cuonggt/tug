@@ -249,13 +249,16 @@ func (w Words) Choice(text string, n int, args ...any) string {
 // language, Words the words for each text the language has any for, its
 // own and the rest from English, and From names the language a text's
 // words are in where that isn't Locale, so a count takes the forms that
-// language's rules give it, as Choice gives it them here. Zone is the app's
-// own time zone, which the app fills in, as tug.Config.Zone has it: the
-// language says how a date is written, and the zone which moment it is.
+// language's rules give it, as Choice gives it them here. Dir is which way
+// the language is written, as Dir says it, for a page that lays something
+// out itself. Zone is the app's own time zone, which the app fills in, as
+// tug.Config.Zone has it: the language says how a date is written, and the
+// zone which moment it is.
 type Texts struct {
 	Locale string            `json:"locale"`
 	Words  map[string]string `json:"words"`
 	From   map[string]string `json:"from,omitempty"`
+	Dir    string            `json:"dir,omitempty"`
 	Zone   string            `json:"zone,omitempty"`
 }
 
@@ -264,7 +267,7 @@ type Texts struct {
 // language has no words for isn't in it, and says itself, in English, as
 // T says it.
 func (w Words) Texts() Texts {
-	t := Texts{Locale: w.Locale(), Words: map[string]string{}}
+	t := Texts{Locale: w.Locale(), Words: map[string]string{}, Dir: w.Dir()}
 	if w.c == nil {
 		return t
 	}

@@ -18,10 +18,10 @@ import { route } from '@/tug/routes'
 // UserMenu is who's logged in, in the header, and what's theirs to do:
 // their settings, and logging out.
 export default function UserMenu({ user }: { user: User }) {
-  const { t } = useLang()
+  const { t, dir } = useLang()
 
   return (
-    <DropdownMenu>
+    <DropdownMenu dir={dir}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="h-9 gap-2 px-2" aria-label={t('Your account')}>
           {/* A new photo, or none, is a new avatar: one keeps the image it loaded. */}

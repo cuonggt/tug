@@ -42,7 +42,7 @@ a {
 
 .flash {
   padding: 0.5rem 0.8rem;
-  border-left: 4px solid var(--accent);
+  border-inline-start: 4px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 

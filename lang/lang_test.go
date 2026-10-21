@@ -236,6 +236,7 @@ func TestTextsAreEverythingALanguageSaysForAPageToSayItToo(t *testing.T) {
 		Locale: "vi",
 		Words:  map[string]string{"Save": "Lưu", ":count post|:count posts": ":count bài viết", "Delete": "Delete it"},
 		From:   map[string]string{"Delete": "en"},
+		Dir:    "ltr",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("vi's texts:\n%+v\nwant\n%+v", got, want)
@@ -247,6 +248,7 @@ func TestTextsAreEverythingALanguageSaysForAPageToSayItToo(t *testing.T) {
 		Locale: "pt-BR",
 		Words:  map[string]string{"Save": "Salvar", "Cancel": "Cancelar", "Delete": "Delete it"},
 		From:   map[string]string{"Cancel": "pt", "Delete": "en"},
+		Dir:    "ltr",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("pt-BR's texts:\n%+v\nwant\n%+v", got, want)
@@ -254,7 +256,7 @@ func TestTextsAreEverythingALanguageSaysForAPageToSayItToo(t *testing.T) {
 
 	// English's are its own, with nothing to say about where they're from.
 	got = c.In("en").Texts()
-	want = Texts{Locale: "en", Words: map[string]string{"Save": "Save it", "Delete": "Delete it"}}
+	want = Texts{Locale: "en", Words: map[string]string{"Save": "Save it", "Delete": "Delete it"}, Dir: "ltr"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("en's texts:\n%+v\nwant\n%+v", got, want)
 	}

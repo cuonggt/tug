@@ -65,7 +65,7 @@ a redirect ([forms.md](forms.md)). The root template, `app.html`:
 
 ```html
 <!doctype html>
-<html lang="{{ .Locale }}">
+<html lang="{{ .Locale }}" dir="{{ .Dir }}">
   <head>
     <meta charset="utf-8">
     <meta property="csp-nonce" nonce="{{ .Nonce }}">
@@ -97,9 +97,10 @@ tags of its `<Head>` too: [ssr.md](ssr.md).
 around it to say: a browser hyphenates by it, spell-checks by it, and
 reads the page aloud in it. It's the language the page's own words are
 said in, since tug says them in the same one. Without a language of its
-own, as for an app with no catalog, it's `en`; a language written right to
-left needs the template's own `dir="rtl"`, which tug doesn't say, as a
-tag doesn't say a script.
+own, as for an app with no catalog, it's `en`. `.Dir` is which way that
+language is written, `rtl` or `ltr`, as `lang.Dir` says it, for the
+document to say beside the language: what a page lays out follows it
+([A language's direction](languages.md#a-languages-direction)).
 
 `.Nonce` is the response's Content-Security-Policy nonce, which
 `middleware.CSP` makes ([deployment.md](deployment.md#security-headers)),

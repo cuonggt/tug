@@ -57,7 +57,7 @@
           {/each}
         </nav>
       {/if}
-      <div class="ml-auto flex items-center gap-2">
+      <div class="ms-auto flex items-center gap-2">
         {#if user}
           <Link
             href={route('notifications.index')}
@@ -67,7 +67,7 @@
             <Bell />
             {#if unread > 0}
               <span
-                class="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground"
+                class="absolute top-1 end-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground"
               >
                 {unread > 99 ? '99+' : unread}
               </span>

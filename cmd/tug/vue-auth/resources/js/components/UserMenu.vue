@@ -17,7 +17,7 @@ import type { User } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
 // The page says its own words in the request's language.
-const { t } = useLang()
+const { t, dir } = useLang()
 
 // UserMenu is who's logged in, in the header, and what's theirs to do:
 // their settings, and logging out.
@@ -25,7 +25,7 @@ defineProps<{ user: User }>()
 </script>
 
 <template>
-  <DropdownMenu>
+  <DropdownMenu :dir="dir">
     <DropdownMenuTrigger as-child>
       <Button variant="ghost" class="h-9 gap-2 px-2" :aria-label="t('Your account')">
         <!-- A new photo, or none, is a new avatar: one keeps the image it loaded. -->

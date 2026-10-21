@@ -61,7 +61,7 @@ to 3.8.0, October 2026), written against
 | M52 | The auth starter's words   | done   |
 | M53 | The mail's language        | done   |
 | M54 | Dates and numbers          | done   |
-| M55 | A language's direction     | later  |
+| M55 | A language's direction     | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5183,73 +5183,90 @@ Choices made on the way:
   language's order is `x/text/collate`'s. The guide says both are the
   app's, as it says a language's own words are its file's.
 
-## M55 · A language's direction — later
+## M55 · A language's direction — done
 
 M50 to M54 made an app say everything in the reader's language: its words,
-its pages' own, its mail's, and its figures. An app in Arabic or Hebrew
-gets all of that and a page laid out backwards. The document says
-`<html lang="ar">` and no more, so the browser leaves the page left to
-right: each sentence reads right to left, as bidi has it, and everything
-around the sentences — the sidebar, the menus, what's padded on which
-side, the chevron that points at the next page — stays where an English
-page has it. The starters have forty-seven utilities that name a physical
-side, in six files each, `components/ui`'s among them, and one icon that
-points. A tag doesn't say its script, and `lang` keeps no table of them.
-To be released as v0.50.0.
+its pages' own, its mail's, and its figures. An app in Arabic or Hebrew got
+all of that and a page laid out backwards. The document said
+`<html lang="ar">` and no more, so the browser left the page left to
+right: each sentence read right to left, as bidi has it, and everything
+around the sentences — the menus, what was padded on which side, the
+chevron that points at a submenu — stayed where an English page has it.
+The starters had fifty-two utilities that named a physical side, and one
+icon that points. To be released as v0.50.0.
 
-- **A table in `lang`:** the languages written right to left — Arabic,
-  Hebrew, Persian, Urdu, Pashto, Sindhi, Uyghur, Sorani Kurdish, Divehi,
-  Yiddish and the rest — with `Dir(locale)`, "rtl" or "ltr", as
-  `PluralIndex` is a function of a tag, and `Words.Dir()` beside it. A tag
-  that names a Latin script, `ar-Latn`, is left to right.
+- **A table in `lang`:** `dir.go`, the eighteen languages written right to
+  left, Arabic to Yiddish, and the nine scripts, with `Dir(locale)`,
+  "rtl" or "ltr", as `PluralIndex` is a function of a tag, and
+  `Words.Dir()` beside it. A tag that names its script is written the
+  script's way, whatever the language usually is: `ar-Latn` is left to
+  right, and `pa-Arab` right to left.
 - **The document says it:** `inertia.TemplateData.Dir`, which `WithDir`
-  carries as `WithLocale` carries the language, filled in by tug beside
-  it, so a root template is
+  carries as `WithLocale` carries the language and `DirFrom` reads, "ltr"
+  for a context that has none; tug fills it in beside the language, from
+  `lang.Dir(c.Locale())`, and both starters' `app.html` is
   `<html lang="{{ .Locale }}" dir="{{ .Dir }}">`. Package inertia keeps no
-  table of its own, as it imports no lang, the same line M50 drew for the
-  language.
-- **The pages know it too:** `lang.Texts` carries `Dir`, as it carries
-  `Zone`, for a page that mirrors something itself and for the component
-  kits, which need the direction in JavaScript, where a server render has
-  no document to read it from.
-- **The starters mirror:** every utility that names a side becomes the
-  logical one — `ms-` and `me-`, `ps-` and `pe-`, `text-start` and
-  `text-end`, `start-` and `end-`, `rounded-s-` and `rounded-e-` — and
-  the icon that points flips with Tailwind's `rtl:rotate-180`. What
-  mustn't flip stays as it is: a code span, a token, an address.
-- **The kits' own direction:** React's Radix takes a `DirectionProvider`,
-  Vue's reka-ui a `ConfigProvider` with `dir`, and Svelte's bits-ui
-  whatever it has, which this milestone finds out; each frontend's
-  `inertia.tsx` hands it `texts.dir`, as it hands Inertia's client the
-  nonce.
-- **Tests:** `lang`'s directions, a Latin script among them; the CLI's
-  served pages, `<html lang="ar" dir="rtl">` in every kind of app it
-  makes, as they already check the language; and the browser suite, a
-  frontend in Arabic, where the menu opens from the right and the layout's
-  own side is the other one.
-- **The guide:** Languages, a language's direction, and what stays as it
-  is; Pages, the root template's `dir`.
+  table of its own, as it imports no lang.
+- **The pages know it too:** `lang.Texts` carries `Dir`, which `Texts()`
+  fills in from the language itself, unlike `Zone`, which is the app's to
+  say, and each frontend's `useLang()` hands it back as `dir`.
+- **The starters mirror:** forty-nine utilities became the logical one —
+  `ms-` and `me-`, `ps-` and `pe-`, `text-start`, `start-` and `end-`,
+  `rounded-e-` — across twenty-four files, `components/ui`'s among them,
+  and the submenu's chevron flips with `rtl:rotate-180`. The plain
+  starter's own CSS takes `border-inline-start`.
+- **The menus open from the right way:** every kit takes the direction as
+  a prop of the menu's root and defaults it to "ltr" — Radix's, reka-ui's
+  and bits-ui's alike — so each starter's user menu is
+  `<DropdownMenu dir={dir}>`, from the hook.
+- **Tests:** `lang`'s directions, with a region, a script and a language
+  it doesn't name; inertia's root template, which says both now; the
+  CLI's served pages, in Arabic, `<html lang="ar" dir="rtl">` in every
+  kind of app it makes; and the browser suite's `direction.spec.ts`, in a
+  browser that asks for Arabic, where the document says it and the button
+  that shows a password sits at the field's left.
+- **The guide:** Languages, a language's direction; Pages, the root
+  template's `.Dir`; and both starters' notes, in Tailwind's words for the
+  auth one and in CSS's for the plain one, which has no Tailwind.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A table, not a tag's script:** a BCP 47 tag doesn't say which script
   it's written in, and asking for one, `ar-Arab`, is no app's habit. The
   languages written right to left are few and don't change, so a set of
-  them is the whole table, with a tag that does name a Latin script left
-  to right.
+  them is the whole table; a tag that does name a script is written that
+  script's way, which is the one case the languages alone would get
+  wrong.
+- **M50's line, redrawn:** that milestone left the direction to the app —
+  "a tag doesn't say its script" — and said so in `TemplateData.Locale`'s
+  own doc. The table answers it: `lang` knows which languages are written
+  which way, so tug can say it, and an app that had to write its own
+  `dir` no longer does. Package inertia still holds no table: it carries
+  what it's given.
 - **Logical properties, not `rtl:` on everything:** Tailwind has both, and
   a logical property mirrors by itself, in every language, with no variant
   to forget. `rtl:` is for what a side can't say: an icon that points.
+  shadcn-svelte's own components were already written that way, which is
+  why Svelte had eight of the fifty-two and React and Vue twenty-two
+  each.
+- **Centring stays as it was:** `left-[50%]` with a shift of half the
+  element's own width is the middle either way, and `start-[50%]` would
+  put a dialog off to one side in Arabic. Three of the fifty-two were
+  that, and they kept their left.
 - **The direction follows the language:** not a setting of the user's own,
   as the zone follows the app. A language is written one way, and an app
   that wants the choice writes `dir` itself.
-- **`components/ui` is the app's own:** mirroring means editing files a
-  registry wrote, which is shadcn's model — they're copied into the app,
-  not depended on — so the starters' own `components/ui` change with the
-  rest, and an app that adds a component later mirrors it as it lands.
+- **A prop, not a provider:** the plan had each frontend's `inertia.tsx`
+  wrap the app in its kit's direction provider. React has one, and Vue's
+  reka-ui a `ConfigProvider`, but neither starter's app mounts anywhere a
+  wrapper could go — Vue's and Svelte's mount through Inertia's own setup,
+  with their toasts beside the app — and bits-ui has no provider at all,
+  only a `dir` on each menu. The menu's own prop is what all three have in
+  common, so all three pass it, and `useLang()` says it once.
 - **Still no translation shipped:** an Arabic app says English until
   there's a `lang/ar.json`, as everything else does. The direction doesn't
-  wait for one: it follows `APP_LOCALE`.
+  wait for one: the browser suite's apps have an empty file, so Arabic is
+  a language they know, and every word in those tests is still English.
 
 ## Decisions
 

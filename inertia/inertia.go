@@ -95,9 +95,15 @@ type TemplateData struct {
 
 	// Locale is the language the page is in, as WithLocale set it, for the
 	// document around it to say: <html lang="{{ .Locale }}">. It's "en"
-	// when nothing set it. A language's direction isn't here: an app that
-	// has a right-to-left language writes its own dir.
+	// when nothing set it.
 	Locale string
+
+	// Dir is which way that language is written, as WithDir set it, for the
+	// document to say beside it: <html lang="{{ .Locale }}" dir="{{ .Dir
+	// }}">. It's "ltr" when nothing set it. tug sets it from the request's
+	// language, lang.Dir's; an app on package inertia alone sets it from
+	// wherever it knows, as lang.Dir too.
+	Dir string
 
 	// Nonce is the response's Content-Security-Policy nonce, which
 	// middleware.CSP made, for the template's own scripts to carry, as
@@ -255,6 +261,7 @@ func (i *Inertia) RenderStatus(w http.ResponseWriter, r *http.Request, code int,
 		Page:    page,
 		Inertia: template.HTML(`<script data-page="app" type="application/json">` + string(data) + `</script><div id="app"></div>`),
 		Locale:  LocaleFrom(r.Context()),
+		Dir:     DirFrom(r.Context()),
 		Nonce:   nonce.From(r.Context()),
 	}
 	onServer := false
@@ -646,6 +653,7 @@ const (
 	noSSRKey
 	headKey
 	localeKey
+	dirKey
 )
 
 // WithoutSSR returns a context whose pages render in the browser, even
@@ -686,6 +694,25 @@ func LocaleFrom(ctx context.Context) string {
 		return "en"
 	}
 	return locale
+}
+
+// WithDir returns a context whose pages are written dir, "rtl" or "ltr",
+// for the root template to say around them: TemplateData.Dir. tug sets it
+// to the request's language's, lang.Dir's; an app on package inertia alone
+// sets it from wherever it keeps the language, lang.Dir of that.
+func WithDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, dirKey, dir)
+}
+
+// DirFrom is which way the page ctx renders is written, as WithDir set it,
+// or "ltr": a document that says nothing is read left to right anyway, and
+// saying so is what a page in a right-to-left language has to undo.
+func DirFrom(ctx context.Context) string {
+	dir, _ := ctx.Value(dirKey).(string)
+	if dir == "" {
+		return "ltr"
+	}
+	return dir
 }
 
 // WithProps returns a context whose pages get props as shared props. It is

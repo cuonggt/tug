@@ -101,6 +101,12 @@ interface.
    time in the app's zone, `APP_TIMEZONE`'s, and in the reader's own once
    the page is open in their browser.
 
+6. Its style, in `resources/css/app.css`, names a start and an end rather
+   than a left and a right: `margin-inline-start`, `padding-inline-end`,
+   `border-inline-start`, `text-align: start`. A page laid out that way
+   mirrors itself in a language written right to left, which the document
+   says with `dir`.
+
 ## Add a form
 
 1. Its input, with validate's tags, and a handler that binds it:

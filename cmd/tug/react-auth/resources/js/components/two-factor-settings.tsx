@@ -65,7 +65,7 @@ export default function TwoFactorSettings({ user, setup, recoveryCodes }: PagePr
         </>
       ) : setup ? (
         <div className="space-y-6">
-          <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+          <ol className="list-decimal space-y-2 ps-5 text-sm text-muted-foreground">
             <li>{t('Scan this with an authenticator app, such as 1Password, Google Authenticator or Authy.')}</li>
             <li>{t("Type the code it shows, to be sure it's set up.")}</li>
           </ol>

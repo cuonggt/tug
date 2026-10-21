@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cuonggt/tug/inertia"
+	"github.com/cuonggt/tug/lang"
 	"github.com/cuonggt/tug/session"
 	"github.com/cuonggt/tug/validate"
 )
@@ -227,9 +228,11 @@ func (c *Ctx) pageRequest(component string) *http.Request {
 	if len(c.head) > 0 {
 		ctx = inertia.WithHead(ctx, c.head...)
 	}
-	// The language the page's texts are said in, for the document around
-	// it to say: it's picked once a request, as c.T picks it.
+	// The language the page's texts are said in, and which way it's
+	// written, for the document around it to say: the language is picked
+	// once a request, as c.T picks it.
 	ctx = inertia.WithLocale(ctx, c.Locale())
+	ctx = inertia.WithDir(ctx, lang.Dir(c.Locale()))
 	return c.r.WithContext(ctx)
 }
 

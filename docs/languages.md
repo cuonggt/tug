@@ -330,6 +330,41 @@ and those whose thousands go in twos past the first three, as Hindi's
 lakh. A page says both right all the same, as `Intl` has every language's
 way.
 
+## A language's direction
+
+```html
+<html lang="{{ .Locale }}" dir="{{ .Dir }}">
+```
+
+Arabic, Hebrew, Persian, Urdu and the rest are written right to left, and
+a page in one says so. A browser reads the sentences the right way by
+itself, and everything around them follows the document's `dir`: which
+side a menu opens from, which side is padded, where a badge sits.
+
+`lang.Dir(locale)` is which way a language is written, `"rtl"` or
+`"ltr"`, from the languages package `lang` knows are written right to
+left; `Words.Dir()` says it for a language in hand. A tag may name its
+script, and then the script decides, so `ar-Latn`, Arabic in Latin
+letters, is left to right. tug hands it to the root template as `.Dir`,
+beside `.Locale`, and both starters say both.
+
+A page has it too, in the same `texts` prop, for whatever lays itself out
+in JavaScript, as the user menu's own kit does:
+
+```tsx
+const { t, dir } = useLang()
+
+<DropdownMenu dir={dir}>
+```
+
+The starters are laid out with the properties that name a start and an
+end rather than a left and a right — `ms-` and `me-`, `ps-` and `pe-`,
+`text-start`, `start-` and `end-` — so a page mirrors itself, as
+shadcn-svelte's own components already did. What a side can't say is
+Tailwind's `rtl:` variant: the chevron on a submenu points the other way
+with `rtl:rotate-180`. Centring stays as it was, `left-[50%]` with a
+shift of half the element's own width, which is the middle either way.
+
 ## What's not here yet
 
 - **A date in Go**: a number is `Words.Number`'s ([Dates and
@@ -340,10 +375,6 @@ way.
   language's order: a page has the first in `Intl.NumberFormat`'s `style:
   'currency'`, and Go the second in `golang.org/x/text/collate`, which is
   the app's to take.
-- **A language's direction**: `TemplateData.Locale` says which language a
-  page is in, and `dir="rtl"` for one written right to left is the
-  template's to say. A tag doesn't say its script, and package `lang`
-  keeps no table of them.
 - **A text's context**: one English text says one thing, in every place
   it's said. One that means two things is written two ways.
 - **Files in directories**, as Laravel's `lang/vi/validation.php`: a

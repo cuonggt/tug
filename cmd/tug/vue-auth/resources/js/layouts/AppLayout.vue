@@ -60,14 +60,14 @@ onUnmounted(() => stop?.())
             {{ t(item.title) }}
           </Link>
         </nav>
-        <div class="ml-auto flex items-center gap-2">
+        <div class="ms-auto flex items-center gap-2">
           <template v-if="user">
             <Button variant="ghost" size="icon" class="relative" as-child>
               <Link :href="route('notifications.index')" :aria-label="unread > 0 ? choice('Notifications, 1 unread|Notifications, :count unread', unread) : t('Notifications')">
                 <Bell />
                 <span
                   v-if="unread > 0"
-                  class="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground"
+                  class="absolute top-1 end-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground"
                 >
                   {{ unread > 99 ? '99+' : unread }}
                 </span>

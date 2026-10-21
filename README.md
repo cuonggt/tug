@@ -15,7 +15,8 @@ the app's instances, the client's address behind its proxies, signed
 links, what tug and the app say in the request's language, a page's own
 words among it, which the document around it says it's in, the mail an
 account gets in the language it keeps, a date and a number written as that
-language writes them, a time in the reader's own zone, lists in
+language writes them, a time in the reader's own zone, a page in a
+language written right to left laid out that way, lists in
 pages, the app's own commands, a cache and locks across the instances,
 mail with copies, files and a link to unsubscribe, downloads, streams and
 server-sent events, the app's own values encrypted, events broadcast to
@@ -198,7 +199,10 @@ func showPost(c *tug.Ctx) error {
   written the language's way too: `n()` and `d()` in a page, the browser's
   own `Intl`, and `Words.Number` in Go, which a text's `:count` goes
   through. A time is in the app's zone, `APP_TIMEZONE`'s, and in the
-  reader's own once the page is in their browser.
+  reader's own once the page is in their browser. A language written right
+  to left says so, `<html dir="rtl">`, as `lang.Dir` has it, and the
+  starters' pages mirror themselves, laid out by what names a start and an
+  end.
 - **Encryption** (package `crypt`): the app's own values, as a token for
   another service kept in a column, sealed with AES-256-GCM, under a key
   for their purpose alone, derived from `APP_KEY`, bound to their row if

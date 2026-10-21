@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, open, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -34,6 +34,10 @@ async function make(tug: string, dir: string, flags: string[]) {
   }
   await rm(dir, { recursive: true, force: true })
   await sh(repo, tug, 'new', '-tug-dir', repo, '-auth', '-ssr', ...flags, dir)
+  // A language of the app's own, with no words in it yet: Arabic says
+  // English until there are any, and is written right to left either way,
+  // which direction.spec.ts asks for. The binary embeds lang/.
+  await writeFile(path.join(dir, 'lang', 'ar.json'), '{}\n')
   await sh(dir, 'npm', 'run', 'build')
   await sh(dir, 'go', 'build', '-o', 'app', '.')
 }

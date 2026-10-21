@@ -51,7 +51,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               ))}
             </nav>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ms-auto flex items-center gap-2">
             {user ? (
               <>
                 <Button variant="ghost" size="icon" className="relative" asChild>
@@ -61,7 +61,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   >
                     <Bell />
                     {unread > 0 && (
-                      <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                      <span className="absolute top-1 end-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
                         {unread > 99 ? '99+' : unread}
                       </span>
                     )}

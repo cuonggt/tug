@@ -276,6 +276,7 @@ func TestLangHasTheFormsEachOfTheAppsLanguagesGivesACount(t *testing.T) {
 		// A figure is said as the language writes one, by the browser's
 		// Intl, in the app's own zone the texts carry, and a count is said
 		// that way too, as Words.Choice says it.
+		"  dir?: string",
 		"  zone?: string",
 		"export function number(texts: Texts, n: number, options?: Intl.NumberFormatOptions): string {",
 		"export function date(texts: Texts, at: DateLike, options?: Intl.DateTimeFormatOptions): string {",

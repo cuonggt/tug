@@ -84,7 +84,7 @@ export default function Login() {
             <div className="grid gap-2">
               <div className="flex items-center">
                 <Label htmlFor="password">{t('Password')}</Label>
-                <TextLink href={route('password.request')} className="ml-auto text-sm">
+                <TextLink href={route('password.request')} className="ms-auto text-sm">
                   {t('Forgotten it?')}
                 </TextLink>
               </div>

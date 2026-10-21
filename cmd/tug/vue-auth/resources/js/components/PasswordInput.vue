@@ -23,12 +23,12 @@ defineExpose({ focus: () => field.value?.$el.focus() })
 
 <template>
   <div class="relative">
-    <Input ref="input" v-bind="$attrs" :type="shown ? 'text' : 'password'" :class="cn('pr-10', props.class)" />
+    <Input ref="input" v-bind="$attrs" :type="shown ? 'text' : 'password'" :class="cn('pe-10', props.class)" />
     <button
       type="button"
       :aria-label="shown ? t('Hide the password') : t('Show the password')"
       tabindex="-1"
-      class="absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      class="absolute inset-y-0 end-0 flex items-center rounded-e-md px-3 text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
       @click="shown = !shown"
     >
       <EyeOff v-if="shown" class="size-4" />

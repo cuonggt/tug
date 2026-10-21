@@ -939,14 +939,15 @@ func hasItsHead(t *testing.T, page, title string) {
 func showsItsHead(t *testing.T, dir, title string) {
 	t.Helper()
 	// In a language and a zone of its own, which the document around the
-	// page says, and the texts it carries. Its words are the browser's to
-	// say, which this test hasn't got: a page rendered on the server says
-	// them, in rendersOnTheServer.
-	withLanguage(t, dir, "vi", nil)
-	base, out := serveApp(t, dir, "APP_LOCALE=vi", "APP_TIMEZONE=Asia/Ho_Chi_Minh")
+	// page says, and the texts it carries: Arabic, which is written right
+	// to left, so the document says that too. Its words are the browser's
+	// to say, which this test hasn't got: a page rendered on the server
+	// says them, in rendersOnTheServer.
+	withLanguage(t, dir, "ar", nil)
+	base, out := serveApp(t, dir, "APP_LOCALE=ar", "APP_TIMEZONE=Asia/Ho_Chi_Minh")
 	page, _ := firstVisit(t, base, out, "</html>")
 	hasItsHead(t, page, title)
-	hasItsLanguage(t, page, "vi")
+	hasItsLanguage(t, page, "ar", "rtl")
 	hasItsZone(t, page, "Asia/Ho_Chi_Minh")
 }
 
@@ -983,12 +984,13 @@ func saysItsWordsInVietnamese(auth bool) map[string]string {
 }
 
 // hasItsLanguage checks the document around the page says the language the
-// app is in, APP_LOCALE's: a page in another language shouldn't tell a
-// browser it's English.
-func hasItsLanguage(t *testing.T, page, locale string) {
+// app is in, APP_LOCALE's, and which way it's written: a page in another
+// language shouldn't tell a browser it's English, and one in Arabic
+// shouldn't be laid out as English is.
+func hasItsLanguage(t *testing.T, page, locale, dir string) {
 	t.Helper()
-	if !strings.Contains(page, `<html lang="`+locale+`">`) {
-		t.Errorf("the page's document doesn't say it's in %s:\n%.200s", locale, page)
+	if want := `<html lang="` + locale + `" dir="` + dir + `">`; !strings.Contains(page, want) {
+		t.Errorf("the page's document doesn't say %s:\n%.200s", want, page)
 	}
 }
 
@@ -1014,7 +1016,7 @@ func rendersOnTheServer(t *testing.T, dir, title string, words map[string]string
 	withLanguage(t, dir, "vi", words)
 	base, out := serveApp(t, dir, "APP_LOCALE=vi")
 	page, header := firstVisit(t, base, out, `data-server-rendered="true"`)
-	hasItsLanguage(t, page, "vi")
+	hasItsLanguage(t, page, "vi", "ltr")
 	// The page says its own words in the request's language, as the server
 	// says its own: the texts it gives t() are the language's here, so the
 	// HTML it rendered has them.

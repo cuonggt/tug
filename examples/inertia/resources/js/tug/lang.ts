@@ -4,13 +4,16 @@
  * Texts are the words a page says, in the language of the request it came
  * with: the texts prop the app shares. words has the words for each text
  * the language has any for, and from names the language a text's words are
- * in where that isn't locale, whose rules give a count its form. zone is
- * the app's own time zone, which date() writes a time in.
+ * in where that isn't locale, whose rules give a count its form. dir is
+ * which way the language is written, 'rtl' or 'ltr', which the document
+ * around the page says too, and zone is the app's own time zone, which
+ * date() writes a time in.
  */
 export interface Texts {
   locale: string
   words: Record<string, string>
   from?: Record<string, string>
+  dir?: string
   zone?: string
 }
 

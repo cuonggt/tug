@@ -90,7 +90,7 @@ const LoginForm = createForm<Inputs['login.store']>()
     <div class="grid gap-2">
       <div class="flex items-center">
         <Label for="password">{{ t('Password') }}</Label>
-        <TextLink :href="route('password.request')" class="ml-auto text-sm">{{ t('Forgotten it?') }}</TextLink>
+        <TextLink :href="route('password.request')" class="ms-auto text-sm">{{ t('Forgotten it?') }}</TextLink>
       </div>
       <PasswordInput id="password" name="password" autocomplete="current-password" required />
       <InputError :message="errors.password" />

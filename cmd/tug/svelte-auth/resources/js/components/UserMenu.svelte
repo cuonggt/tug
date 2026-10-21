@@ -18,7 +18,7 @@
   import { route } from '@/tug/routes'
 
   // The page says its own words in the request's language.
-  const { t } = useLang()
+  const { t, dir } = useLang()
 
   // UserMenu is who's logged in, in the header, and what's theirs to do:
   // their settings, and logging out. Its items are Inertia's links, which
@@ -26,7 +26,7 @@
   let { user }: { user: User } = $props()
 </script>
 
-<DropdownMenu>
+<DropdownMenu {dir}>
   <DropdownMenuTrigger>
     {#snippet child({ props })}
       <Button {...props} variant="ghost" class="h-9 gap-2 px-2" aria-label={t('Your account')}>
