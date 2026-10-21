@@ -110,6 +110,34 @@ spell-checks by it, and reads the page aloud in it. A language written
 right to left needs `dir="rtl"` beside it, which is the template's to
 say, as a language tag doesn't say its script.
 
+A job has no request to take a language from: its mail is said in the
+language its reader keeps, which the app reads from its own row, through
+`lang.Catalog.In`:
+
+```go
+func (a *app) mailReset(ctx context.Context, job ResetMail) error {
+	u, err := a.users.byEmail(ctx, job.Email)
+	...
+	w := a.lang.In(u.Locale) // lang.Words, as c.T says them
+	return a.mailer.Send(ctx, mail.Message{
+		To:      []string{u.Email},
+		Subject: w.T("Reset your :app password", "app", appName),
+		...
+	})
+}
+```
+
+The auth starter keeps a `locale` column on each account, written from the
+request's language as the account is made, and `logIn` puts it in the
+session for `Config.Locale` to read, so a person's pages and their mail
+say the same words on any browser they log in from
+([Accounts](auth.md#the-mails-language)). A mail about an account goes to
+its owner, who often isn't the browser that caused it — a login from a
+browser they don't know, an email changed, a reset someone else asked for
+— so the language is the account's, not the request's. The one mail sent
+before there's an account, the passkey registration's, carries the
+browser's language in its job.
+
 `app.Locale(r)` is the same, for code with the request alone, as a
 function that shares the language with every page:
 

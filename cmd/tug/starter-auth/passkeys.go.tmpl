@@ -338,7 +338,7 @@ func (a *app) registerWithPasskey(c *tug.Ctx) error {
 	if wait > 0 {
 		return validate.Errors{"email": tooMany(wait)}
 	}
-	if err := a.registrationMail.Push(c.Context(), RegistrationMail{Name: in.Name, Email: in.Email}); err != nil {
+	if err := a.registrationMail.Push(c.Context(), RegistrationMail{Name: in.Name, Email: in.Email, Locale: c.Locale()}); err != nil {
 		return err
 	}
 	Success.Set(c, "We've mailed a link to "+in.Email+": follow it to make your passkey, and your account with it.")
@@ -351,6 +351,10 @@ func (a *app) registerWithPasskey(c *tug.Ctx) error {
 type RegistrationMail struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
+
+	// Locale is the language of the browser that asked, which the mail is
+	// said in: there's no account yet to keep one.
+	Locale string `json:"locale"`
 }
 
 // mailRegistration runs RegistrationMail jobs. An email that has an
@@ -365,13 +369,15 @@ func (a *app) mailRegistration(ctx context.Context, job RegistrationMail) error 
 	if err != nil {
 		return err
 	}
+	w := a.words(job.Locale)
 	return a.mailer.Send(ctx, message{
 		To:      &User{Name: job.Name, Email: job.Email},
-		Subject: "Make your " + appName + " passkey",
-		Intro:   "Someone, hopefully you, asked to make a " + appName + " account with this email, and a passkey. Follow this link to make the passkey, and your account with it.",
-		Action:  "Make your passkey",
+		Words:   w,
+		Subject: w.T("Make your :app passkey", "app", appName),
+		Intro:   w.T("Someone, hopefully you, asked to make a :app account with this email, and a passkey. Follow this link to make the passkey, and your account with it.", "app", appName),
+		Action:  w.T("Make your passkey"),
 		URL:     link + "?" + url.Values{"email": {job.Email}, "name": {job.Name}}.Encode(),
-		Outro:   "The link works for a day. If you didn't ask, there's nothing to do: no account is made without it.",
+		Outro:   w.T("The link works for a day. If you didn't ask, there's nothing to do: no account is made without it."),
 	}.mail())
 }
 
@@ -459,7 +465,7 @@ func (a *app) registerPasskey(c *tug.Ctx) error {
 	var u *User
 	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
 		var err error
-		if u, err = a.users.in(tx).addWithPasskey(c.Context(), in.Name, in.Email, pk.UserHandle); err != nil {
+		if u, err = a.users.in(tx).addWithPasskey(c.Context(), in.Name, in.Email, pk.UserHandle, c.Locale()); err != nil {
 			return err
 		}
 		return a.passkeys.in(tx).add(c.Context(), u.ID, capitalized(browserName(c.Request().UserAgent())), pk)

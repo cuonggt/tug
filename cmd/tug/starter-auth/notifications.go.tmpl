@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/lang"
 	"github.com/cuonggt/tug/queue"
 )
 
@@ -38,7 +39,7 @@ type notice struct {
 	line     func(c *tug.Ctx, d noticeData) string
 	link     string
 	mailLink string
-	mail     func(u *User, d noticeData, link string) message
+	mail     func(w lang.Words, u *User, d noticeData, link string) message
 }
 
 // notices are the kinds of notification, by the name the table keeps.
@@ -47,24 +48,24 @@ var notices = map[string]notice{
 	"password-changed": {
 		line: func(c *tug.Ctx, _ noticeData) string { return c.T("Your password was changed.") },
 		link: "security.edit", mailLink: "password.request",
-		mail: func(u *User, _ noticeData, link string) message {
+		mail: func(w lang.Words, u *User, _ noticeData, link string) message {
 			return message{
-				To: u, Subject: "Your " + appName + " password was changed",
-				Intro:  "The password of your account was changed, and every other login ended.",
-				Action: "Reset your password", URL: link,
-				Outro: "If that wasn't you, reset it now: someone else knows it.",
+				To: u, Subject: w.T("Your :app password was changed", "app", appName),
+				Intro:  w.T("The password of your account was changed, and every other login ended."),
+				Action: w.T("Reset your password"), URL: link,
+				Outro: w.T("If that wasn't you, reset it now: someone else knows it."),
 			}
 		},
 	},
 	"password-set": {
 		line: func(c *tug.Ctx, _ noticeData) string { return c.T("A password was set on your account.") },
 		link: "security.edit", mailLink: "security.edit",
-		mail: func(u *User, _ noticeData, link string) message {
+		mail: func(w lang.Words, u *User, _ noticeData, link string) message {
 			return message{
-				To: u, Subject: "A password was set on your " + appName + " account",
-				Intro:  "Your account, which logged in with a passkey alone, has a password now, which logs in too, and every other login ended.",
-				Action: "See your security settings", URL: link,
-				Outro: "If that wasn't you, someone else has been in your account: log in with your passkey, and remove the password there.",
+				To: u, Subject: w.T("A password was set on your :app account", "app", appName),
+				Intro:  w.T("Your account, which logged in with a passkey alone, has a password now, which logs in too, and every other login ended."),
+				Action: w.T("See your security settings"), URL: link,
+				Outro: w.T("If that wasn't you, someone else has been in your account: log in with your passkey, and remove the password there."),
 			}
 		},
 	},
@@ -73,12 +74,12 @@ var notices = map[string]notice{
 			return c.T("Your password was removed: your passkeys log you in.")
 		},
 		link: "security.edit", mailLink: "password.request",
-		mail: func(u *User, _ noticeData, link string) message {
+		mail: func(w lang.Words, u *User, _ noticeData, link string) message {
 			return message{
-				To: u, Subject: "Your " + appName + " password was removed",
-				Intro:  "The password of your account was removed, and every other login ended: your passkeys log you in.",
-				Action: "Set a password", URL: link,
-				Outro: "If that wasn't you, someone else has been in your account: the link mails you another, which sets a password again.",
+				To: u, Subject: w.T("Your :app password was removed", "app", appName),
+				Intro:  w.T("The password of your account was removed, and every other login ended: your passkeys log you in."),
+				Action: w.T("Set a password"), URL: link,
+				Outro: w.T("If that wasn't you, someone else has been in your account: the link mails you another, which sets a password again."),
 			}
 		},
 	},
@@ -89,28 +90,28 @@ var notices = map[string]notice{
 		link: "profile.edit", mailLink: "login",
 		// To the old email, which the owner may still read: the new one gets
 		// its link to verify.
-		mail: func(u *User, d noticeData, link string) message {
+		mail: func(w lang.Words, u *User, d noticeData, link string) message {
 			return message{
-				To: &User{Name: u.Name, Email: d.OldEmail}, Subject: "Your " + appName + " email was changed",
-				Intro:  "The email of your account was changed from " + d.OldEmail + " to " + d.NewEmail + ", where its mail goes from now on.",
-				Action: "Log in", URL: link,
-				Outro: "If that wasn't you, log in, change it back, and " + secureIt(u) + ": someone else has been in your account.",
+				To: &User{Name: u.Name, Email: d.OldEmail}, Subject: w.T("Your :app email was changed", "app", appName),
+				Intro:  w.T("The email of your account was changed from :old to :new, where its mail goes from now on.", "old", d.OldEmail, "new", d.NewEmail),
+				Action: w.T("Log in"), URL: link,
+				Outro: w.T("If that wasn't you, log in, change it back, and :secure: someone else has been in your account.", "secure", secureIt(w, u)),
 			}
 		},
 	},
 	"two-factor-off": {
 		line: func(c *tug.Ctx, _ noticeData) string { return c.T("Two-factor logins were turned off.") },
 		link: "security.edit", mailLink: "security.edit",
-		mail: func(u *User, _ noticeData, link string) message {
-			intro := "Two-factor logins were turned off: logging in takes your password alone."
+		mail: func(w lang.Words, u *User, _ noticeData, link string) message {
+			intro := w.T("Two-factor logins were turned off: logging in takes your password alone.")
 			if !u.Password {
-				intro = "Two-factor logins were turned off: a link mailed to you to set a password takes no code from your phone."
+				intro = w.T("Two-factor logins were turned off: a link mailed to you to set a password takes no code from your phone.")
 			}
 			return message{
-				To: u, Subject: "Two-factor logins are off for your " + appName + " account",
+				To: u, Subject: w.T("Two-factor logins are off for your :app account", "app", appName),
 				Intro:  intro,
-				Action: "See your security settings", URL: link,
-				Outro: "If that wasn't you, turn them on again, and " + secureIt(u) + ": someone else has been in your account.",
+				Action: w.T("See your security settings"), URL: link,
+				Outro: w.T("If that wasn't you, turn them on again, and :secure: someone else has been in your account.", "secure", secureIt(w, u)),
 			}
 		},
 	},
@@ -119,12 +120,12 @@ var notices = map[string]notice{
 			return c.T("A passkey, :name, was added to your account.", "name", d.Name)
 		},
 		link: "security.edit", mailLink: "security.edit",
-		mail: func(u *User, d noticeData, link string) message {
+		mail: func(w lang.Words, u *User, d noticeData, link string) message {
 			return message{
-				To: u, Subject: "A passkey was added to your " + appName + " account",
-				Intro:  "A passkey called “" + d.Name + "” was added to your account, and logs in with no password.",
-				Action: "See your passkeys", URL: link,
-				Outro: "If that wasn't you, remove it there, and " + secureIt(u) + ": someone else has been in your account.",
+				To: u, Subject: w.T("A passkey was added to your :app account", "app", appName),
+				Intro:  w.T("A passkey called “:name” was added to your account, and logs in with no password.", "name", d.Name),
+				Action: w.T("See your passkeys"), URL: link,
+				Outro: w.T("If that wasn't you, remove it there, and :secure: someone else has been in your account.", "secure", secureIt(w, u)),
 			}
 		},
 	},
@@ -133,12 +134,12 @@ var notices = map[string]notice{
 			return c.T("A new login, from :browser.", "browser", d.Browser)
 		},
 		link: "security.edit", mailLink: "security.edit",
-		mail: func(u *User, d noticeData, link string) message {
+		mail: func(w lang.Words, u *User, d noticeData, link string) message {
 			return message{
-				To: u, Subject: "A new login to your " + appName + " account",
-				Intro:  "Your account was logged in to from " + d.Browser + ", at " + d.IP + ": a browser it hadn't been logged in from before.",
-				Action: "See where you're logged in", URL: link,
-				Outro: "If that wasn't you, log it out there, and " + secureIt(u) + ": someone else has a way in.",
+				To: u, Subject: w.T("A new login to your :app account", "app", appName),
+				Intro:  w.T("Your account was logged in to from :browser, at :address: a browser it hadn't been logged in from before.", "browser", d.Browser, "address", d.IP),
+				Action: w.T("See where you're logged in"), URL: link,
+				Outro: w.T("If that wasn't you, log it out there, and :secure: someone else has a way in.", "secure", secureIt(w, u)),
 			}
 		},
 	},
@@ -147,12 +148,12 @@ var notices = map[string]notice{
 			return c.T("An API token, :name, was made.", "name", d.Name)
 		},
 		link: "tokens.index", mailLink: "tokens.index",
-		mail: func(u *User, d noticeData, link string) message {
+		mail: func(w lang.Words, u *User, d noticeData, link string) message {
 			return message{
-				To: u, Subject: "An API token was made for your " + appName + " account",
-				Intro:  "An API token called “" + d.Name + "” was made, which calls the app's API as you.",
-				Action: "See your API tokens", URL: link,
-				Outro: "If that wasn't you, revoke it there, and " + secureIt(u) + ": someone else has been in your account.",
+				To: u, Subject: w.T("An API token was made for your :app account", "app", appName),
+				Intro:  w.T("An API token called “:name” was made, which calls the app's API as you.", "name", d.Name),
+				Action: w.T("See your API tokens"), URL: link,
+				Outro: w.T("If that wasn't you, revoke it there, and :secure: someone else has been in your account.", "secure", secureIt(w, u)),
 			}
 		},
 	},
@@ -161,11 +162,11 @@ var notices = map[string]notice{
 // secureIt is what a mail tells the owner of u's account to do, beside
 // undoing a change that wasn't theirs: change the password, or for an
 // account with none, remove the passkeys they don't know, its ways in.
-func secureIt(u *User) string {
+func secureIt(w lang.Words, u *User) string {
 	if u.Password {
-		return "change your password"
+		return w.T("change your password")
 	}
-	return "remove the passkeys you don't know"
+	return w.T("remove the passkeys you don't know")
 }
 
 // someKind is what a notification of a kind this version of the app
@@ -273,7 +274,8 @@ func (a *app) mailNotification(ctx context.Context, job NotificationMail) error 
 	if err != nil {
 		return err
 	}
-	return a.mailer.Send(ctx, kind.mail(u, n.Data, link).mail())
+	w := a.words(u.Locale)
+	return a.mailer.Send(ctx, kind.mail(w, u, n.Data, link).said(w).mail())
 }
 
 // notificationsPerPage is how many notifications a page of them has.

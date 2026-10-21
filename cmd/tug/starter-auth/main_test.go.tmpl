@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -43,23 +45,39 @@ type testApp struct {
 
 func key(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
 
-// newTestApp is the app on a database of the test's own, testDB's.
+// newTestApp is the app on a database of the test's own, testDB's, in
+// English alone.
 func newTestApp(t *testing.T) *testApp {
 	t.Helper()
-	return startApp(t, testDB(t), [][]byte{key(1)})
+	return startApp(t, testDB(t), [][]byte{key(1)}, nil)
+}
+
+// newTestAppSaying is the app with a language of its own: words are what
+// it says each text in, as lang/<locale>.json has them, for a test that
+// reads what it says to someone whose account keeps that language.
+func newTestAppSaying(t *testing.T, locale string, words map[string]string) *testApp {
+	t.Helper()
+	file, err := json.Marshal(words)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return startApp(t, testDB(t), [][]byte{key(1)}, fstest.MapFS{locale + ".json": &fstest.MapFile{Data: file}})
 }
 
 // startApp makes the app on db, with keys, as a deploy does, and runs its
 // jobs until the test ends. A job that has come due runs at once, rather
 // than at the next second's poll.
-func startApp(t *testing.T, db *sql.DB, keys [][]byte) *testApp {
+func startApp(t *testing.T, db *sql.DB, keys [][]byte, words fs.FS) *testApp {
 	t.Helper()
 	out := &mailtest.Outbox{}
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Poll: 10 * time.Millisecond, Carry: []queue.Carrier{middleware.CarryRequestID}})
 	hub := &broadcast.Hub{Store: &broadcasts{db: db}}
 	files := filepath.Join(t.TempDir(), "files")
 	disk := &storage.Local{Dir: files, BaseURL: "/files", Keys: keys}
-	app, err := newApp(tug.Config{URL: "https://app.example"}, env{Build: fstest.MapFS{}, Keys: keys, DB: db, Disk: disk, Mailer: out, Queue: q, Hub: hub})
+	if words == nil {
+		words = fstest.MapFS{}
+	}
+	app, err := newApp(tug.Config{URL: "https://app.example"}, env{Build: fstest.MapFS{}, Keys: keys, DB: db, Disk: disk, Mailer: out, Words: words, Queue: q, Hub: hub})
 	if err != nil {
 		t.Fatal(err)
 	}

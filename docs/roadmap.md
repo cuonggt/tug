@@ -59,7 +59,7 @@ to 3.8.0, October 2026), written against
 | M50 | A page's own language      | done   |
 | M51 | A page's own words         | done   |
 | M52 | The auth starter's words   | done   |
-| M53 | The mail's language        | later  |
+| M53 | The mail's language        | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5008,65 +5008,73 @@ Choices made on the way:
   every text empty. The starter's `lang/` stays empty but for its
   `.gitkeep`.
 
-## M53 · The mail's language — later
+## M53 · The mail's language — done
 
-M51 and M52 left one seam: an app in Vietnamese shows Vietnamese pages and
-sends English mail. Every text the auth starter mails is English in its Go
-— `"Verify your email for "`, the greeting its template writes, the line
+M51 and M52 left one seam: an app in Vietnamese showed Vietnamese pages and
+sent English mail. Every text the auth starter mailed was English in its Go
+— `"Verify your email for "`, the greeting its template wrote, the line
 about the button that didn't work — and a mail isn't a request's to say:
 it's made by a job, which has no `Ctx`, no `Accept-Language`, and nothing
-to ask. tug has the catalog, `lang.Catalog.In`, which is there for exactly
-this ("for what has no request to say it in, as a job that makes a mail in
-the language its user picked"), `Config.Locale`, which the guide already
-tells an app to read a user's row with, and jobs that carry what they're
-pushed with. To be released as v0.48.0.
+to ask. tug had the catalog, `lang.Catalog.In`, which is there for exactly
+this, `Config.Locale`, which the guide already told an app to read a user's
+row with, and jobs that carry what they're pushed with. To be released as
+v0.48.0.
 
-- **A language on the user:** a `locale` column in the `users` table, in
-  each database's layer, empty for the app's default, written from the
-  request's language as an account is made, by each of the ways in: the
-  password's, the passkey's, and the invitation M46's link makes.
-- **The mail is in its recipient's language:** every mail job already
-  loads the user it writes to, so it says the mail in `a.words(u.Locale)`,
-  a `lang.Words` of the app's catalog. Its texts go through `T` and
-  `Choice`, which `tug lang` already finds, and the `message` struct
-  carries what's said, the template's greeting and its "if the button
-  doesn't work" line among it.
-- **The one mail with no account yet:** the passkey registration's, which
-  goes before there's a user, takes the language from the browser that
-  asked: `RegistrationMail` carries a `Locale`, `c.Locale()`'s at the
-  push.
-- **The pages follow it too:** `Config.Locale` reads the column, as the
-  guide's example does, so someone who has a language keeps it on any
-  browser, and the mail and the pages say the same words.
-- **`env.Words`:** the `fs.FS` the app's languages are loaded from becomes
-  one of `newApp`'s env, so the app's own tests can give it a language and
-  read a mail back in it. Its tests couldn't before, which is why M50's
-  `<html lang>` and M52's words are checked by the CLI's tests instead.
-- **The guide:** Accounts, the mail's language and the column; Languages,
-  what a job says and how it knows, with `Config.Locale` reading a row.
+- **A language on the account:** a `locale` column in the `users` table of
+  each layer, in the type each database has for a tag (`TEXT`, `text`, and
+  MySQL's `VARCHAR(35)`), empty for the app's default, written from
+  `c.Locale()` by both ways an account is made: the password's `add` and
+  the passkey's `addWithPasskey`.
+- **The mail is in its reader's language:** `a.words(locale)`, the app's
+  catalog `In` a language, and every mail job says its texts with it,
+  `w.T("Verify your email for :app", "app", appName)` and the rest — 51 of
+  them, the eight notices' among them, which take the words as their first
+  argument now, as `secureIt` does. `message.Words` carries them, and
+  `Greeting` and `Fallback` are the template's own words said in them.
+- **The one mail with no account yet:** the passkey registration's, whose
+  `RegistrationMail` carries a `Locale`, `c.Locale()`'s at the push.
+- **The pages follow it too:** `logIn` puts the account's language in the
+  session, and `Config.Locale` reads it, so someone who registered in
+  Vietnamese sees Vietnamese pages on any browser they log in from, and
+  their mail says the same words.
+- **`env.Words`:** the `fs.FS` the languages load from is one of `newApp`'s
+  env, so the app's own tests can give it a language:
+  `newTestAppSaying(t, "vi", words)`. Its tests couldn't before, which is
+  why M50's and M52's are checked by the CLI's instead.
+- **Tests, in the app:** an account keeps the language it registered in,
+  and its mail greets in it; a reset someone else asks for in English is
+  still mailed in the account's; a page's `texts` prop is the account's
+  language whatever the browser asks; and the registration mail is in the
+  language of the browser that asked.
+- **The guide:** Languages, what a job says and how it knows; Accounts, The
+  mail's language.
 
-Choices, to settle before any code:
+Choices made on the way:
 
-- **The recipient's language, not the request's:** a `queue.Carrier` could
+- **The reader's language, not the request's:** a `queue.Carrier` could
   hand every job the language it was pushed from, as
   `middleware.CarryRequestID` hands it the request's ID, and for a mail
   that would be wrong: mail about an account goes to its owner, who often
   isn't the browser that caused it — a login from a browser they don't
   know, an email change told at the old address, a reset someone else
   asked for. The owner's language is theirs to keep, and a request's is
-  whoever is asking. Only the one mail with no account to read takes the
+  whoever is asking. Only the mail with no account to read takes the
   request's, in its payload, where it's plain to see.
-- **A column, not the session:** a language in the session lasts as long
-  as the cookie and is one browser's; a column is the account's, which is
-  what a mail needs, and what the guide already says to read for the
-  pages.
-- **In the users table's own file:** the column goes into
+- **The session carries it, the column keeps it:** `Config.Locale` runs
+  for every request, so reading the column there would be a query a
+  request. The column is the account's, and the session is the copy a
+  login takes, which `Clear` drops with the rest when it logs out.
+- **In the users table's own file:** the column went into
   `create_users.sql`, as M33's decision has it, since no app made with the
   starter runs in production yet.
-- **No picker, for now:** a language the user chooses from a list is
-  another settings page in three frontends, and the column already follows
-  the browser that registered. The guide says how to add one, as it says
-  how to read the column.
+- **The catalog reaches the app after it's loaded:** `newApp` makes the
+  app before it loads the languages, so `a.lang` is set after, not in the
+  literal. A nil catalog says everything in English, which is what the
+  first run of the tests showed, and nothing else.
+- **No picker:** a language the user chooses from a list is another
+  settings page in three frontends, and the column already follows the
+  browser that registered. The guide says an app that wants one writes the
+  column from it.
 - **Still no translation shipped:** the mail says English until there's a
   `lang/<tag>.json`, as everything else does.
 

@@ -198,8 +198,8 @@ func TestTwoFactorSecretsMoveToANewKey(t *testing.T) {
 
 	// A deploy with a new APP_KEY, and the old one in APP_PREVIOUS_KEYS,
 	// then one without the old key.
-	startApp(t, old.db, [][]byte{key(2), key(1)})
-	app := startApp(t, old.db, [][]byte{key(2)})
+	startApp(t, old.db, [][]byte{key(2), key(1)}, nil)
+	app := startApp(t, old.db, [][]byte{key(2)}, nil)
 	c := app.client()
 	logIn(c, "ann@example.com", "correct horse")
 	if r := c.Post("/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)}); r.Location() != "/dashboard" {

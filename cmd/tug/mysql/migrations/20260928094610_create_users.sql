@@ -12,6 +12,7 @@ CREATE TABLE users (
 	two_factor_step   BIGINT NOT NULL DEFAULT 0,
 	passkey_handle    VARBINARY(64),
 	photo_key         TEXT,
+	locale            VARCHAR(35) NOT NULL DEFAULT '',
 	created_at        DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 	UNIQUE KEY users_email (email),
 	UNIQUE KEY users_passkey_handle (passkey_handle)

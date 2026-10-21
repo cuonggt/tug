@@ -23,8 +23,8 @@ func (us *users) byEmail(ctx context.Context, email string) (*User, error) {
 }
 
 // add adds a user, or returns errEmailTaken when the email has an account.
-func (us *users) add(ctx context.Context, name, email, passwordHash string) (*User, error) {
-	res, err := us.db.ExecContext(ctx, "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)", name, email, passwordHash)
+func (us *users) add(ctx context.Context, name, email, passwordHash, locale string) (*User, error) {
+	res, err := us.db.ExecContext(ctx, "INSERT INTO users (name, email, password_hash, locale) VALUES (?, ?, ?, ?)", name, email, passwordHash, locale)
 	if taken(err) {
 		return nil, errEmailTaken // two people registering the same email at once end here
 	}
@@ -42,10 +42,10 @@ func (us *users) add(ctx context.Context, name, email, passwordHash string) (*Us
 // errEmailTaken when the email has an account: with no password, the email
 // verified by the link that made the passkey, and the handle the passkey
 // names them by.
-func (us *users) addWithPasskey(ctx context.Context, name, email string, handle []byte) (*User, error) {
+func (us *users) addWithPasskey(ctx context.Context, name, email string, handle []byte, locale string) (*User, error) {
 	res, err := us.db.ExecContext(ctx, `
-		INSERT INTO users (name, email, password_hash, email_verified_at, passkey_handle) VALUES (?, ?, '', CURRENT_TIMESTAMP(6), ?)`,
-		name, email, handle)
+		INSERT INTO users (name, email, password_hash, email_verified_at, passkey_handle, locale) VALUES (?, ?, '', CURRENT_TIMESTAMP(6), ?, ?)`,
+		name, email, handle, locale)
 	if taken(err) {
 		return nil, errEmailTaken
 	}

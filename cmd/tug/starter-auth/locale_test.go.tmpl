@@ -1,0 +1,109 @@
+package main
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// vietnamese is what the app says each text in, for the tests here: a few
+// of its own, as `tug lang vi` writes them to translate.
+var vietnamese = map[string]string{
+	"Verify your email for :app": "Xác minh email của bạn cho :app",
+	"Verify my email":            "Xác minh email",
+	"Reset your :app password":   "Đặt lại mật khẩu :app của bạn",
+	"Make your :app passkey":     "Tạo passkey :app của bạn",
+	"Hi :name,":                  "Chào :name,",
+	":field is required":         "Vui lòng nhập :field",
+}
+
+func TestAnAccountKeepsTheLanguageItRegisteredIn(t *testing.T) {
+	app := newTestAppSaying(t, "vi", vietnamese)
+	c := app.client()
+	c.Get("/register")
+	if r := c.Post("/register", map[string]any{
+		"name": "Ann", "email": "ann@example.com", "password": "correct horse",
+		"password_confirmation": "correct horse",
+	}, tugtest.Header("Accept-Language", "vi")); r.Location() != "/dashboard" {
+		t.Fatalf("registering: %v", r)
+	}
+	u, err := (&users{db: app.db}).byEmail(context.Background(), "ann@example.com")
+	if err != nil || u.Locale != "vi" {
+		t.Fatalf("the account's language is %q, %v", u.Locale, err)
+	}
+
+	// Its mail is said in it: the subject, and the greeting the template
+	// writes, which the language has words for.
+	m := app.outbox.NextTo(t, "ann@example.com")
+	if m.Subject != "Xác minh email của bạn cho "+appName {
+		t.Errorf("the subject is %q", m.Subject)
+	}
+	if !strings.Contains(m.Text, "Chào Ann,") || !strings.Contains(m.HTML, "Chào Ann,") {
+		t.Errorf("the mail doesn't greet in Vietnamese:\n%s", m.Text)
+	}
+}
+
+func TestTheMailIsSaidInTheLanguageTheAccountKeepsWhoeverAsked(t *testing.T) {
+	app := newTestAppSaying(t, "vi", vietnamese)
+	c := app.client()
+	c.Get("/register")
+	c.Post("/register", map[string]any{
+		"name": "Ann", "email": "ann@example.com", "password": "correct horse",
+		"password_confirmation": "correct horse",
+	}, tugtest.Header("Accept-Language", "vi"))
+	app.outbox.NextTo(t, "ann@example.com") // the mail that verifies the email
+
+	// Someone else, in another language, asks to reset Ann's password: the
+	// mail goes to Ann, so it's said in hers, not in the asker's.
+	other := app.client()
+	other.Get("/forgot-password")
+	if r := other.Post("/forgot-password", map[string]any{"email": "ann@example.com"},
+		tugtest.Header("Accept-Language", "en")); r.Code != 303 {
+		t.Fatalf("asking for a reset: %v", r)
+	}
+	m := app.outbox.NextTo(t, "ann@example.com")
+	if m.Subject != "Đặt lại mật khẩu "+appName+" của bạn" {
+		t.Errorf("the subject is %q, and Ann's language is Vietnamese", m.Subject)
+	}
+}
+
+func TestAPagesWordsFollowTheAccountsLanguage(t *testing.T) {
+	app := newTestAppSaying(t, "vi", vietnamese)
+	c := app.client()
+	c.Get("/register")
+	c.Post("/register", map[string]any{
+		"name": "Ann", "email": "ann@example.com", "password": "correct horse",
+		"password_confirmation": "correct horse",
+	}, tugtest.Header("Accept-Language", "vi"))
+
+	// The texts the pages say their own words from are the account's
+	// language, whatever this browser asks for: the login carried it. The
+	// page that asks to verify the email is the one a new account lands on.
+	r := c.Get("/verify-email", tugtest.Header("Accept-Language", "en"))
+	texts := tugtest.Prop[map[string]any](r, "texts")
+	if texts["locale"] != "vi" {
+		t.Errorf("the page's texts are in %v", texts["locale"])
+	}
+	words, _ := texts["words"].(map[string]any)
+	if words[":field is required"] != "Vui lòng nhập :field" {
+		t.Errorf("the page hasn't the language's words: %v", words)
+	}
+}
+
+func TestTheRegistrationMailIsSaidInTheBrowsersLanguage(t *testing.T) {
+	// A passkey's registration mail goes before there's an account to keep
+	// a language, so the job carries the browser's.
+	app := newTestAppSaying(t, "vi", vietnamese)
+	c := app.client()
+	c.Get("/register")
+	if r := c.Post("/register/passkey", map[string]any{"name": "Bob", "email": "bob@example.com"},
+		tugtest.Header("Accept-Language", "vi")); r.Code != 303 {
+		t.Fatalf("asking for a passkey registration: %v", r)
+	}
+	m := app.outbox.NextTo(t, "bob@example.com")
+	if m.Subject != "Tạo passkey "+appName+" của bạn" {
+		t.Errorf("the subject is %q", m.Subject)
+	}
+}

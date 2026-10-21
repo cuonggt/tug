@@ -20,9 +20,9 @@ func TestTheThrottlesTableKeepsItsPromises(t *testing.T) {
 
 func TestTheAppsInstancesCountEachOthersTries(t *testing.T) {
 	db := testDB(t)
-	one := startApp(t, db, [][]byte{key(1)})
+	one := startApp(t, db, [][]byte{key(1)}, nil)
 	one.verifiedUser("Ann", "ann@example.com", "correct horse")
-	other := startApp(t, db, [][]byte{key(1)})
+	other := startApp(t, db, [][]byte{key(1)}, nil)
 	// Five wrong passwords from one address, to each instance in turn, as a
 	// load balancer sends them: neither has seen five.
 	for i := range 5 {

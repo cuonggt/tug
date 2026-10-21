@@ -179,7 +179,7 @@ func (a *app) register(c *tug.Ctx) error {
 	var u *User
 	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
 		var err error
-		if u, err = a.users.in(tx).add(c.Context(), in.Name, in.Email, hash); err != nil {
+		if u, err = a.users.in(tx).add(c.Context(), in.Name, in.Email, hash, c.Locale()); err != nil {
 			return err
 		}
 		return a.verifyMail.In(a.jobs.in(tx)).Push(c.Context(), verification(u))
@@ -373,25 +373,28 @@ func (a *app) mailReset(ctx context.Context, job ResetMail) error {
 		return err
 	}
 	link += "?email=" + url.QueryEscape(u.Email)
+	w := a.words(u.Locale)
 	if !u.Password {
 		// An account made with a passkey, whose owner may have lost it: the
 		// link sets a first password, which they go on with.
 		return a.mailer.Send(ctx, message{
 			To:      u,
-			Subject: "Set a password for your " + appName + " account",
-			Intro:   "Someone, hopefully you, asked to get into your " + appName + " account, which logs in with a passkey and has no password. Follow this link to set one.",
-			Action:  "Set a password",
+			Words:   w,
+			Subject: w.T("Set a password for your :app account", "app", appName),
+			Intro:   w.T("Someone, hopefully you, asked to get into your :app account, which logs in with a passkey and has no password. Follow this link to set one.", "app", appName),
+			Action:  w.T("Set a password"),
 			URL:     link,
-			Outro:   "The link works once, for an hour. If you didn't ask, there's nothing to do: your account stays as it is.",
+			Outro:   w.T("The link works once, for an hour. If you didn't ask, there's nothing to do: your account stays as it is."),
 		}.mail())
 	}
 	return a.mailer.Send(ctx, message{
 		To:      u,
-		Subject: "Reset your " + appName + " password",
-		Intro:   "Someone, hopefully you, asked to reset the password of your " + appName + " account. Follow this link to choose a new one.",
-		Action:  "Choose a new password",
+		Words:   w,
+		Subject: w.T("Reset your :app password", "app", appName),
+		Intro:   w.T("Someone, hopefully you, asked to reset the password of your :app account. Follow this link to choose a new one.", "app", appName),
+		Action:  w.T("Choose a new password"),
 		URL:     link,
-		Outro:   "The link works once, for an hour. If you didn't ask, there's nothing to do: your password stays as it is.",
+		Outro:   w.T("The link works once, for an hour. If you didn't ask, there's nothing to do: your password stays as it is."),
 	}.mail())
 }
 

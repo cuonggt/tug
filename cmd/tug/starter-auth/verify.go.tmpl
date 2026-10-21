@@ -68,13 +68,15 @@ func (a *app) mailVerification(ctx context.Context, job VerifyMail) error {
 	if err != nil {
 		return err
 	}
+	w := a.words(u.Locale)
 	return a.mailer.Send(ctx, message{
 		To:      u,
-		Subject: "Verify your email for " + appName,
-		Intro:   "Follow this link to verify that " + u.Email + " is yours, and it's where " + appName + " will reach you.",
-		Action:  "Verify my email",
+		Words:   w,
+		Subject: w.T("Verify your email for :app", "app", appName),
+		Intro:   w.T("Follow this link to verify that :email is yours, and it's where :app will reach you.", "email", u.Email, "app", appName),
+		Action:  w.T("Verify my email"),
 		URL:     link,
-		Outro:   "The link works for a day. If you didn't make an account, someone typed your email by mistake: there's nothing to do.",
+		Outro:   w.T("The link works for a day. If you didn't make an account, someone typed your email by mistake: there's nothing to do."),
 	}.mail())
 }
 

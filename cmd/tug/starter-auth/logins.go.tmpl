@@ -77,6 +77,10 @@ const seenEvery = time.Minute
 func (a *app) logIn(c *tug.Ctx, u *User, tell bool) error {
 	s := c.Session()
 	auth.Login(s, u.authID(), u.PasswordHash)
+	// The language the account keeps, for every request of this login:
+	// Config.Locale reads it, so their pages are said in it here as their
+	// mail is.
+	s.Set("locale", u.Locale)
 	login, _ := auth.LoginID(s)
 	browser := a.browserID(c)
 	userAgent := c.Request().UserAgent()

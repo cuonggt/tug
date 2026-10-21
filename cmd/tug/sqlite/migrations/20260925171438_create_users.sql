@@ -13,6 +13,7 @@ CREATE TABLE users (
 	two_factor_step   INTEGER NOT NULL DEFAULT 0,
 	passkey_handle    BLOB,
 	photo_key         TEXT,
+	locale            TEXT NOT NULL DEFAULT '',
 	created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX users_passkey_handle ON users (passkey_handle) WHERE passkey_handle IS NOT NULL;

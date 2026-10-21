@@ -23,12 +23,12 @@ func (us *users) byEmail(ctx context.Context, email string) (*User, error) {
 }
 
 // add adds a user, or returns errEmailTaken when the email has an account.
-func (us *users) add(ctx context.Context, name, email, passwordHash string) (*User, error) {
-	u := &User{Name: name, Email: email, PasswordHash: passwordHash}
+func (us *users) add(ctx context.Context, name, email, passwordHash, locale string) (*User, error) {
+	u := &User{Name: name, Email: email, PasswordHash: passwordHash, Locale: locale}
 	err := us.db.QueryRowContext(ctx, `
-		INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3)
+		INSERT INTO users (name, email, password_hash, locale) VALUES ($1, $2, $3, $4)
 		ON CONFLICT DO NOTHING
-		RETURNING id, created_at`, name, email, passwordHash).Scan(&u.ID, &u.CreatedAt)
+		RETURNING id, created_at`, name, email, passwordHash, locale).Scan(&u.ID, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errEmailTaken // two people registering the same email at once end here
 	}
@@ -39,12 +39,12 @@ func (us *users) add(ctx context.Context, name, email, passwordHash string) (*Us
 // errEmailTaken when the email has an account: with no password, the email
 // verified by the link that made the passkey, and the handle the passkey
 // names them by.
-func (us *users) addWithPasskey(ctx context.Context, name, email string, handle []byte) (*User, error) {
+func (us *users) addWithPasskey(ctx context.Context, name, email string, handle []byte, locale string) (*User, error) {
 	var id int64
 	err := us.db.QueryRowContext(ctx, `
-		INSERT INTO users (name, email, password_hash, email_verified_at, passkey_handle) VALUES ($1, $2, '', now(), $3)
+		INSERT INTO users (name, email, password_hash, email_verified_at, passkey_handle, locale) VALUES ($1, $2, '', now(), $3, $4)
 		ON CONFLICT DO NOTHING
-		RETURNING id`, name, email, handle).Scan(&id)
+		RETURNING id`, name, email, handle, locale).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errEmailTaken
 	}

@@ -744,6 +744,27 @@ for a month: a scheduled job, `prune-jobs`, deletes older ones every
 night. `main` runs the jobs beside the server with `app.Go`.
 [jobs.md](jobs.md) has the queue.
 
+#### The mail's language
+
+A mail is said in the language its reader keeps, not the one the browser
+that caused it asked for: mail about an account goes to its owner, and a
+login from a browser they don't know, an email changed, or a reset someone
+else asked for is exactly when the two differ. So each account has a
+`locale` column, written from the request's language as it registers, and
+every mail job says its words with `a.words(u.Locale)`, a `lang.Words`
+([Languages](languages.md#the-requests-language)). `logIn` puts the
+account's language in the session, which `Config.Locale` reads, so their
+pages are said in it too, on any browser they log in from. The one mail
+sent before there's an account, the passkey registration's, carries the
+browser's language in its job.
+
+The words themselves are the app's: `tug lang vi` writes every text the
+mail says into `lang/vi.json`, the template's greeting among them, and
+until a language has words for them they're said in English. An account
+with no language, as one made before the column, gets the app's default.
+Nothing offers a person a list of languages to pick from: the starter has
+no such setting, and an app that wants one writes the column from it.
+
 A mail about what a handler writes is pushed in the same transaction:
 the account and the mail that verifies its email, a new email and its
 link, and a change to the account and its notification's mail

@@ -14,6 +14,7 @@ CREATE TABLE users (
 	two_factor_step   bigint NOT NULL DEFAULT 0,
 	passkey_handle    bytea UNIQUE,
 	photo_key         text,
+	locale            text NOT NULL DEFAULT '',
 	created_at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX users_email ON users (lower(email));
