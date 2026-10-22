@@ -22,7 +22,11 @@
 //
 // An event reaches the subscribers there are as it's published, at most
 // once: one that wasn't subscribed, or fell behind, doesn't get it, and a
-// page that connects again reloads what it shows. It has no import of tug.
+// page that connects again reloads what it shows.
+//
+// Hub.Enter follows a channel and says who's following it, presence: those
+// on the channel hear as a member arrives or goes, and Hub.Here is who's
+// there, kept by a PresenceStore of the app's. It has no import of tug.
 package broadcast
 
 import (
@@ -68,8 +72,21 @@ type Hub struct {
 	// app of one instance, and for tests.
 	Store Store
 
-	mu   sync.Mutex
-	subs map[*subscriber]bool
+	// Presence keeps who's on a channel between the app's instances, such
+	// as its database: Enter puts a member on a channel while their page
+	// listens, and Here says who's there. Nil keeps them in this instance
+	// alone, as a nil Store delivers in place.
+	Presence PresenceStore
+
+	// Lease is how long a member stays on a channel without saying it's
+	// still there, for an instance that stops without a word: Run says so
+	// for this instance's members every third of it. Zero is a minute.
+	Lease time.Duration
+
+	mu    sync.Mutex
+	subs  map[*subscriber]bool
+	here  map[string]string // the channel each of this instance's members is on, by their connection's key
+	local *localPresence    // who's where, without a Presence of the app's
 }
 
 // subscriber is one Subscribe's channels, and where its events go.
@@ -209,8 +226,11 @@ var listenAgain = time.Second
 // server, with App.Go. When the Store stops listening, as when its
 // connection drops, Run logs why, closes every subscriber, as each may
 // have missed an event, and listens again, after a second, then two, up
-// to a minute. Without a Store, it waits for ctx.
+// to a minute. Without a Store, it waits for ctx. It also says the members
+// Enter put on channels here are still here, every third of the Lease, so
+// an app with presence runs it.
 func (h *Hub) Run(ctx context.Context) error {
+	go h.keepHere(ctx)
 	if h.Store == nil {
 		<-ctx.Done()
 		return nil

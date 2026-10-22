@@ -62,7 +62,7 @@ to 3.8.0, October 2026), written against
 | M53 | The mail's language        | done   |
 | M54 | Dates and numbers          | done   |
 | M55 | A language's direction     | done   |
-| M56 | Presence on a channel      | later  |
+| M56 | Presence on a channel      | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5269,57 +5269,56 @@ Choices made on the way:
   wait for one: the browser suite's apps have an empty file, so Arabic is
   a language they know, and every word in those tests is still English.
 
-## M56 · Presence on a channel — later
+## M56 · Presence on a channel — done
 
 M23 gave an app events on channels, carried to the pages open on every
 instance, and left the question those pages ask next: who else is here?
-The auth starter knows the browsers an account has logged in from, M39's
-`logins`, and lists them on its security page, but it can't say which of
-them is open right now, as nothing keeps who's listening. A hub knows its
-own subscribers and no more: the rest are on instances of their own, and
-the database is what they share. To be released as v0.51.0.
+The auth starter knew the browsers an account had logged in from, M39's
+`logins`, and listed them on its security page, but couldn't say which of
+them was open right now, as nothing kept who was listening. A hub knows
+its own subscribers and no more: the rest are on instances of their own,
+and the database is what they share. To be released as v0.51.0.
 
-- **Who's here, in package `broadcast`:** `Member`, an ID of the app's own
-  and whatever the pages should know of them, and `PresenceStore`, which
-  keeps who's on a channel across the instances as `Store` carries the
-  events, with no idea where it's kept: `Enter`, `Keep`, `Leave` and
-  `Here`. `Hub.Presence` takes one, and without it presence is this
-  instance's own, as a hub with no Store delivers in place.
-- **Entering is subscribing:** `Hub.Enter(ctx, member, channel)`
-  subscribes as `Subscribe` does and keeps the member on the channel while
-  that subscription lives, so a page that follows a channel is on it and a
-  connection that drops leaves it. The hub gives each a key of its own, so
-  one member's second tab is a second connection, not a second member, and
-  `Hub.Here(ctx, channel)` is who's on it, each member once.
-- **A lease, not a goodbye:** an instance can die without saying anything,
-  so a member is kept for a lease, `Hub.Lease`, which `Run` refreshes for
-  the members of its own while they listen. What's past its lease is
-  pruned, as the broadcasts table's rows are, so a crash empties itself
-  within a lease.
-- **Joining and leaving are events:** the hub publishes `presence.joined`
-  as a member arrives that wasn't there, and `presence.left` as the last
-  connection of one goes, so the pages on the channel hear it and reload
-  what they show. That's how every other event in the starters works: the
-  event is the signal, and the page asks the server what's true now.
+- **Who's here, in package `broadcast`:** `presence.go`, with `Member`, an
+  ID the app picks and whatever the pages should know of them, and
+  `PresenceStore` — `Enter`, `Keep`, `Leave` and `Here` — which keeps who's
+  on a channel with no idea where it's kept. `Hub.Presence` takes one, and
+  without it a hub keeps them in itself, as a hub with no Store delivers in
+  place.
+- **Entering is subscribing:** `Hub.Enter(ctx, member, channel)` follows
+  the channel as `Subscribe` does and keeps the member on it while that
+  subscription lives, under a key of its own, so a member's second page is
+  a second connection and not a second member. `Hub.Here` is who's on a
+  channel, each member once, and the hub publishes `presence.joined` as a
+  member arrives that wasn't there and `presence.left` as the last page of
+  one goes.
+- **A lease, not a goodbye:** `Hub.Lease`, a minute by default, which
+  `Run` says again for this instance's members every third of it, in one
+  query for however many it has. A page whose instance died is gone within
+  a lease, which `prune-presence` deletes, every minute.
 - **The starter's layer:** `presences_db.go` in each of SQLite, Postgres
-  and MySQL, a `presences` table of the channel, the member, the
-  connection and when its lease ends, by a unique index of the first
-  three, whose `prune` runs every minute as `prune-presence`, as the
-  broadcasts' does.
-- **The starter shows it:** the security page says which of the account's
-  browsers are open now, from presence on the user's own channel, keyed by
-  the login's hash as the `logins` rows are, and the page reloads as one
-  comes or goes. Two tabs of one login are one browser, open once.
-- **Tests:** `broadcasttest.TestPresenceStore`, a store's promises, which
-  each of the three layers runs; the hub's own on a memory store, the
-  lease in `testing/synctest`; two instances on one database seeing each
-  other's members; the starter's, that another browser shows as open and
-  stops when it closes; and the browser suite's, two contexts on the
-  security page at once.
-- **The guide:** Broadcasting, presence, with the lease and what a page
-  does with the events; Accounts, the browsers that are open now.
+  and MySQL, over a `presences` table of the channel, the connection's
+  key, the member, its data and when its lease ends. Postgres moves the
+  leases with `conn_key = ANY($2)`, one array of this instance's keys;
+  MySQL, which has no RETURNING, reads whose a connection was in the
+  transaction that deletes it.
+- **The starter shows it:** its pages enter the user's own channel, with
+  the login as the member, by the hex of the hash its row has, so the
+  security page says which of the account's browsers has a page open, and
+  reloads that list as one comes or goes. Two tabs of one login are one
+  browser, open once.
+- **Tests:** `broadcasttest.TestPresenceStore`, a store's promises, run on
+  the hub's own presence and on each of the three layers; the hub's, for
+  entering, the second page, the last page going, and a lease said again,
+  in `testing/synctest`; the starter's, for two instances seeing each
+  other's members, the prune, and the security page, which reads a live
+  stream from a second login and watches the list say it's open and then
+  that it isn't; and the browser suite's `presence.spec.ts`, where a
+  second browser logs in and the first page says so without being asked.
+- **The guide:** Broadcasting, presence, with the lease, the store and who
+  may see who; Accounts, the browsers that are open now.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A table of its own, not the cache:** the starters have a
   `cache.Store`, and presence could live in it, keyed by channel. A cache
@@ -5328,19 +5327,35 @@ Choices, to settle before any code:
   sessions, so it's a table with a lease.
 - **The app says who a member is:** package `broadcast` knows nothing of
   users, as it knows nothing of where events are kept. A `Member` is an ID
-  the app picks — the starter's is the login's hash, so the page can match
-  it to a row — and data the app writes, which the pages get from `Here`.
-- **Events, not a poll:** a page could ask who's here every few seconds,
-  and a channel that says who came and went costs nothing while nobody
-  moves. The pages already listen on the channel, so the events arrive on
-  the connection they have.
+  the app picks — the starter's is the hex of the login's hash, so the
+  page can match it to a row and the hash itself never leaves the server —
+  and data the app writes, which `Here` gives back as the JSON it was kept
+  as.
+- **Enter looks before it writes:** the other way round, two pages of one
+  member entering at once could each see the other's row and neither say
+  the member arrived, which would leave a page showing nobody. Looking
+  first can say it twice instead, which is an event too many, and the
+  pages that hear it read who's here again.
+- **`Here` picks the members in Go:** `DISTINCT ON` is Postgres's alone,
+  and a GROUP BY over a blob isn't portable, so each layer reads the
+  channel's rows in order and takes the first of each member. One
+  channel's rows are few, and the Go is the same in all three.
+- **The lease is Run's to say again:** a goroutine for each connection
+  would write once a connection; `Run` writes once a tick for all of
+  them, as it already holds the one Listen of the instance.
+- **That line's words, said at last:** the browsers list read
+  "logged in <date>, last seen <date>" as plain text in all three
+  frontends, which M52 had left out of `t()`. Saying "open now" there
+  meant saying the rest too, so the line is three texts of its own now,
+  and `tug lang` finds them.
 - **Authorization stays the app's:** presence says who is where, which is
-  the app's to allow: its route decides who may listen, as the starter's
-  `/broadcasts` is behind `usersOnly` and carries the user's own channel
+  the app's to allow: its route decides who may enter, as the starter's
+  `/broadcasts` is behind `usersOnly` and enters the user's own channel
   alone. tug doesn't learn to authorize a channel.
 - **Still no whispers:** an event from a page is a request the app
-  publishes, as broadcasting.md says. Presence is the one of the three
-  gaps that needs the app to keep something; the other two don't change.
+  publishes, as broadcasting.md says. Presence was the one of the three
+  gaps that needed the app to keep something; the other two are as they
+  were.
 
 ## Decisions
 

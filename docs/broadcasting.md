@@ -218,10 +218,79 @@ So an event reaches the pages on another instance at once on Postgres,
 and within a quarter of a second on SQLite and MySQL, whose instances
 read the table four times a second each, however quiet it is.
 
+## Presence
+
+```go
+// The page is on the channel while it listens, and the member is the
+// login it's open in.
+events, err := hub.Enter(ctx, broadcast.Member{ID: login}, "users."+user.ID)
+
+// Who's on it, each member once.
+members, err := hub.Here(ctx, "users."+user.ID)
+```
+
+`Enter` follows a channel as `Subscribe` does, and says who's following
+it: the member stays on the channel while that subscription lives, so a
+page that listens is there and a connection that drops isn't. Those on
+the channel hear `presence.joined` as a member arrives that wasn't there,
+and `presence.left` as the last page of one goes, with the member as the
+event's data, so a page that shows who's here reloads it then. `Here` is
+who's on the channel.
+
+A `Member` is an ID the app picks — a user's, or a login's, as the auth
+starter's is — and whatever the pages should know of them, which goes as
+JSON and comes back from `Here` as the JSON it was kept as. A member's
+second page is a second connection, not a second arrival: the events say
+a member came and went, not a page.
+
+A member is kept until a lease ends, rather than until it says goodbye,
+because an instance can stop without saying anything: `Hub.Lease`, a
+minute by default, which `Run` says again for this instance's members
+every third of it. So an app with presence runs `Run`, as one with a
+Store does, and deletes what's past its lease, as the starter's
+`prune-presence` job does every minute. A page whose instance died is
+gone within a lease, and no page is left on a channel for good.
+
+A `PresenceStore` keeps who's where between the instances, as a `Store`
+carries the events:
+
+```go
+type PresenceStore interface {
+	Enter(ctx context.Context, channel string, m Member, key string, until time.Time) (bool, error)
+	Keep(ctx context.Context, keys []string, until time.Time) error
+	Leave(ctx context.Context, channel, key string) (bool, error)
+	Here(ctx context.Context, channel string) ([]Member, error)
+}
+```
+
+- `Enter` keeps a member's connection, under a key of its own, until the
+  lease ends, and says whether the member was new to the channel, so the
+  hub tells those on it of an arrival alone.
+- `Keep` moves the lease of the keys still there, this instance's.
+- `Leave` takes a connection off the channel, and says whether its member
+  has none left there.
+- `Here` is who's on the channel, each member once, leaving out those
+  whose lease has ended.
+
+Without one, a hub keeps who's where in itself, for an app of one
+instance and for tests. `broadcasttest.TestPresenceStore` checks a store
+keeps these promises, as `TestStore` does for the events.
+
+Who may see who is the app's to decide, as who may listen is: a channel
+is the app's own, and the route that enters it says who may, as the
+starter's `/broadcasts` is behind `usersOnly` and enters the user's own
+channel alone.
+
+The starter's `presences` table has a row for each page's connection to a
+channel — the channel, the connection's key, the member, its data and
+when its lease ends — in each of its databases, as its other tables are.
+Its pages enter the user's own channel, with the login as the member, so
+the security page says which of the account's browsers has a page open,
+and reloads that list as one comes or goes
+([Accounts](auth.md#browsers)).
+
 ## What's not here yet
 
-- **Presence**, who's on a page, as Echo's presence channels have: a
-  channel that says who came and went, kept by the app.
 - **Events from a page**, as Echo's whispers: a page sends the app a
   request, which publishes.
 - **Events a page missed**, sent again as it connects: the page reloads,

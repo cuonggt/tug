@@ -10,9 +10,11 @@
   import { router } from '@inertiajs/svelte'
   import LogOut from '@lucide/svelte/icons/log-out'
   import Monitor from '@lucide/svelte/icons/monitor'
+  import { onMount } from 'svelte'
   import Heading from '@/components/Heading.svelte'
   import { Badge } from '@/components/ui/badge'
   import { Button } from '@/components/ui/button'
+  import { listen } from '@/lib/broadcasts'
   import { useLang } from '@/lib/lang'
   import type { PageProps } from '@/tug/pages'
   import { route } from '@/tug/routes'
@@ -28,6 +30,15 @@
   // day is a date as the page shows it, in the page's own language, and in
   // the reader's own zone once the page is in their browser.
   const day = (at: string) => d(at, { dateStyle: 'medium' })
+
+  // A browser of the account opening or closing shows at once: each page
+  // is on the user's channel while it's open, and the app says as one
+  // comes or goes.
+  onMount(() => {
+    const reload = () => router.reload({ only: ['browsers'] })
+    const stops = [listen('presence.joined', reload), listen('presence.left', reload)]
+    return () => stops.forEach((stop) => stop())
+  })
 </script>
 
 <section class="space-y-6">
@@ -45,7 +56,8 @@
               {/if}
             </p>
             <p class="text-muted-foreground">
-              {browser.ip}, logged in {day(browser.began)}, last seen {day(browser.lastSeen)}
+              {browser.ip}, {t('logged in :date', { date: day(browser.began) })},
+              {browser.open ? t('open now') : t('last seen :date', { date: day(browser.lastSeen) })}
             </p>
           </div>
           {#if !browser.current}

@@ -563,7 +563,9 @@ someone's browser can guess no faster than at the login page.
 The security page lists the browsers the account is logged in from, this
 one first: which browser, on which system, as its User-Agent says,
 "Chrome on macOS", the address it logged in from, and when it logged in
-and was last seen. Each of the others logs out by its button, and "Log
+and was last seen — or that it's open now, which a browser with a page on
+the user's channel is ([Broadcasting](broadcasting.md#presence)): the list
+reloads as one of them comes or goes. Each of the others logs out by its button, and "Log
 out of every other browser" logs them all out, with no new password;
 they're behind `passwordConfirmed`, as the page is.
 

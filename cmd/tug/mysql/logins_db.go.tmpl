@@ -46,7 +46,7 @@ func (bs *browsers) seen(ctx context.Context, hash []byte, now time.Time) error 
 // this, the browser's own, first, then the last seen first.
 func (bs *browsers) of(ctx context.Context, userID int64, this []byte, now time.Time) ([]Browser, error) {
 	rows, err := bs.db.QueryContext(ctx, `
-		SELECT id, user_agent, ip, created_at, last_seen_at, login_hash = ? FROM logins
+		SELECT id, user_agent, ip, created_at, last_seen_at, login_hash, login_hash = ? FROM logins
 		WHERE user_id = ? AND ends_at > ? ORDER BY login_hash = ? DESC, last_seen_at DESC, id DESC`,
 		this, userID, now.UnixMilli(), this)
 	if err != nil {
@@ -57,11 +57,13 @@ func (bs *browsers) of(ctx context.Context, userID int64, this []byte, now time.
 	for rows.Next() {
 		var l Browser
 		var userAgent string
+		var hash []byte
 		var began, seen int64
-		if err := rows.Scan(&l.ID, &userAgent, &l.IP, &began, &seen, &l.Current); err != nil {
+		if err := rows.Scan(&l.ID, &userAgent, &l.IP, &began, &seen, &hash, &l.Current); err != nil {
 			return nil, err
 		}
 		l.Name, l.Began, l.LastSeen = browserName(userAgent), time.UnixMilli(began).UTC(), time.UnixMilli(seen).UTC()
+		l.member = memberOf(hash)
 		listed = append(listed, l)
 	}
 	return listed, rows.Err()

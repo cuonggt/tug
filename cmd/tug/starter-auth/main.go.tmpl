@@ -126,8 +126,9 @@ func main() {
 	// to be matched with the request's.
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers, Carry: []queue.Carrier{middleware.CarryRequestID}})
 	// Events, to the pages open on any instance, which the database carries
-	// between them: broadcasts.go.
-	hub := &broadcast.Hub{Store: &broadcasts{db: db}}
+	// between them, and who's on each channel, which it keeps:
+	// broadcasts.go.
+	hub := &broadcast.Hub{Store: &broadcasts{db: db}, Presence: &presences{db: db}}
 	// With TLS_DOMAINS, as example.com, the app serves HTTPS itself, on
 	// :443, with a certificate for each domain from Let's Encrypt, kept in
 	// CERTS_PATH, and HTTP on :80, which sends every request to HTTPS; with
@@ -229,6 +230,12 @@ type app struct {
 	// a.hub.In(a.broadcasts.in(tx)): broadcasts.go.
 	hub        *broadcast.Hub
 	broadcasts *broadcasts
+
+	// Who's on each of the hub's channels, a row for each page's
+	// connection to one: the user's pages enter their own channel, so
+	// their security page can say which of their browsers is open:
+	// presences_db.go.
+	presence *presences
 
 	// The browsers each user is logged in from, a row for each login, which
 	// their security page lists and ends, and the browsers they've logged
@@ -358,6 +365,7 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		cache:         &cache.Cache{Store: cached},
 		hub:           e.Hub,
 		broadcasts:    &broadcasts{db: e.DB},
+		presence:      &presences{db: e.DB},
 		accessTokens:  &auth.AccessTokens{Prefix: tokenPrefix},
 		apiTokens:     &apiTokens{db: e.DB},
 		notifications: &notifications{db: e.DB},
@@ -390,6 +398,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	queue.Handle(e.Queue, "prune-cache", cached.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	queue.Handle(e.Queue, "prune-sessions", kept.prune).Schedule(queue.Every(time.Hour), struct{}{})
 	queue.Handle(e.Queue, "prune-logins", a.browsers.prune).Schedule(queue.Every(time.Hour), struct{}{})
+	// The pages on a channel whose lease ended without them leaving it: an
+	// instance that stopped without a word.
+	queue.Handle(e.Queue, "prune-presence", a.presence.prune).Schedule(queue.Every(time.Minute), struct{}{})
 [[- if not .Postgres ]]
 	// The events the hub carried go after a minute, which every instance
 	// has read them in.

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
@@ -25,6 +26,9 @@ type Browser struct {
 	Began    time.Time `json:"began"`
 	LastSeen time.Time `json:"lastSeen"`
 	Current  bool      `json:"current"` // the browser the page is shown in
+	Open     bool      `json:"open"`    // a page of it is open now: broadcasts.go
+
+	member string // its login's, on the user's channel, for Open
 }
 
 // browsers are the browsers users are logged in from, a row in logins for
@@ -47,6 +51,14 @@ var errNoLogin = errors.New("no such login")
 // hashOf is what the tables keep of a login's ID, or a browser's: its
 // SHA-256, as an API token's is kept, so that what they keep logs no one
 // in.
+// memberOf is a login's own member ID on the user's channel, the hex of
+// the hash its row has: the page that lists the browsers matches what's on
+// the channel to the rows by it, and the hash never leaves the server as
+// it is.
+func memberOf(hash []byte) string {
+	return hex.EncodeToString(hash)
+}
+
 func hashOf(id string) []byte {
 	sum := sha256.Sum256([]byte(id))
 	return sum[:]

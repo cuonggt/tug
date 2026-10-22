@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/auth"
+	"github.com/cuonggt/tug/broadcast"
 )
 
 // Broadcasts: events the app's broadcast.Hub carries between its
@@ -22,13 +24,40 @@ func userChannel(u *User) string {
 // their pages follow with EventSource. The stream ends as the hub closes
 // the subscription, as for a page that fell behind, and the page, which
 // connects again, reloads what it shows.
+//
+// Entering the channel, rather than only following it, puts the login on
+// it while the page is open, so the other pages hear presence.joined and
+// presence.left as one of the account's browsers opens or goes, and
+// openNow says which are open. The member is the login, by the hex of the
+// hash its row has, so the security page can match them.
 func (a *app) userEvents(c *tug.Ctx, user *User) error {
+	login, _ := auth.LoginID(c.Session())
+	member := broadcast.Member{ID: memberOf(hashOf(login))}
 	return c.Events(func(ctx context.Context, send func(tug.Event) error) error {
-		for e := range a.hub.Subscribe(ctx, userChannel(user)) {
+		events, err := a.hub.Enter(ctx, member, userChannel(user))
+		if err != nil {
+			return err
+		}
+		for e := range events {
 			if err := send(tug.Event{Name: e.Name, Data: e.Data}); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// openNow is which of the user's logins have a page open, by their member
+// IDs: who's on the user's channel. A login with no page open isn't
+// there, and one whose instance stopped goes as its lease ends.
+func (a *app) openNow(ctx context.Context, user *User) (map[string]bool, error) {
+	members, err := a.hub.Here(ctx, userChannel(user))
+	if err != nil {
+		return nil, err
+	}
+	open := make(map[string]bool, len(members))
+	for _, m := range members {
+		open[m.ID] = true
+	}
+	return open, nil
 }

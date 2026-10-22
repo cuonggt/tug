@@ -1,0 +1,116 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/cuonggt/tug/broadcast"
+)
+
+// presences are who's on the hub's channels, in a table every instance of
+// the app writes its own pages into: a broadcast.PresenceStore, for the
+// broadcast.Hub main makes. A row is one page's connection to a channel,
+// the member it's for, what the pages should know of them, and when its
+// lease ends, which Hub.Run says again while the page is open: prune
+// deletes what's past its lease, so an instance that stopped without a
+// word leaves nobody behind for long.
+type presences struct {
+	db *sql.DB
+}
+
+// Enter keeps the member's connection on the channel until its lease
+// ends, and says whether the member was new to the channel. It looks
+// before it writes, so two pages of one member entering at the same
+// moment can both say so: an event too many, which has a page read who's
+// here again, and not a page left wrong.
+func (ps *presences) Enter(ctx context.Context, channel string, m broadcast.Member, key string, until time.Time) (bool, error) {
+	data, err := json.Marshal(m.Data)
+	if err != nil {
+		return false, err
+	}
+	var others int
+	if err := ps.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM presences
+		WHERE channel = $1 AND member = $2 AND conn_key <> $3 AND until > $4`,
+		channel, m.ID, key, time.Now().UnixMilli()).Scan(&others); err != nil {
+		return false, err
+	}
+	_, err = ps.db.ExecContext(ctx, `
+		INSERT INTO presences (channel, conn_key, member, data, until) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (channel, conn_key) DO UPDATE SET
+			member = excluded.member, data = excluded.data, until = excluded.until`,
+		channel, key, m.ID, data, until.UnixMilli())
+	return others == 0, err
+}
+
+// Keep moves the lease of the connections still here, in one statement
+// for however many this instance has open: an array of their keys, which
+// pgx sends as one value.
+func (ps *presences) Keep(ctx context.Context, keys []string, until time.Time) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	_, err := ps.db.ExecContext(ctx,
+		"UPDATE presences SET until = $1 WHERE conn_key = ANY($2)", until.UnixMilli(), keys)
+	return err
+}
+
+// Leave takes the connection off the channel, and says whether its member
+// has none left there: the delete gives back whose it was.
+func (ps *presences) Leave(ctx context.Context, channel, key string) (bool, error) {
+	var member string
+	err := ps.db.QueryRowContext(ctx,
+		"DELETE FROM presences WHERE channel = $1 AND conn_key = $2 RETURNING member", channel, key).Scan(&member)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var left int
+	if err := ps.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM presences WHERE channel = $1 AND member = $2 AND until > $3",
+		channel, member, time.Now().UnixMilli()).Scan(&left); err != nil {
+		return false, err
+	}
+	return left == 0, nil
+}
+
+// Here is who's on the channel, each member once, as their first
+// connection has them: one channel's rows are few, so they're read in
+// order and the members picked out of them, which every database does the
+// same way.
+func (ps *presences) Here(ctx context.Context, channel string) ([]broadcast.Member, error) {
+	rows, err := ps.db.QueryContext(ctx, `
+		SELECT member, data FROM presences
+		WHERE channel = $1 AND until > $2 ORDER BY member, conn_key`, channel, time.Now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var members []broadcast.Member
+	for rows.Next() {
+		var id string
+		var data []byte
+		if err := rows.Scan(&id, &data); err != nil {
+			return nil, err
+		}
+		if len(members) > 0 && members[len(members)-1].ID == id {
+			continue
+		}
+		members = append(members, broadcast.Member{ID: id, Data: json.RawMessage(data)})
+	}
+	return members, rows.Err()
+}
+
+// prune deletes the connections past their lease: a page whose instance
+// stopped without taking it off, and one the app couldn't reach the
+// database for as it went. It's a job, which newApp schedules for every
+// minute.
+func (ps *presences) prune(ctx context.Context, _ struct{}) error {
+	_, err := ps.db.ExecContext(ctx, "DELETE FROM presences WHERE until <= $1", time.Now().UnixMilli())
+	return err
+}

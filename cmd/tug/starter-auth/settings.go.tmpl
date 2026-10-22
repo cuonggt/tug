@@ -169,6 +169,17 @@ func (a *app) securityPage(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
+	// Which of them have a page open now, from who's on the user's
+	// channel: the page hears presence.joined and presence.left, and
+	// reloads this list, so a browser opened or closed elsewhere shows at
+	// once.
+	open, err := a.openNow(c.Context(), user)
+	if err != nil {
+		return err
+	}
+	for i, l := range logins {
+		logins[i].Open = open[l.member]
+	}
 	props := SecurityProps{
 		User:     *user,
 		Passkeys: passkeys,

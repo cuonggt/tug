@@ -71,7 +71,7 @@ func startApp(t *testing.T, db *sql.DB, keys [][]byte, words fs.FS) *testApp {
 	t.Helper()
 	out := &mailtest.Outbox{}
 	q := queue.New(queue.Config{Store: &jobs{db: db}, Poll: 10 * time.Millisecond, Carry: []queue.Carrier{middleware.CarryRequestID}})
-	hub := &broadcast.Hub{Store: &broadcasts{db: db}}
+	hub := &broadcast.Hub{Store: &broadcasts{db: db}, Presence: &presences{db: db}}
 	files := filepath.Join(t.TempDir(), "files")
 	disk := &storage.Local{Dir: files, BaseURL: "/files", Keys: keys}
 	if words == nil {

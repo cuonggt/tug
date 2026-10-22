@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { router } from '@inertiajs/vue3'
 import { LogOut, Monitor } from '@lucide/vue'
+import { onMounted, onUnmounted } from 'vue'
 import Heading from '@/components/Heading.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { listen } from '@/lib/broadcasts'
 import { useLang } from '@/lib/lang'
 import type { Pages, SharedProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
@@ -25,6 +27,16 @@ function capital(name: string): string {
 // day is a date as the page shows it, in the page's own language, and in
 // the reader's own zone once the page is in their browser.
 const day = (at: string) => d(at, { dateStyle: 'medium' })
+
+// A browser of the account opening or closing shows at once: each page is
+// on the user's channel while it's open, and the app says as one comes or
+// goes.
+let stops: (() => void)[] = []
+onMounted(() => {
+  const reload = () => router.reload({ only: ['browsers'] })
+  stops = [listen('presence.joined', reload), listen('presence.left', reload)]
+})
+onUnmounted(() => stops.forEach((stop) => stop()))
 </script>
 
 <template>
@@ -39,7 +51,10 @@ const day = (at: string) => d(at, { dateStyle: 'medium' })
             <!-- A span, as shadcn's React Badge is: a div can't be in a p. -->
             <Badge v-if="browser.current" as="span" variant="secondary">{{ t('This browser') }}</Badge>
           </p>
-          <p class="text-muted-foreground">{{ browser.ip }}, logged in {{ day(browser.began) }}, last seen {{ day(browser.lastSeen) }}</p>
+          <p class="text-muted-foreground">
+            {{ browser.ip }}, {{ t('logged in :date', { date: day(browser.began) }) }},
+            {{ browser.open ? t('open now') : t('last seen :date', { date: day(browser.lastSeen) }) }}
+          </p>
         </div>
         <Button
           v-if="!browser.current"

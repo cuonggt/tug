@@ -3,6 +3,7 @@ package broadcast_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -224,6 +225,99 @@ func TestRunListensAgainWhenTheStoreStops(t *testing.T) {
 		}
 		if !strings.Contains(logs.String(), "the connection dropped") {
 			t.Errorf("the log:\n%s", logs)
+		}
+	})
+}
+
+func TestAHubsOwnPresenceKeepsAPresenceStoresPromises(t *testing.T) {
+	broadcasttest.TestPresenceStore(t, func(t *testing.T) broadcast.PresenceStore { return broadcast.LocalPresence() })
+}
+
+func TestEnteringAChannelSaysWhosThereAndTellsThemOfEachOther(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		hub := &broadcast.Hub{}
+		ann := broadcast.Member{ID: "ann", Data: map[string]string{"name": "Ann"}}
+		watching := hub.Subscribe(ctx, "posts")
+
+		events, err := hub.Enter(ctx, ann, "posts")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := received(watching); len(got) != 1 || got[0].Name != "presence.joined" || !strings.Contains(string(got[0].Data), `"ann"`) {
+			t.Errorf("as Ann entered, the channel got %+v", got)
+		}
+		here, err := hub.Here(ctx, "posts")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(here) != 1 || here[0].ID != "ann" || string(here[0].Data.(json.RawMessage)) != `{"name":"Ann"}` {
+			t.Errorf("who's on posts: %+v", here)
+		}
+		// Her own page hears it too, as it follows the channel.
+		if got := received(events); len(got) != 1 || got[0].Name != "presence.joined" {
+			t.Errorf("her own page got %+v", got)
+		}
+
+		// A second page of hers is a second connection, not a second
+		// arrival, and she's on the channel once.
+		second, stop := context.WithCancel(ctx)
+		if _, err = hub.Enter(second, ann, "posts"); err != nil {
+			t.Fatal(err)
+		}
+		if got := received(watching); len(got) != 0 {
+			t.Errorf("as her second page entered, the channel got %+v", got)
+		}
+		if here, _ = hub.Here(ctx, "posts"); len(here) != 1 {
+			t.Errorf("who's on posts: %+v, want Ann once", here)
+		}
+
+		// One of her two pages going isn't her leaving.
+		stop()
+		synctest.Wait()
+		if got := received(watching); len(got) != 0 {
+			t.Errorf("as one of her pages went, the channel got %+v", got)
+		}
+		if here, _ = hub.Here(ctx, "posts"); len(here) != 1 {
+			t.Errorf("who's on posts: %+v, want Ann still", here)
+		}
+	})
+}
+
+func TestTheLastPageOfAMemberGoingTellsTheChannel(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		hub := &broadcast.Hub{}
+		watching := hub.Subscribe(ctx, "posts")
+		open, stop := context.WithCancel(ctx)
+		if _, err := hub.Enter(open, broadcast.Member{ID: "ann"}, "posts"); err != nil {
+			t.Fatal(err)
+		}
+		received(watching) // the arrival
+		stop()
+		synctest.Wait()
+		if got := received(watching); len(got) != 1 || got[0].Name != "presence.left" {
+			t.Errorf("as her last page went, the channel got %+v", got)
+		}
+		if here, _ := hub.Here(ctx, "posts"); len(here) != 0 {
+			t.Errorf("who's on posts: %+v, want nobody", here)
+		}
+	})
+}
+
+func TestAMembersLeaseIsSaidAgainWhileTheirPageIsOpen(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		hub := &broadcast.Hub{Lease: 300 * time.Millisecond}
+		ctx, stop := context.WithCancel(ctx)
+		defer stop()
+		go hub.Run(ctx)
+		if _, err := hub.Enter(ctx, broadcast.Member{ID: "ann"}, "posts"); err != nil {
+			t.Fatal(err)
+		}
+		// Well past the lease, and she's still there: Run says so for the
+		// members of its own instance every third of it.
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if here, _ := hub.Here(ctx, "posts"); len(here) != 1 {
+			t.Errorf("who's on posts after a second, with a lease of 300ms: %+v", here)
 		}
 	})
 }

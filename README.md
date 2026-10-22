@@ -20,7 +20,8 @@ language written right to left laid out that way, lists in
 pages, the app's own commands, a cache and locks across the instances,
 mail with copies, files and a link to unsubscribe, downloads, streams and
 server-sent events, the app's own values encrypted, events broadcast to
-the pages open on every instance, what a user may do with a thing,
+the pages open on every instance, and who's on a channel, what a user may
+do with a thing,
 headers that say what a browser may do with a page, and which of its
 powerful features none may use, a Content-Security-Policy that runs its
 own scripts and styles alone, the database's
@@ -292,6 +293,9 @@ func showPost(c *tug.Ctx) error {
   transaction that makes the change, or not at all. A post made in one
   browser shows in the others, and the auth starter's page that asks to
   verify the email moves on once the link is followed on the phone.
+  `Enter` says who's following a channel, presence: those on it hear as a
+  member comes or goes, `Here` is who's there, and the starter's security
+  page says which of the account's browsers has a page open.
 - **Tests** (package `tugtest`): Inertia's client, for Go's tests of an
   app's pages, which need no browser or frontend build. Its visits keep
   the cookies the app sets and follow its redirects, upload files as the

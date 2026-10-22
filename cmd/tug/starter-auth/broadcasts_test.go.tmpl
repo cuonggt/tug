@@ -228,7 +228,10 @@ func TestAUsersPagesHearTheirOwnChannelAlone(t *testing.T) {
 		if name == "created" {
 			return
 		}
-		if name != "ready" {
+		// Her page is on her channel, not only following it, so it hears
+		// its own arrival there, and any other page of hers coming or
+		// going: broadcasts.go.
+		if name != "ready" && name != "presence.joined" && name != "presence.left" {
 			t.Fatalf("Ann's page heard %s, on Bob's channel", name)
 		}
 	}
