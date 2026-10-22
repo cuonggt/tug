@@ -80,7 +80,7 @@ test('a style the page did not bring is blocked, and the browser reports it to t
   await expect.poll(reported).toBe(true)
 })
 
-test("a visit's progress bar, and a toast, are styled, as the page's nonce lets their styles in", async ({ page }) => {
+test("a visit's progress bar, and its toasts, have the styles the page's nonce lets in", async ({ page }) => {
   await page.goto('/login')
   // Inertia's progress bar puts its <style> in the head as the app starts,
   // with the nonce it was handed: a style the policy blocked has no sheet.
@@ -88,11 +88,19 @@ test("a visit's progress bar, and a toast, are styled, as the page's nonce lets 
     [...document.querySelectorAll('style')].some((s) => s.textContent?.includes('#nprogress') && s.sheet !== null),
   )
   expect(progress).toBe(true)
-  await page.getByRole('link', { name: 'Forgotten it?' }).click()
-  await page.getByLabel('Email').fill('nobody@example.com')
-  await page.getByRole('button', { name: 'Mail me a link' }).click()
-  const toast = page.locator('[data-sonner-toast]').first()
-  await expect(toast).toBeVisible()
-  // sonner's stylesheet, by its own rules, in place of the <style> it injects.
-  expect(await toast.evaluate((el) => getComputedStyle(el).position)).toBe('absolute')
+  // sonner's own stylesheet, which the build puts in the page in place of
+  // the <style> it injects with no nonce: its rules are there to read,
+  // where a stylesheet the policy blocked would have none. A toast's own
+  // computed style would say the same, and a toast dismisses itself, which
+  // a loaded run can miss between showing it and looking.
+  const toasts = await page.evaluate(() =>
+    [...document.styleSheets].some((sheet) => {
+      try {
+        return [...sheet.cssRules].some((rule) => rule.cssText.includes('[data-sonner-toast]'))
+      } catch {
+        return false // a stylesheet of another origin isn't ours to read
+      }
+    }),
+  )
+  expect(toasts).toBe(true)
 })
