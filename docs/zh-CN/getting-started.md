@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 3781dd60e96a -->
+<!-- translated from docs/getting-started.md at 6bb545e54e70 -->
 
 # 快速上手
 
@@ -17,7 +17,7 @@ go install github.com/cuonggt/tug/cmd/tug@latest
 tug version
 ```
 
-`go install` 会把 `tug` 放到 `$(go env GOPATH)/bin`，设置了 `$GOBIN` 时则放到 `$GOBIN`，这个目录需要在你的 `PATH` 中。`tug version` 会打印已安装的版本，例如 `tug v0.50.0`。`tug new` 创建的应用会依赖这个版本。
+`go install` 会把 `tug` 放到 `$(go env GOPATH)/bin`，设置了 `$GOBIN` 时则放到 `$GOBIN`，这个目录需要在你的 `PATH` 中。`tug version` 会打印已安装的版本，例如 `tug v0.51.0`。`tug new` 创建的应用会依赖这个版本。
 
 ## 创建应用
 

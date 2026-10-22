@@ -5277,7 +5277,7 @@ The auth starter knew the browsers an account had logged in from, M39's
 `logins`, and listed them on its security page, but couldn't say which of
 them was open right now, as nothing kept who was listening. A hub knows
 its own subscribers and no more: the rest are on instances of their own,
-and the database is what they share. To be released as v0.51.0.
+and the database is what they share. Released as v0.51.0.
 
 - **Who's here, in package `broadcast`:** `presence.go`, with `Member`, an
   ID the app picks and whatever the pages should know of them, and
