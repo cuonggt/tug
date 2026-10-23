@@ -5371,8 +5371,8 @@ once: M51's `texts`, the words a page says, so a client's second visit had
 none unless the test sent `X-Inertia-Except-Once-Props` itself, which
 testing.md told it to. And `examples/inertia`'s infinite scroll asked for
 page three of its posts and read five, where the browser holds every page
-it has asked for. The page object said all of it already. To be released
-as v0.52.0.
+it has asked for. The page object said all of it already. Released as
+v0.52.0.
 
 - **The client keeps its page:** its props as they came, beside the
   component, the address and the version it kept already. `Props`, `Prop`
