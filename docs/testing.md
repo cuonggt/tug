@@ -203,6 +203,46 @@ r := c.Get("/?page=3", tugtest.Only("posts"), tugtest.Header("X-Inertia-Infinite
 A partial reload before the client is on a page fails the test: its
 component is the page's.
 
+## What the client keeps
+
+The client keeps the page it's on, as a browser does, so a partial reload
+is a change to it rather than a page of its own:
+
+```go
+c.Get("/")                              // the whole page
+r := c.Reload(tugtest.Only("stats"))    // the stats alone come back
+tugtest.Prop[Stats](r, "stats")         // the new stats
+r.Has("posts")                          // true: the page still has them
+r.Page.Props["posts"]                   // nil: the answer didn't carry them
+```
+
+`Props`, `Prop` and `Has` read the page the client is on, which is what a
+browser would show; `r.Page` is the answer as it came, for a test that's
+about the protocol — that a reload carried one prop and no more, or what
+the page object said about it.
+
+The props the page object says merge are merged, by the rules it names: a
+list that pages through appends, one that scrolls back prepends, a map
+deep-merges, and a prop with `MatchOn` replaces the items that have the
+same field rather than adding them twice. So a test of a list reads the
+pages it has asked for:
+
+```go
+c.Get("/")
+r := c.Get("/?page=3", tugtest.Only("posts"))
+posts := tugtest.Prop[[]Post](r, "posts.data") // both pages, the newer after
+```
+
+`Reset` asks for a prop afresh, and replaces it rather than merging, as
+the client does when a list starts again.
+
+A once prop, which goes out once and is the client's to keep, is kept:
+the client remembers it by the key the page object gives it, says so in
+`X-Inertia-Except-Once-Props`, as Inertia's client does, and the page
+still has it on every visit, though the app sent it with the first. One
+whose `Until` has passed is asked for again. `c.FirstVisit` loads the
+document afresh, which keeps nothing: the app sends them all again.
+
 ## Sessions and cookies
 
 The client keeps the cookies the app sets, and drops the ones it expires,
@@ -346,8 +386,5 @@ check.
 
 ## What's not here yet
 
-- The client doesn't keep once props, or merge a partial reload into the
-  page it has: each Response is what the app sent. A test of a once prop
-  sends `X-Inertia-Except-Once-Props` itself, with `tugtest.Header`.
 - None of the frontend runs: what the pages do with their props is for
   the browser tests, as `examples/inertia`'s Playwright tests are.

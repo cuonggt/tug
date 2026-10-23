@@ -47,6 +47,12 @@ import (
 // which its visits send as their Referer, as a browser does, so a form
 // that fails validation goes back to it, and which a partial reload is of.
 //
+// It keeps that page's props too, as a browser does: a partial reload's
+// props go over them, so Props reads the page a browser would show, and
+// the props the page object says merge are merged, a list appended or
+// prepended. A once prop, which goes out once, is kept by the key the page
+// object gives it and asked for no more, as Inertia's client asks.
+//
 // A Client is one browser, for one goroutine at a time.
 type Client struct {
 	// Version is the build of the frontend the client runs, which each
@@ -63,13 +69,15 @@ type Client struct {
 	page    string // the component of the page the client is on, "" before the first
 	url     string // where that page is, its path and query
 	host    string
+	props   json.RawMessage // that page's props, as the client holds them: what a partial reload merges into
+	once    map[string]kept // the once props it has, by the key the page object keeps each by
 }
 
 // New returns a client with the app open: handler is a *tug.App, or any
 // http.Handler. The client fails t when a test asks it for something that
 // isn't there.
 func New(t testing.TB, handler http.Handler) *Client {
-	return &Client{t: t, handler: handler, cookies: map[string]*http.Cookie{}}
+	return &Client{t: t, handler: handler, cookies: map[string]*http.Cookie{}, once: map[string]kept{}}
 }
 
 // An Option changes a visit: Only, Except and Reset for a partial reload,
@@ -191,6 +199,9 @@ func (c *Client) Visit(method, target string, body any, opts ...Option) *Respons
 	if c.page != "" {
 		req.header.Set("Referer", c.referer())
 	}
+	if holds := c.holding(time.Now()); len(holds) > 0 {
+		req.header.Set("X-Inertia-Except-Once-Props", strings.Join(holds, ","))
+	}
 	v := &visit{header: req.header}
 	for _, opt := range opts {
 		opt(v)
@@ -228,6 +239,9 @@ func (c *Client) FirstVisit(target string) *Response {
 	if !ok {
 		return c.none()
 	}
+	// The document is loaded again, so the client holds nothing of the
+	// page it was on, its once props among it: the app sends them all.
+	c.page, c.props, c.once = "", nil, map[string]kept{}
 	req.header.Set("Accept", "text/html, application/xhtml+xml")
 	return c.send(req)
 }
@@ -354,9 +368,49 @@ func (c *Client) serve(req *request) *Response {
 
 	r := &Response{Code: rec.Code, Header: rec.Header(), Body: rec.Body.String(), t: c.t, client: c, req: req}
 	if r.readPage() && r.Page.Component != "" {
+		r.props = c.hold(r)
 		c.page, c.url, c.host, c.Version = r.Page.Component, r.Page.URL, req.host, r.Page.Version
 	}
 	return r
+}
+
+// hold is the page's props as the client holds them after r, which is what
+// Props, Prop and Has read: the answer's props over the ones it had, where
+// the answer is a partial reload of the page it's on, with the props that
+// merge merged and the once props it keeps put back. r.Page stays the
+// answer itself, for a test that's about the protocol.
+func (c *Client) hold(r *Response) json.RawMessage {
+	have := c.props
+	if r.Page.Component != c.page {
+		have = nil // another page: its props are its own
+	}
+	partial := r.req != nil && r.req.header.Get("X-Inertia-Partial-Component") != ""
+	props := merged(have, r.props, r.Page, partial)
+	for key, meta := range r.Page.OnceProps {
+		value, sent := at(object(r.props), meta.Prop)
+		if !sent {
+			continue // the client said it has this one, and keeps it
+		}
+		it := kept{path: meta.Prop, value: value}
+		if meta.ExpiresAt != nil {
+			it.expires = time.UnixMilli(*meta.ExpiresAt)
+		}
+		c.once[key] = it
+	}
+	c.props = restore(props, r.Page, c.once, time.Now())
+	return c.props
+}
+
+// holding is the keys of the once props the client has, which its visits
+// say so that the app leaves them out: one whose expiry has passed is
+// dropped, and asked for again.
+func (c *Client) holding(now time.Time) []string {
+	for key, it := range c.once {
+		if !it.expires.IsZero() && !it.expires.After(now) {
+			delete(c.once, key)
+		}
+	}
+	return slices.Sorted(maps.Keys(c.once))
 }
 
 func (c *Client) addCookies(req *http.Request) {

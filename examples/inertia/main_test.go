@@ -97,8 +97,14 @@ func TestTheListComesAPageAtATime(t *testing.T) {
 	c := newClient(t)
 	c.Get("/")
 	r := c.Get("/?page=3", tugtest.Only("posts"), tugtest.Header("X-Inertia-Infinite-Scroll-Merge-Intent", "append"))
-	if got := titles(r); len(got) != 5 || got[0] != "Post 21" {
-		t.Errorf("page 3 has %v", got)
+	// The answer carries that page's five posts, which the client adds to
+	// the page it had, as the browser does: it has both pages it asked
+	// for, the newer after the older.
+	if got := tugtest.Prop[[]Post](r, "posts.data"); len(got) != 15 || got[10].Title != "Post 21" {
+		t.Errorf("the list has %d posts, the eleventh %q", len(got), got[10].Title)
+	}
+	if got := titles(r); len(got) != 15 || got[14] != "Post 25" {
+		t.Errorf("the pages it has asked for: %v", got)
 	}
 	if want := (inertia.ScrollMeta{PageName: "page", PreviousPage: 2.0, CurrentPage: 3.0}); !reflect.DeepEqual(r.Page.ScrollProps["posts"], want) {
 		t.Errorf("scrollProps %+v", r.Page.ScrollProps["posts"])
@@ -155,8 +161,12 @@ func TestTheStatsComeWithTheReloadThatAsksForThem(t *testing.T) {
 	if stats := tugtest.Prop[Stats](r, "stats"); stats != (Stats{Posts: 25, Words: 160}) {
 		t.Fatalf("stats %+v", stats)
 	}
-	if r.Has("posts") {
-		t.Error("the reload for the stats got the posts too")
+	if _, carried := r.Page.Props["posts"]; carried {
+		t.Error("the reload for the stats carried the posts too")
+	}
+	// The page the client is on still has them, as a browser's does.
+	if !r.Has("posts") {
+		t.Error("the page lost its posts to a reload of the stats")
 	}
 }
 

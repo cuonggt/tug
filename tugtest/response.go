@@ -296,7 +296,7 @@ func Prop[T any](r *Response, path string) T {
 	}
 	raw := lookup(r.props, path)
 	if raw == nil {
-		r.t.Fatalf("%v: the page has no prop %s; it has %s", r, path, strings.Join(slices.Sorted(maps.Keys(r.Page.Props)), ", "))
+		r.t.Fatalf("%v: the page has no prop %s; it has %s", r, path, strings.Join(slices.Sorted(maps.Keys(object(r.props))), ", "))
 		return v
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {

@@ -63,7 +63,7 @@ to 3.8.0, October 2026), written against
 | M54 | Dates and numbers          | done   |
 | M55 | A language's direction     | done   |
 | M56 | Presence on a channel      | done   |
-| M57 | What the client keeps      | later  |
+| M57 | What the client keeps      | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5358,74 +5358,77 @@ Choices made on the way:
   gaps that needed the app to keep something; the other two are as they
   were.
 
-## M57 · What the client keeps — later
+## M57 · What the client keeps — done
 
-M12 gave tugtest a browser with the app open, and it forgets the page
-between visits: each Response is what the app sent, and no more. That was
+M12 gave tugtest a browser with the app open, and it forgot the page
+between visits: each Response was what the app sent, and no more. That was
 fine until a test had to read a page the browser builds from more than one
-answer, which the milestones since have made the common case. A partial
+answer, which the milestones since had made the common case. A partial
 reload carries the props it asked for — M56's security page reloads
-`browsers` alone — so a test of one gets a page of a single prop where the
+`browsers` alone — so a test of one got a page of a single prop where the
 browser has the whole page with that prop changed. A once prop goes out
-once: M51's `texts`, the words a page says, so a client's second visit has
-no words unless the test sends `X-Inertia-Except-Once-Props` itself, which
-testing.md tells it to. And `examples/inertia`'s infinite scroll asks for
-page three of its posts and reads five, where the browser holds every page
-it has asked for, appended and matched on each post's ID. The page object
-already says all of this: which props merge, how, and which are once and
-when they expire. To be released as v0.52.0.
+once: M51's `texts`, the words a page says, so a client's second visit had
+none unless the test sent `X-Inertia-Except-Once-Props` itself, which
+testing.md told it to. And `examples/inertia`'s infinite scroll asked for
+page three of its posts and read five, where the browser holds every page
+it has asked for. The page object said all of it already. To be released
+as v0.52.0.
 
-- **The client keeps its page:** its props, as they came, beside the
-  component, the address and the version it keeps already. A visit that
-  shows another page replaces them, and one that shows none, as a redirect
-  doesn't, leaves them as they were.
-- **A partial reload merges:** the props the response carries go over the
-  ones the client has, by their top-level name, as Inertia's own client
-  does it, so `Props` reads the page a browser would show. `Reset`
-  replaces a prop instead, as it already asks the server to.
-- **The props with rules of their own:** `mergeProps`, `prependProps`,
-  `deepMergeProps` and `matchPropsOn`, which the page object names by
-  their paths, as `posts.data` and `posts.data.id`: a list that pages
-  through appends, one that scrolls back prepends, a map deep-merges, and
-  a match on an ID replaces an item rather than adding it twice.
-  inertia-laravel's client is the reference, as it is for the protocol.
-- **Once props kept, and asked for once:** the client remembers each by
-  the key `onceProps` gives it, with its `expiresAt`, sends the keys it
-  holds in `X-Inertia-Except-Once-Props`, as a browser does, and keeps
-  their values in the page it has, so a page says its own words on every
-  visit of a test, not only the first. One whose expiry has passed is
-  asked for again.
-- **What the answer itself carried stays readable:** `Page` is the page
-  object as it came, so a test that's about the protocol — that a reload
-  sent one prop and no more, that `mergeProps` named a path — reads it as
-  it does today.
-- **Tests:** tugtest's own, for a reload merged, a prop reset, a list
-  appended and prepended, a deep merge, a match on an ID, a once prop
-  kept and asked for once, and one whose expiry has passed; and
-  `examples/inertia`'s list, which reads the pages it has asked for rather
-  than the last answer.
+- **The client keeps its page:** its props as they came, beside the
+  component, the address and the version it kept already. `Props`, `Prop`
+  and `Has` read that page, so a test reads what a browser would show, and
+  `Page` is still the answer itself, for the tests that are about the
+  protocol.
+- **A partial reload merges:** the props the answer carried go over the
+  ones the client had, by their top-level name, as Inertia's client has
+  it, so the rest of the page stays as it was. `merge.go` is the whole of
+  it: `at` and `put` walk the dotted paths the page object names, and
+  write the objects back as they go.
+- **The props with rules of their own:** `mergeProps` appends,
+  `prependProps` prepends, `deepMergeProps` merges each key at every
+  depth, and `matchPropsOn` makes an item the same item by a field, so one
+  that comes again takes the other's place rather than sitting beside it.
+  A prop being `Reset` has no label, so it replaces.
+- **Once props kept, and asked for once:** the client holds each by the
+  key `onceProps` gives it, with its expiry, says the keys it holds in
+  `X-Inertia-Except-Once-Props`, and puts the values back where the page
+  object says they go. One past its `Until` is dropped and asked for
+  again, and `FirstVisit` keeps none of them: the document is loaded
+  afresh.
+- **Tests:** tugtest's own app pages through now, with a prop for each way
+  one merges and two once props, one stale as it's sent; its tests cover a
+  reload merged and what the answer carried, the four merge rules, a once
+  prop sent once and kept, one asked for again, and a first visit holding
+  nothing. The example's list test reads the pages it has asked for,
+  fifteen posts with the third page's after the first's, and its stats
+  reload says both what came and what the page still has.
 - **The guide:** Testing, what the client keeps, beside Partial reloads,
-  and the first of its What's not here yet gone.
+  and the first of its What's not here yet gone; the README's tests
+  bullet.
 
-Choices, to settle before any code:
+Choices made on the way:
 
-- **What the browser does, not what would be kinder:** a partial reload
-  merges by top-level name, so `Only("auth.user")` leaves the client the
-  `auth` the answer carried and nothing else of it. A deep merge
-  everywhere would be friendlier and would hide what a page is really
-  given, which is what a test is for.
-- **`Props` reads the page the client has:** a test asks what the page
-  shows, which is the point of a browser; `Page` stays the answer, for the
-  tests that are about the protocol. The two part company only for a
-  partial reload, which is where the merge is.
-- **Once props by their key, not their path:** `As` names what the client
-  remembers — M51's texts are `texts:<locale>` — so a language's words are
-  one thing kept, and a visit in another language asks for that one.
-- **Nothing fetches a deferred prop by itself:** the browser's client asks
-  for the deferred groups as the page mounts, and tugtest's doesn't: a
-  test says what it wants to see. Merging is what makes the asking whole.
+- **The merge is a reload's own:** the labels say how to put an answer
+  together with the page the client has, which only a partial reload is.
+  A visit that carries the page whole is the page, labels or not — the
+  other way round, a plain visit to a list would append it to itself, and
+  the app would have to say `Reset` to stop it.
+- **The page object says where a once prop goes:** a prop left out because
+  the client has it is still labelled, `collectOnce` runs either way, so
+  the answer says which once props the page has and the path each sits
+  at. The client puts its own copy there, rather than keeping a path from
+  the visit it first came on, so a page that wants it gets it and one that
+  doesn't is left alone.
+- **`Props` reads the page, and `Page` the answer:** the two part company
+  only for a partial reload, which is where the merge is. The tests that
+  were about the protocol said `r.Page.Props` already, and the ones about
+  the page read better now: `r.Has("posts")` after a reload of the stats
+  is true, as it is in a browser.
+- **The message says what the page has:** `Prop`'s failure lists the props
+  of the page it looked in, the client's, not the answer's, which is what
+  a test would go looking for.
 - **No frontend, still:** what the pages do with their props stays the
-  browser suite's, as testing.md's second gap says.
+  browser suite's, as testing.md's one remaining gap says.
 
 ## Decisions
 

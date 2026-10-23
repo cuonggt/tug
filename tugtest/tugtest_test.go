@@ -2,9 +2,11 @@ package tugtest_test
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/inertia"
@@ -35,11 +38,16 @@ type Counts struct {
 }
 
 type IndexProps struct {
-	Posts  []Post                         `json:"posts"`
-	Stats  inertia.DeferProp[Stats]       `json:"stats"`
-	Tags   inertia.OptionalProp[[]string] `json:"tags"`
-	Feed   inertia.MergeProp[[]string]    `json:"feed"`
-	Counts Counts                         `json:"counts"`
+	Posts   []Post                                       `json:"posts"`
+	Stats   inertia.DeferProp[Stats]                     `json:"stats"`
+	Tags    inertia.OptionalProp[[]string]               `json:"tags"`
+	Feed    inertia.MergeProp[[]string]                  `json:"feed"`
+	Earlier inertia.MergeProp[[]string]                  `json:"earlier"`
+	Totals  inertia.MergeProp[map[string]map[string]int] `json:"totals"`
+	Found   inertia.MergeProp[[]Post]                    `json:"found"`
+	Words   inertia.OnceProp[map[string]string]          `json:"words"`
+	Stale   inertia.OnceProp[string]                     `json:"stale"`
+	Counts  Counts                                       `json:"counts"`
 }
 
 type ShowProps struct {
@@ -84,11 +92,23 @@ func newApp(t *testing.T) *tug.App {
 	posts := []Post{{1, "Hello"}, {2, "Again"}}
 
 	app.Get("/", func(c *tug.Ctx) error {
+		// The page a client pages through: each of its props that merges
+		// says which page of it this is, so what the client ends up with
+		// says how the merging went.
+		page := cmp.Or(c.Query("page"), "1")
 		return Index.Render(c, IndexProps{
-			Posts:  posts,
-			Stats:  inertia.Defer(func() (Stats, error) { return Stats{Posts: len(posts)}, nil }),
-			Tags:   inertia.Optional(func() ([]string, error) { return []string{"go"}, nil }),
-			Feed:   inertia.Merge([]string{"Hello"}),
+			Posts:   posts,
+			Stats:   inertia.Defer(func() (Stats, error) { return Stats{Posts: len(posts)}, nil }),
+			Tags:    inertia.Optional(func() ([]string, error) { return []string{"go"}, nil }),
+			Feed:    inertia.Merge([]string{"feed " + page}),
+			Earlier: inertia.Merge([]string{"earlier " + page}, inertia.Prepend()),
+			Totals:  inertia.Merge(map[string]map[string]int{"by": {"page" + page: 1}}, inertia.DeepMerge()),
+			Found:   inertia.Merge([]Post{{1, "Hello " + page}}, inertia.MatchOn("id")),
+			Words: inertia.Once(func() (map[string]string, error) {
+				return map[string]string{"hello": "Xin chào"}, nil
+			}, inertia.As("words")),
+			Stale: inertia.Once(func() (string, error) { return "page " + page, nil },
+				inertia.Until(time.Now().Add(-time.Second))),
 			Counts: Counts{Views: inertia.Always(7), Likes: 3},
 		})
 	})
@@ -233,16 +253,92 @@ func TestAPartialReloadIsOfThePageTheClientIsOn(t *testing.T) {
 	c := tugtest.New(t, newApp(t))
 	c.Get("/")
 	r := c.Reload(tugtest.Only("stats"))
-	if tugtest.Prop[Stats](r, "stats").Posts != 2 || r.Has("posts") {
-		t.Errorf("the reload for the stats: %v", r.Page.Props)
+	// The answer carries what was asked for, and the props that always go
+	// out, and no more.
+	if got, want := slices.Sorted(maps.Keys(r.Page.Props)), []string{"errors", "stats"}; !slices.Equal(got, want) {
+		t.Errorf("the reload for the stats carried %v, want %v", got, want)
+	}
+	// The page the client is on is that one over the page it had, as a
+	// browser builds it: the stats are new, and the posts are still there.
+	if tugtest.Prop[Stats](r, "stats").Posts != 2 || !r.Has("posts") {
+		t.Errorf("the page after the reload for the stats: %v", r)
 	}
 	r = c.Reload(tugtest.Only("tags"))
 	if tags := tugtest.Prop[[]string](r, "tags"); !slices.Equal(tags, []string{"go"}) {
 		t.Errorf("tags %v", tags)
 	}
 	tugtest.Props(r, Index) // a list where the props type has a prop type
-	if r = c.Reload(tugtest.Except("posts")); r.Has("posts") || !r.Has("counts.likes") {
-		t.Errorf("the reload for all but the posts: %v", r.Page.Props)
+	if r = c.Reload(tugtest.Except("posts")); !r.Has("posts") || !r.Has("counts.likes") {
+		t.Errorf("the reload for all but the posts: %v", r)
+	}
+	if _, carried := r.Page.Props["posts"]; carried {
+		t.Error("the reload for all but the posts carried the posts")
+	}
+}
+
+func TestTheListsThatMergeAddToWhatTheClientHas(t *testing.T) {
+	c := tugtest.New(t, newApp(t))
+	c.Get("/")
+	r := c.Get("/?page=2", tugtest.Only("feed", "earlier", "totals", "found"))
+	if got := tugtest.Prop[[]string](r, "feed"); !slices.Equal(got, []string{"feed 1", "feed 2"}) {
+		t.Errorf("the feed appends: %v", got)
+	}
+	if got := tugtest.Prop[[]string](r, "earlier"); !slices.Equal(got, []string{"earlier 2", "earlier 1"}) {
+		t.Errorf("the earlier pages prepend: %v", got)
+	}
+	if got := tugtest.Prop[map[string]int](r, "totals.by"); !maps.Equal(got, map[string]int{"page1": 1, "page2": 1}) {
+		t.Errorf("the totals deep-merge: %v", got)
+	}
+	// A post is the same post by its ID, so the one that came again takes
+	// the place of the one the client had, rather than being added beside
+	// it.
+	if got := tugtest.Prop[[]Post](r, "found"); len(got) != 1 || got[0].Title != "Hello 2" {
+		t.Errorf("the posts match on their ID: %v", got)
+	}
+}
+
+func TestAOncePropIsSentOnceAndKept(t *testing.T) {
+	c := tugtest.New(t, newApp(t))
+	r := c.Get("/")
+	if _, sent := r.Page.Props["words"]; !sent {
+		t.Fatal("the first visit got no words")
+	}
+	words := tugtest.Prop[map[string]string](r, "words")
+
+	// The visit after says it has them, so the app leaves them out, and
+	// the page the client is on has them still: the page object says it
+	// has that prop, and where.
+	r = c.Get("/")
+	if _, sent := r.Page.Props["words"]; sent {
+		t.Error("the visit after got the words again")
+	}
+	if r.Page.OnceProps["words"].Prop != "words" {
+		t.Errorf("the page doesn't say where its once prop goes: %+v", r.Page.OnceProps)
+	}
+	if got := tugtest.Prop[map[string]string](r, "words"); !maps.Equal(got, words) {
+		t.Errorf("the page says the words are %v, want the ones the client kept, %v", got, words)
+	}
+}
+
+func TestAOncePropWhoseTimeHasPassedIsSentAgain(t *testing.T) {
+	c := tugtest.New(t, newApp(t))
+	c.Get("/")
+	r := c.Get("/?page=2")
+	if _, sent := r.Page.Props["stale"]; !sent {
+		t.Fatal("a once prop past the time it was kept until wasn't sent again")
+	}
+	if got := tugtest.Prop[string](r, "stale"); got != "page 2" {
+		t.Errorf("the page says %q, want the one that came with it", got)
+	}
+}
+
+func TestAFirstVisitKeepsNoneOfWhatTheClientHeld(t *testing.T) {
+	c := tugtest.New(t, newApp(t))
+	c.Get("/")
+	// The document is loaded again, so nothing of the page is in the
+	// browser any more, its once props among it.
+	if r := c.FirstVisit("/"); r.Page.Props["words"] == nil {
+		t.Error("the document was loaded again, and the words didn't come with it")
 	}
 }
 
@@ -371,7 +467,7 @@ func TestAskingForWhatIsntThereFailsTheTest(t *testing.T) {
 		want string
 	}{
 		{"a prop the page doesn't have", func(c *tugtest.Client) { tugtest.Prop[int](c.Get("/"), "likes") },
-			"GET /: 200 Posts/Index: the page has no prop likes; it has counts, errors, feed, posts, user"},
+			"GET /: 200 Posts/Index: the page has no prop likes; it has counts, earlier, errors, feed, found, posts, stale, totals, user, words"},
 		{"a prop of another type", func(c *tugtest.Client) { tugtest.Prop[string](c.Get("/"), "posts") },
 			"GET /: 200 Posts/Index: prop posts isn't a string: "},
 		{"a prop of no page", func(c *tugtest.Client) { tugtest.Prop[string](c.Get("/old"), "post") },

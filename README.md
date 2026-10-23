@@ -300,8 +300,10 @@ func showPost(c *tug.Ctx) error {
   app's pages, which need no browser or frontend build. Its visits keep
   the cookies the app sets and follow its redirects, upload files as the
   browser does, and a page's props read into the struct its `tug.Page`
-  declares: `tugtest.Props(r, Dashboard).User`. The starters' tests use
-  it.
+  declares: `tugtest.Props(r, Dashboard).User`. It keeps the page it's on,
+  as a browser does: a partial reload merges into it, a list that pages
+  through appends, and a once prop is kept and asked for once. The
+  starters' tests use it.
 - **Vite** (package `vite`): tags from the dev server while it runs, with
   the React refresh preamble, and from the build's manifest otherwise, with
   CSS and preloads, the scripts with the page's nonce. The built files are
