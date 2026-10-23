@@ -248,6 +248,76 @@ local disk's links are the app's own.
 A private local disk's files go out with `Cache-Control: private`, so a
 shared cache keeps none of them.
 
+## Uploads from the browser
+
+A file that goes through the app is read by `Bind`, checked by validate's
+tags and kept by `PutUpload`, which is right for a photo and wrong for a
+video: the app holds the bytes while they arrive, its request has a body
+limit, and whatever stands in front of it has one too. A big file goes
+straight to the disk instead, by a link the app signs:
+
+```go
+// The app names the file and makes the link: a browser never picks a key.
+func (a *app) videoUpload(c *tug.Ctx, user *User) error {
+	key := storage.UploadKey("videos", "video/mp4")
+	disk, ok := a.disk.(storage.Uploader)
+	if !ok {
+		return errors.New("this disk takes no uploads of its own")
+	}
+	link, err := disk.UploadURL(key, time.Now().Add(15*time.Minute), storage.Conditions{
+		ContentType: "video/mp4",
+		MaxSize:     2 << 30,
+	})
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]string{"key": key, "url": link})
+}
+```
+
+The page puts the file there itself, and tells the app the key when it's
+done:
+
+```ts
+await fetch(url, { method: 'PUT', body: file, headers: { 'Content-Type': 'video/mp4' } })
+router.post(route('videos.store'), { key })
+```
+
+**What landed is the app's to check.** A link says what the request must
+be — the key, the method, the expiry, the type it says it is — and nothing
+can say what the bytes are: a browser that says `video/mp4` can send
+anything. So the handler that takes the key looks before it keeps it:
+
+```go
+info, err := storage.Checked(c.Context(), a.disk, in.Key, 2<<30, "video/mp4")
+if err != nil {
+	// The file is gone: Checked deleted it.
+	return validate.Errors{"key": "that file isn't a video we can take"}
+}
+```
+
+`Checked` is `storage.Stater`'s `Stat` and a rule: a file bigger than the
+size given, or of a type that isn't among those named, is deleted, and
+the error says which it was. `Stat` is the size, and the type the first
+bytes say — S3 by a `HEAD` and a read of them, the local disk by reading
+them — never the type the upload claimed, which S3 keeps as it was given.
+
+The local disk takes these uploads too, by the same `UploadURL`: its route
+answers a `PUT` whose link is signed for that key and that method, holds
+it to the type the link names, and refuses a body longer than its
+`MaxSize` as it writes. So the page works the same under `tug dev`, with
+no bucket anywhere, and a link to read is no link to write: the method is
+part of what's signed.
+
+What this gives up: the app learns nothing until the key arrives, so a
+file uploaded and never named is a file to sweep up (a job that deletes
+the keys under a prefix that no row names); there's no progress from the
+app's side, which the browser has itself; and S3's presigned `PUT` carries
+5 GB at most, with nothing resumable about it.
+
+A bucket also has to allow the `PUT` from the app's pages: see
+[the bucket's CORS](deployment.md#a-buckets-cors).
+
 ## Files and transactions
 
 A disk has no transactions, so a handler that keeps a file's key in its
@@ -306,7 +376,8 @@ gone. A link a page has is fetched with `c.Do`, as a browser fetches an
   makes them in a job, from the file it opens.
 - A disk has no listing, copying or moving; each app keeps the keys of
   its files with the records they belong to.
-- No uploads straight from the browser to a bucket, with a presigned
-  `PUT`, and no multipart uploads to S3, for files over 5 GB.
+- No multipart uploads to S3, for files over 5 GB, and nothing resumable:
+  an upload from the browser is one `PUT` ([Uploads from the
+  browser](#uploads-from-the-browser)).
 - An S3 takes keys, not an instance's role or a chain of places to look
   for them.

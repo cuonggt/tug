@@ -171,6 +171,7 @@ gone from Docker Hub, and Bitnami's last is kept:
 ```bash
 docker run -d --rm --name tug-minio -p 127.0.0.1:9000:9000 -e MINIO_ROOT_USER=tug \
   -e MINIO_ROOT_PASSWORD=tug-secret-key bitnamilegacy/minio:2025.7.23-debian-12-r5
+until curl -fsS http://127.0.0.1:9000/minio/health/live; do sleep 1; done # it answers a second or two later
 TUG_TEST_S3=http://tug:tug-secret-key@127.0.0.1:9000 go test ./storage
 ```
 

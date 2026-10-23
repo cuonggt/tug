@@ -710,6 +710,31 @@ Inertia's client writes `innerHTML` with none, for each visit's head
 elements, its progress bar and its error dialog, so every visit with a
 head would fail. They wait for Inertia's client to make one.
 
+## A bucket's CORS
+
+A page that puts a file straight into a bucket ([Uploads from the
+browser](files.md#uploads-from-the-browser)) makes a cross-origin request,
+which the bucket allows or refuses: `middleware.CORS` is for the app's own
+routes and has nothing to say about another host's. The rule a bucket
+needs, for the app's own origin alone:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://example.com"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["content-type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+`AllowedHeaders` names every header the browser sends that isn't a simple
+one, `content-type` among them, since an upload link signs it: without
+that, the preflight fails and the upload never starts. A bucket whose
+files the pages read as well as write takes `GET` beside the `PUT`, and
+`ExposeHeaders` only where a page reads a header of the answer back.
+
 ## Shutting down
 
 On SIGTERM or SIGINT, `Run` logs "shutting down" and stops taking

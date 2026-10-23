@@ -204,3 +204,69 @@ func TestAnS3WithoutItsBucketOrKeysSaysSo(t *testing.T) {
 		t.Errorf("an endpoint with no scheme: %v", err)
 	}
 }
+
+func TestABrowserPutsAFileToAnS3ByALinkToUploadTo(t *testing.T) {
+	s := minio(t)
+	k := UploadKey("videos", "image/png")
+	link, err := s.UploadURL(k, time.Now().Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The browser's own PUT, which carries the type the link signed and no
+	// credentials of the app's.
+	put := func(contentType string, content []byte) int {
+		req, err := http.NewRequest(http.MethodPut, link, bytes.NewReader(content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", contentType)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := put("image/png", png); code != http.StatusOK {
+		t.Fatalf("the upload: %d", code)
+	}
+	if got := string(read(t, s, k)); got != string(png) {
+		t.Errorf("what landed: %q", got)
+	}
+	// S3 signs the type into the link, so a PUT that says another is
+	// refused, and so is one by a link that has expired.
+	if code := put("text/plain", png); code == http.StatusOK {
+		t.Error("S3 took a PUT of another type than the link says")
+	}
+	gone, err := s.UploadURL(k, time.Now().Add(-time.Minute), Conditions{})
+	if err == nil {
+		t.Errorf("a link that expired before it was made: %s", gone)
+	}
+}
+
+func TestAnS3SaysWhatAFileIs(t *testing.T) {
+	s := minio(t)
+	// Kept as a photo, whatever it was uploaded as: Stat says what the
+	// bytes say, which is what an app can believe.
+	if err := s.Put(ctx, "videos/one.png", bytes.NewReader(png), int64(len(png)), "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := s.Stat(ctx, "videos/one.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size != int64(len(png)) || info.ContentType != "image/png" {
+		t.Errorf("Stat says %+v", info)
+	}
+	if _, err := s.Stat(ctx, "videos/none.png"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a file that isn't there: %v", err)
+	}
+	// And the app looks at what landed before it keeps the key: a file
+	// bigger than it allows is deleted.
+	if _, err := Checked(ctx, s, "videos/one.png", int64(len(png))-1, "image/png"); err == nil {
+		t.Error("a file over the size was taken")
+	}
+	if _, err := s.Stat(ctx, "videos/one.png"); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("a file over the size is still in the bucket")
+	}
+}

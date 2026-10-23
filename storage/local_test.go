@@ -275,7 +275,7 @@ func TestTheRouteAnswersWhatABrowserAsks(t *testing.T) {
 			t.Errorf("%s: %d", link, w.Code)
 		}
 	}
-	if w := serve(d, "POST", "/files/a.png"); w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "GET, HEAD" {
+	if w := serve(d, "POST", "/files/a.png"); w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "GET, HEAD, PUT" {
 		t.Errorf("POST: %d %v", w.Code, w.Header())
 	}
 }
@@ -288,5 +288,147 @@ func TestAPrivateDiskWithoutKeysMakesNoLinks(t *testing.T) {
 	put(t, d, "a.png", png)
 	if w := serve(d, "GET", "/files/a.png"); w.Code != http.StatusForbidden {
 		t.Errorf("its route: %d", w.Code)
+	}
+}
+
+// byLink puts content at the link, as a browser does with one UploadURL
+// made: with the type it says it is, and how many bytes.
+func byLink(d *Local, link, contentType string, content []byte) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodPut, link, bytes.NewReader(content))
+	r.Header.Set("Content-Type", contentType)
+	r.ContentLength = int64(len(content))
+	w := httptest.NewRecorder()
+	d.ServeHTTP(w, r)
+	return w
+}
+
+func TestABrowserPutsAFileByALinkToUploadTo(t *testing.T) {
+	d := newLocal(t)
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	k := UploadKey("videos", "image/png")
+	if !strings.HasPrefix(k, "videos/") || !strings.HasSuffix(k, ".png") {
+		t.Fatalf("the key the app made: %s", k)
+	}
+	link, err := d.UploadURL(k, now.Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: int64(len(png))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := byLink(d, link, "image/png", png); w.Code != http.StatusNoContent {
+		t.Fatalf("the upload: %d %s", w.Code, w.Body)
+	}
+	if info, err := d.Stat(ctx, k); err != nil || info.Size != int64(len(png)) || info.ContentType != "image/png" {
+		t.Errorf("what landed: %+v, %v", info, err)
+	}
+	// And the file is there to read, by a link of its own.
+	read, err := d.URL(k, now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := serve(d, "GET", read); w.Code != http.StatusOK {
+		t.Errorf("reading it after: %d", w.Code)
+	}
+}
+
+func TestALinkToUploadToTakesNothingElse(t *testing.T) {
+	d := newLocal(t)
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	k := "videos/one.png"
+	link, err := d.UploadURL(k, now.Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: int64(len(png))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		what        string
+		link        string
+		contentType string
+		content     []byte
+		code        int
+	}{
+		{"of another type than it takes", link, "text/plain", png, http.StatusForbidden},
+		{"of more bytes than it takes", link, "image/png", append(bytes.Clone(png), png...), http.StatusRequestEntityTooLarge},
+		{"of another key", strings.Replace(link, "one.png", "two.png", 1), "image/png", png, http.StatusForbidden},
+		{"with the signature of another type", strings.Replace(link, "image%2Fpng", "text%2Fplain", 1), "text/plain", png, http.StatusForbidden},
+	} {
+		if w := byLink(d, c.link, c.contentType, c.content); w.Code != c.code {
+			t.Errorf("a PUT %s: %d, want %d", c.what, w.Code, c.code)
+		}
+	}
+
+	// A link to read is no good for writing, and this one is no good for
+	// reading: the method is in what's signed.
+	link2read, err := d.URL(k, now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := byLink(d, link2read, "image/png", png); w.Code != http.StatusForbidden {
+		t.Errorf("a PUT by a link to read: %d", w.Code)
+	}
+	if w := serve(d, "GET", link); w.Code != http.StatusForbidden {
+		t.Errorf("a GET by a link to upload to: %d", w.Code)
+	}
+
+	// An upload that doesn't say how many bytes it is, and one by a link
+	// whose time has passed.
+	r := httptest.NewRequest(http.MethodPut, link, bytes.NewReader(png))
+	r.Header.Set("Content-Type", "image/png")
+	r.ContentLength = -1
+	w := httptest.NewRecorder()
+	d.ServeHTTP(w, r)
+	if w.Code != http.StatusLengthRequired {
+		t.Errorf("a PUT that doesn't say how big it is: %d", w.Code)
+	}
+	now = now.Add(2 * time.Hour)
+	if w := byLink(d, link, "image/png", png); w.Code != http.StatusForbidden {
+		t.Errorf("a PUT by a link that has expired: %d", w.Code)
+	}
+
+	// None of them kept anything.
+	if _, err := d.Stat(ctx, k); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("after all that, the file is %v", err)
+	}
+}
+
+// aDisk is a Disk that can't say what a file is, as one of an app's own
+// may not: it has the four methods a Disk has, and no Stat.
+type aDisk struct{ disk *Local }
+
+func (d aDisk) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
+	return d.disk.Put(ctx, key, r, size, contentType)
+}
+func (d aDisk) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	return d.disk.Open(ctx, key)
+}
+func (d aDisk) Delete(ctx context.Context, key string) error      { return d.disk.Delete(ctx, key) }
+func (d aDisk) URL(key string, expires time.Time) (string, error) { return d.disk.URL(key, expires) }
+
+func TestWhatLandedIsCheckedBeforeItsKept(t *testing.T) {
+	d := newLocal(t)
+	put(t, d, "videos/ok.png", png)
+	if info, err := Checked(ctx, d, "videos/ok.png", int64(len(png)), "image/png"); err != nil || info.ContentType != "image/png" {
+		t.Errorf("a file that's what the app takes: %+v, %v", info, err)
+	}
+
+	// A file bigger than the app allows goes, and so does one of a type it
+	// doesn't take, whatever the upload said it was.
+	put(t, d, "videos/big.png", png)
+	if _, err := Checked(ctx, d, "videos/big.png", int64(len(png))-1); err == nil || !strings.Contains(err.Error(), "most allowed") {
+		t.Errorf("a file over the size: %v", err)
+	}
+	if _, err := d.Stat(ctx, "videos/big.png"); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("a file over the size is still there")
+	}
+	put(t, d, "videos/text.png", []byte("not a photo at all, whatever it's called"))
+	if _, err := Checked(ctx, d, "videos/text.png", 0, "image/png", "image/jpeg"); err == nil {
+		t.Error("a file of a type the app doesn't take was taken")
+	}
+	if _, err := d.Stat(ctx, "videos/text.png"); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("a file of a type the app doesn't take is still there")
+	}
+
+	// A disk that can't say what a file is can't have one checked.
+	if _, err := Checked(ctx, aDisk{disk: d}, "videos/ok.png", 0); err == nil || !strings.Contains(err.Error(), "can't say what a file is") {
+		t.Errorf("a disk that isn't a Stater: %v", err)
 	}
 }

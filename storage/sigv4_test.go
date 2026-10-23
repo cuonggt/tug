@@ -86,10 +86,37 @@ func TestAQueryIsSignedAsAWSsExamplesAre(t *testing.T) {
 
 func TestALinkIsPresignedAsAWSsExampleIs(t *testing.T) {
 	u, _ := example.objectURL("test.txt")
-	link := example.presign(u, exampleTime, 24*time.Hour)
+	link := example.presign(u, http.MethodGet, exampleTime, 24*time.Hour, nil)
 	want := "https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404"
 	if link != want {
 		t.Errorf("got  %s\nwant %s", link, want)
+	}
+}
+
+func TestALinkToUploadToSignsItsMethodAndWhatItTakes(t *testing.T) {
+	u, _ := example.objectURL("test.txt")
+	read := example.presign(u, http.MethodGet, exampleTime, time.Hour, nil)
+	write := example.presign(u, http.MethodPut, exampleTime, time.Hour, nil)
+	typed := example.presign(u, http.MethodPut, exampleTime, time.Hour, map[string]string{"content-type": "image/png"})
+	q := func(link, name string) string {
+		values, err := url.ParseQuery(strings.SplitN(link, "?", 2)[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return values.Get(name)
+	}
+	// The method is in what's signed, so the one link isn't the other: a
+	// link to read can't be turned into a link to write.
+	if q(read, "X-Amz-Signature") == q(write, "X-Amz-Signature") {
+		t.Error("a link to read and a link to write are signed the same")
+	}
+	// A type the link takes is a header the request has to send, which
+	// goes into the signature with it.
+	if got := q(typed, "X-Amz-SignedHeaders"); got != "content-type;host" {
+		t.Errorf("the signed headers are %q", got)
+	}
+	if q(typed, "X-Amz-Signature") == q(write, "X-Amz-Signature") {
+		t.Error("a link that takes a type is signed as one that takes any")
 	}
 }
 

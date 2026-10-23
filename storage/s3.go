@@ -193,7 +193,84 @@ func (s *S3) URL(key string, expires time.Time) (string, error) {
 	if signed.After(s.clock()) {
 		return "", fmt.Errorf("storage: a link to %s that expires at %s: S3's links last seven days at most", key, expires.Format(time.RFC3339))
 	}
-	return s.presign(u, signed, longestLink), nil
+	return s.presign(u, http.MethodGet, signed, longestLink, nil), nil
+}
+
+// UploadURL is a link a browser can PUT the file under key to, with no app
+// in between, until expires: a presigned link, which S3 answers for seven
+// days at most, as its links to read last. The conditions' ContentType is
+// signed into it, so S3 refuses a PUT that says another; its MaxSize isn't,
+// as a presigned PUT has no way to say how big a file may be, so Checked is
+// what sees one that came in bigger.
+func (s *S3) UploadURL(key string, expires time.Time, c Conditions) (string, error) {
+	if err := checkKey(key); err != nil {
+		return "", err
+	}
+	if s.AccessKeyID == "" || s.SecretAccessKey == "" {
+		return "", errors.New("storage: an S3 signs a link to upload to with its AccessKeyID and SecretAccessKey")
+	}
+	u, err := s.objectURL(key)
+	if err != nil {
+		return "", err
+	}
+	lasts := expires.Sub(s.clock())
+	switch {
+	case lasts <= 0:
+		return "", fmt.Errorf("storage: a link to upload %s expiring at %s has expired already", key, expires.Format(time.RFC3339))
+	case lasts > longestLink:
+		return "", fmt.Errorf("storage: a link to upload %s expiring at %s: S3's links last seven days at most", key, expires.Format(time.RFC3339))
+	}
+	var headers map[string]string
+	if c.ContentType != "" {
+		headers = map[string]string{"content-type": c.ContentType}
+	}
+	return s.presign(u, http.MethodPut, s.clock(), lasts, headers), nil
+}
+
+// Stat is what the file under key is: its size, which a HEAD says, and the
+// type its first bytes say, which a read of them does. Not the type the
+// upload said it was, which S3 keeps as it was given and a browser can say
+// what it likes.
+func (s *S3) Stat(ctx context.Context, key string) (Info, error) {
+	if err := checkKey(key); err != nil {
+		return Info{}, err
+	}
+	req, err := s.request(ctx, http.MethodHead, key, nil)
+	if err != nil {
+		return Info{}, err
+	}
+	resp, err := s.do(req, emptySHA256)
+	if err != nil {
+		return Info{}, fmt.Errorf("storage: looking at %s in S3: %w", key, err)
+	}
+	resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return Info{}, fmt.Errorf("storage: %s: %w", key, fs.ErrNotExist)
+	default:
+		return Info{}, fmt.Errorf("storage: looking at %s in S3: %s", key, resp.Status)
+	}
+	info := Info{Size: resp.ContentLength}
+	start, err := s.request(ctx, http.MethodGet, key, nil)
+	if err != nil {
+		return Info{}, err
+	}
+	start.Header.Set("Range", "bytes=0-511")
+	resp, err = s.do(start, emptySHA256)
+	if err != nil {
+		return Info{}, fmt.Errorf("storage: reading the start of %s in S3: %w", key, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return Info{}, fmt.Errorf("storage: reading the start of %s in S3: %w", key, failure(resp))
+	}
+	head, err := filetype.Head(resp.Body)
+	if err != nil {
+		return Info{}, fmt.Errorf("storage: reading the start of %s in S3: %w", key, err)
+	}
+	info.ContentType = filetype.Of(head)
+	return info, nil
 }
 
 // Origin is the scheme and host of the disk's links, as a page's
@@ -308,23 +385,40 @@ func (s *S3) sign(req *http.Request, payloadHash string, t time.Time) {
 	req.Header.Set("Authorization", algorithm+" Credential="+s.AccessKeyID+"/"+scope+", SignedHeaders="+signed+", Signature="+s.signature(t, scope, request))
 }
 
-// presign is the link to u, signed as of t for S3 to answer for as long as
-// lasts: the query SigV4 has for it, with its Host alone signed.
-func (s *S3) presign(u *url.URL, t time.Time, lasts time.Duration) string {
+// presign is the link to u for method, signed as of t for S3 to answer for
+// as long as lasts: the query SigV4 has for it, with its Host signed, and
+// each header in headers, by its lower-case name, which the request then
+// has to send, and send the same. That's how a link to upload says what it
+// takes: content-type, which S3 refuses a PUT that says anything else.
+func (s *S3) presign(u *url.URL, method string, t time.Time, lasts time.Duration, headers map[string]string) string {
 	t = t.UTC()
 	scope := s.scope(t)
+	names := []string{"host"}
+	for name := range headers {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	signed := strings.Join(names, ";")
 	q := url.Values{
 		"X-Amz-Algorithm":     {algorithm},
 		"X-Amz-Credential":    {s.AccessKeyID + "/" + scope},
 		"X-Amz-Date":          {t.Format(amzDate)},
 		"X-Amz-Expires":       {strconv.FormatInt(int64(lasts/time.Second), 10)},
-		"X-Amz-SignedHeaders": {"host"},
+		"X-Amz-SignedHeaders": {signed},
 	}
 	if s.SessionToken != "" {
 		q.Set("X-Amz-Security-Token", s.SessionToken)
 	}
 	query := canonicalQuery(q)
-	request := strings.Join([]string{http.MethodGet, escape(u.Path, true), query, "host:" + u.Host + "\n", "host", unsigned}, "\n")
+	var canonical strings.Builder
+	for _, name := range names {
+		value := headers[name]
+		if name == "host" {
+			value = u.Host
+		}
+		canonical.WriteString(name + ":" + value + "\n")
+	}
+	request := strings.Join([]string{method, escape(u.Path, true), query, canonical.String(), signed, unsigned}, "\n")
 	link := *u
 	link.RawQuery = query + "&X-Amz-Signature=" + s.signature(t, scope, request)
 	return link.String()

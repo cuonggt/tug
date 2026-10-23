@@ -219,7 +219,10 @@ func showPost(c *tug.Ctx) error {
   and what it is, from its first bytes rather than its name, and a page
   gets a link to it, public or signed until it expires. What's served
   can't run as the app: its type is its bytes', and anything but an image
-  is a download.
+  is a download. A file too big to go through the app goes straight to the
+  disk by a signed link, `UploadURL`, which holds the upload to one key,
+  one method and the type it says it is, and `Checked` looks at what
+  landed before the app keeps it.
 - **Accounts**: `tug new -auth` makes an app where people register and
   verify their email, or register with a passkey from a link mailed to
   them, with no password at all, log in, with a code from an
