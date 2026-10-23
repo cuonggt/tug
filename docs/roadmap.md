@@ -64,6 +64,7 @@ to 3.8.0, October 2026), written against
 | M55 | A language's direction     | done   |
 | M56 | Presence on a channel      | done   |
 | M57 | What the client keeps      | done   |
+| M58 | Uploads from the browser   | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5429,6 +5430,77 @@ Choices made on the way:
   a test would go looking for.
 - **No frontend, still:** what the pages do with their props stays the
   browser suite's, as testing.md's one remaining gap says.
+
+## M58 · Uploads from the browser — later
+
+A file a browser sends goes through the app: `Bind` reads the multipart
+form, validate checks its size and what it really is by its tags, and
+`storage.PutUpload` keeps it under a random key. That's right for a photo
+and wrong for a video. The app holds the bytes while they arrive, its
+request has a body limit, and whatever stands in front of it has one too,
+so a big file is a request that can't be made. files.md has said so since
+M11: no uploads straight to a bucket, with a presigned `PUT`, and no
+multipart uploads for files over 5 GB. To be released as v0.53.0.
+
+- **A link to upload to:** `storage.Uploader`, which a Disk may be, as a
+  queue's Store may keep a job's key: `UploadURL(ctx, key, Conditions)`,
+  a link that takes a `PUT` of that key alone, until it expires, of the
+  type and no more than the size the conditions name.
+- **S3's own:** `presign` signs the method, which it doesn't today — GET
+  is written into it — so a link to read can't be turned into one to
+  write, and the conditions go in as signed headers, `content-type` and
+  `content-length`, which S3 refuses a `PUT` that doesn't match.
+- **The local disk's own:** `Local.ServeHTTP` takes a `PUT` of a signed
+  link, keeping the file as `Put` does, so the same page works under tug
+  dev with no bucket at all. Its signature covers the method too, for the
+  same reason.
+- **What landed is looked at:** a link is a promise about the request, not
+  about the bytes, so the app sees what arrived before it names it in a
+  row. `storage.Stater`, which a Disk may be, says a file's size and what
+  it really is — S3 by a HEAD, Local by its first bytes, as
+  `internal/filetype` tells them — and `storage.Checked` fails a file
+  whose type isn't one the app allows, or that's bigger than it said, and
+  deletes it.
+- **The app's part, in the guide:** the route that makes a link, the page
+  that puts the file to it and then tells the app the key, and the handler
+  that checks the file and keeps the key in its row, with every upload
+  under a path of its own so one can't name another's file.
+- **The starters stay as they are:** a profile photo is 2 MB, goes through
+  the app, and shows validate's upload tags, which is the right way for a
+  small file. The guide says when to reach for the other, and what it
+  gives up.
+- **Tests:** storage's own, for the method and conditions a link carries,
+  a link to read refused for writing, the local disk taking a `PUT` and
+  refusing a signature made for another key, and `Stat` and `Checked` on
+  both disks, the S3 ones against a MinIO as its others are.
+- **The guide:** Files, uploads from the browser, what they cost and what
+  they don't check; Deployment, the bucket's CORS, which a `PUT` from a
+  browser needs.
+
+Choices, to settle before any code:
+
+- **A promise about the request, not the bytes:** a presigned link can
+  pin the key, the method, the expiry and the headers, and nothing can
+  pin what the bytes are: a client that says `image/png` can send
+  anything. So the app looks afterwards, as it does for a file that comes
+  through it, and a disk that can't say what landed can't be uploaded to
+  this way.
+- **The key is the app's to pick:** the link is for one key, which the app
+  makes as `PutUpload` does, random and under a directory of its own.
+  Letting the browser choose would let one person write over another's
+  file, and a key from a form would have to be checked as a path anyway.
+- **Multipart uploads stay out:** a presigned `PUT` carries 5 GB, which is
+  the file this is for; past that, and for an upload that can carry on
+  after a dropped connection, S3 wants create, part and complete, three
+  more routes and a part's own links. Nothing is asking for it yet.
+- **No progress of the app's:** the browser knows how far a `PUT` has got,
+  `XMLHttpRequest`'s `upload.onprogress` or a `fetch` with a stream, and
+  the app learns nothing until the key arrives. A page that wants a bar
+  reads it where it is.
+- **CORS is the bucket's:** a browser putting to S3 is a cross-origin
+  request, which the bucket allows or refuses; tug's `middleware.CORS` is
+  for the app's own routes and has nothing to say about it. The guide
+  gives the rule to set, as it gives the policy for a bucket's links.
 
 ## Decisions
 
