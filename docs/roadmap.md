@@ -5440,7 +5440,7 @@ and wrong for a video. The app holds the bytes while they arrive, its
 request has a body limit, and whatever stands in front of it has another,
 so a big file was a request that couldn't be made. files.md had said so
 since M11: no uploads straight to a bucket, with a presigned `PUT`, and no
-multipart uploads for files over 5 GB. To be released as v0.53.0.
+multipart uploads for files over 5 GB. Released as v0.53.0.
 
 - **A link to upload to:** `storage.Uploader`, which a Disk may be:
   `UploadURL(key, expires, Conditions)`, a link that takes a `PUT` of that
