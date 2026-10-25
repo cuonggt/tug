@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M48 are done, which is
+the decisions behind it and where it stands: M1 to M58 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -140,7 +140,42 @@ the starters turn on; and Trusted Types left for Inertia's client, and
 notes for coding agents (v0.43.0): an `AGENTS.md` in every app tug new
 makes, how to change it as tug has it done, the rules the code doesn't
 show, and the commands that check a change, with a `CLAUDE.md` that
-imports it, each path, script and name it gives checked to be the app's.
+imports it, each path, script and name it gives checked to be the app's,
+and sessions kept server-side (v0.44.0): `session.Keeper`, the sessions in
+a store of the app's own, their cookie carrying an ID alone, which
+`Rotate` and `Clear` change, and the auth starter's `sessions` table,
+pruned every hour, a page's own language (v0.45.0):
+`inertia.TemplateData.Locale`, from `WithLocale`, which the root templates
+say, `<html lang>`, a page's own words (v0.46.0): the `texts` prop, a
+language's whole file as a once prop, with `t()` and `choice()` in
+`resources/js/tug/lang.ts`, which tug
+gen writes with each of the app's languages' plural rules, `useLang` in
+each frontend, and `tug lang` reading the pages' own literals beside the
+Go's, the auth starter's words (v0.47.0): every page, layout and
+component of all three frontends saying its own through `t()`, and
+`text()` where a hook can't reach, the mail's language (v0.48.0): a
+`locale` column on the account, written as it registers, which every mail
+job says its words in, `a.words(u.Locale)`, and which a login puts in the
+session, so the pages follow, dates and numbers (v0.49.0): what each
+language puts between a number's thousands and before its fraction, for
+`Words.Number` and `Decimal`, and for a text's `:count`, with
+`Config.Zone` from `APP_TIMEZONE`, and `number()` and `date()` beside
+`t()`, the browser's own `Intl`, whose `d()` is in the reader's zone once
+the page is in their browser, a language's direction (v0.50.0):
+`lang.Dir`, the languages written right to left and the scripts,
+`TemplateData.Dir` beside the language, `<html dir>`, and the starters
+laid out by the properties that name a start and an end, so a page
+mirrors itself, presence on a channel (v0.51.0): `broadcast.Member` and
+`PresenceStore`, `Hub.Enter`, which follows a channel and says who's
+following it, `Here`, `presence.joined` and `presence.left`, a lease
+`Run` says again, and the auth starter's security page saying which of
+the account's browsers has a page open, what the client keeps (v0.52.0):
+`tugtest`'s client holding the page it's on, a partial reload merged into
+it by the page object's own rules, and once props kept and asked for
+once, and uploads from the browser (v0.53.0): `storage.Uploader`'s
+`UploadURL`, a link that takes one key's `PUT`, of the type it signs,
+which the local disk gives as S3 does, with `Stater` and `Checked`, which
+look at what landed.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -254,8 +289,10 @@ dev server that isn't there: delete it.
 - `tug`, the root package:
   - `app.go`: `Config` (`ConfigFromEnv` reads ADDR, PORT, APP_DEBUG,
     APP_URL, TLS_CERT, TLS_KEY and HTTP_ADDR, for `TLS`, APP_EDITOR, for
-    `Editor`, and TUG_DEV, for `DevTools`; `New` panics on a `URL` that
-    `appURL`, in links.go, doesn't take), `App`, `Run` and `Serve` with
+    `Editor`, APP_TIMEZONE, for `Zone`, the app's own, which its pages
+    write their times in, and TUG_DEV, for `DevTools`; `New` panics on a
+    `URL` that `appURL`, in links.go, doesn't take, and on a `Zone` that
+    `time.LoadLocation` doesn't), `App`, `Run` and `Serve` with
     graceful shutdown, through `serveAll`, which serves more than one
     `listening` server and shuts them down together, and misses. At
     the first request, `freeze` adds `/` as a catch-all, unless a route
@@ -441,7 +478,9 @@ dev server that isn't there: delete it.
     `errAnswered`, which `adapt` keeps from the ErrorHandler),
     `answerInvalid` (flash the errors and go `back`, or a 422), and the
     glue between sessions and pages: `Flash`, `ClearHistory`,
-    `PreserveFragment`, and `pageRequest`, which hands a render the errors
+    `PreserveFragment`, and `pageRequest`, which puts the request's
+    language and its direction in the context, `inertia.WithLocale` and
+    `WithDir` of `lang.Dir`, and hands a render the errors
     and flash data from the session (`tug.errors`, `tug.flash`,
     `tug.clear_history`, `tug.preserve_fragment`) and unflashes what it
     shows; a partial reload of the page it renders shows none of the
@@ -460,7 +499,10 @@ dev server that isn't there: delete it.
   `PreserveBigIntegers` when it has `bigIntMarker` in it), and holds the
   middleware (Vary, the 409 for another
   build, and `redirects`: 302 → 303, and a redirect to a #fragment → 409
-  with X-Inertia-Redirect) and the context helpers. `props.go` has the
+  with X-Inertia-Redirect) and the context helpers;
+  `TemplateData.Locale` and `Dir`, from `WithLocale` and `WithDir`, are
+  what the document around a page says of its language, `<html lang>` and
+  `dir`, and it keeps no table of either. `props.go` has the
   prop types: generic structs, each with its `behavior` (first load,
   always, deferred group, rescue, merge, once, scroll) behind the
   unexported interface `prop`, and function options (`MergeOption`,
@@ -502,13 +544,20 @@ dev server that isn't there: delete it.
   `data-inertia-devtools-id` tag, of JSON, which no policy blocks.
 - `session`: the cookie store, with no import of tug. AES-256-GCM with a
   key derived by HKDF from each of `Config.Keys`, the first encrypting;
-  the cookie name is the AAD. `cookieWriter` sets the cookie when the
-  response starts. Flash: `next` is what this request flashes, `now` what
-  the one before did; values go through JSON. `SetLifetime` gives one
-  session a lifetime of its own, kept in the payload (`l`), which `Clear`
-  drops; `Lifetime` says it, or else the Store's (`base`). `Pass` leaves the cookie as it came, unwritten, when the request
-  changes nothing (`changed`, set by `Set`, `Delete`, `Clear` and
-  `SetLifetime`) and flashes nothing, and else reflashes what it had.
+  the cookie name is the AAD. With a `Config.Keeper`, the session is kept
+  on the server instead and the cookie carries a sealed ID alone: the
+  `payload` under a key the Keeper has (`keyOf`, the ID hashed), written
+  as it changes and once a `refresh` minute otherwise, `Rotate` for a new
+  ID, which `Clear` does too, and `forget` as it goes. Package
+  `sessiontest` has `TestStore`, a Keeper's promises, and `Memory`.
+  `cookieWriter` sets the cookie when the response starts. Flash: `next`
+  is what this request flashes, `now` what the one before did; values go
+  through JSON. `SetLifetime` gives one session a lifetime of its own,
+  kept in the payload (`l`), which `Clear` drops; `Lifetime` says it, or
+  else the Store's (`base`). `Pass` leaves the cookie as it came,
+  unwritten, when the request changes nothing (`changed`, set by `Set`,
+  `Delete`, `Clear` and `SetLifetime`) and flashes nothing, and else
+  reflashes what it had.
 - `validate`: `Struct` over one go-playground validator that names fields
   by json tag, or else form tag; `path` turns its namespace into dotted
   paths, and `message` its tags into sentences, in the `lang.Words`
@@ -534,8 +583,20 @@ dev server that isn't there: delete it.
   English, and `fill` its `:name` placeholders (`value`, with `:Name` and
   `:NAME`) in one pass. `plural.go`: `choose` a form of `|` for a count,
   a form's own counts (`interval`, `{0}`, `[2,*]`) first, then
-  `pluralIndex`, Laravel's rules by language (`pluralRules`). A nil
-  Catalog, and the zero Words, are English.
+  `pluralIndex`, Laravel's rules by language (`pluralRules`), which
+  `PluralIndex` exports for tug gen's tables. `number.go`: what each
+  language puts between a number's thousands and before its fraction
+  (`numberRules`, CLDR's, by language, with a region's own over it), for
+  `Words.Number` and `Decimal`, and for `Choice`'s `:count`, which is a
+  quantity; a language the table doesn't name writes its numbers as
+  English does, as do those whose digits aren't Latin or whose thousands
+  go in twos. `dir.go`: `Dir`, which way a language is written, from the
+  languages written right to left and the scripts (`rightToLeft`,
+  `rightToLeftScripts`), a tag's own script deciding when it names one,
+  and `Words.Dir`. `Texts` is everything a language says, for a page to
+  say its own words too: its words, where each came from, the direction,
+  and the app's `Zone`, which the app fills in. A nil Catalog, and the
+  zero Words, are English.
 - `crypt`: the app's own values, sealed, with no import of tug. `New`
   makes a `Box` for a purpose, whose key is derived with the info `tug
   crypt ` and the purpose, so none is one of tug's own; `Seal`, `Open`
@@ -564,7 +625,20 @@ dev server that isn't there: delete it.
   UNSIGNED-PAYLOAD, `failure` reading S3's XML errors; a private link is
   presigned for the seven days that end at its expiry, so the same expiry
   makes the same link; `Origin` is the address its links are at, for a
-  page's policy. `env.go`: `FromEnv`, Laravel's variables. Its tests
+  page's policy. `upload.go`: uploads a browser makes itself, with no app
+  in between: `Uploader`, which a Disk may be, whose `UploadURL` is a
+  link that takes one key's `PUT` until it expires, of what its
+  `Conditions` say (S3 signs the `content-type` into it, and the local
+  disk's route checks it and refuses a body past the `MaxSize` as it
+  writes); `UploadKey`, the key the app picks, never the page; `Stater`,
+  which says a file's size and the type its first bytes have, an `Info`
+  (S3 by a HEAD and a ranged read, Local by reading them); and `Checked`,
+  which deletes what came in bigger than the app allows or isn't a type
+  it takes, since a link can hold an upload to what it says it is and
+  nothing can hold it to what the bytes are. `presign` signs the method,
+  so a link to read is no link to write, and `Local.sign` signs the
+  method and the conditions after the key and the expiry, leaving a link
+  to read as it was. `env.go`: `FromEnv`, Laravel's variables. Its tests
   check SigV4 against AWS's published examples (`sigv4_test.go`), and run
   against a MinIO (`minio` in `s3_test.go`) when `TUG_TEST_S3` names one.
 - `internal/filetype`: what a file is by its first 512 bytes, as
@@ -653,7 +727,13 @@ dev server that isn't there: delete it.
   their own (`newGen(true)`, `inputFields`): keyed as validate names
   errors, json, else form, else the field's name, with a path field left
   out, an upload `File`, and a field whose form or query tag says another
-  name an error `Generate` returns. The prop types are found by package
+  name an error `Generate` returns, and `lang.ts` (`lang.go`): `Texts`,
+  the texts prop's type, `t()`, `text()` and `choice()`, which say a
+  page's own words as `Words.T` and `Choice` say the app's, over a table
+  of the form each count takes in each of the app's languages, from
+  `lang.PluralIndex` (`counts`, two hundred digits a language), and
+  `number()` and `date()`, the browser's own `Intl` of the page's locale
+  and the app's zone. The prop types are found by package
   path and generic name (`propOf`), and `inertia.BigInt`, a `bigint`, by
   its name (`isBigInt`). The app runs it: see
   `App.gen` in app.go, reached from Run when TUG_GEN names a file, and the
@@ -668,10 +748,13 @@ dev server that isn't there: delete it.
   (`routerMethods`) whose lines take in the line, written by
   `types.ExprString`, or the function's name for a variable the
   function around it `declares`, as a helper's; `lang.go` is tug lang: tug's
-  texts from that run, and the app's own from its Go (`appTexts`: `T` and
+  texts from that run, the app's own from its Go (`appTexts`: `T` and
   `Choice` literals, and `fieldTexts`, the names of fields with validate,
-  form, query or path tags, eqfield's others, and file_type's names),
-  added to `lang/<lang>.json` (`addTexts`, sorted, only when it adds);
+  form, query or path tags, eqfield's others, and file_type's names), and
+  its pages' own from their markup (`pageTexts`, `saidInPages`: what
+  `t`, `text` and `choice` are given in `resources/js`, by the quotes
+  around it, `unquoteJS`), added to `lang/<lang>.json` (`addTexts`,
+  sorted, only when it adds, and a file of `null` is as an empty one);
   `key.go` is tug key, which prints `newKey`, as `tug new`'s `.env` has
   one; `migrate.go` is tug migrate new, which writes a migration's file
   (`newMigration`, named in UTC, the next second when one's taken,
@@ -919,8 +1002,21 @@ tests again with a migration of its own (`growsAMigration`), and reads
   `prune`, `prune-logins`, every hour. `logout` deletes its row, and a new
   password, a reset and a hash made again every row of the account's. Each
   frontend's security page lists them, its `login-settings.tsx`,
-  `LoginSettings.vue` or `LoginSettings.svelte`. `logins_test.go` and
-  `e2e/tests/logins.spec.ts` test it.
+  `LoginSettings.vue` or `LoginSettings.svelte`, and says which have a
+  page open now: every page enters the user's own channel while it
+  listens, with the login as the member, by `memberOf`, the hex of the
+  hash its row has, which `a.openNow` matches to the rows, and the list
+  reloads as `presence.joined` or `presence.left` comes. Every layer's
+  `presences_db.go` is `presences`, a `broadcast.PresenceStore` over a
+  table of the channel, the connection's key, the member and when its
+  lease ends, whose `prune` runs every minute as `prune-presence`.
+  `logins_test.go`, `presences_test.go`, `e2e/tests/logins.spec.ts` and
+  `e2e/tests/presence.spec.ts` test it.
+  Every layer's `sessions_db.go` is `sessionTable`, a `session.Keeper`
+  over a `sessions` table of the ID's hash, the payload and when it
+  expires, which `newApp` gives `session.Config` as its `Keeper`, so a
+  session is kept in the database and its cookie carries an ID alone, and
+  whose `prune` runs every hour as `prune-sessions`.
   Every layer's `broadcasts_db.go` is `broadcasts`, a `broadcast.Store`,
   which `main` gives the `broadcast.Hub` it runs with `app.Go`, and
   `newApp` the app as `a.hub`, with `a.broadcasts` for `in(tx)`: in
@@ -969,10 +1065,34 @@ tests again with a migration of its own (`growsAMigration`), and reads
   from Go, once, and the login page's own after a visit, and back.
   Both starters embed `lang/` (a
   `.gitkeep` until there's a file) and load it in `newApp`, with
-  `APP_LOCALE` for the default.
+  `APP_LOCALE` for the default, and `env.Words` so a test can give the
+  app a language of its own. They share the language's whole file with
+  their pages as `texts`, a once prop keyed `texts:<locale>`, with the
+  app's `Zone`, `APP_TIMEZONE`'s, in it: each frontend's
+  `resources/js/lib/lang.ts` is `useLang`, whose `t()` and `choice()` say
+  a page's own words, `n()` and `d()` a number and a time the way the
+  language writes them — `d()` in the app's zone while the page is
+  rendered and the reader's own once it's in their browser, which React
+  keeps in a module and seeds state from, Vue in a `ref` from
+  `onMounted`, and Svelte in a `$state` in `lib/zone.svelte.ts` — and
+  `dir`, which way the language is written, for a kit that lays itself
+  out, as the user menu's `<DropdownMenu dir>`. The root templates say
+  both, `<html lang="{{ .Locale }}" dir="{{ .Dir }}">`, and the auth
+  starter's pages are laid out by the properties that name a start and an
+  end, `ms-`, `pe-`, `text-start`, `start-` and `end-`, with
+  `rtl:rotate-180` for an icon that points, so a page in Arabic mirrors
+  itself; `e2e/tests/direction.spec.ts` asks in Arabic and checks it.
+  `tug lang vi` writes the pages' own texts beside the Go's.
   The mail goes by jobs (`VerifyMail` in `verify.go.tmpl`, `ResetMail` in
   `auth.go.tmpl`) that carry IDs and make the mail, token and all, as they
-  run; `main` runs the queue with `app.Go`, unless `QUEUE_WORKERS` is 0,
+  run, each in its reader's own language: a `locale` column on the
+  account, written from `c.Locale()` as it registers, which `a.words(u.Locale)`
+  says every text with, the template's greeting among them,
+  `message.Words`, and which `logIn` puts in the session for
+  `Config.Locale` to read, so the pages follow the account; only the
+  passkey registration's mail, which goes before there's an account,
+  carries the asking browser's language in its payload; `main` runs the
+  queue with `app.Go`, unless `QUEUE_WORKERS` is 0,
   and the tests on their own, with a `mailtest.Outbox` for the mail,
   which can be down. Its frontend is Tailwind and shadcn/ui: the
   registry's components in `components/ui`, layouts picked by page name
@@ -1195,11 +1315,23 @@ tests again with a migration of its own (`growsAMigration`), and reads
   `subscriber`s of its channel, a buffer of 16 each, and `drop`s one
   that's full; without a Store, `publish` delivers in place. `Run` calls
   `Listen` again after it fails, `listenAgain`, a second, doubling to a
-  minute, having dropped every subscriber. `broadcasttest`: `Memory`, and
+  minute, having dropped every subscriber. `presence.go`: who's on a
+  channel, a `Member` the app names and whatever the pages should know of
+  them; `Hub.Enter` follows a channel as `Subscribe` does and keeps the
+  member on it while that subscription lives, under a connection's key of
+  its own, so a second page is no second member, and publishes
+  `presence.joined` as one arrives that wasn't there and `presence.left`
+  as the last page of one goes; `Hub.Here` is who's there. A
+  `PresenceStore` keeps it between the instances (`Enter`, `Keep`,
+  `Leave`, `Here`), and without one a `localPresence` keeps it here; a
+  member stays until its lease ends, `Hub.Lease`, which `Run` says again
+  for this instance's every third of it, in one query, so an instance
+  that stopped leaves nobody for long. `broadcasttest`: `Memory`, and
   `TestStore`, whose `listen` sends `probe` events until one comes back,
-  as a store listens from a moment after `Listen` is called; the hub's
-  own tests run it on `Memory`, and those of what waits in
-  `testing/synctest`.
+  as a store listens from a moment after `Listen` is called, and
+  `TestPresenceStore`, a presence store's own promises; the hub's own
+  tests run them on `Memory` and on its `LocalPresence`, and those of
+  what waits in `testing/synctest`.
 - `tugtest`: Inertia's client for an app's Go tests, a browser with the
   app open. `tugtest.go`: `Client`, whose visits (`Visit`, and `Get` to
   `Delete`) send X-Inertia, the `Version` it runs, and the page it's on as
@@ -1207,11 +1339,22 @@ tests again with a migration of its own (`growsAMigration`), and reads
   name alone; and `Session`, which runs a function on the session through
   a `session.Store`. A client not yet shown a page takes the app's version
   from the 409 its first visit gets (`send`), which tug's Inertia
-  middleware sends the version in. `response.go`: `Response`, with
+  middleware sends the version in. It keeps the page it's on, its props as
+  they came, and the once props it has been sent, each by the key the page
+  object gives it (`hold`, `holding`, and `merge.go`): a partial reload's
+  props go over the ones it has, by their top-level name, the props the
+  page object labels merge at the paths it names (`join` for a list,
+  appended or prepended, with `matchPropsOn` saying when an item is the
+  same item, and `deepMerged` for a map), and a once prop the answer left
+  out is put back where the page says it goes (`restore`), its keys going
+  out in `X-Inertia-Except-Once-Props`, as a browser's client sends them;
+  `FirstVisit` keeps none of it, as the document is loaded afresh.
+  `response.go`: `Response`, with
   `Location`, `Follow` (redirects and the protocol's 409s) and `Errors`,
-  and `Props`, `Prop` and `Flash`, which read the page's JSON into Go
-  types; `valuesOnly` drops what went out for inertia's prop types, which
-  hold functions, so a page's own props struct takes the rest; a page that
+  and `Props`, `Prop` and `Flash`, which read the page the client is on
+  into Go types, where `Page` is the answer as it came, for a test about
+  the protocol; `valuesOnly` drops what went out for inertia's prop
+  types, which hold functions, so a page's own props struct takes the rest; a page that
   says `preserveBigIntegers` is read `numbered`, each BigInt's marker the
   number it is (`revive`), for an int64 or a `json.Number`. It fails
   the test itself, with t.Fatalf, when asked for what isn't there. Package
