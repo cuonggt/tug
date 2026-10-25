@@ -1014,9 +1014,12 @@ tests again with a migration of its own (`growsAMigration`), and reads
   `e2e/tests/presence.spec.ts` test it.
   Every layer's `sessions_db.go` is `sessionTable`, a `session.Keeper`
   over a `sessions` table of the ID's hash, the payload and when it
-  expires, which `newApp` gives `session.Config` as its `Keeper`, so a
-  session is kept in the database and its cookie carries an ID alone, and
-  whose `prune` runs every hour as `prune-sessions`.
+  expires, which `newApp` gives `session.Config` as its `Keeper` when
+  `SESSION_STORE` is `database`, so a session is kept there and its
+  cookie carries an ID alone; `cookie`, the default, leaves the session
+  in its cookie and reads no row, and another value is an error as the
+  app starts. Moving to the table logs nobody out, and moving back logs
+  everyone out. Its `prune` runs every hour as `prune-sessions`.
   Every layer's `broadcasts_db.go` is `broadcasts`, a `broadcast.Store`,
   which `main` gives the `broadcast.Hub` it runs with `app.Go`, and
   `newApp` the app as `a.hub`, with `a.broadcasts` for `in(tx)`: in
