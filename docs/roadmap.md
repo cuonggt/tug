@@ -65,6 +65,7 @@ to 3.8.0, October 2026), written against
 | M56 | Presence on a channel      | done   |
 | M57 | What the client keeps      | done   |
 | M58 | Uploads from the browser   | done   |
+| M59 | Listing, copying, moving   | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5512,6 +5513,97 @@ Choices made on the way:
 - **The MinIO command waits now:** CLAUDE.md's snippet ran the tests the
   moment the container started, and every S3 test failed on an EOF from a
   MinIO that wasn't listening yet. It waits for its health endpoint.
+
+## M59 · Listing, copying, moving — later
+
+M58 took a file straight from the browser to the disk and left a line the
+app can't act on: files.md says a file uploaded and never named is the
+app's to sweep up, and a `Disk` is `Put`, `Open`, `Delete` and `URL`, so
+there's nothing to sweep with. Nor is there a way to put a file that has
+been checked anywhere else: `Open` into `Put` into `Delete` sends every
+byte through the process, which is what uploading straight to the bucket
+was for. S3 copies server-side with `x-amz-copy-source` and lists with
+`ListObjectsV2`, and a local file moves with one rename; none of the three
+is reachable, and files.md's What's not here yet says so. To be released
+as v0.54.0.
+
+- **Three more on `Disk`:** `List`, `Copy` and `Move`, on the interface
+  itself rather than beside it as M58's `Uploader` and `Stater` are, since
+  both of tug's disks do all three and a `Move` behind a type assertion
+  is ceremony at every call.
+- **A listing is a range over a directory:** `List(ctx, prefix)
+  iter.Seq2[Entry, error]`, an `Entry` of the key, its size and when it
+  last changed, so a sweep is `for e, err := range disk.List(ctx,
+  "uploads/")`. A bucket answers a thousand keys at a time and a walk is
+  lazy, so neither is read whole, and a `break` stops the paging.
+- **A prefix is a directory, not a string:** a bucket would take `vid`
+  and give back `videos/ann.mp4`, where a local walk can't without
+  reading every directory it has, so `List` takes a directory, `""` being
+  the whole disk, and the S3 side adds the slash the bucket wants.
+- **Each disk copies and moves its own way:** S3 copies with
+  `x-amz-copy-source`, so no byte reaches the app, and moves by copying
+  and then deleting, as a bucket has no move; the local disk moves with
+  `os.Root.Rename`, one syscall, and copies through a temp file and a
+  rename, as `Put` does. Both put a file in place of what's at the
+  destination, as `Put` does, and both fail with `fs.ErrNotExist` for a
+  source that isn't there, as `Open` does.
+- **The one request about the bucket:** every S3 request so far is a
+  key's, so `objectURL` gains a sibling for the bucket's own, and
+  `ListObjectsV2`'s XML is read as `failure` reads an error's, a page at
+  a time by its continuation token.
+- **`Stat` says a time too:** `Info` gains `At`, which both disks have
+  for free — S3's `Last-Modified` and the local file's `ModTime` — so a
+  handler looking at one upload sees the age a listing shows. `Entry`
+  stays a type of its own: a bucket's listing says nothing about what a
+  file is, and an `Info` whose `ContentType` is empty would be a trap.
+- **The starters stay as they are:** nothing they keep needs a listing —
+  a photo's key is in its row, and the one it replaces goes by a job —
+  so this is for an app that keeps files of its own.
+- **Tests:** one table of the promises that both disks run, in storage's
+  own tests, which are a single package: a key copied and the original
+  still there, a key moved and gone, each over a key that's taken, a
+  source that isn't there, a listing of a directory, of the whole disk,
+  of a prefix that names no directory, and a `break` partway; and the S3
+  side against a MinIO, where a listing crosses a page.
+- **The guide:** Files, listing, copying and moving, with the job that
+  deletes the uploads nobody named, which M58 called the app's and gave
+  it no way to do; its What's not here yet loses the line about a disk
+  having none of this; the README's files bullet.
+
+Choices, to settle before any code:
+
+- **A range, not a callback:** `iter.Seq2` would be the first in tug,
+  which elsewhere takes a function, as `Session` and `cache.Remember` do,
+  and `fs.WalkDir`'s shape would work as well. The call site is why: a
+  sweep reads as a loop, `break` stops a bucket's paging by itself, and
+  `slices.Collect` is there for an app that wants the keys in hand. The
+  cost is that a caller who ignores the error reads a listing cut short
+  as one that ended, which the doc comment has to say, as
+  `bufio.Scanner`'s `Err` does.
+- **On `Disk`, not beside it:** optional interfaces, a `Lister` and a
+  `Mover`, with a `storage.Move` falling back to open, put and delete,
+  would leave a Disk an app has written working as it is. Each of tug's
+  disks already does one of copy and move natively and the other by hand,
+  so "this disk can't" never comes up, and a fallback that quietly sends
+  a 5 GB file through the app is what M58 was for ending. An app with a
+  Disk of its own gains three methods, which is a break, and before v1.0
+  is when to take it.
+- **No order promised:** a bucket lists in the key's byte order and a
+  walk goes directory by directory, and promising the bucket's would have
+  the local disk read everything and sort it, which is the one thing a
+  listing is trying not to do. An app that wants an order collects and
+  sorts.
+- **Empty directories are left behind:** a local move out of a directory
+  leaves it there, and a bucket has no directories at all; a listing
+  yields files, so an empty one is nothing either way, and deleting them
+  would race a `Put` making them.
+- **One disk at a time:** a copy from the local disk to a bucket has to
+  stream through the app, which is `Open` into `Put`, three lines the
+  guide can show, so `Copy` is a key to a key on the disk it's called on.
+- **Nothing deletes a directory:** a sweep deletes what it lists, key by
+  key. S3's delete of up to a thousand at once is another request, with
+  its own XML and its own half-failures, and a sweep is a job with all
+  night.
 
 ## Decisions
 
