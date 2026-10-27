@@ -6,11 +6,13 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"iter"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -391,7 +393,7 @@ func TestALinkToUploadToTakesNothingElse(t *testing.T) {
 }
 
 // aDisk is a Disk that can't say what a file is, as one of an app's own
-// may not: it has the four methods a Disk has, and no Stat.
+// may not: it has the methods a Disk has, and no Stat.
 type aDisk struct{ disk *Local }
 
 func (d aDisk) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
@@ -402,6 +404,11 @@ func (d aDisk) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 }
 func (d aDisk) Delete(ctx context.Context, key string) error      { return d.disk.Delete(ctx, key) }
 func (d aDisk) URL(key string, expires time.Time) (string, error) { return d.disk.URL(key, expires) }
+func (d aDisk) List(ctx context.Context, prefix string) iter.Seq2[Entry, error] {
+	return d.disk.List(ctx, prefix)
+}
+func (d aDisk) Copy(ctx context.Context, from, to string) error { return d.disk.Copy(ctx, from, to) }
+func (d aDisk) Move(ctx context.Context, from, to string) error { return d.disk.Move(ctx, from, to) }
 
 func TestWhatLandedIsCheckedBeforeItsKept(t *testing.T) {
 	d := newLocal(t)
@@ -430,5 +437,32 @@ func TestWhatLandedIsCheckedBeforeItsKept(t *testing.T) {
 	// A disk that can't say what a file is can't have one checked.
 	if _, err := Checked(ctx, aDisk{disk: d}, "videos/ok.png", 0); err == nil || !strings.Contains(err.Error(), "can't say what a file is") {
 		t.Errorf("a disk that isn't a Stater: %v", err)
+	}
+}
+
+func TestTheLocalDiskKeepsTheDisksPromises(t *testing.T) {
+	theDisksPromises(t, func(t *testing.T) Disk { return newLocal(t) })
+}
+
+// A disk is a directory that's made as the first file is put, so a listing
+// of one that has none is empty, and not the error opening it is.
+func TestAListingOfALocalDiskWithNoFilesYetIsEmpty(t *testing.T) {
+	if keys := listed(t, newLocal(t), ""); len(keys) != 0 {
+		t.Errorf("the files on a disk with none: %v", keys)
+	}
+}
+
+// A file being put is written under a name of its own and renamed into
+// place, and a listing passes those over: a sweep reading one could
+// otherwise delete an upload that hadn't finished arriving.
+func TestALocalListingPassesOverAFileBeingPut(t *testing.T) {
+	d := newLocal(t)
+	put(t, d, "photos/ann.png", []byte("a photo"))
+	half := filepath.Join(d.Dir, "photos", putting+"halfway")
+	if err := os.WriteFile(half, []byte("half a photo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if keys := listed(t, d, ""); !slices.Equal(keys, []string{"photos/ann.png"}) {
+		t.Errorf("the files on the disk: %v, want the whole one alone", keys)
 	}
 }

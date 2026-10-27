@@ -42,11 +42,13 @@ type Stater interface {
 	Stat(ctx context.Context, key string) (Info, error)
 }
 
-// Info is what a file is: how big it is, and the type its first bytes say
-// it is, which is not what the upload said it was.
+// Info is what a file is: how big it is, the type its first bytes say it
+// is, which is not what the upload said it was, and when it last changed,
+// which is when it was uploaded for a file nothing has put again.
 type Info struct {
 	Size        int64
 	ContentType string
+	At          time.Time
 }
 
 // UploadKey is a key for a file a browser is about to upload: a random

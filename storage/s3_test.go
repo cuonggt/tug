@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -268,5 +270,57 @@ func TestAnS3SaysWhatAFileIs(t *testing.T) {
 	}
 	if _, err := s.Stat(ctx, "videos/one.png"); !errors.Is(err, fs.ErrNotExist) {
 		t.Error("a file over the size is still in the bucket")
+	}
+}
+
+func TestAnS3KeepsTheDisksPromises(t *testing.T) {
+	theDisksPromises(t, func(t *testing.T) Disk { return minio(t) })
+}
+
+// A bucket answers a listing a page at a time, and the page after one is
+// asked for with the token it ended with.
+func TestAnS3ListingReadsEveryPageOfIt(t *testing.T) {
+	s := minio(t)
+	s.maxKeys = 2 // so five files are three pages
+	var want []string
+	for i := range 5 {
+		key := fmt.Sprintf("many/%d.bin", i)
+		put(t, s, key, []byte{byte(i)})
+		want = append(want, key)
+	}
+	if keys := listed(t, s, "many"); !slices.Equal(keys, want) {
+		t.Errorf("the keys over three pages: %v, want %v", keys, want)
+	}
+}
+
+// A listing is the one request about the bucket itself: in the bucket's
+// own host, as AWS has it, or in the endpoint's path with the PathStyle,
+// as a MinIO does.
+func TestAnS3ListsTheBucketAtItsOwnAddress(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		disk *S3
+		want string
+	}{
+		{
+			"in the bucket's host",
+			&S3{Bucket: "blog-files", AccessKeyID: "k", SecretAccessKey: "s"},
+			"https://blog-files.s3.us-east-1.amazonaws.com/?list-type=2&prefix=photos%2F",
+		},
+		{
+			"in the endpoint's path",
+			&S3{Bucket: "blog-files", Endpoint: "http://127.0.0.1:9000", PathStyle: true, AccessKeyID: "k", SecretAccessKey: "s"},
+			"http://127.0.0.1:9000/blog-files?list-type=2&prefix=photos%2F",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			req, err := c.disk.bucketRequest(ctx, url.Values{"list-type": {"2"}, "prefix": {"photos/"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := req.URL.String(); got != c.want {
+				t.Errorf("the listing's address is %s, want %s", got, c.want)
+			}
+		})
 	}
 }

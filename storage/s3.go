@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"net/http"
 	"net/url"
 	"slices"
@@ -74,7 +75,8 @@ type S3 struct {
 	// Client makes the requests: http.DefaultClient unless set.
 	Client *http.Client
 
-	now func() time.Time
+	now     func() time.Time
+	maxKeys int // the keys a listing asks for a page, S3's own unless set, for the tests
 }
 
 const (
@@ -171,6 +173,132 @@ func (s *S3) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// List asks the bucket for the keys under prefix, a thousand at a time,
+// and gives each file in the answer. The page after one is asked for as
+// the range reaches it, so a listing of a bucket of millions is never held
+// whole, and breaking out of the range asks for no more.
+func (s *S3) List(ctx context.Context, prefix string) iter.Seq2[Entry, error] {
+	return func(yield func(Entry, error) bool) {
+		dir, err := listPrefix(prefix)
+		if err != nil {
+			yield(Entry{}, err)
+			return
+		}
+		if dir != "" {
+			// A prefix is a directory, as it is on a local disk: "photos" is
+			// no listing of "photos-old/ann.png", which S3 would give it.
+			dir += "/"
+		}
+		for token := ""; ; {
+			page, err := s.listPage(ctx, dir, token)
+			if err != nil {
+				yield(Entry{}, err)
+				return
+			}
+			for _, file := range page.Contents {
+				if !yield(Entry{Key: file.Key, Size: file.Size, At: file.LastModified}, nil) {
+					return
+				}
+			}
+			if !page.IsTruncated || page.NextToken == "" {
+				return
+			}
+			token = page.NextToken
+		}
+	}
+}
+
+// listPage is one ListObjectsV2 of the bucket: the keys under prefix from
+// where token says, and the token of the page after them.
+func (s *S3) listPage(ctx context.Context, prefix, token string) (*listing, error) {
+	q := url.Values{"list-type": {"2"}}
+	if prefix != "" {
+		q.Set("prefix", prefix)
+	}
+	if token != "" {
+		q.Set("continuation-token", token)
+	}
+	if s.maxKeys > 0 {
+		q.Set("max-keys", strconv.Itoa(s.maxKeys))
+	}
+	req, err := s.bucketRequest(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.do(req, emptySHA256)
+	if err != nil {
+		return nil, fmt.Errorf("storage: listing the bucket: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("storage: listing the bucket: %w", failure(resp))
+	}
+	page := &listing{}
+	if err := xml.NewDecoder(resp.Body).Decode(page); err != nil {
+		return nil, fmt.Errorf("storage: listing the bucket: reading the answer: %w", err)
+	}
+	return page, nil
+}
+
+// Copy has the bucket copy the file itself, so not a byte of it goes
+// through the app and a file of any size is one request. The copy is of
+// the whole object, so it keeps the type and the disposition the file was
+// put with.
+func (s *S3) Copy(ctx context.Context, from, to string) error {
+	if err := checkKey(from); err != nil {
+		return err
+	}
+	if err := checkKey(to); err != nil {
+		return err
+	}
+	if from == to {
+		// S3 refuses a copy onto the same key, and Move would then delete
+		// the file it was asked to keep.
+		return nil
+	}
+	req, err := s.request(ctx, http.MethodPut, to, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Amz-Copy-Source", "/"+s.Bucket+"/"+escapeKey(from))
+	resp, err := s.do(req, emptySHA256)
+	if err != nil {
+		return fmt.Errorf("storage: copying %s to %s in S3: %w", from, to, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		err = failure(resp)
+		var se *s3Error
+		if errors.As(err, &se) && se.Code == "NoSuchKey" {
+			return fmt.Errorf("storage: copying %s: %w", from, fs.ErrNotExist)
+		}
+		return fmt.Errorf("storage: copying %s to %s in S3: %w", from, to, err)
+	}
+	if err := copyFailure(resp.Body); err != nil {
+		return fmt.Errorf("storage: copying %s to %s in S3: %w", from, to, err)
+	}
+	return nil
+}
+
+// Move copies the file in the bucket and deletes what it was copied from,
+// as S3 has no move of its own. The delete comes after: a copy that fails
+// leaves the file where it was, where the other way round would lose it.
+func (s *S3) Move(ctx context.Context, from, to string) error {
+	if err := checkKey(from); err != nil {
+		return err
+	}
+	if from == to {
+		return nil // the file is where it was asked to be
+	}
+	if err := s.Copy(ctx, from, to); err != nil {
+		return err
+	}
+	if err := s.Delete(ctx, from); err != nil {
+		return fmt.Errorf("storage: moving %s to %s in S3: the copy is there, and %w", from, to, err)
+	}
+	return nil
+}
+
 // URL returns a public disk's link, the BaseURL and the key, or a private
 // one's, presigned for the seven days that end as it expires: the same
 // expiry makes the same link, whenever it's asked for, and an expiry more
@@ -227,10 +355,10 @@ func (s *S3) UploadURL(key string, expires time.Time, c Conditions) (string, err
 	return s.presign(u, http.MethodPut, s.clock(), lasts, headers), nil
 }
 
-// Stat is what the file under key is: its size, which a HEAD says, and the
-// type its first bytes say, which a read of them does. Not the type the
-// upload said it was, which S3 keeps as it was given and a browser can say
-// what it likes.
+// Stat is what the file under key is: its size and when it last changed,
+// which a HEAD says, and the type its first bytes say, which a read of
+// them does. Not the type the upload said it was, which S3 keeps as it
+// was given and a browser can say what it likes.
 func (s *S3) Stat(ctx context.Context, key string) (Info, error) {
 	if err := checkKey(key); err != nil {
 		return Info{}, err
@@ -252,6 +380,9 @@ func (s *S3) Stat(ctx context.Context, key string) (Info, error) {
 		return Info{}, fmt.Errorf("storage: looking at %s in S3: %s", key, resp.Status)
 	}
 	info := Info{Size: resp.ContentLength}
+	if at, err := http.ParseTime(resp.Header.Get("Last-Modified")); err == nil {
+		info.At = at
+	}
 	start, err := s.request(ctx, http.MethodGet, key, nil)
 	if err != nil {
 		return Info{}, err
@@ -290,6 +421,28 @@ func (s *S3) Origin() string {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host
+}
+
+// bucketRequest is a request about the bucket itself rather than one of
+// its keys, which the listing alone makes. Its query is written as SigV4
+// signs one, as presign writes a link's, so that a continuation token's
+// own +, / and = reach S3 escaped the way the signature has them.
+func (s *S3) bucketRequest(ctx context.Context, q url.Values) (*http.Request, error) {
+	if s.Bucket == "" || s.AccessKeyID == "" || s.SecretAccessKey == "" {
+		return nil, errors.New("storage: an S3 needs its Bucket, AccessKeyID and SecretAccessKey")
+	}
+	u, err := s.objectURL("")
+	if err != nil {
+		return nil, err
+	}
+	if s.PathStyle {
+		// objectURL ends a key's path with the key, and the bucket's own path
+		// is the bucket, with nothing after it.
+		u.Path = strings.TrimSuffix(u.Path, "/")
+		u.RawPath = escape(u.Path, true)
+	}
+	u.RawQuery = canonicalQuery(q)
+	return http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 }
 
 // request is a request for the object under key.
@@ -472,6 +625,37 @@ func canonicalQuery(q url.Values) string {
 	}
 	slices.Sort(pairs)
 	return strings.Join(pairs, "&")
+}
+
+// listing is what S3 answers a ListObjectsV2 with: a page of the files
+// under a prefix, and the token for the page after it when there is one.
+type listing struct {
+	XMLName     xml.Name `xml:"ListBucketResult"`
+	IsTruncated bool     `xml:"IsTruncated"`
+	NextToken   string   `xml:"NextContinuationToken"`
+	Contents    []struct {
+		Key          string    `xml:"Key"`
+		Size         int64     `xml:"Size"`
+		LastModified time.Time `xml:"LastModified"`
+	} `xml:"Contents"`
+}
+
+// copyFailure is the failure in the body of a copy S3 answered 200 with:
+// it starts a copy before it knows how it goes, as a big one takes longer
+// than it can hold the answer open for, and says in the body that it
+// didn't work. Anything else there, the CopyObjectResult it writes for one
+// that did, is no failure.
+func copyFailure(body io.Reader) error {
+	var said struct {
+		XMLName xml.Name
+		Code    string `xml:"Code"`
+		Message string `xml:"Message"`
+	}
+	raw, err := io.ReadAll(io.LimitReader(body, 64<<10))
+	if err != nil || xml.Unmarshal(raw, &said) != nil || said.XMLName.Local != "Error" {
+		return nil
+	}
+	return &s3Error{Status: "200 OK", Code: said.Code, Message: said.Message}
 }
 
 // s3Error is the error S3 answers a request that failed with.

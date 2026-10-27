@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"mime/multipart"
 	"path"
 	"strings"
@@ -59,6 +60,47 @@ type Disk interface {
 	// an expiry that stays the same for a while lets the browser keep the
 	// file cached for as long.
 	URL(key string, expires time.Time) (string, error)
+
+	// List is the files under prefix, a directory such as "photos", or
+	// every file the disk has for "". A prefix names a directory and not
+	// the start of a key: "photos" is no listing of "photos-old". One with
+	// nothing under it lists nothing rather than failing, as a bucket has
+	// no directory to be missing.
+	//
+	// The files come in no order a disk promises, and are read as the
+	// listing is ranged over — a bucket answers a page of keys at a time,
+	// and a local disk walks as it goes — so breaking out of the range
+	// stops it, and the error, which ends it, is the one to look at:
+	//
+	//	for e, err := range disk.List(ctx, "uploads") {
+	//		if err != nil {
+	//			return err
+	//		}
+	//		...
+	//	}
+	List(ctx context.Context, prefix string) iter.Seq2[Entry, error]
+
+	// Copy copies the file under from to to, in place of any file there,
+	// without reading it through the app where the disk can copy it itself.
+	// There being no file under from fails with an error that is
+	// fs.ErrNotExist. Copying a key onto itself does nothing.
+	Copy(ctx context.Context, from, to string) error
+
+	// Move moves the file under from to to, in place of any file there,
+	// and leaves nothing under from. There being no file under from fails
+	// with an error that is fs.ErrNotExist. Moving a key onto itself does
+	// nothing.
+	Move(ctx context.Context, from, to string) error
+}
+
+// Entry is a file a listing says the disk has: its key, how many bytes it
+// is, and when it last changed. What the file is, the type its bytes say,
+// isn't in it: a bucket's listing doesn't say, and reading the start of
+// every file to find out is what Stat is for, a file at a time.
+type Entry struct {
+	Key  string
+	Size int64
+	At   time.Time
 }
 
 // ErrKey is what a key that isn't one fails with.
@@ -71,6 +113,21 @@ func checkKey(key string) error {
 		return fmt.Errorf("%w: %q", ErrKey, key)
 	}
 	return nil
+}
+
+// listPrefix is the directory a listing is of, with no slash at its end,
+// and "" for the whole disk: a prefix is a key's path, so a slash at the
+// end means the same with it or without, and anything that isn't a key
+// isn't a prefix either.
+func listPrefix(prefix string) (string, error) {
+	dir := strings.TrimSuffix(prefix, "/")
+	if dir == "" {
+		return "", nil
+	}
+	if err := checkKey(dir); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // PutUpload keeps a file uploaded with a form on d, under a new key in dir,

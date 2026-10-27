@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -64,6 +65,12 @@ type Local struct {
 	now func() time.Time
 }
 
+// putting starts the name a file is written under while it's being put,
+// before it's renamed into place: a listing passes those over, so what it
+// shows is whole files, and a sweep of it can't delete an upload that's
+// still arriving.
+const putting = ".put-"
+
 // Put keeps the file, written beside where it goes and moved there once
 // it's whole, so that no one reads half of it, and a put that fails leaves
 // nothing behind. It's on the disk, synced, by the time Put returns, before
@@ -88,7 +95,7 @@ func (l *Local) Put(ctx context.Context, key string, r io.Reader, size int64, co
 	if err := root.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("storage: putting %s: %w", key, err)
 	}
-	tmp := path.Join(dir, ".put-"+strings.ToLower(rand.Text()))
+	tmp := path.Join(dir, putting+strings.ToLower(rand.Text()))
 	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("storage: putting %s: %w", key, err)
@@ -137,6 +144,116 @@ func (l *Local) Delete(ctx context.Context, key string) error {
 	defer root.Close()
 	if err := root.Remove(key); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("storage: %w", err)
+	}
+	return nil
+}
+
+// List walks the directory prefix names, or the whole disk for "", and
+// gives each file under it. A directory isn't a file the disk keeps, and
+// neither is one being put: Put writes it under a name of its own and
+// renames it into place, so a listing shows whole files alone, as a
+// bucket's does, and a sweep reading one can't delete an upload that's
+// still arriving.
+func (l *Local) List(ctx context.Context, prefix string) iter.Seq2[Entry, error] {
+	return func(yield func(Entry, error) bool) {
+		dir, err := listPrefix(prefix)
+		if err != nil {
+			yield(Entry{}, err)
+			return
+		}
+		if dir == "" {
+			dir = "."
+		}
+		root, err := l.root(false)
+		if errors.Is(err, fs.ErrNotExist) {
+			return // nothing has been put yet, so there's nothing to list
+		}
+		if err != nil {
+			yield(Entry{}, err)
+			return
+		}
+		defer root.Close()
+		walked := fs.WalkDir(root.FS(), dir, func(key string, d fs.DirEntry, err error) error {
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
+				return fs.SkipAll // a prefix with nothing under it lists nothing
+			case err != nil:
+				return err
+			case key == dir && !d.IsDir():
+				return fs.SkipAll // a prefix is a directory: a file of its name isn't under it
+			case !d.Type().IsRegular() || strings.HasPrefix(path.Base(key), putting):
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			info, err := d.Info()
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil // it went between the walk and the look: it isn't there to list
+			}
+			if err != nil {
+				return err
+			}
+			if !yield(Entry{Key: key, Size: info.Size(), At: info.ModTime()}, nil) {
+				return fs.SkipAll
+			}
+			return nil
+		})
+		if walked != nil {
+			yield(Entry{}, fmt.Errorf("storage: listing %s: %w", l.Dir, walked))
+		}
+	}
+}
+
+// Copy copies the file as Put keeps one, read and written whole: a disk of
+// files has nothing of its own to copy them with, as a bucket has.
+func (l *Local) Copy(ctx context.Context, from, to string) error {
+	if err := checkKey(from); err != nil {
+		return err
+	}
+	if from == to {
+		return nil // the file is where it was asked to be
+	}
+	f, info, err := l.open(from)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return l.Put(ctx, to, f, info.Size(), "")
+}
+
+// Move renames the file, which is one call to the operating system, so not
+// a byte of it is read.
+func (l *Local) Move(ctx context.Context, from, to string) error {
+	if err := checkKey(from); err != nil {
+		return err
+	}
+	if err := checkKey(to); err != nil {
+		return err
+	}
+	if from == to {
+		return nil // the file is where it was asked to be
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	root, err := l.root(false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	info, err := root.Stat(from)
+	if err == nil && !info.Mode().IsRegular() {
+		err = &fs.PathError{Op: "stat", Path: from, Err: fs.ErrNotExist}
+	}
+	if err != nil {
+		return fmt.Errorf("storage: moving %s: %w", from, err)
+	}
+	if err := root.MkdirAll(path.Dir(to), 0o755); err != nil {
+		return fmt.Errorf("storage: moving %s to %s: %w", from, to, err)
+	}
+	if err := root.Rename(from, to); err != nil {
+		return fmt.Errorf("storage: moving %s to %s: %w", from, to, err)
 	}
 	return nil
 }
@@ -243,8 +360,6 @@ func (l *Local) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, "", info.ModTime(), f)
 }
 
-// root opens the disk's directory, making it first when create is set:
-// what's opened through it stays inside it, whatever a key says.
 // put keeps the file a browser uploaded by a link UploadURL made: the
 // signature says it's the app's own, for this key and this method, and
 // holds the upload to the type and the size the link named.
@@ -282,8 +397,9 @@ func (l *Local) put(w http.ResponseWriter, r *http.Request, key string) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Stat is what the file under key is: its size, and the type its first
-// bytes say it is, which is what the route serves it as.
+// Stat is what the file under key is: its size, when it last changed, and
+// the type its first bytes say it is, which is what the route serves it
+// as.
 func (l *Local) Stat(ctx context.Context, key string) (Info, error) {
 	if err := ctx.Err(); err != nil {
 		return Info{}, err
@@ -297,9 +413,11 @@ func (l *Local) Stat(ctx context.Context, key string) (Info, error) {
 	if err != nil {
 		return Info{}, fmt.Errorf("storage: reading the start of %s: %w", key, err)
 	}
-	return Info{Size: info.Size(), ContentType: filetype.Of(head)}, nil
+	return Info{Size: info.Size(), ContentType: filetype.Of(head), At: info.ModTime()}, nil
 }
 
+// root opens the disk's directory, making it first when create is set:
+// what's opened through it stays inside it, whatever a key says.
 func (l *Local) root(create bool) (*os.Root, error) {
 	if l.Dir == "" {
 		return nil, errors.New("storage: Local.Dir is empty: the files need a directory to be kept in")

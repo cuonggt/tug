@@ -65,7 +65,7 @@ to 3.8.0, October 2026), written against
 | M56 | Presence on a channel      | done   |
 | M57 | What the client keeps      | done   |
 | M58 | Uploads from the browser   | done   |
-| M59 | Listing, copying, moving   | later  |
+| M59 | Listing, copying, moving   | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5514,96 +5514,121 @@ Choices made on the way:
   moment the container started, and every S3 test failed on an EOF from a
   MinIO that wasn't listening yet. It waits for its health endpoint.
 
-## M59 · Listing, copying, moving — later
+## M59 · Listing, copying, moving — done
 
 M58 took a file straight from the browser to the disk and left a line the
-app can't act on: files.md says a file uploaded and never named is the
-app's to sweep up, and a `Disk` is `Put`, `Open`, `Delete` and `URL`, so
-there's nothing to sweep with. Nor is there a way to put a file that has
-been checked anywhere else: `Open` into `Put` into `Delete` sends every
-byte through the process, which is what uploading straight to the bucket
-was for. S3 copies server-side with `x-amz-copy-source` and lists with
-`ListObjectsV2`, and a local file moves with one rename; none of the three
-is reachable, and files.md's What's not here yet says so. To be released
-as v0.54.0.
+app couldn't act on: files.md said a file uploaded and never named was the
+app's to sweep up, and a `Disk` was `Put`, `Open`, `Delete` and `URL`, so
+there was nothing to sweep with. Nor was there a way to put a file that
+had been checked anywhere else: `Open` into `Put` into `Delete` sends
+every byte through the process, which is what uploading straight to the
+bucket was for. S3 copies server-side with `x-amz-copy-source` and lists
+with `ListObjectsV2`, and a local file moves with one rename; none of the
+three was reachable. To be released as v0.54.0.
 
 - **Three more on `Disk`:** `List`, `Copy` and `Move`, on the interface
   itself rather than beside it as M58's `Uploader` and `Stater` are, since
-  both of tug's disks do all three and a `Move` behind a type assertion
-  is ceremony at every call.
+  both of tug's disks do all three and a `Move` behind a type assertion is
+  ceremony at every call.
 - **A listing is a range over a directory:** `List(ctx, prefix)
   iter.Seq2[Entry, error]`, an `Entry` of the key, its size and when it
-  last changed, so a sweep is `for e, err := range disk.List(ctx,
-  "uploads/")`. A bucket answers a thousand keys at a time and a walk is
-  lazy, so neither is read whole, and a `break` stops the paging.
-- **A prefix is a directory, not a string:** a bucket would take `vid`
-  and give back `videos/ann.mp4`, where a local walk can't without
-  reading every directory it has, so `List` takes a directory, `""` being
-  the whole disk, and the S3 side adds the slash the bucket wants.
+  last changed, and the first iterator tug returns. A bucket answers a
+  page of a thousand keys and is asked for the one after it as the range
+  reaches it, a local disk walks as it goes, and breaking out of the range
+  asks for no more.
+- **A prefix is a directory, not a string:** `"photos"` lists what's under
+  `photos/` and nothing of `photos-old/`, on both disks, and a prefix with
+  nothing under it lists nothing rather than failing. A slash at its end
+  is the same directory, a file of its name is no directory, and a local
+  disk whose directory isn't made yet lists nothing at all.
 - **Each disk copies and moves its own way:** S3 copies with
-  `x-amz-copy-source`, so no byte reaches the app, and moves by copying
-  and then deleting, as a bucket has no move; the local disk moves with
-  `os.Root.Rename`, one syscall, and copies through a temp file and a
-  rename, as `Put` does. Both put a file in place of what's at the
-  destination, as `Put` does, and both fail with `fs.ErrNotExist` for a
-  source that isn't there, as `Open` does.
-- **The one request about the bucket:** every S3 request so far is a
-  key's, so `objectURL` gains a sibling for the bucket's own, and
-  `ListObjectsV2`'s XML is read as `failure` reads an error's, a page at
-  a time by its continuation token.
-- **`Stat` says a time too:** `Info` gains `At`, which both disks have
-  for free — S3's `Last-Modified` and the local file's `ModTime` — so a
-  handler looking at one upload sees the age a listing shows. `Entry`
-  stays a type of its own: a bucket's listing says nothing about what a
-  file is, and an `Info` whose `ContentType` is empty would be a trap.
+  `x-amz-copy-source`, so not a byte goes through the app, and moves by
+  copying and then deleting, as a bucket has no move; the local disk moves
+  with `os.Root.Rename`, one call to the operating system, and copies
+  through a temp file and a rename, as `Put` does. Both put the file in
+  place of what was at the key, and both fail with `fs.ErrNotExist` for a
+  source that isn't there.
+- **The one request about the bucket:** `bucketRequest`, as every S3
+  request before it was a key's, with its query written as SigV4 signs
+  one, as `presign` writes a link's, so a continuation token's own `+`,
+  `/` and `=` reach S3 escaped the way the signature has them; and
+  `maxKeys`, unexported, as `now` is, so a test pages a listing without
+  putting a thousand files.
+- **A copy S3 answers 200 and calls a failure:** it starts one before it
+  knows how it goes, as a big copy takes longer than it can hold an answer
+  open for, and says in the body that it didn't work. `copyFailure` reads
+  that, so a copy that failed isn't a move that deletes.
+- **A file still arriving is no file to list:** `Put` writes it under a
+  name of its own, `.put-`, and renames it into place, and a listing
+  passes those over, as a bucket shows nothing of a `PUT` that hasn't
+  finished — so a sweep reading a listing can't delete an upload on its
+  way. Nor does a listing give what isn't a regular file, as `Open`
+  doesn't open one.
+- **`Stat` says a time too:** `Info` gained `At`, S3's `Last-Modified` and
+  the local file's `ModTime`, both there for nothing, so a handler looking
+  at one upload sees the age a listing shows. `Entry` stays a type of its
+  own: a bucket's listing says nothing about what a file is, and an `Info`
+  whose `ContentType` is empty would be a trap.
 - **The starters stay as they are:** nothing they keep needs a listing —
-  a photo's key is in its row, and the one it replaces goes by a job —
-  so this is for an app that keeps files of its own.
-- **Tests:** one table of the promises that both disks run, in storage's
-  own tests, which are a single package: a key copied and the original
-  still there, a key moved and gone, each over a key that's taken, a
-  source that isn't there, a listing of a directory, of the whole disk,
-  of a prefix that names no directory, and a `break` partway; and the S3
-  side against a MinIO, where a listing crosses a page.
-- **The guide:** Files, listing, copying and moving, with the job that
-  deletes the uploads nobody named, which M58 called the app's and gave
-  it no way to do; its What's not here yet loses the line about a disk
-  having none of this; the README's files bullet.
+  a photo's key is in its row, and the one it replaces goes by a job — so
+  this is for an app that keeps files of its own.
+- **Tests:** `theDisksPromises`, one table the local disk runs and an S3
+  against a MinIO runs: a listing of a directory, of the whole disk, with
+  a slash at its end, of four prefixes that name no directory, its sizes
+  and times, and one broken out of partway; a copy that leaves the file
+  where it was, a move that doesn't, both over a key that's taken, both
+  from a key with no file, and both onto themselves; and keys and a prefix
+  that aren't. The local disk's own for a file being put and for a disk
+  with no files yet, and S3's for a listing over three pages, by `maxKeys`.
+- **The guide:** Files, listing, copying and moving, with the upload moved
+  out of the directory it landed in, and the sweep of what's left there;
+  the interface as the guide prints it; its What's not here yet, a line
+  shorter; the README's files bullet.
 
-Choices, to settle before any code:
+Choices made on the way:
 
-- **A range, not a callback:** `iter.Seq2` would be the first in tug,
-  which elsewhere takes a function, as `Session` and `cache.Remember` do,
-  and `fs.WalkDir`'s shape would work as well. The call site is why: a
-  sweep reads as a loop, `break` stops a bucket's paging by itself, and
+- **A range, not a callback:** `iter.Seq2` is the first in tug, which
+  elsewhere takes a function, as `Session` and `cache.Remember` do, and
+  `fs.WalkDir`'s shape would have worked. The call site is why: a sweep
+  reads as a loop, `break` stops a bucket's paging by itself, and
   `slices.Collect` is there for an app that wants the keys in hand. The
-  cost is that a caller who ignores the error reads a listing cut short
-  as one that ended, which the doc comment has to say, as
+  cost is that a caller who passes over the error reads a listing cut
+  short as one that ended, which `List`'s own comment says, as
   `bufio.Scanner`'s `Err` does.
 - **On `Disk`, not beside it:** optional interfaces, a `Lister` and a
   `Mover`, with a `storage.Move` falling back to open, put and delete,
-  would leave a Disk an app has written working as it is. Each of tug's
-  disks already does one of copy and move natively and the other by hand,
-  so "this disk can't" never comes up, and a fallback that quietly sends
-  a 5 GB file through the app is what M58 was for ending. An app with a
-  Disk of its own gains three methods, which is a break, and before v1.0
-  is when to take it.
-- **No order promised:** a bucket lists in the key's byte order and a
-  walk goes directory by directory, and promising the bucket's would have
-  the local disk read everything and sort it, which is the one thing a
-  listing is trying not to do. An app that wants an order collects and
-  sorts.
+  would have left a Disk an app has written working as it was. Each of
+  tug's disks already does one of copy and move natively and the other by
+  hand, so "this disk can't" never comes up, and a fallback that quietly
+  sends a 5 GB file through the app is what M58 was for ending. An app
+  with a Disk of its own gains three methods, which is a break, and before
+  v1.0 is when to take it.
+- **A key onto itself does nothing:** S3 refuses a copy onto the same key,
+  so a `Move` that copied and then deleted would have deleted the file it
+  was asked to keep. An error would say the app has a bug, and doing
+  nothing says what's true: the file is where it was asked to be.
+- **No order promised:** a bucket lists in the key's byte order and a walk
+  goes directory by directory, and promising the bucket's would have the
+  local disk read everything and sort it, which is the one thing a listing
+  is trying not to do. An app that wants an order collects and sorts.
 - **Empty directories are left behind:** a local move out of a directory
   leaves it there, and a bucket has no directories at all; a listing
   yields files, so an empty one is nothing either way, and deleting them
   would race a `Put` making them.
 - **One disk at a time:** a copy from the local disk to a bucket has to
   stream through the app, which is `Open` into `Put`, three lines the
-  guide can show, so `Copy` is a key to a key on the disk it's called on.
+  guide says are the app's, so `Copy` is a key to a key on the disk it's
+  called on.
 - **Nothing deletes a directory:** a sweep deletes what it lists, key by
   key. S3's delete of up to a thousand at once is another request, with
   its own XML and its own half-failures, and a sweep is a job with all
   night.
+- **The promises are the package's own tests, not a `storagetest`:** every
+  other package's promises are in a test package of their own because an
+  app writes the Store — a database's table, a cache, a presence. Both
+  disks here are tug's, an app that writes a third is rare, and storage's
+  tests are one package already, so the table is in `disk_test.go` and
+  nothing new is exported.
 
 ## Decisions
 

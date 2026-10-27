@@ -222,7 +222,10 @@ func showPost(c *tug.Ctx) error {
   is a download. A file too big to go through the app goes straight to the
   disk by a signed link, `UploadURL`, which holds the upload to one key,
   one method and the type it says it is, and `Checked` looks at what
-  landed before the app keeps it.
+  landed before the app keeps it. A disk says what it holds, `List`, a
+  page of a bucket's keys at a time, and moves a file about inside
+  itself, `Copy` and `Move`, which a bucket does itself, so no byte of it
+  goes through the app.
 - **Accounts**: `tug new -auth` makes an app where people register and
   verify their email, or register with a passkey from a link mailed to
   them, with no password at all, log in, with a code from an

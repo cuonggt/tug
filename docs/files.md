@@ -98,6 +98,9 @@ type Disk interface {
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
 	URL(key string, expires time.Time) (string, error)
+	List(ctx context.Context, prefix string) iter.Seq2[Entry, error]
+	Copy(ctx context.Context, from, to string) error
+	Move(ctx context.Context, from, to string) error
 }
 ```
 
@@ -105,7 +108,9 @@ A `storage.Disk` keeps files by key. `Put` keeps one, in place of any
 there, whole or not at all: one whose bytes don't all arrive isn't kept.
 `Open` reads one back, and fails with an error that `errors.Is`
 `fs.ErrNotExist` when there's none. `Delete` removes one, and there being
-none isn't an error. `URL` is a link to one, below.
+none isn't an error. `URL` is a link to one, below. `List` is what the disk holds, and `Copy`
+and `Move` take a file from one key to another:
+[Listing, copying and moving](#listing-copying-and-moving).
 
 A key is a slash-separated path, such as `photos/5wz3…7q.png`, with no
 `.`, `..` or empty part, and no slash at either end; anything else fails
@@ -298,9 +303,10 @@ if err != nil {
 
 `Checked` is `storage.Stater`'s `Stat` and a rule: a file bigger than the
 size given, or of a type that isn't among those named, is deleted, and
-the error says which it was. `Stat` is the size, and the type the first
-bytes say — S3 by a `HEAD` and a read of them, the local disk by reading
-them — never the type the upload claimed, which S3 keeps as it was given.
+the error says which it was. `Stat` is the size, when it last changed,
+and the type the first bytes say — S3 by a `HEAD` and a read of them, the
+local disk by reading them — never the type the upload claimed, which S3
+keeps as it was given.
 
 The local disk takes these uploads too, by the same `UploadURL`: its route
 answers a `PUT` whose link is signed for that key and that method, holds
@@ -310,13 +316,102 @@ no bucket anywhere, and a link to read is no link to write: the method is
 part of what's signed.
 
 What this gives up: the app learns nothing until the key arrives, so a
-file uploaded and never named is a file to sweep up (a job that deletes
-the keys under a prefix that no row names); there's no progress from the
-app's side, which the browser has itself; and S3's presigned `PUT` carries
-5 GB at most, with nothing resumable about it.
+file uploaded and never named is a file to sweep up ([the uploads nobody
+named](#the-uploads-nobody-named)); there's no progress from the app's
+side, which the browser has itself; and S3's presigned `PUT` carries 5 GB
+at most, with nothing resumable about it.
 
 A bucket also has to allow the `PUT` from the app's pages: see
 [the bucket's CORS](deployment.md#a-buckets-cors).
+
+## Listing, copying and moving
+
+A disk says what it holds:
+
+```go
+for file, err := range a.disk.List(c.Context(), "uploads") {
+	if err != nil {
+		return err
+	}
+	fmt.Println(file.Key, file.Size, file.At)
+}
+```
+
+`List` is the files under a directory, or every file the disk has for
+`""`. A prefix is a key's path and not the start of one, so `"uploads"`
+lists what's under `uploads/` and nothing of `uploads-old/`, and a prefix
+with nothing under it lists nothing rather than failing, as a bucket has
+no directory to be missing. An `Entry` is the key, how many bytes it is,
+and when it last changed; what the file *is*, the type its bytes say, is
+`Stat`'s to answer, a file at a time, as a bucket's listing doesn't say.
+
+The files come in no order a disk promises: a bucket lists in the key's
+own byte order, and the app's own disk walks directory by directory, so
+an app that wants an order collects what it reads and sorts it. The
+listing is read as it's ranged over — a bucket answers a page of a
+thousand keys and is asked for the next as the range reaches it, and a
+local disk walks as it goes — so a disk of millions of files is never
+held whole, and breaking out of the range asks for no more. The error
+ends the listing, and is the one to look at: a range that passes over it
+reads a listing cut short as one that ended.
+
+`Copy` and `Move` take a key to a key, on the disk they're called on. An
+upload can land in a directory of its own and move to where it belongs
+once the app has looked at it:
+
+```go
+info, err := storage.Checked(c.Context(), a.disk, in.Key, 2<<30, "video/mp4")
+if err != nil {
+	return validate.Errors{"key": "that file isn't a video we can take"}
+}
+key := storage.UploadKey("videos", info.ContentType)
+if err := a.disk.Move(c.Context(), in.Key, key); err != nil {
+	return err
+}
+```
+
+A bucket copies the file itself, so not a byte of it goes through the app
+and a file of any size is one request; the app's own disk renames it,
+which is one call to the operating system, and copies it by reading and
+writing it as a `Put` does. Either way the file goes in place of whatever
+was at the key, a key with no file fails with an error that `errors.Is`
+`fs.ErrNotExist`, and a key onto itself does nothing. Moving a file from
+one disk to another isn't a method: it's `Open` into `Put`, which streams
+through the app, and the app's to write.
+
+### The uploads nobody named
+
+A link to upload to tells the app nothing until the key arrives, so the
+files a page put and never named are the app's to sweep up. Uploading
+into a directory of its own makes that a listing and a date: what's left
+there was never named, because naming it is what moves it out.
+
+```go
+// A job, run on a schedule as the auth starter's prunes are: once a night.
+func (a *app) sweepUploads(ctx context.Context, _ struct{}) error {
+	for file, err := range a.disk.List(ctx, "uploads") {
+		if err != nil {
+			return err
+		}
+		if time.Since(file.At) < 24*time.Hour {
+			continue // it may be on its way to a row as this runs
+		}
+		if err := a.disk.Delete(ctx, file.Key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+```
+
+An app that uploads straight to the key its row will name asks its own
+tables instead, key by key, which is the same job with a query in it.
+
+A file still arriving is no file to sweep: the app's own disk writes an
+upload under a name of its own and renames it into place, and its listing
+passes those over, as a bucket shows nothing of a `PUT` that hasn't
+finished. The day isn't for the upload, which is whole or isn't there at
+all: it's for the row, which may be being written as the sweep runs.
 
 ## Files and transactions
 
@@ -374,8 +469,6 @@ gone. A link a page has is fetched with `c.Do`, as a browser fetches an
 - No resizing or thumbnails: that takes `golang.org/x/image`, to read
   WebP among others, a dependency for one feature. An app that wants them
   makes them in a job, from the file it opens.
-- A disk has no listing, copying or moving; each app keeps the keys of
-  its files with the records they belong to.
 - No multipart uploads to S3, for files over 5 GB, and nothing resumable:
   an upload from the browser is one `PUT` ([Uploads from the
   browser](#uploads-from-the-browser)).
