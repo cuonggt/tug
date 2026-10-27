@@ -5524,7 +5524,7 @@ had been checked anywhere else: `Open` into `Put` into `Delete` sends
 every byte through the process, which is what uploading straight to the
 bucket was for. S3 copies server-side with `x-amz-copy-source` and lists
 with `ListObjectsV2`, and a local file moves with one rename; none of the
-three was reachable. To be released as v0.54.0.
+three was reachable. Released as v0.54.0.
 
 - **Three more on `Disk`:** `List`, `Copy` and `Move`, on the interface
   itself rather than beside it as M58's `Uploader` and `Stater` are, since
