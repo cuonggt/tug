@@ -66,6 +66,7 @@ to 3.8.0, October 2026), written against
 | M57 | What the client keeps      | done   |
 | M58 | Uploads from the browser   | done   |
 | M59 | Listing, copying, moving   | done   |
+| M60 | Upgrading an app           | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5629,6 +5630,134 @@ Choices made on the way:
   disks here are tug's, an app that writes a third is rare, and storage's
   tests are one package already, so the table is in `disk_test.go` and
   nothing new is exported.
+
+## M60 · Upgrading an app — later
+
+An app `tug new` makes is the starter's code, copied, and from then on
+the app's own: nothing brings it what the starter gains after. Seventeen
+of tug's sixty-one releases have said, in their notes on GitHub, which
+files to take from an app made now, and no page of the guide says how to
+upgrade. An app with accounts in React on SQLite is 126 of the starter's
+files, and 39 of them are new or changed between v0.47.0 and v0.54.0,
+six days apart. v0.48.0 put a `locale` column in `create_users.sql`,
+which an app that has run it can't take, as `migrate.Up` stops at a
+migration whose hash has changed, so its notes said to write that
+migration by hand. No app made with `-auth` runs in production yet, so
+this has cost no one; the first that does pays it at every release after.
+To be released as v0.55.0.
+
+- **`tug upgrade`, in the app's directory:** the starter as the tug that
+  made the app wrote it, and as this tug writes it, with the app's name
+  and flags, and the difference between the two laid over the app, file
+  by file, as git merges a branch: a file the app left as it was takes
+  the new one, one the app changed has the starter's change merged into
+  it, and where both changed the same lines, it's marked as git marks a
+  conflict. What the starter never had, the app's own pages and
+  handlers, isn't touched.
+- **The old side is the old tug's own:** `go run
+  github.com/cuonggt/tug/cmd/tug@v0.48.0 new -no-install`, into a
+  directory of its own. The old tug, which the go command builds once and
+  keeps, writes what it wrote when it made the app, file for file, as
+  every release since v0.1.0 has `-no-install`. The new side is this
+  tug's own `writeStarter`.
+- **`tug.json`, what the app was made from:** `tug new` writes the tug
+  whose starter it is, the app's name, which 55 of the templates write
+  and the directory needn't keep, and its flags, `{"starter": "v0.55.0",
+  "name": "blog", "flags": ["-auth", "-vue"]}`, and `tug upgrade` writes
+  it again with this tug's version. An app made before has none, and
+  names the tug that made it once, `tug upgrade -from v0.48.0`, its flags
+  read from its files: the adapter its `package.json` has, `auth.go`, the
+  driver its `go.mod` requires, and `resources/js/ssr.tsx` or `ssr.ts`.
+- **The app's migrations are never changed,** as `Up` stops at one whose
+  hash has changed, and tug can't tell which have run where. One new in
+  the starter is added, under its own name, which `Up` runs wherever it
+  sorts, as it runs every one that hasn't; one the starter changed, as
+  v0.48.0 did `create_users.sql`, is left as the app has it, and listed
+  with the starter's diff, as a migration for the app to write with `tug
+  migrate new`.
+- **What isn't merged:** `.env`, which has the app's own key and values,
+  while `.env.example`, which is merged, shows what's new in it; `go.mod`,
+  whose tug and `go` lines `go mod edit` sets and `go mod tidy` the rest,
+  as tidying moved the starter's one `require` into a block, where a
+  merge finds no line of its; and the lockfiles and `resources/js/tug`,
+  which the starter hasn't, and the install writes again.
+- **Deleted on either side:** a file the starter deleted goes, where the
+  app left it as it was, and stays, listed, where it didn't; a file the
+  app deleted stays deleted, listed where the starter has changed it
+  since; and a file new in the starter, where the app has its own of that
+  name, is merged with it over nothing, so where they differ is marked.
+- **A clean tree, so the upgrade is one diff:** `tug upgrade` stops
+  outside a git work tree, or in one with changes not committed, so `git
+  diff` is everything it did, and `git checkout .` with `git clean -fd`
+  undoes it; its merges are `git merge-file`'s.
+- **What it says, and what it runs after:** each file and what it did,
+  updated, merged, marked, added, deleted or kept, and the migrations to
+  write; then `go mod tidy`, the install with the app's package manager,
+  and `tug gen`, as `tug new` runs after writing, unless a file is
+  marked, as the Go needn't build until it's put right; then it says what
+  to run. With a file marked, or a migration to write, it exits 1.
+- **The release notes' Upgrading paragraph is tug's API's:** what
+  changed for the app's own code, as a Disk of its own gaining M59's
+  three methods; what the starter gained comes by `tug upgrade`, and the
+  notes stop listing files to take.
+- **Tests:** the merge as one table of a file's three sides, the starter
+  as it was, as it is, and the app's, and what's written: each case
+  above, a migration changed and one added, `.env` left alone, `go.mod`
+  set, and `tug upgrade` refusing a tree with changes, an app with no
+  `tug.json` and no `-from`, and an app whose starter is newer than this
+  tug. The old starter is written by a function, which the tests give
+  files of their own, so none of them needs the network. And in the full
+  suite, beside the apps `tug_test.go` makes, an app with accounts that
+  v0.47.0's `tug new` made, upgraded to this checkout, the `locale`
+  migration it lists written as v0.48.0's notes say, passing its own
+  tests, `npm run typecheck` and `npm run build`.
+- **The guide:** a page, Upgrading, after Deployment: how an app follows
+  tug, from a clean tree through `tug upgrade`, the marks and the
+  migrations it lists, to the tests, and every release's Upgrading
+  paragraph, from v0.2.0's, newest first, brought from GitHub into the
+  repo; the index, and its translations', which list the parts in the
+  English's order; the CLI's `tug upgrade`; and both starters'
+  `AGENTS.md`, which say to upgrade by it, as the first upgrade brings
+  them.
+
+Choices, to settle before any code:
+
+- **Each tug writes its own starter:** the go command can fetch the
+  templates of the tug that made the app, and this tug could fill them
+  in itself, with nothing built. But how they're laid over each other is
+  code too, which layers there are, `notInAuth` and `onlySSR`, and what
+  fills them, `starterData`, has changed with it, so v0.40.0's templates
+  laid out by today's `writeStarter` needn't come out as v0.40.0 wrote
+  them, where v0.40.0's own `tug new` does, for a build the go command
+  keeps.
+- **A file, not a guess:** `go.mod` says which tug the app builds
+  against, not which starter it has, as every release's notes say to `go
+  get` first, so taking its version for the old side would quietly skip
+  what changed in between. The flags can be read from the files, as an
+  app made before has to have them, but the version can't, and one small
+  file says both. For an app with no `tug.json`, `tug upgrade` stops and
+  names the likely `-from`: the tug its `AGENTS.md` links the guide at,
+  which is the starter's, or else its `go.mod`'s.
+- **Git's merge, not tug's:** the standard library has no diff, so a
+  merge of tug's own is a diff3 to write and keep, where `git merge-file`
+  is on the machine an app is worked on, and its marks are the ones an
+  editor, and a coding agent, know. The clean tree is the other half: an
+  upgrade that can't be read as one diff, or undone by git, would want a
+  copy of the app put aside first.
+- **This tug is the one it upgrades to:** as `tug new` makes an app of
+  the tug it is, `tug upgrade` has no `-to`: an app moves to a version by
+  that version's tug, and never back, so a starter newer than this tug
+  stops it.
+- **Migrations listed, not written:** a column the starter added to a
+  table's file is an `ALTER TABLE` in each database's SQL, and tug
+  writing it would be a diff of schemas in three dialects. The starter
+  adding a column to its table's own file, as it has since v0.39.1, is
+  what makes it the common case; whether the starter's next column comes
+  in a migration of its own is a question for before v1.0, and not this
+  milestone's.
+- **The flags stay as they were:** turning `-ssr` on, the old side
+  written without it and the new with it, is the same merge, and is left
+  for after, as `-auth` and the frontend can't change that way.
 
 ## Decisions
 
