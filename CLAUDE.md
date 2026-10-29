@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M58 are done, which is
+the decisions behind it and where it stands: M1 to M60 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -175,7 +175,13 @@ it by the page object's own rules, and once props kept and asked for
 once, and uploads from the browser (v0.53.0): `storage.Uploader`'s
 `UploadURL`, a link that takes one key's `PUT`, of the type it signs,
 which the local disk gives as S3 does, with `Stater` and `Checked`, which
-look at what landed.
+look at what landed, listing, copying and moving (v0.54.0): a `Disk`'s
+`List`, a range over a directory, and `Copy` and `Move`, each disk its
+own way, and upgrading an app (v0.55.0): `tug upgrade`, the starter as
+the tug that made the app wrote it, by that tug's own `tug new`, and as
+this tug writes it, the difference merged into the app's own changes by
+git, from a clean tree, as one diff, a migration the starter changed
+listed and never written, and `tug.json`, what the app was made from.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -758,7 +764,21 @@ dev server that isn't there: delete it.
   `key.go` is tug key, which prints `newKey`, as `tug new`'s `.env` has
   one; `migrate.go` is tug migrate new, which writes a migration's file
   (`newMigration`, named in UTC, the next second when one's taken,
-  `migrationWords`); `dev.go` runs Vite and the app
+  `migrationWords`); `upgrade.go` is tug upgrade: `madeBefore`, what the
+  app's starter was made from, `tug.json`'s (`made`), or `-from`'s with
+  the flags its files show (`madeFromFiles`), and the likely tug named
+  without either (`likelyFrom`); `upgradable`, forward only, from a tug
+  the go command fetches (`compareReleases`); `committed`, a clean git
+  work tree; `oldStarter`, that tug's own `tug new -no-install`, by `go
+  run`; `upgradeFiles`, what changed from its starter to `starterFiles`'
+  laid over the app, a file the app left taking the new one, one it
+  changed merged by `git merge-file --diff3` (`mergeFile`), a migration
+  never written but listed with git's diff (`starterDiff`), and
+  `neverMerged`'s `.env`, `go.mod`, which `requireTug` sets, and
+  `tug.json`; then `settleApp`, unless a file is marked, and `left`, an
+  error while something's left to do, for status 1. The tests put
+  functions of their own in `oldStarter`'s and `settleApp`'s places; the
+  full suite upgrades an app v0.47.0's `tug new` made. `dev.go` runs Vite and the app
   as processes in their own groups (`proc`, `proc_unix.go`), polls for
   changes (`watch`, `snapshot`), touches `.tug/reload` for the starter's
   Vite plugin to reload the browser, and shows 127.0.0.1 as localhost
@@ -766,7 +786,10 @@ dev server that isn't there: delete it.
   unless it has one (`devEnv`), leaves a deploy's HTTPS out of the app's
   environment (`deployVars`, which it says, `setDeployVars`), and
   rebuilds on `lang/*.json` and `migrations/*.sql` too (`watched`); `build.go`; `new.go`
-  (`writeStarter`) lays directories over each other, a later one's files
+  (`writeStarter`, which writes `starterFiles`' map and `.env`, the map
+  with `tug.json`, by `starterData.flags`, the flags `starterFlags` adds
+  to tug new's, and tug upgrade's reading of `tug.json`) lays directories
+  over each other, a later one's files
   replacing an earlier one's of the same name: `starter/`, the Go and what
   every frontend uses, then the frontend's own, `react/`, `vue/` or
   `svelte/` (`-vue`, `-svelte`); with `-auth`, `starter-auth/`, then
