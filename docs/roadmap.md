@@ -5644,7 +5644,7 @@ v0.54.0, six days apart. v0.48.0 put a `locale` column in
 `migrate.Up` stops at a migration whose hash has changed, so its notes
 said to write that migration by hand. No app made with `-auth` runs in
 production yet, so this had cost no one; the first that did would have
-paid it at every release after. To be released as v0.55.0.
+paid it at every release after. Released as v0.55.0.
 
 - **`tug upgrade`, in the app's directory:** the starter as the tug that
   made the app wrote it, and as this tug writes it, with the app's name

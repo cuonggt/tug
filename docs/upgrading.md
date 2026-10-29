@@ -182,6 +182,15 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v0.55.0
+
+`go install github.com/cuonggt/tug/cmd/tug@v0.55.0`, and in the app,
+with everything committed, `tug upgrade -from` the tug that made it, as
+an app made before has no `tug.json`: the one its `AGENTS.md` links the
+guide at, unless it has taken a later release's changes by hand. Then put
+right what it marks, and write the migrations it lists. Nothing an app
+calls changed.
+
 ### v0.54.0
 
 `go get github.com/cuonggt/tug@v0.54.0`. **A Disk of an app's own gains
