@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 54c5c546dd9c -->
+<!-- translated from docs/getting-started.md at 8fe75b3c12d9 -->
 
 # Bắt đầu
 
@@ -142,6 +142,7 @@ blog/
 ├── Dockerfile           ứng dụng dưới dạng một binary trên image distroless
 ├── AGENTS.md            cách thay đổi ứng dụng, cho một agent lập trình
 ├── CLAUDE.md            AGENTS.md, cho Claude Code
+├── tug.json             bản tug đã tạo starter, cho tug upgrade
 └── README.md
 ```
 
@@ -158,8 +159,10 @@ test gọi `newApp` với cấu hình riêng của chúng.
 của hướng dẫn này làm, những quy tắc mà code không cho thấy, như không bao
 giờ sửa `resources/js/tug`, và các lệnh kiểm tra một thay đổi. `CLAUDE.md`
 import nó, vì Claude Code chỉ tự đọc `AGENTS.md` khi chưa có `CLAUDE.md`.
-Chúng là của ứng dụng, để thay đổi khi ứng dụng lớn lên: tug không viết lại
-chúng.
+Chúng là của ứng dụng, để thay đổi khi ứng dụng lớn lên, và khi tug thay
+đổi starter của mình, [`tug upgrade`](../upgrading.md) gộp những gì đã
+thay đổi vào chúng, như vào mọi tệp mà starter đã viết; `tug.json` cho
+biết đó là bản tug nào.
 
 ## Thêm một trang
 

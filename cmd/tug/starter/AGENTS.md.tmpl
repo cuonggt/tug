@@ -163,3 +163,11 @@ func TestThePostsPageListsThePosts(t *testing.T) {
 
 `tugtest.Props` fails the test for another page. A redirect's next page
 is `r.Follow()`, its flash `r.Page.Flash`.
+
+## Upgrade tug
+
+`tug upgrade`, with nothing uncommitted, brings the app what the starter
+has gained since the tug that made it, which `tug.json` names: it merges
+the starter's changes into the app's own, and marks where both changed
+the same lines, between `<<<<<<<` and `>>>>>>>`. Put right what it marks,
+keeping what the app's change was for, then check the change as above.

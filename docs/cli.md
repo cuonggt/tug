@@ -4,6 +4,7 @@
 
 ```
 tug new <dir>    make a new app in dir, ready to run
+tug upgrade      bring the app what the starter has gained since the tug that made it
 tug dev          run the app, rebuilding and reloading it as it changes
 tug gen          write the TypeScript of the app's pages and routes
 tug routes [text]
@@ -19,8 +20,8 @@ tug version      print tug's version
 `tug <command> -h` prints a command's flags. A command that fails says why
 after `tug:`, and exits with status 1.
 
-`tug dev`, `tug gen`, `tug routes`, `tug lang` and `tug build` run in the
-app's directory, the one with its `main` package and its `package.json`,
+`tug upgrade`, `tug dev`, `tug gen`, `tug routes`, `tug lang` and
+`tug build` run in the app's directory, the one with its `main` package and its `package.json`,
 and stop, saying which is missing, anywhere else. The directory needn't have a `go.mod` of its own,
 as an app inside a bigger Go module doesn't.
 
@@ -114,7 +115,9 @@ is `tug new -auth blog`.
    the database's, `sqlite`, `postgres` or `mysql`. The directory's name
    is the app's: in `package.json`, the page titles, and the `appName`
    prop, and on Postgres or MySQL, its database's, as SQL takes a name
-   without quotes;
+   without quotes. With it goes `tug.json`, the tug whose starter it is,
+   the app's name and its flags, which [`tug upgrade`](#tug-upgrade)
+   reads to write that starter again;
 3. writes `.env`, readable by you alone, with `APP_KEY=base64:` and 32
    random bytes in base64, and `APP_DEBUG=true`, and on Postgres or
    MySQL, `DB_URL`, the database `compose.yaml` runs;
@@ -187,6 +190,51 @@ The app's `go.mod` requires the tug that `tug new` is:
 `-tug-dir` builds the app against the checkout it names, whichever tug
 runs it. The directory's `go.mod` must be `module github.com/cuonggt/tug`,
 or `tug new` stops, saying it isn't a checkout of tug.
+
+## `tug upgrade`
+
+```
+tug upgrade [-from version] [-tug-dir dir]
+```
+
+- `-from version`: the tug that made the app's starter, as `v0.47.0`, for
+  an app with no `tug.json`, made before v0.55.0, or one that took a
+  release's changes by hand: a release, or a commit the go command can
+  fetch.
+- `-tug-dir dir`: a checkout of tug to upgrade the app to, rather than
+  this tug's release, as `tug new -tug-dir` builds an app against one.
+
+Brings the app what the starter has gained since the tug that made it,
+which `tug.json` names, merged into what the app has changed itself. It:
+
+1. stops outside a git work tree, or with changes not committed, so what
+   it changes is one diff, which git shows and undoes; for an app whose
+   starter is newer than this tug, as it upgrades to the tug it is, and
+   never back; and for one whose starter is this tug's already;
+2. writes the starter as the tug that made the app wrote it, by that
+   tug's own `tug new -no-install`, which the go command fetches and
+   builds once and keeps, and as this tug writes it, both with the app's
+   name and flags, and the module path its `go.mod` has;
+3. lays the difference over the app, file by file: a file the app left
+   as it was takes the new one, one it changed has the starter's change
+   merged into it, by `git merge-file`, and where both changed the same
+   lines, they're marked between `<<<<<<<` and `>>>>>>>`; a file new in
+   the starter is added, and one it has left out goes where the app
+   hadn't changed it. A migration the app has is never changed: one the
+   starter changed is listed with its diff, for the app to make the
+   change in a migration of its own. `.env`, `go.mod` and `tug.json`
+   aren't merged;
+4. points `go.mod` at this tug, with `go mod edit`, and writes `tug.json`
+   again;
+5. unless a file is marked, runs `go mod tidy`, installs the packages
+   with the app's package manager, and writes the types, as `tug new`
+   does.
+
+It says what it did to each file, `updated`, `merged`, `marked`, `added`,
+`deleted` or `kept`, and the migrations to write, and exits with status 1
+while a file is marked or a migration is to write.
+[Upgrading](upgrading.md) goes through it, with what each release
+changed.
 
 ## `tug dev`
 

@@ -133,6 +133,7 @@ blog/
 ├── Dockerfile           the app as one binary on a distroless image
 ├── AGENTS.md            how to change the app, for a coding agent
 ├── CLAUDE.md            AGENTS.md, for Claude Code
+├── tug.json             the tug that made the starter, for tug upgrade
 └── README.md
 ```
 
@@ -149,7 +150,9 @@ add a page, a form and a test, as this guide goes on to, the rules the
 code doesn't show, as never editing `resources/js/tug`, and the commands
 that check a change. `CLAUDE.md` imports it, as Claude Code reads
 `AGENTS.md` itself only while there's no `CLAUDE.md`. They're the app's,
-to change as it grows: tug doesn't write them again.
+to change as it grows, and when tug changes its starter,
+[`tug upgrade`](upgrading.md) merges what changed into them, as into
+every file the starter wrote; `tug.json` says which tug that was.
 
 ## Add a page
 

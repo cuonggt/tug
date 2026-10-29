@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 0cd2cd7db7cd -->
+<!-- translated from docs/README.md at bc3e51969757 -->
 
 # Hướng dẫn sử dụng tug
 
@@ -64,8 +64,13 @@ tiết còn lại.
     trường, HTTPS do chính ứng dụng phục vụ, với chứng chỉ từ Let's
     Encrypt, các header cho trình duyệt biết được làm gì với các trang của
     ứng dụng, trong đó có Content-Security-Policy, log và metric.
-18. [CLI](../cli.md): `tug new`, `tug dev`, `tug gen`, `tug routes`,
-    `tug lang`, `tug migrate`, `tug build` và `tug key`, đầy đủ chi tiết.
+18. [Nâng cấp](../upgrading.md): `tug upgrade`, mang đến cho ứng dụng
+    những gì starter có thêm kể từ bản tug đã tạo ra nó, được gộp vào
+    những thay đổi của chính ứng dụng, và những gì mỗi bản phát hành đã
+    thay đổi trong API của tug.
+19. [CLI](../cli.md): `tug new`, `tug upgrade`, `tug dev`, `tug gen`,
+    `tug routes`, `tug lang`, `tug migrate`, `tug build` và `tug key`, đầy
+    đủ chi tiết.
 
 [Lộ trình](../roadmap.md) kể lại tug đã được xây dựng ra sao và những
 quyết định đằng sau nó, còn

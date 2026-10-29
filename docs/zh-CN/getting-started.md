@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 54c5c546dd9c -->
+<!-- translated from docs/getting-started.md at 8fe75b3c12d9 -->
 
 # 快速上手
 
@@ -94,12 +94,13 @@ blog/
 ├── Dockerfile           把应用作为单个二进制文件放进 distroless 镜像
 ├── AGENTS.md            给编程智能体看的：如何修改这个应用
 ├── CLAUDE.md            为 Claude Code 导入 AGENTS.md
+├── tug.json             创建脚手架的 tug，供 tug upgrade 使用
 └── README.md
 ```
 
 `main.go` 分为两部分。`main` 从环境变量中读取应用的配置（用 `session.KeysFromEnv` 读取 `APP_KEY`，用 `tug.ConfigFromEnv` 读取 `ADDR`、`PORT` 和 `APP_DEBUG`），然后运行应用。`newApp` 用这些配置把应用组装起来：Vite 的标签、外面包着 `app.html` 的 Inertia 页面、会话、错误页面、中间件、在 `/build/` 下提供前端构建产物的路由，以及应用自己的路由。测试会用它们自己的配置调用 `newApp`。
 
-`AGENTS.md` 是写给编程智能体的，大多数智能体开始工作时都会读它：如何添加页面、表单和测试（正如本指南接下来要做的），代码本身看不出来的规则（例如绝不要编辑 `resources/js/tug`），以及检查改动的命令。`CLAUDE.md` 导入了它，因为只有在没有 `CLAUDE.md` 时，Claude Code 才会自己读取 `AGENTS.md`。这两个文件属于应用，随着应用的发展去修改它们：tug 不会再重写它们。
+`AGENTS.md` 是写给编程智能体的，大多数智能体开始工作时都会读它：如何添加页面、表单和测试（正如本指南接下来要做的），代码本身看不出来的规则（例如绝不要编辑 `resources/js/tug`），以及检查改动的命令。`CLAUDE.md` 导入了它，因为只有在没有 `CLAUDE.md` 时，Claude Code 才会自己读取 `AGENTS.md`。这两个文件属于应用，随着应用的发展去修改它们；当 tug 修改了脚手架时，[`tug upgrade`](../upgrading.md) 会把改动合并进它们，就像合并进脚手架写出的每个文件一样；`tug.json` 记录了是哪个 tug。
 
 ## 添加页面
 

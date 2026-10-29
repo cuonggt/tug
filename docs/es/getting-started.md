@@ -1,4 +1,4 @@
-<!-- translated from docs/getting-started.md at 54c5c546dd9c -->
+<!-- translated from docs/getting-started.md at 8fe75b3c12d9 -->
 
 # Primeros pasos
 
@@ -145,6 +145,7 @@ blog/
 ├── Dockerfile           la aplicación como un único binario en una imagen distroless
 ├── AGENTS.md            cómo cambiar la aplicación, para un agente de código
 ├── CLAUDE.md            AGENTS.md, para Claude Code
+├── tug.json             el tug que creó el kit de inicio, para tug upgrade
 └── README.md
 ```
 
@@ -163,7 +164,9 @@ guía a continuación, las reglas que el código no muestra, como no editar
 nunca `resources/js/tug`, y los comandos que comprueban un cambio.
 `CLAUDE.md` lo importa, ya que Claude Code lee `AGENTS.md` por sí mismo solo
 mientras no hay un `CLAUDE.md`. Son de la aplicación, para cambiarlos a
-medida que crece: tug no vuelve a escribirlos.
+medida que crece, y cuando tug cambia su kit de inicio,
+[`tug upgrade`](../upgrading.md) fusiona en ellos lo que cambió, como en
+cada archivo que escribió el kit de inicio; `tug.json` dice qué tug fue.
 
 ## Añadir una página
 

@@ -124,8 +124,11 @@ func showPost(c *tug.Ctx) error {
 
 - **The CLI**, `tug`: `tug new` makes an app, ready to run, with a .env
   and a fresh APP_KEY, and a frontend of React, or with `-vue` or
-  `-svelte`, of Vue or Svelte. `tug dev` runs it with Vite: Go is rebuilt and
-  restarted as it changes, and the browser reloaded. `tug gen` writes the
+  `-svelte`, of Vue or Svelte. `tug upgrade` brings it what the starter has
+  gained since, merged into its own changes, with what clashes marked, and
+  the migrations the starter changed listed for it to write. `tug dev` runs
+  it with Vite: Go is rebuilt and restarted as it changes, and the browser
+  reloaded. `tug gen` writes the
   TypeScript of each page's props and of the named routes, with a typed
   `route()`, of what each route's form sends, the struct its handler binds,
   with a `form()` of its path and method, and of the flash data's keys, so

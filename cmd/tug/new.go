@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -53,6 +54,38 @@ type starterData struct {
 	Auth       bool   // with accounts: starter-auth over starter
 	Database   string // with accounts, sqlite, postgres or mysql: the layer of its SQL
 	SSR        bool   // with pages rendered on the server too
+}
+
+// madeFile is where an app keeps what its starter was made from, which
+// tug new writes and tug upgrade reads, to write that starter again.
+const madeFile = "tug.json"
+
+// made is tug.json: the tug whose starter the app has, the name it was
+// made with, which the starter writes in 55 places and the directory
+// needn't keep, and the flags that picked its layers.
+type made struct {
+	Starter string   `json:"starter"`
+	Name    string   `json:"name"`
+	Flags   []string `json:"flags"`
+}
+
+// flags are tug new's flags for the starter d is, as tug.json keeps them:
+// accounts, their database, the frontend, then rendering on the server.
+func (d starterData) flags() []string {
+	flags := []string{}
+	if d.Auth {
+		flags = append(flags, "-auth")
+	}
+	if d.Postgres() || d.MySQL() {
+		flags = append(flags, "-"+d.Database)
+	}
+	if d.Vue() || d.Svelte() {
+		flags = append(flags, "-"+d.Frontend)
+	}
+	if d.SSR {
+		flags = append(flags, "-ssr")
+	}
+	return flags
 }
 
 // React, Vue and Svelte say which frontend the app has, for the
@@ -178,12 +211,7 @@ func runNew(args []string) error {
 	module := flags.String("module", "", "the app's Go module path (default: the directory's name)")
 	tugDir := flags.String("tug-dir", "", "a checkout of tug to build the app against, rather than a release")
 	noInstall := flags.Bool("no-install", false, "don't install the app's packages or write its types")
-	withAuth := flags.Bool("auth", false, "with accounts: registering, verifying an email, logging in with two factors or a passkey, resetting a password, and settings, with the users in SQLite")
-	withPostgres := flags.Bool("postgres", false, "with -auth, the users in Postgres, rather than SQLite")
-	withMySQL := flags.Bool("mysql", false, "with -auth, the users in MySQL, rather than SQLite")
-	withSSR := flags.Bool("ssr", false, "with server-side rendering: a first visit's page renders on the server too, with Node, which runs beside the app")
-	withVue := flags.Bool("vue", false, "with a Vue frontend, rather than React's")
-	withSvelte := flags.Bool("svelte", false, "with a Svelte frontend, rather than React's")
+	pick := starterFlags(flags)
 	flags.Usage = func() {
 		fmt.Fprint(flags.Output(), `usage: tug new [flags] <dir>
 
@@ -231,26 +259,9 @@ runs it.
 	if entries, err := os.ReadDir(abs); err == nil && len(entries) > 0 {
 		return fmt.Errorf("%s isn't empty: tug new makes a directory of its own", dir)
 	}
-	data := starterData{Name: filepath.Base(abs), Module: *module, Frontend: "react", Auth: *withAuth, SSR: *withSSR}
-	switch {
-	case *withVue && *withSvelte:
-		return errors.New("an app has one frontend: -vue or -svelte, not both")
-	case *withVue:
-		data.Frontend = "vue"
-	case *withSvelte:
-		data.Frontend = "svelte"
-	}
-	switch {
-	case (*withPostgres || *withMySQL) && !*withAuth:
-		return errors.New("-postgres and -mysql are where -auth keeps its users: without -auth, the app has no database")
-	case *withPostgres && *withMySQL:
-		return errors.New("an app has one database: -postgres or -mysql, not both")
-	case *withPostgres:
-		data.Database = "postgres"
-	case *withMySQL:
-		data.Database = "mysql"
-	case *withAuth:
-		data.Database = "sqlite"
+	data := starterData{Name: filepath.Base(abs), Module: *module}
+	if err := pick(&data); err != nil {
+		return err
 	}
 	if data.Module == "" {
 		data.Module = data.Name
@@ -278,6 +289,42 @@ runs it.
 	}
 	fmt.Printf("\nNext:\n\n  %s\n  tug dev\n\n", strings.Join(next, "\n  "))
 	return nil
+}
+
+// starterFlags adds to fs the flags that pick an app's starter, which tug
+// new takes and tug.json keeps, and returns what reads them into data once
+// fs has parsed them.
+func starterFlags(fs *flag.FlagSet) func(data *starterData) error {
+	withAuth := fs.Bool("auth", false, "with accounts: registering, verifying an email, logging in with two factors or a passkey, resetting a password, and settings, with the users in SQLite")
+	withPostgres := fs.Bool("postgres", false, "with -auth, the users in Postgres, rather than SQLite")
+	withMySQL := fs.Bool("mysql", false, "with -auth, the users in MySQL, rather than SQLite")
+	withSSR := fs.Bool("ssr", false, "with server-side rendering: a first visit's page renders on the server too, with Node, which runs beside the app")
+	withVue := fs.Bool("vue", false, "with a Vue frontend, rather than React's")
+	withSvelte := fs.Bool("svelte", false, "with a Svelte frontend, rather than React's")
+	return func(data *starterData) error {
+		data.Frontend, data.Auth, data.SSR = "react", *withAuth, *withSSR
+		switch {
+		case *withVue && *withSvelte:
+			return errors.New("an app has one frontend: -vue or -svelte, not both")
+		case *withVue:
+			data.Frontend = "vue"
+		case *withSvelte:
+			data.Frontend = "svelte"
+		}
+		switch {
+		case (*withPostgres || *withMySQL) && !*withAuth:
+			return errors.New("-postgres and -mysql are where -auth keeps its users: without -auth, the app has no database")
+		case *withPostgres && *withMySQL:
+			return errors.New("an app has one database: -postgres or -mysql, not both")
+		case *withPostgres:
+			data.Database = "postgres"
+		case *withMySQL:
+			data.Database = "mysql"
+		case *withAuth:
+			data.Database = "sqlite"
+		}
+		return nil
+	}
 }
 
 // tugModule works out which tug the app is built against: the version this
@@ -335,6 +382,35 @@ func checkoutDir() string {
 }
 
 func writeStarter(root string, data starterData) error {
+	files, err := starterFiles(data)
+	if err != nil {
+		return err
+	}
+	for rel, content := range files {
+		target := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, content, 0o644); err != nil {
+			return err
+		}
+	}
+	uses := "encrypts the sessions"
+	if data.Auth {
+		uses = "encrypts the sessions and two-factor secrets, and signs the links in mail and to photos"
+	}
+	env := "# Read by tug dev, and not committed. APP_KEY " + uses + ".\n" +
+		"APP_KEY=" + newKey() + "\nAPP_DEBUG=true\n"
+	if data.Postgres() || data.MySQL() {
+		env += "# The database compose.yaml runs: docker compose up -d.\nDB_URL=" + data.DevURL() + "\n"
+	}
+	return os.WriteFile(filepath.Join(root, ".env"), []byte(env), 0o600)
+}
+
+// starterFiles is the starter tug new writes for data, but its .env, each
+// file by its slash-separated path in the app, with tug.json, which says
+// what it was made from.
+func starterFiles(data starterData) (map[string][]byte, error) {
 	dirs := []string{"starter", data.Frontend}
 	if data.Auth {
 		dirs = append(dirs, "starter-auth", data.Frontend+"-auth", data.Database)
@@ -365,7 +441,7 @@ func writeStarter(root string, data starterData) error {
 			return nil
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if data.Auth {
@@ -378,25 +454,12 @@ func writeStarter(root string, data starterData) error {
 			delete(files, rel)
 		}
 	}
-	for rel, content := range files {
-		target := filepath.Join(root, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(target, content, 0o644); err != nil {
-			return err
-		}
+	record, err := json.MarshalIndent(made{Starter: data.TugVersion, Name: data.Name, Flags: data.flags()}, "", "  ")
+	if err != nil {
+		return nil, err
 	}
-	uses := "encrypts the sessions"
-	if data.Auth {
-		uses = "encrypts the sessions and two-factor secrets, and signs the links in mail and to photos"
-	}
-	env := "# Read by tug dev, and not committed. APP_KEY " + uses + ".\n" +
-		"APP_KEY=" + newKey() + "\nAPP_DEBUG=true\n"
-	if data.Postgres() || data.MySQL() {
-		env += "# The database compose.yaml runs: docker compose up -d.\nDB_URL=" + data.DevURL() + "\n"
-	}
-	return os.WriteFile(filepath.Join(root, ".env"), []byte(env), 0o600)
+	files[madeFile] = append(record, '\n')
+	return files, nil
 }
 
 // install gets the app ready to run: its Go modules, its frontend's

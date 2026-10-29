@@ -253,3 +253,14 @@ is `r.Follow()`, its flash `r.Page.Flash`, and a guest is `app.client()`.
 The mail a test's app sends is `app.outbox`'s, and
 `app.outbox.NextTo(t, "ann@example.com")` waits for the next to an
 address.
+
+## Upgrade tug
+
+`tug upgrade`, with nothing uncommitted, brings the app what the starter
+has gained since the tug that made it, which `tug.json` names: it merges
+the starter's changes into the app's own, and marks where both changed
+the same lines, between `<<<<<<<` and `>>>>>>>`. A migration the starter
+changed is listed with its diff rather than changed, as one that has run
+is never changed: make the same change in a new one, with `tug migrate
+new`, in [[ .DatabaseName ]]'s SQL. Put right what it marks, keeping what the
+app's change was for, then check the change as above.

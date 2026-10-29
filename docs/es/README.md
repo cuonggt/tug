@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at 0cd2cd7db7cd -->
+<!-- translated from docs/README.md at bc3e51969757 -->
 
 # La guía de tug
 
@@ -74,8 +74,13 @@ los detalles.
     Let's Encrypt, las cabeceras que dicen qué puede hacer un navegador con
     las páginas de la aplicación, entre ellas una Content-Security-Policy,
     los logs y las métricas.
-18. [La CLI](../cli.md): `tug new`, `tug dev`, `tug gen`, `tug routes`,
-    `tug lang`, `tug migrate`, `tug build` y `tug key`, en detalle.
+18. [Actualización](../upgrading.md): `tug upgrade`, que trae a una
+    aplicación lo que el kit de inicio ha ganado desde el tug que la creó,
+    fusionado con sus propios cambios, y lo que cada versión cambió de la
+    API de tug.
+19. [La CLI](../cli.md): `tug new`, `tug upgrade`, `tug dev`, `tug gen`,
+    `tug routes`, `tug lang`, `tug migrate`, `tug build` y `tug key`, en
+    detalle.
 
 [La hoja de ruta](../roadmap.md) cuenta cómo se construyó tug y las
 decisiones que hay detrás, y

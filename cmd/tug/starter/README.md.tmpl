@@ -33,6 +33,9 @@ go test ./...
   isn't edited by hand; tug dev and tug build write it again.
 - `AGENTS.md`: how to change the app, for a coding agent, its rules, and
   the commands that check a change, which `CLAUDE.md` hands Claude Code.
+- `tug.json`: the tug whose starter the app has, and the flags it was made
+  with, which `tug upgrade` reads to bring the app what the starter has
+  gained since, merged into its own changes.
 - `.env`: read by tug dev. `APP_KEY` encrypts the sessions, and a deployed
   app needs one of its own, set in its environment, with `APP_URL`, its
   own address, and `TRUSTED_PROXIES` behind a load balancer; or, on a

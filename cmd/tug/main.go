@@ -1,6 +1,7 @@
 // Command tug makes and runs tug apps:
 //
 //	tug new blog     a new app, in ./blog, ready to run
+//	tug upgrade      bring the app what the starter has gained since
 //	tug dev          run the app, rebuilt and reloaded as it changes
 //	tug gen          write the TypeScript of the app's pages and routes
 //	tug routes       list the app's routes
@@ -24,6 +25,7 @@ import (
 const usage = `tug makes and runs tug apps.
 
   tug new <dir>    make a new app in dir, ready to run
+  tug upgrade      bring the app what the starter has gained since the tug that made it
   tug dev          run the app, rebuilding and reloading it as it changes
   tug gen          write the TypeScript of the app's pages and routes
   tug routes [text]
@@ -47,6 +49,8 @@ func main() {
 	switch cmd, args := os.Args[1], os.Args[2:]; cmd {
 	case "new":
 		err = runNew(args)
+	case "upgrade":
+		err = runUpgrade(args, os.Stdout)
 	case "dev":
 		err = runDev(args)
 	case "gen":
