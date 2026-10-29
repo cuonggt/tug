@@ -67,6 +67,7 @@ to 3.8.0, October 2026), written against
 | M58 | Uploads from the browser   | done   |
 | M59 | Listing, copying, moving   | done   |
 | M60 | Upgrading an app           | done   |
+| M61 | The API, settled           | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5799,6 +5800,94 @@ Choices made on the way:
   their links still at their own version, as each says what was true of
   its release.
 
+## M61 · The API, settled — later
+
+v1.0, when it comes, is a promise about what an app calls: after it, a
+name that changes, or an interface of the app's that gains a method,
+breaks every app that has one, and waits for a v2. Before it, a break
+costs a minor version and a line in the release's notes, as M59's three
+methods on `Disk` did. tug's 26 packages outside `internal/` export 281
+names at their top level, as `go doc -short` lists them, and 392
+functions and methods, and nothing says, as a change is made, whether it
+breaks one; a review reads them once, while a break is still cheap.
+Asked first whether anything should come out, the owner kept all of it,
+as the decisions below now say. To be released as v0.56.0.
+
+- **What the review found:** every exported name has a doc comment but
+  the `Error` and `Unwrap` methods of the error types and the methods of
+  the test packages' `Memory` stores, which implement interfaces that
+  have theirs; nothing is deprecated, so nothing waits to be removed; and
+  the names that look alike are for different things, as `Lazy`, a prop
+  worked out whenever it goes out, and `Optional`, one that goes out only
+  when a partial reload names it. What's left to settle is below.
+- **A context for a link:** every method of an interface that can reach
+  out takes a context, or as `GetCertificate` does, a TLS hello that
+  carries one, but `Disk.URL` and `Uploader.UploadURL`, which sign a link
+  where they're called, as both of tug's disks do. An S3 that takes its
+  credentials from the platform, which files.md lists as not here yet,
+  fetches them as they expire, and can't sign without them; after v1.0, a
+  context added to either breaks every Disk, the app's own among them. So
+  both take one now, `URL(ctx, key, expires)`, which the starters'
+  handlers have to hand.
+- **An interface of the app's grows beside it:** 26 interfaces are
+  exported, and eight of them are a store an app writes itself:
+  `auth.ThrottleStore`, `broadcast.Store` and `PresenceStore`,
+  `cache.Store`, `migrate.Store`, `queue.Store`, `session.Keeper` and
+  `storage.Disk`. From v1.0, none gains a method: what tug needs of a
+  store later is an interface of its own beside it, which tug looks for
+  as it needs it, as queue's eight extras are, its `UniqueStore` and
+  `AtOnceStore` among them, and storage's `Uploader` and `Stater`.
+  CLAUDE.md's conventions say so, and each of the eight is read once more
+  for what it lacks now, while adding is free.
+- **The panics are the code's:** `tug.New` panics on a `Config` it can't
+  take, as `Handle` does on a pattern, where `inertia.New`,
+  `session.New` and `vite.New` return errors. That's the rule, kept and
+  written down beside the error text's: a mistake in the app's own code
+  panics where it's made, and what the environment gets wrong, a key, a
+  manifest, a server, is an error.
+- **gorelease in CI:** `golang.org/x/exp/cmd/gorelease`, pinned as CI
+  pins Pebble, run on each push against the last release, its report in
+  the job's summary, so a break shows in review and goes in the release's
+  Upgrading paragraph. Before v1.0 it reports; from v1.0 it fails on any
+  incompatible change.
+- **Tests:** the CI job, run once against v0.55.0 with nothing changed,
+  to see it pass; the storage tests' links with a context, `Local`'s and
+  S3's, and the starters' photo links; and gorelease's own report of
+  this milestone's break, the one it's there to catch.
+- **The guide:** Files, the interface as the guide prints it and its
+  links' calls; CLAUDE.md's conventions, the rules above.
+
+Choices, to settle before any code:
+
+- **gorelease, not a file of the API:** a committed listing of every
+  exported name, which a test checks the packages against, as Go keeps
+  its own in `api/`, would be the standard library alone, and show each
+  change in a diff. But it can't tell an addition that's safe from one
+  that isn't: a method added to an interface an app implements reads as
+  one line more, and breaks every implementation. gorelease, apidiff's
+  rules over the module and its last release, tells them apart, at the
+  cost of a tool from x/exp, run in CI alone, as Pebble and MinIO are.
+- **A context now, not a credential kept fresh:** an S3 could keep its
+  credentials fresh beside the app, from a `Run` that `app.Go` starts,
+  as `letsencrypt.Manager` keeps its certificates, so `URL` never waits.
+  It would still need the first ones before the first link, and a disk
+  of the app's own that signs with something it fetches, a CDN's key,
+  say, would be in the same place; a context costs every call site an
+  argument it already has.
+- **The `FromEnv`s stay as they are:** `tug.ConfigFromEnv` returns a
+  `Config`, for `New`, where `mail.FromEnv`, `storage.FromEnv` and
+  `letsencrypt.FromEnv` return the thing they make, with the error reading
+  it can have, and `session.KeysFromEnv` the keys. Named alike, they'd
+  hide what each gives back.
+- **Everything outside `internal/` is in the promise:** no package is
+  marked experimental, as a module has one version for all of them, and
+  a package kept out of it would need a module of its own. `tugtest`,
+  which follows Inertia's client, changes with it as fixes do.
+- **No more than the review finds:** a pass over 392 functions for names
+  that could be better would rename what apps already call, for no
+  behaviour of theirs; a name changes here only where it says something
+  untrue.
+
 ## Decisions
 
 - tug has its own Inertia adapter. gonertia and inertia-laravel are
@@ -5844,3 +5933,13 @@ Choices made on the way:
   those, where a generator, as was planned after M47, would guess at an
   app's `newApp`, guards, test helpers and layouts, which drift from the
   starter's as it grows, and be templates in three frontends to keep.
+- Nothing comes out before v1.0: asked before M61, the owner kept all of
+  what a review of M1 to M48 had listed, on 12 October, as what a core
+  framework might do without: the auth starter whole, its API tokens,
+  notifications, browser sessions, broadcasts and presence, photo and
+  cache table among it, on MySQL as well as SQLite and Postgres; the
+  queue's extras, `Latest`, `OneAtATime`, `AtOnce`, `Rate` and
+  `Carrier`; and in core, auth's passkeys and access tokens, DevTools and
+  the development mailbox. Each costs most in the starter, written for
+  three frontends and three databases, and every app made with `-auth`
+  carries it, which `tug upgrade` now keeps current.
