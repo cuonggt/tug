@@ -5653,8 +5653,9 @@ paid it at every release after. Released as v0.55.0.
   as it was takes the new one, one the app changed has the starter's
   change merged into it, and where both changed the same lines, it's
   marked as git marks a conflict. What the starter never had isn't
-  touched. From v0.47.0's auth starter to this one, that's 38 files
-  updated or added and `create_users.sql` listed: the 39 counted above.
+  touched. From v0.47.0's auth starter to v0.54.0's, that's 38 files
+  updated or added and `create_users.sql` listed, the 39 counted above,
+  and to this one's, `README.md` too, which now says what `tug.json` is.
 - **The old side is the old tug's own:** `oldStarter` runs `go run
   github.com/cuonggt/tug/cmd/tug@v0.47.0 new -no-install`, with the app's
   module and flags, into a directory of its own, and the go command
