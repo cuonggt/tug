@@ -69,6 +69,7 @@ to 3.8.0, October 2026), written against
 | M60 | Upgrading an app           | done   |
 | M61 | The API, settled           | done   |
 | M62 | v1.0.0                     | done   |
+| M63 | One machine, whole         | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6006,6 +6007,90 @@ Choices made on the way:
   break under it, and waiting for the first would wait on itself: M60
   gave apps a way to follow tug, M61 read what they'd follow, and v1.0
   is what was left.
+
+## M63 · One machine, whole — later
+
+M45 had the app serve HTTPS itself, for a machine of its own with no
+proxy in front, under systemd as the guide's unit has it, and the auth
+starter keeps its accounts in SQLite, a file on that machine. Two things
+that machine needs, tug doesn't do. `Run` listens itself, on `:443` and
+`:80`, so a restart for a deploy refuses every connection from the
+moment the old process lets go of its ports until the new one has run
+its migrations and taken them, and the binary needs the right to listen
+below 1024 for good, which the unit's `AmbientCapabilities` gives it.
+And nothing backs SQLite up, where a copy made by `cp` while the app
+writes can be torn. To be released as v1.1.0.
+
+- **Sockets from systemd:** `Run` takes the sockets a `.socket` unit
+  passes it, by systemd's own variables: `LISTEN_PID`, which has to be
+  the process's, `LISTEN_FDS`, how many, from descriptor 3, and
+  `LISTEN_FDNAMES`, their names. With `Config.TLS`, the one named
+  `https` serves HTTPS and `http` HTTP, or the first and the second, and
+  without it, the one there is. It unsets the variables once it has the
+  sockets, so what it starts, the SSR's Node, isn't handed them too, and
+  the log says where each came from. A count that doesn't fit, one socket
+  for HTTPS and HTTP, is an error that says what it takes.
+- **A restart that refuses nothing:** systemd holds the sockets across a
+  restart of the service, so the connections that come while the old
+  process finishes its requests and the new one starts wait in the
+  kernel's queue, and are answered, where without them they're refused.
+  And systemd binds the ports below 1024 itself, so the app runs with no
+  right to, and the unit gives it none.
+- **Nothing an app calls changes:** an app started without systemd's
+  sockets listens as it did, and one made before needs only its units.
+- **SQLite backed up:** the auth starter on SQLite gains a `backup`
+  command, `./blog backup <file>`, `VACUUM INTO` the file, the database
+  as it was at a moment, made while the app runs and writes, which a copy
+  of the file can't be; and a `backup-db` job, every night, which puts
+  one on the app's disk, `backups/<date>.db`, off the machine with S3,
+  and keeps the newest `BACKUP_KEEP`, seven unless it says, by listing
+  what's there.
+- **Postgres and MySQL:** theirs are the server's, `pg_dump` and
+  `mysqldump`, or a managed database's own, which the guide names.
+- **Tests:** the test holds two sockets, as systemd does, and hands them
+  to a child app by `exec.Cmd`'s `ExtraFiles`, at 3 and 4, its
+  `LISTEN_PID` its own through `sh -c 'LISTEN_PID=$$ exec …'`: HTTPS on
+  the one named `https` and HTTP on `http`; then the app restarted on
+  them under a stream of requests, none refused; one whose `LISTEN_PID`
+  is another's, which listens itself; and a count that doesn't fit. In
+  the starter on SQLite, `backup`'s copy, opened, with every table and
+  row; and `backup-db`'s run onto a disk in a test's directory, the
+  oldest of eight gone.
+- **The guide:** Deployment's restarts, the `.socket` unit, its
+  `FileDescriptorName`s, and the service without its capability; and its
+  backups, the command, the job, a restore, which is the app stopped and
+  the file put in place, and Postgres's and MySQL's own; Accounts'
+  SQLite; the starter's README and `.env.example`, `BACKUP_KEEP`.
+
+Choices, to settle before any code:
+
+- **systemd's sockets, not a handover of the app's own:** a binary that
+  hands its sockets to the next one, by a signal and an exec, as some
+  servers do, would restart with no gap at all, the new process
+  answering before the old one stops. But that's a second process
+  manager inside the app, at odds with systemd's over which process the
+  service is. systemd's sockets are a few lines here and the rest is the
+  unit's, and the gap is a wait, not a refusal.
+- **Not `SO_REUSEPORT`:** two processes on one port, the new one started
+  before the old one stops, would also restart with no gap, but
+  systemd's restart is a stop, then a start, so it would take a deploy of
+  the app's own to start the second, and a request can land on the old
+  one as it stops.
+- **`VACUUM INTO`, not the backup API or Litestream:** SQLite's online
+  backup copies page by page through the driver's own connection,
+  outside `database/sql`; Litestream streams each change to a bucket,
+  from a process beside the app, the app's to add, which the guide
+  points at for a loss of seconds rather than a night's. `VACUUM INTO`
+  is one statement, through the driver the starter has, and its copy is
+  compacted.
+- **On by default, on the app's disk:** a backup that has to be turned
+  on is one an app finds it didn't have. On the local disk, seven copies
+  sit beside the database, which is for a mistake, not a lost machine;
+  with `FILESYSTEM_DISK=s3` they're off it, which the guide says first.
+- **No restore command:** a restore replaces the database under every
+  instance and every request, which is the app stopped and a file put in
+  place, a step the guide shows, not one a command can make safe while
+  the app serves.
 
 ## Decisions
 
