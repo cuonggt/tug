@@ -233,6 +233,14 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.0.0
+
+`go get github.com/cuonggt/tug@v1.0.0`. Nothing an app calls changed
+since v0.56.0, and `tug upgrade` brings an app made by `tug new` the one
+line the starter changed, the guide's link in `AGENTS.md`. From here,
+within v1, an upgrade breaks nothing an app has: [Versions](#versions)
+says what that covers.
+
 ### v0.56.0
 
 `go get github.com/cuonggt/tug@v0.56.0`, and pass the request's context

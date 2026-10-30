@@ -8,7 +8,7 @@ The name: a tugboat is small, and moves ships many times its size.
 
 **Status: v1.** Within v1, an app that builds and passes its tests on one
 release does on every later one, as [Upgrading](docs/upgrading.md#versions)
-says. v0.56.0 is the latest release: the framework, its CLI,
+says. v1.0.0 is the latest release: the framework, its CLI,
 background jobs, on a schedule in any time zone too, pushed in the app's
 own transactions, and so many at once or a second across the instances,
 server-side rendering, tests of an app's pages, uploads kept on the app's

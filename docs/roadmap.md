@@ -5918,7 +5918,7 @@ that builds and passes its tests on one release does on every later one,
 and a break waits for v2. M60's `tug upgrade` is how an app follows the
 starter across those releases, and asked how the starter changes a table
 it already has from v1.0, the owner chose a migration of its own, as the
-decisions below say. To be released as v1.0.0.
+decisions below say. Released as v1.0.0.
 
 - **What v1 promises:** Upgrading's new Versions says it: the Go API of
   the 26 packages outside `internal/`, as the guide and each package's
