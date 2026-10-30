@@ -331,6 +331,12 @@ func TestAnAppAnOlderTugMadeUpgradesAndPassesItsOwnTests(t *testing.T) {
 		t.Skip("needs npm")
 	}
 	needsGit(t)
+	// tug's own versions straight from GitHub: the go command asks for
+	// tug's latest, to say whether it's deprecated, and CI's run of a
+	// release's commit starts seconds after its tag, when a module proxy
+	// asked for it then keeps it missing for up to half an hour, as v0.56.0
+	// was, for this run and for everyone.
+	t.Setenv("GOPRIVATE", "github.com/cuonggt/tug")
 	dir := filepath.Join(t.TempDir(), "blog")
 	older := exec.Command("go", "run", "github.com/cuonggt/tug/cmd/tug@v0.47.0", "new", "-auth", dir)
 	older.Dir = filepath.Dir(dir)

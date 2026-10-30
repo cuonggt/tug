@@ -121,10 +121,19 @@ jobs:
   # notes, which gorelease suggests without failing, so what fails it is
   # what's wrong with the module itself, as a requirement its author has
   # retracted, which mimetype's v1.4.15 was.
+  #
+  # The last release is the one before HEAD, so a release's own commit is
+  # read against the release before it, not against itself. And tug's own
+  # versions come straight from GitHub: the run of a release's commit
+  # starts seconds after its tag, and a module proxy asked for a version
+  # before its tag shows keeps it missing for up to half an hour, for
+  # everyone, as v0.56.0 was.
   api:
     name: api (gorelease)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      GOPRIVATE: github.com/cuonggt/tug
     steps:
       - uses: actions/checkout@v7
         with:
@@ -134,7 +143,7 @@ jobs:
           go-version: stable
       - name: gorelease
         run: |
-          base=$(git describe --tags --abbrev=0 --match 'v*')
+          base=$(git describe --tags --abbrev=0 --match 'v*' HEAD^)
           status=0
           report=$(go run golang.org/x/exp/cmd/gorelease@v0.0.0-20261014143641-f0251eb4aa3e -base="$base" 2>&1) || status=$?
           echo "$report"
