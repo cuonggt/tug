@@ -68,6 +68,7 @@ to 3.8.0, October 2026), written against
 | M59 | Listing, copying, moving   | done   |
 | M60 | Upgrading an app           | done   |
 | M61 | The API, settled           | done   |
+| M62 | v1.0.0                     | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5907,6 +5908,99 @@ Choices made on the way:
   behaviour of theirs; a name changes only where it says something
   untrue, and none did.
 
+## M62 · v1.0.0 — later
+
+M61 read the API once and wrote down how it may change: a store an app
+writes gains no method, a method that may have to fetch takes a context,
+and gorelease says, at each push, what's changed since the last release.
+What's left is the promise itself, and saying it: within v1, an app that
+builds and passes its tests on one release does on every later one, and
+a break waits for v2. M60's `tug upgrade` is how an app follows the
+starter across those releases, and asked how the starter changes a table
+it already has from v1.0, the owner chose a migration of its own, as the
+decisions below now say. To be released as v1.0.0.
+
+- **What v1 promises:** the Go API of the 26 packages outside
+  `internal/`, as the guide and each package's documentation say it
+  behaves; the CLI's commands and flags, `tug.json`, and the files it
+  reads and writes in an app, `resources/js/tug`, `lang/<lang>.json`,
+  `migrations/`, its names and its `-- down` line, and `.tug/`; the
+  environment variables tug reads, as Deployment and the CLI's page list
+  them; and the TypeScript tug gen writes, `Pages`, `PageProps`,
+  `SharedProps`, `FlashData`, `Params`, `Inputs`, `RouteName`, `route`,
+  `form`, `Texts`, `t`, `text`, `choice`, `number` and `date`, and how a
+  Go type becomes one, which an app's pages import and `npm run
+  typecheck` holds them to. A minor release adds, and a patch fixes.
+- **What it doesn't:** the starters' code once `tug new` has written it,
+  which is the app's, and to which `tug upgrade` brings what they gain;
+  the text of errors and of the log, which a person reads, and the pages
+  tug shows while debugging, the error page and the mailbox; DevTools'
+  entries, which are Inertia's protocol's; `internal/`; behaviour the
+  guide calls a bug, which a fix changes; and the versions of tug's own
+  dependencies.
+- **Go and Inertia:** Go's two newest releases, as Go supports them and
+  CI runs them, so a minor release may raise `go.mod`'s go line as a Go
+  release goes out of support, as golang.org/x's modules do; and
+  Inertia's v3 protocol, with each 3.x client the starters take.
+- **Deprecated, then v2:** a name that's to go is marked
+  `// Deprecated:`, with what to use instead, and stays until v2, whose
+  module path is `github.com/cuonggt/tug/v2`, as Go gives a major version
+  its own.
+- **gorelease, a gate:** the api job runs with `-version` the next minor
+  after the last release, which gorelease refuses when there's an
+  incompatible change, so a break fails CI from v1.0, where before it
+  the same flag takes any change, as a v0's minor may break.
+- **A starter's migration, once released, never changes:** a later
+  change to one of the starter's tables is a migration of its own, which
+  `tug upgrade` adds to an app as it is and a new app runs after its
+  table's file, so the two end up with the same table. A test holds it:
+  `cmd/tug`'s record of every migration each database's layer has
+  shipped, by the SHA-256 of its file, fails when one changes or goes,
+  and when a new one isn't in it yet, so adding one is a line someone
+  reads.
+- **Status:** the README's "early" says v1 instead, and what it promises,
+  with a link to the guide's.
+- **Tests:** the migrations' record, on the 46 files the three layers
+  have today, and on a change to one, which it fails; and the api job,
+  run once by hand on a break of an interface, which it fails, and once
+  without, which it passes.
+- **The guide:** Upgrading's Versions, what a minor and a patch may
+  change, and what v1 leaves out; Migrations and Accounts, the starter's
+  migrations, a file for each table at v1.0 and one for each change
+  after; the README's status; and CLAUDE.md's conventions, a break that
+  waits for v2, and a released migration that never changes.
+
+Choices, to settle before any code:
+
+- **The TypeScript is in the promise:** an app's pages import what tug
+  gen writes, and a name it renames fails `npm run typecheck` in every
+  app, as surely as a Go name fails `go build`. Leaving it out would let
+  a minor release break every page, so its names and how a Go type maps
+  stay, and what's new in it comes beside them.
+- **The starters aren't:** once made, a starter is the app's code, which
+  the app changes as it grows. A release changes the starter as it
+  likes, a page's look or a handler's check, and `tug upgrade` brings it
+  to the apps that want it, merged into what they've done, which a
+  promise that froze the starter would have no room for.
+- **Go's two newest, and a minor may raise the floor:** a release that
+  needs a Go that's no longer supported isn't one an app should be on,
+  and holding v1's go line at 1.26 for good would keep tug from what Go
+  adds. The cost is that an app on an old Go can't take a new minor until
+  it moves, which `go get` says.
+- **Gated by `-version`, not by reading the suggestion:** gorelease
+  refuses a version that's too low for the changes, which is the check;
+  reading its "Suggested version" line would break with its wording.
+- **A record of the migrations, not a rule alone:** v0.48.0 changed
+  `create_users.sql` in place because nothing stopped it, and a rule in
+  CLAUDE.md is one a hurried change can miss. A test that fails is the
+  rule kept.
+- **Now, not at an app's first deploy:** no app made with `-auth` runs in
+  production yet, so the promise is made before it's been leaned on. But
+  an app goes to production on a framework that promises not to break
+  under it, and waiting for the first would wait on itself: M60 gave
+  apps a way to follow tug, M61 read what they'd follow, and v1.0 is
+  what's left.
+
 ## Decisions
 
 - tug has its own Inertia adapter. gonertia and inertia-laravel are
@@ -5937,7 +6031,11 @@ Choices made on the way:
   the owner's ask: no app made with it runs in production yet, so each of
   M33's steps that added a column went into its table's file, and the
   starter no longer takes over the count of an app made before its
-  migrations were files.
+  migrations were files. From v1.0, asked before M62, the owner chose a
+  migration of its own for each later change to a table: one released is
+  never changed, as an app that has run it stops at a file whose SQL has,
+  and `tug upgrade` adds a new one to an app as it is, where an edited
+  table's file is one it can only list, for the app to write its own.
 - No feature flags: which users get a feature is the app's to decide, and
   needs nothing of tug's internals, as a page gets flags as it gets `can`,
   a shared prop, and a share of the users is a hash of the flag's name and
