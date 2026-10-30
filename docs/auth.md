@@ -842,8 +842,9 @@ A passkey's mail, which was a job of its own, is now its notification's.
 
 `db.go` opens the database the environment names, `DB_PATH` for SQLite
 and `DB_URL` for the others, and `migrations/` makes its tables, a file of
-SQL for each, with all its columns, named for when it was made, run once,
-in order, as the app starts ([Migrations](migrations.md)):
+SQL for each, with all the columns it had at v1.0, and a file for each
+change since, each named for when it was made, run once, in order, as
+the app starts ([Migrations](migrations.md)):
 
 ```
 migrations/20260925171438_create_users.sql

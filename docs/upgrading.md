@@ -137,6 +137,11 @@ in its database's own SQL, as the starter's are. A new app has the column
 in its first migration, and an upgraded one has it from its own, so the
 two end up with the same table.
 
+From v1.0, the starter never changes a migration it has released: a
+change to one of its tables comes as a migration of its own, which is
+added, so an upgrade within v1 writes no SQL by hand. What's listed is
+for an app that crosses an earlier release that did, as v0.48.0 did.
+
 ## An app made before `tug.json`
 
 `tug new` writes `tug.json`: the tug whose starter the app has, the name
@@ -173,6 +178,52 @@ as its notes said to, names that release, so the upgrade starts from it.
 `-from` takes a release, or a commit the go command can fetch. An app made
 from a checkout of tug, whose `tug.json` says `v0.0.0`, names the commit
 its starter came from.
+
+## Versions
+
+From v1.0.0, within v1, an app that builds and passes its tests on one
+release of tug does on every later one: a minor release adds, and a
+patch fixes, and what would break an app waits for v2, whose module path
+is `github.com/cuonggt/tug/v2`, as Go gives a major version its own.
+That covers:
+
+- **The Go API** of every package outside `internal/`, as the guide and
+  each package's documentation say it behaves. A name doesn't change or
+  go, and an interface an app implements, a store or a `Disk`, gains no
+  method: what tug needs of one later comes as an interface beside it,
+  which tug looks for. A name that's to go is marked `// Deprecated:`,
+  with what to use instead, and stays until v2. CI's gorelease holds
+  each push to it.
+- **The CLI:** its commands and their flags; `tug.json`; and the files
+  it reads and writes in an app, `resources/js/tug`, `lang/<lang>.json`
+  and `migrations/`, by their names and a migration's `-- down` line.
+  `.tug/` is tug's own, whatever it keeps there.
+- **The environment** tug reads, as
+  [Deployment](deployment.md#configuration) and
+  [the CLI](cli.md#env-and-the-environment) list it.
+- **The TypeScript tug gen writes**, which an app's pages import and `npm
+  run typecheck` holds them to: `Pages`, `PageProps`, `SharedProps`,
+  `FlashData`, `Params`, `Inputs`, `RouteName`, `route`, `form`, `Texts`,
+  `t`, `text`, `choice`, `number` and `date`, and how a Go type becomes
+  one ([TypeScript](typescript.md)).
+- **Go and Inertia:** Go's two newest releases, as Go supports them, so a
+  minor release may raise the go line of tug's `go.mod` as a Go release
+  goes out of support; and Inertia's v3 protocol, with each 3.x client.
+
+What it leaves out:
+
+- **The starters' code**, once `tug new` has written it: it's the app's,
+  to change as it grows, and a release changes the starters as it likes,
+  which `tug upgrade` brings to the app merged into what it has done. A
+  migration the starter has released is the one thing it never changes,
+  as above.
+- **The text of errors and of the log**, which a person reads, and the
+  pages tug shows while debugging, its error page and the mailbox.
+- **DevTools' entries**, which are Inertia's protocol's.
+- **`internal/`**, and behaviour the guide calls a bug, which a fix
+  changes.
+- **The versions of tug's own dependencies**, which a release moves as
+  they're fixed, as v0.56.0 moved mimetype's.
 
 ## The releases
 

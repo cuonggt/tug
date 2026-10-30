@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M61 are done, which is
+the decisions behind it and where it stands: M1 to M62 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -186,7 +186,12 @@ the API settled (v0.56.0): a disk's links signed with a context, for a
 disk that has to fetch what it signs with, gorelease in CI, which reports
 what's changed of the API since the last release, and the rules, in the
 conventions below, for a panic and for the stores an app writes, which
-from v1.0 grow by interfaces beside them.
+from v1.0 grow by interfaces beside them, and v1.0.0: the promise, in
+Upgrading's Versions, of the Go API outside `internal/`, the CLI,
+`tug.json`, the environment tug reads and tug gen's TypeScript, within
+v1, with a break waiting for v2, gorelease's job a gate on the next
+minor, and the starters' released migrations, which a test holds to
+their hashes, so a later change to a table is a migration of its own.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -772,7 +777,9 @@ dev server that isn't there: delete it.
   `key.go` is tug key, which prints `newKey`, as `tug new`'s `.env` has
   one; `migrate.go` is tug migrate new, which writes a migration's file
   (`newMigration`, named in UTC, the next second when one's taken,
-  `migrationWords`); `upgrade.go` is tug upgrade: `madeBefore`, what the
+  `migrationWords`), and `migrations.sha256` is every migration of the
+  database layers' a release has shipped, by its SHA-256, which
+  `migrate_test.go` holds them to; `upgrade.go` is tug upgrade: `madeBefore`, what the
   app's starter was made from, `tug.json`'s (`made`), or `-from`'s with
   the flags its files show (`madeFromFiles`), and the likely tug named
   without either (`likelyFrom`); `upgradable`, forward only, from a tug
@@ -1529,6 +1536,17 @@ tug logs through `slog.Default()` and never sets it; that's the app's call.
 - **Error text is for the person who gets it**: "age must be a whole
   number", "post not found". No Go types, and no raw errors from deep down;
   details that aren't theirs go to the log.
+- **From v1.0, a break waits for v2**, which is
+  `github.com/cuonggt/tug/v2`: within v1, what Upgrading's Versions
+  promises only grows. A name that's to go is marked `// Deprecated:`,
+  with what to use instead, and stays; CI's api job, gorelease asked of
+  the next minor, fails a push that breaks.
+- **A starter's released migration never changes.** A later change to
+  one of its tables is a migration of its own, which `tug upgrade` adds
+  to an app as it is. `cmd/tug/migrations.sha256` has each one a release
+  has shipped, as `shasum -a 256` writes it, which
+  `TestAReleasedMigrationIsNeverChanged` holds them to, and a new one is
+  a line added to it.
 - **A panic is a mistake in the app's own code**, where it's made: a
   route's pattern, a `Config` that `tug.New` can't take, a flash key of two
   types. What the environment gets wrong, a key, a manifest, a server

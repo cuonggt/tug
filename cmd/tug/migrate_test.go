@@ -1,14 +1,61 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cuonggt/tug/migrate"
 )
+
+// TestAReleasedMigrationIsNeverChanged holds the starters' migrations to
+// migrations.sha256, each one a release has shipped, by the SHA-256 of its
+// file, as shasum -a 256 writes it. An app that has run one stops as it
+// starts at a file whose SQL has changed, so a later change to a
+// starter's table is a migration of its own, which tug upgrade adds to an
+// app as it is, as v0.48.0's change to create_users.sql wasn't.
+func TestAReleasedMigrationIsNeverChanged(t *testing.T) {
+	record, err := os.ReadFile("migrations.sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := map[string]string{} // the hash, by the file's path
+	for line := range strings.Lines(string(record)) {
+		hash, path, ok := strings.Cut(strings.TrimSuffix(line, "\n"), "  ")
+		if !ok {
+			t.Fatalf("migrations.sha256: %q isn't a hash and a path, as shasum -a 256 writes them", line)
+		}
+		released[path] = hash
+	}
+	files, err := filepath.Glob(filepath.Join("*", "migrations", "*.sql"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no starter has migrations: %v", err)
+	}
+	for _, file := range files {
+		path := filepath.ToSlash(file)
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(content)
+		switch hash, ok := released[path]; {
+		case !ok:
+			t.Errorf("%s is new: add the line `shasum -a 256 %s` prints to migrations.sha256, as once a release ships it, it never changes", path, path)
+		case hash != hex.EncodeToString(sum[:]):
+			t.Errorf("%s has changed since a release shipped it, and an app that has run it would stop as it starts: put it back, and make the change in a migration of its own", path)
+		}
+		delete(released, path)
+	}
+	for _, path := range slices.Sorted(maps.Keys(released)) {
+		t.Errorf("%s is gone, though a release shipped it: an app that has run it keeps it, and a new app's tables are made by it", path)
+	}
+}
 
 func TestMigrateNewWritesAFileNamedForWhenItsMade(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "migrations")

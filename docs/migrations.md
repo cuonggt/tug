@@ -8,8 +8,10 @@ starts, and by its binary's `migrate` command, which also lists them, and
 undoes the last, while it's new. Laravel's migrations are the same, but
 for being PHP.
 
-The auth starter's tables are its migrations, one for each, with all its
-columns, in the SQL of its database, SQLite, Postgres or MySQL. Package
+The auth starter's tables are its migrations, in the SQL of its
+database, SQLite, Postgres or MySQL: one for each table, with all the
+columns it had at v1.0, and since, a migration of its own for each
+change, as one an app has run is never changed. Package
 `migrate` runs them, with no SQL of its own: which have run, a `Store`
 keeps, in the database's own SQL, as the starter's migrations table does.
 

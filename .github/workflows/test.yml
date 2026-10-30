@@ -117,9 +117,10 @@ jobs:
   # reads the module by apidiff's rules: a method added to an interface an
   # app implements, as a Disk, is a break, though it reads as one line
   # more. Its report goes in the run's summary, for the release's Upgrading
-  # paragraph. Before v1.0 a break is a minor version and a line in the
-  # notes, which gorelease suggests without failing, so what fails it is
-  # what's wrong with the module itself, as a requirement its author has
+  # paragraph. It's asked whether the next minor after the last release
+  # would do: from v1.0, a break needs a v2, so gorelease refuses it and
+  # fails the job, where before it a v0's minor may break, and only what's
+  # wrong with the module itself fails it, as a requirement its author has
   # retracted, which mimetype's v1.4.15 was.
   #
   # The last release is the one before HEAD, so a release's own commit is
@@ -144,8 +145,10 @@ jobs:
       - name: gorelease
         run: |
           base=$(git describe --tags --abbrev=0 --match 'v*' HEAD^)
+          IFS=. read -r major minor _ <<< "${base#v}"
+          next="v$major.$((minor + 1)).0"
           status=0
-          report=$(go run golang.org/x/exp/cmd/gorelease@v0.0.0-20261014143641-f0251eb4aa3e -base="$base" 2>&1) || status=$?
+          report=$(go run golang.org/x/exp/cmd/gorelease@v0.0.0-20261014143641-f0251eb4aa3e -base="$base" -version="$next" 2>&1) || status=$?
           echo "$report"
           {
             echo "## The API since $base"
