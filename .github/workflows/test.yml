@@ -19,6 +19,9 @@
 # the same labels, so the three stay one app.
 #
 # And the benchmarks' module, bench/: its tests, not its benchmarks.
+#
+# And what's changed of the API since the last release, in the run's
+# summary, for the release's notes.
 name: test
 
 on:
@@ -109,6 +112,40 @@ jobs:
             echo "not gofmt'd:"; echo "$unformatted"; exit 1
           fi
       - run: go test -race ./...
+
+  # What's changed of the API since the last release, by gorelease, which
+  # reads the module by apidiff's rules: a method added to an interface an
+  # app implements, as a Disk, is a break, though it reads as one line
+  # more. Its report goes in the run's summary, for the release's Upgrading
+  # paragraph. Before v1.0 a break is a minor version and a line in the
+  # notes, which gorelease suggests without failing, so what fails it is
+  # what's wrong with the module itself, as a requirement its author has
+  # retracted, which mimetype's v1.4.15 was.
+  api:
+    name: api (gorelease)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the tags, for the last release
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: gorelease
+        run: |
+          base=$(git describe --tags --abbrev=0 --match 'v*')
+          status=0
+          report=$(go run golang.org/x/exp/cmd/gorelease@v0.0.0-20261014143641-f0251eb4aa3e -base="$base" 2>&1) || status=$?
+          echo "$report"
+          {
+            echo "## The API since $base"
+            echo
+            echo '```'
+            echo "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
   # The benchmarks' module, bench/, a module of its own: that ServeMux and
   # tug answer the benchmarks' request alike, that tug's App and its

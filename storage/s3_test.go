@@ -71,7 +71,7 @@ func TestAnS3KeepsAFileAndGivesLinksToIt(t *testing.T) {
 		t.Fatalf("read %q", got)
 	}
 	s.Put(ctx, "photos/ann lee+1.png", bytes.NewReader(png), int64(len(png)), "image/png")
-	link, err := s.URL("photos/ann lee+1.png", time.Now().Add(time.Hour))
+	link, err := s.URL(ctx, "photos/ann lee+1.png", time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestAnS3KeepsAnythingButAnImageToBeDownloaded(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Delete(ctx, "page.html")
-	link, _ := s.URL("page.html", time.Now().Add(time.Hour))
+	link, _ := s.URL(ctx, "page.html", time.Now().Add(time.Hour))
 	resp, err := http.Get(link)
 	if err != nil {
 		t.Fatal(err)
@@ -120,12 +120,12 @@ func TestAnS3LinkWorksUntilItExpires(t *testing.T) {
 	defer s.Delete(ctx, "a.png")
 	now := time.Now()
 	s.now = func() time.Time { return now.Add(-8 * 24 * time.Hour) }
-	expired, err := s.URL("a.png", now.Add(-8*24*time.Hour+time.Hour))
+	expired, err := s.URL(ctx, "a.png", now.Add(-8*24*time.Hour+time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.now = nil
-	good, _ := s.URL("a.png", now.Add(time.Hour))
+	good, _ := s.URL(ctx, "a.png", now.Add(time.Hour))
 	for link, want := range map[string]int{
 		good:    http.StatusOK,
 		expired: http.StatusForbidden,
@@ -210,7 +210,7 @@ func TestAnS3WithoutItsBucketOrKeysSaysSo(t *testing.T) {
 func TestABrowserPutsAFileToAnS3ByALinkToUploadTo(t *testing.T) {
 	s := minio(t)
 	k := UploadKey("videos", "image/png")
-	link, err := s.UploadURL(k, time.Now().Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: 1 << 20})
+	link, err := s.UploadURL(ctx, k, time.Now().Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestABrowserPutsAFileToAnS3ByALinkToUploadTo(t *testing.T) {
 	if code := put("text/plain", png); code == http.StatusOK {
 		t.Error("S3 took a PUT of another type than the link says")
 	}
-	gone, err := s.UploadURL(k, time.Now().Add(-time.Minute), Conditions{})
+	gone, err := s.UploadURL(ctx, k, time.Now().Add(-time.Minute), Conditions{})
 	if err == nil {
 		t.Errorf("a link that expired before it was made: %s", gone)
 	}

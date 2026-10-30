@@ -91,7 +91,7 @@ func (a *app) withPhoto(ctx context.Context, u *User) {
 		return
 	}
 	expires := time.Now().UTC().Truncate(24 * time.Hour).Add(48 * time.Hour)
-	link, err := a.disk.URL(u.PhotoKey, expires)
+	link, err := a.disk.URL(ctx, u.PhotoKey, expires)
 	if err != nil {
 		slog.ErrorContext(ctx, "a link to a user's photo couldn't be made", "user", u.ID, "err", err)
 		return

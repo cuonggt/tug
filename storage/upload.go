@@ -22,7 +22,7 @@ import (
 // and the app looks at what landed, with Checked, before it keeps the key
 // anywhere.
 type Uploader interface {
-	UploadURL(key string, expires time.Time, c Conditions) (string, error)
+	UploadURL(ctx context.Context, key string, expires time.Time, c Conditions) (string, error)
 }
 
 // Conditions are what an upload link holds its upload to. ContentType is

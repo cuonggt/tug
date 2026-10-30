@@ -125,12 +125,12 @@ func TestAPrivateLinkIsTheSameForTheSameExpiry(t *testing.T) {
 	now := exampleTime
 	s.now = func() time.Time { return now }
 	expires := now.Add(36 * time.Hour)
-	first, err := s.URL("test.txt", expires)
+	first, err := s.URL(ctx, "test.txt", expires)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(20 * time.Hour)
-	if again, _ := s.URL("test.txt", expires); again != first {
+	if again, _ := s.URL(ctx, "test.txt", expires); again != first {
 		t.Errorf("asked again later:\n%s\n%s", first, again)
 	}
 	q, _ := url.ParseQuery(strings.SplitN(first, "?", 2)[1])
@@ -138,7 +138,7 @@ func TestAPrivateLinkIsTheSameForTheSameExpiry(t *testing.T) {
 	if q.Get("X-Amz-Date") != "20130518T120000Z" || q.Get("X-Amz-Expires") != "604800" {
 		t.Errorf("X-Amz-Date %s, X-Amz-Expires %s", q.Get("X-Amz-Date"), q.Get("X-Amz-Expires"))
 	}
-	if _, err := s.URL("test.txt", now.Add(7*24*time.Hour+time.Minute)); err == nil || !strings.Contains(err.Error(), "seven days at most") {
+	if _, err := s.URL(ctx, "test.txt", now.Add(7*24*time.Hour+time.Minute)); err == nil || !strings.Contains(err.Error(), "seven days at most") {
 		t.Errorf("a link for over seven days: %v", err)
 	}
 }
@@ -146,11 +146,11 @@ func TestAPrivateLinkIsTheSameForTheSameExpiry(t *testing.T) {
 func TestAPublicLinkIsTheBaseURLAndTheKey(t *testing.T) {
 	s := *example
 	s.Public = true
-	if link, _ := s.URL("photos/ann lee.png", time.Time{}); link != "https://examplebucket.s3.amazonaws.com/photos/ann%20lee.png" {
+	if link, _ := s.URL(ctx, "photos/ann lee.png", time.Time{}); link != "https://examplebucket.s3.amazonaws.com/photos/ann%20lee.png" {
 		t.Errorf("the bucket's link: %s", link)
 	}
 	s.BaseURL = "https://cdn.example.com/"
-	if link, _ := s.URL("photos/ann lee.png", time.Time{}); link != "https://cdn.example.com/photos/ann%20lee.png" {
+	if link, _ := s.URL(ctx, "photos/ann lee.png", time.Time{}); link != "https://cdn.example.com/photos/ann%20lee.png" {
 		t.Errorf("the CDN's link: %s", link)
 	}
 }

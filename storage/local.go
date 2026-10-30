@@ -261,7 +261,7 @@ func (l *Local) Move(ctx context.Context, from, to string) error {
 // URL returns the link the route serves the file under key at: the
 // BaseURL and the key, and on a private disk, when the link expires, and
 // its signature.
-func (l *Local) URL(key string, expires time.Time) (string, error) {
+func (l *Local) URL(ctx context.Context, key string, expires time.Time) (string, error) {
 	if err := checkKey(key); err != nil {
 		return "", err
 	}
@@ -286,7 +286,7 @@ func (l *Local) URL(key string, expires time.Time) (string, error) {
 // says another type, or sends more bytes than MaxSize, is refused, and a
 // link to read can't be used to write. A public disk signs these all the
 // same: a link to read is for everyone, and one to write isn't.
-func (l *Local) UploadURL(key string, expires time.Time, c Conditions) (string, error) {
+func (l *Local) UploadURL(ctx context.Context, key string, expires time.Time, c Conditions) (string, error) {
 	if err := checkKey(key); err != nil {
 		return "", err
 	}

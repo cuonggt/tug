@@ -104,7 +104,7 @@ func TestTheEnvironmentNamesTheDisk(t *testing.T) {
 	if s.Bucket != "blog-files" || s.Region != "" || !s.PathStyle || s.Public || s.AccessKeyID != "id" || s.SecretAccessKey != "secret" {
 		t.Errorf("%+v", s)
 	}
-	link, _ := s.URL("a.png", time.Now().Add(time.Hour))
+	link, _ := s.URL(ctx, "a.png", time.Now().Add(time.Hour))
 	if !strings.HasPrefix(link, "http://127.0.0.1:9000/blog-files/a.png?X-Amz-Algorithm=") || !strings.Contains(link, "%2Fus-east-1%2Fs3%2F") {
 		t.Errorf("a link: %s", link)
 	}

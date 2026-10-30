@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M60 are done, which is
+the decisions behind it and where it stands: M1 to M61 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -181,7 +181,12 @@ own way, and upgrading an app (v0.55.0): `tug upgrade`, the starter as
 the tug that made the app wrote it, by that tug's own `tug new`, and as
 this tug writes it, the difference merged into the app's own changes by
 git, from a clean tree, as one diff, a migration the starter changed
-listed and never written, and `tug.json`, what the app was made from.
+listed and never written, and `tug.json`, what the app was made from, and
+the API settled (v0.56.0): a disk's links signed with a context, for a
+disk that has to fetch what it signs with, gorelease in CI, which reports
+what's changed of the API since the last release, and the rules, in the
+conventions below, for a panic and for the stores an app writes, which
+from v1.0 grow by interfaces beside them.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -202,6 +207,7 @@ go test ./...                              # also makes an app of each kind with
 go test -race ./...                        # what CI runs; a server is concurrent
 go test -run '^$' -bench . -benchmem .     # tug next to ServeMux alone; bench/ has the rest
 go vet ./... && gofmt -l .
+go run golang.org/x/exp/cmd/gorelease@v0.0.0-20261014143641-f0251eb4aa3e -base=v0.55.0  # what changed in the API since a release, as CI's api job reports; with everything committed
 ADDR=127.0.0.1:8080 go run ./examples/api
 ```
 
@@ -617,7 +623,9 @@ dev server that isn't there: delete it.
   name", `URLPath` as "url path"), which validate, Bind and tug lang
   share.
 - `storage`: files, with no import of tug. `storage.go`: `Disk` (`Put`,
-  `Open`, `Delete`, `URL`), `checkKey` (an `fs.ValidPath`, no backslash),
+  `Open`, `Delete`, `URL`, whose context is for a disk that fetches what
+  it signs with, `List`, `Copy` and `Move`), `checkKey` (an
+  `fs.ValidPath`, no backslash),
   `PutUpload`, which keeps an upload under a random key with its sniffed
   type's extension, and `exactly`, which fails a put whose bytes don't all
   come. `local.go`: `Local`, a directory, through an `os.Root`, put by a
@@ -1521,6 +1529,19 @@ tug logs through `slog.Default()` and never sets it; that's the app's call.
 - **Error text is for the person who gets it**: "age must be a whole
   number", "post not found". No Go types, and no raw errors from deep down;
   details that aren't theirs go to the log.
+- **A panic is a mistake in the app's own code**, where it's made: a
+  route's pattern, a `Config` that `tug.New` can't take, a flash key of two
+  types. What the environment gets wrong, a key, a manifest, a server
+  that's down, is an error, as `inertia.New`, `session.New` and `vite.New`
+  return.
+- **An interface an app implements doesn't grow.** From v1.0, a store an
+  app writes, `auth.ThrottleStore`, `broadcast.Store` and `PresenceStore`,
+  `cache.Store`, `migrate.Store`, `queue.Store`, `session.Keeper` or
+  `storage.Disk`, gains no method, as that breaks every app's own: what
+  tug needs of one later is an interface of its own beside it, which tug
+  looks for as it needs it, as queue's extras are, and storage's
+  `Uploader` and `Stater`. A method of one that may have to fetch
+  something takes a context.
 - **tug stays on the standard library.** A dependency needs a reason; the
   ones so far are go-playground/validator, behind package `validate`,
   which is also why Go 1.26 is the minimum, golang.org/x/crypto, for

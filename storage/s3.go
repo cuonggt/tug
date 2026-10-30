@@ -303,7 +303,7 @@ func (s *S3) Move(ctx context.Context, from, to string) error {
 // one's, presigned for the seven days that end as it expires: the same
 // expiry makes the same link, whenever it's asked for, and an expiry more
 // than seven days off is an error.
-func (s *S3) URL(key string, expires time.Time) (string, error) {
+func (s *S3) URL(ctx context.Context, key string, expires time.Time) (string, error) {
 	if err := checkKey(key); err != nil {
 		return "", err
 	}
@@ -330,7 +330,7 @@ func (s *S3) URL(key string, expires time.Time) (string, error) {
 // signed into it, so S3 refuses a PUT that says another; its MaxSize isn't,
 // as a presigned PUT has no way to say how big a file may be, so Checked is
 // what sees one that came in bigger.
-func (s *S3) UploadURL(key string, expires time.Time, c Conditions) (string, error) {
+func (s *S3) UploadURL(ctx context.Context, key string, expires time.Time, c Conditions) (string, error) {
 	if err := checkKey(key); err != nil {
 		return "", err
 	}

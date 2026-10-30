@@ -97,7 +97,7 @@ type Disk interface {
 	Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
-	URL(key string, expires time.Time) (string, error)
+	URL(ctx context.Context, key string, expires time.Time) (string, error)
 	List(ctx context.Context, prefix string) iter.Seq2[Entry, error]
 	Copy(ctx context.Context, from, to string) error
 	Move(ctx context.Context, from, to string) error
@@ -208,8 +208,11 @@ set`.
 
 ## Links
 
-`disk.URL(key, expires)` is a link to the file under key, for a page to
-show it with.
+`disk.URL(ctx, key, expires)` is a link to the file under key, for a page
+to show it with. Both of tug's disks sign it where it's asked for, with
+nothing to wait on; the context is there for a disk that has to fetch
+what it signs with first, such as credentials that expire, which a disk
+of the app's own might.
 
 A public disk, `Public: true`, is anyone's: a link is its `BaseURL` and
 the key, and works for good. For S3, that's the bucket's address, or
@@ -240,7 +243,7 @@ fetched afresh. The auth starter's run to the end of the next day, UTC's:
 
 ```go
 expires := time.Now().UTC().Truncate(24 * time.Hour).Add(48 * time.Hour)
-link, err := disk.URL(user.PhotoKey, expires)
+link, err := disk.URL(c.Context(), user.PhotoKey, expires)
 ```
 
 An S3 disk's links are at its bucket's address, or a public one's
@@ -269,7 +272,7 @@ func (a *app) videoUpload(c *tug.Ctx, user *User) error {
 	if !ok {
 		return errors.New("this disk takes no uploads of its own")
 	}
-	link, err := disk.UploadURL(key, time.Now().Add(15*time.Minute), storage.Conditions{
+	link, err := disk.UploadURL(c.Context(), key, time.Now().Add(15*time.Minute), storage.Conditions{
 		ContentType: "video/mp4",
 		MaxSize:     2 << 30,
 	})

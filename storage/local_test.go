@@ -127,7 +127,7 @@ func TestAKeyCantReachOutsideTheDisk(t *testing.T) {
 		if err := d.Delete(ctx, k); !errors.Is(err, ErrKey) {
 			t.Errorf("deleting %q: %v", k, err)
 		}
-		if _, err := d.URL(k, time.Now()); !errors.Is(err, ErrKey) {
+		if _, err := d.URL(ctx, k, time.Now()); !errors.Is(err, ErrKey) {
 			t.Errorf("a link to %q: %v", k, err)
 		}
 	}
@@ -152,7 +152,7 @@ func TestAPrivateLinkServesItsFileUntilItExpires(t *testing.T) {
 	now := time.Now()
 	d.now = func() time.Time { return now }
 	put(t, d, "photos/ann.png", png)
-	link, err := d.URL("photos/ann.png", now.Add(time.Hour))
+	link, err := d.URL(ctx, "photos/ann.png", now.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestAPrivateLinkServesItsFileUntilItExpires(t *testing.T) {
 		h.Get("Content-Disposition") != "" || h.Get("Cache-Control") != "private" || h.Get("Content-Security-Policy") != "sandbox" {
 		t.Errorf("headers %v", h)
 	}
-	if again, _ := d.URL("photos/ann.png", now.Add(time.Hour)); again != link {
+	if again, _ := d.URL(ctx, "photos/ann.png", now.Add(time.Hour)); again != link {
 		t.Errorf("the same expiry makes another link: %s", again)
 	}
 	now = now.Add(time.Hour)
@@ -180,13 +180,13 @@ func TestALinkThatIsntTheDisksServesNothing(t *testing.T) {
 	d := newLocal(t)
 	put(t, d, "photos/ann.png", png)
 	put(t, d, "photos/bob.png", png)
-	link, _ := d.URL("photos/ann.png", time.Now().Add(time.Hour))
+	link, _ := d.URL(ctx, "photos/ann.png", time.Now().Add(time.Hour))
 	u, _ := url.Parse(link)
 	q := u.Query()
 
 	later := url.Values{"expires": {q.Get("expires") + "0"}, "signature": {q.Get("signature")}}
 	other := &Local{Dir: d.Dir, BaseURL: "/files", Keys: [][]byte{key(2)}}
-	stranger, _ := other.URL("photos/ann.png", time.Now().Add(time.Hour))
+	stranger, _ := other.URL(ctx, "photos/ann.png", time.Now().Add(time.Hour))
 	elsewhere := &Local{Dir: d.Dir, BaseURL: "/uploads", Keys: d.Keys}
 	for name, link := range map[string]string{
 		"no signature":               "/files/photos/ann.png",
@@ -203,7 +203,7 @@ func TestALinkThatIsntTheDisksServesNothing(t *testing.T) {
 }
 
 func mustURL(t *testing.T, d *Local, k string) string {
-	link, err := d.URL(k, time.Now().Add(time.Hour))
+	link, err := d.URL(ctx, k, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func mustURL(t *testing.T, d *Local, k string) string {
 func TestALinkSignedWithAnOldKeyStillWorks(t *testing.T) {
 	d := newLocal(t)
 	put(t, d, "photos/ann.png", png)
-	link, _ := d.URL("photos/ann.png", time.Now().Add(time.Hour))
+	link, _ := d.URL(ctx, "photos/ann.png", time.Now().Add(time.Hour))
 	d.Keys = [][]byte{key(2), key(1)}
 	if w := serve(d, "GET", link); w.Code != http.StatusOK {
 		t.Errorf("%d", w.Code)
@@ -227,7 +227,7 @@ func TestALinkSignedWithAnOldKeyStillWorks(t *testing.T) {
 func TestAPublicDisksFilesAreAnyones(t *testing.T) {
 	d := &Local{Dir: t.TempDir(), BaseURL: "https://cdn.example.com/files/", Public: true}
 	put(t, d, "photos/ann lee.png", png)
-	link, err := d.URL("photos/ann lee.png", time.Time{})
+	link, err := d.URL(ctx, "photos/ann lee.png", time.Time{})
 	if err != nil || link != "https://cdn.example.com/files/photos/ann%20lee.png" {
 		t.Fatalf("%s, %v", link, err)
 	}
@@ -284,7 +284,7 @@ func TestTheRouteAnswersWhatABrowserAsks(t *testing.T) {
 
 func TestAPrivateDiskWithoutKeysMakesNoLinks(t *testing.T) {
 	d := &Local{Dir: t.TempDir(), BaseURL: "/files"}
-	if _, err := d.URL("a.png", time.Now().Add(time.Hour)); err == nil || !strings.Contains(err.Error(), "Keys is empty") {
+	if _, err := d.URL(ctx, "a.png", time.Now().Add(time.Hour)); err == nil || !strings.Contains(err.Error(), "Keys is empty") {
 		t.Errorf("got %v", err)
 	}
 	put(t, d, "a.png", png)
@@ -312,7 +312,7 @@ func TestABrowserPutsAFileByALinkToUploadTo(t *testing.T) {
 	if !strings.HasPrefix(k, "videos/") || !strings.HasSuffix(k, ".png") {
 		t.Fatalf("the key the app made: %s", k)
 	}
-	link, err := d.UploadURL(k, now.Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: int64(len(png))})
+	link, err := d.UploadURL(ctx, k, now.Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: int64(len(png))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +323,7 @@ func TestABrowserPutsAFileByALinkToUploadTo(t *testing.T) {
 		t.Errorf("what landed: %+v, %v", info, err)
 	}
 	// And the file is there to read, by a link of its own.
-	read, err := d.URL(k, now.Add(time.Hour))
+	read, err := d.URL(ctx, k, now.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestALinkToUploadToTakesNothingElse(t *testing.T) {
 	now := time.Now()
 	d.now = func() time.Time { return now }
 	k := "videos/one.png"
-	link, err := d.UploadURL(k, now.Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: int64(len(png))})
+	link, err := d.UploadURL(ctx, k, now.Add(time.Hour), Conditions{ContentType: "image/png", MaxSize: int64(len(png))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestALinkToUploadToTakesNothingElse(t *testing.T) {
 
 	// A link to read is no good for writing, and this one is no good for
 	// reading: the method is in what's signed.
-	link2read, err := d.URL(k, now.Add(time.Hour))
+	link2read, err := d.URL(ctx, k, now.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,8 +402,10 @@ func (d aDisk) Put(ctx context.Context, key string, r io.Reader, size int64, con
 func (d aDisk) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 	return d.disk.Open(ctx, key)
 }
-func (d aDisk) Delete(ctx context.Context, key string) error      { return d.disk.Delete(ctx, key) }
-func (d aDisk) URL(key string, expires time.Time) (string, error) { return d.disk.URL(key, expires) }
+func (d aDisk) Delete(ctx context.Context, key string) error { return d.disk.Delete(ctx, key) }
+func (d aDisk) URL(ctx context.Context, key string, expires time.Time) (string, error) {
+	return d.disk.URL(ctx, key, expires)
+}
 func (d aDisk) List(ctx context.Context, prefix string) iter.Seq2[Entry, error] {
 	return d.disk.List(ctx, prefix)
 }

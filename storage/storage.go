@@ -8,7 +8,7 @@
 //	...
 //	key, err := storage.PutUpload(ctx, disk, "photos", in.Photo) // "photos/5wz3…7q.png"
 //	...
-//	link, err := disk.URL(key, time.Now().Add(24*time.Hour))
+//	link, err := disk.URL(ctx, key, time.Now().Add(24*time.Hour))
 //
 // A local disk's files are served by the app, at the route its BaseURL
 // names, which a private disk's links are signed for:
@@ -58,8 +58,10 @@ type Disk interface {
 	// works for good, and on a private one, one that works until expires.
 	// The same key and expiry make the same link, so a page that asks with
 	// an expiry that stays the same for a while lets the browser keep the
-	// file cached for as long.
-	URL(key string, expires time.Time) (string, error)
+	// file cached for as long. Local and S3 sign a link where they're
+	// called; ctx is for a disk that has to fetch what it signs with first,
+	// as credentials that expire.
+	URL(ctx context.Context, key string, expires time.Time) (string, error)
 
 	// List is the files under prefix, a directory such as "photos", or
 	// every file the disk has for "". A prefix names a directory and not

@@ -67,7 +67,7 @@ to 3.8.0, October 2026), written against
 | M58 | Uploads from the browser   | done   |
 | M59 | Listing, copying, moving   | done   |
 | M60 | Upgrading an app           | done   |
-| M61 | The API, settled           | later  |
+| M61 | The API, settled           | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -5800,7 +5800,7 @@ Choices made on the way:
   their links still at their own version, as each says what was true of
   its release.
 
-## M61 · The API, settled — later
+## M61 · The API, settled — done
 
 v1.0, when it comes, is a promise about what an app calls: after it, a
 name that changes, or an interface of the app's that gains a method,
@@ -5808,56 +5808,70 @@ breaks every app that has one, and waits for a v2. Before it, a break
 costs a minor version and a line in the release's notes, as M59's three
 methods on `Disk` did. tug's 26 packages outside `internal/` export 281
 names at their top level, as `go doc -short` lists them, and 392
-functions and methods, and nothing says, as a change is made, whether it
-breaks one; a review reads them once, while a break is still cheap.
+functions and methods, and nothing said, as a change was made, whether
+it broke one; a review read them once, while a break is still cheap.
 Asked first whether anything should come out, the owner kept all of it,
-as the decisions below now say. To be released as v0.56.0.
+as the decisions below say. To be released as v0.56.0.
 
 - **What the review found:** every exported name has a doc comment but
   the `Error` and `Unwrap` methods of the error types and the methods of
   the test packages' `Memory` stores, which implement interfaces that
-  have theirs; nothing is deprecated, so nothing waits to be removed; and
-  the names that look alike are for different things, as `Lazy`, a prop
-  worked out whenever it goes out, and `Optional`, one that goes out only
-  when a partial reload names it. What's left to settle is below.
+  have theirs; nothing is deprecated, so nothing waited to be removed;
+  and the names that look alike are for different things, as `Lazy`, a
+  prop worked out whenever it goes out, and `Optional`, one that goes out
+  only when a partial reload names it.
 - **A context for a link:** every method of an interface that can reach
-  out takes a context, or as `GetCertificate` does, a TLS hello that
+  out took a context, or as `GetCertificate` does, a TLS hello that
   carries one, but `Disk.URL` and `Uploader.UploadURL`, which sign a link
   where they're called, as both of tug's disks do. An S3 that takes its
   credentials from the platform, which files.md lists as not here yet,
   fetches them as they expire, and can't sign without them; after v1.0, a
-  context added to either breaks every Disk, the app's own among them. So
-  both take one now, `URL(ctx, key, expires)`, which the starters'
-  handlers have to hand.
-- **An interface of the app's grows beside it:** 26 interfaces are
-  exported, and eight of them are a store an app writes itself:
-  `auth.ThrottleStore`, `broadcast.Store` and `PresenceStore`,
-  `cache.Store`, `migrate.Store`, `queue.Store`, `session.Keeper` and
-  `storage.Disk`. From v1.0, none gains a method: what tug needs of a
-  store later is an interface of its own beside it, which tug looks for
-  as it needs it, as queue's eight extras are, its `UniqueStore` and
-  `AtOnceStore` among them, and storage's `Uploader` and `Stater`.
-  CLAUDE.md's conventions say so, and each of the eight is read once more
-  for what it lacks now, while adding is free.
+  context added to either would have broken every Disk. So both take one,
+  `URL(ctx, key, expires)`, which `Local` and `S3` take and leave alone,
+  as `Local.Delete` does its own, and which the auth starter's
+  `withPhoto` had to hand.
+- **An interface of the app's grows beside it:** of the 26 interfaces,
+  eight are a store an app writes itself: `auth.ThrottleStore`,
+  `broadcast.Store` and `PresenceStore`, `cache.Store`, `migrate.Store`,
+  `queue.Store`, `session.Keeper` and `storage.Disk`. From v1.0 none gains
+  a method: what tug needs of a store later is an interface of its own
+  beside it, which tug looks for as it needs it, as queue's eight extras
+  are, and storage's `Uploader` and `Stater`. CLAUDE.md's conventions say
+  so. Read once more for what they lacked while adding was free, none
+  lacked what tug does with it: what the guide's lists leave for later
+  that would need more of one, a lock that lasts longer while it's held,
+  a chain of jobs, the events a page missed sent again, an upload in
+  parts, comes, if it comes, as an interface beside it.
 - **The panics are the code's:** `tug.New` panics on a `Config` it can't
   take, as `Handle` does on a pattern, where `inertia.New`,
-  `session.New` and `vite.New` return errors. That's the rule, kept and
-  written down beside the error text's: a mistake in the app's own code
-  panics where it's made, and what the environment gets wrong, a key, a
-  manifest, a server, is an error.
-- **gorelease in CI:** `golang.org/x/exp/cmd/gorelease`, pinned as CI
-  pins Pebble, run on each push against the last release, its report in
-  the job's summary, so a break shows in review and goes in the release's
-  Upgrading paragraph. Before v1.0 it reports; from v1.0 it fails on any
-  incompatible change.
-- **Tests:** the CI job, run once against v0.55.0 with nothing changed,
-  to see it pass; the storage tests' links with a context, `Local`'s and
-  S3's, and the starters' photo links; and gorelease's own report of
-  this milestone's break, the one it's there to catch.
-- **The guide:** Files, the interface as the guide prints it and its
-  links' calls; CLAUDE.md's conventions, the rules above.
+  `session.New` and `vite.New` return errors. That's the rule, kept, and
+  written in CLAUDE.md's conventions beside the error text's: a mistake
+  in the app's own code panics where it's made, and what the environment
+  gets wrong, a key, a manifest, a server, is an error.
+- **gorelease in CI:** a job of its own, `api`, runs
+  `golang.org/x/exp/cmd/gorelease`, pinned to x/exp's commit of 14
+  October, as CI pins Pebble, against the last release, `git describe`'s,
+  and puts its report in the run's summary, for the release's Upgrading
+  paragraph. Before v1.0 a break is a minor version, which gorelease
+  suggests without failing, so what fails the job is what's wrong with
+  the module itself; from v1.0 it fails on any incompatible change.
+- **mimetype's v1.4.15, retracted:** gorelease's first run failed on a
+  requirement no one had looked at: go-playground's validator brings in
+  mimetype, and the v1.4.15 tug required was retracted by its author for
+  spending quadratic time on CDF files made to, as GHSA-jjmc-jx7j-hp68
+  has it. tug requires v1.4.16, and so does `bench/`, and an app made by
+  `tug new` gets it from tug's `go.mod`.
+- **Tests:** the storage tests' links with a context, `Local`'s and S3's,
+  S3's presigned as SigV4's published examples have them; the auth
+  starter's photo link, in every app the CLI's tests make; and the job's
+  script, run on this branch, which reported this milestone's break and
+  nothing else, six methods and v0.56.0 suggested, the one it's there to
+  catch.
+- **The guide:** Files, the interface as the guide prints it, its links'
+  calls, and why a link takes a context; CLAUDE.md's conventions, the two
+  rules above, and gorelease among its commands.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **gorelease, not a file of the API:** a committed listing of every
   exported name, which a test checks the packages against, as Go keeps
@@ -5874,19 +5888,24 @@ Choices, to settle before any code:
   of the app's own that signs with something it fetches, a CDN's key,
   say, would be in the same place; a context costs every call site an
   argument it already has.
+- **What fails the job:** a report alone would have let the retraction
+  by, as no one reads the summary of a run that passes. gorelease's own
+  failures, which are the module's, not the API's, fail it, and a break,
+  before v1.0, doesn't. A requirement retracted later fails a push that
+  changed nothing, which is when to hear of it.
 - **The `FromEnv`s stay as they are:** `tug.ConfigFromEnv` returns a
   `Config`, for `New`, where `mail.FromEnv`, `storage.FromEnv` and
-  `letsencrypt.FromEnv` return the thing they make, with the error reading
-  it can have, and `session.KeysFromEnv` the keys. Named alike, they'd
-  hide what each gives back.
+  `letsencrypt.FromEnv` return the thing they make, with the error
+  reading it can have, and `session.KeysFromEnv` the keys. Named alike,
+  they'd hide what each gives back.
 - **Everything outside `internal/` is in the promise:** no package is
   marked experimental, as a module has one version for all of them, and
   a package kept out of it would need a module of its own. `tugtest`,
   which follows Inertia's client, changes with it as fixes do.
-- **No more than the review finds:** a pass over 392 functions for names
+- **No more than the review found:** a pass over 392 functions for names
   that could be better would rename what apps already call, for no
-  behaviour of theirs; a name changes here only where it says something
-  untrue.
+  behaviour of theirs; a name changes only where it says something
+  untrue, and none did.
 
 ## Decisions
 
