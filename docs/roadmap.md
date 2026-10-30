@@ -5811,7 +5811,7 @@ names at their top level, as `go doc -short` lists them, and 392
 functions and methods, and nothing said, as a change was made, whether
 it broke one; a review read them once, while a break is still cheap.
 Asked first whether anything should come out, the owner kept all of it,
-as the decisions below say. To be released as v0.56.0.
+as the decisions below say. Released as v0.56.0.
 
 - **What the review found:** every exported name has a doc comment but
   the `Error` and `Unwrap` methods of the error types and the methods of

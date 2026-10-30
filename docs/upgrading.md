@@ -182,6 +182,15 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v0.56.0
+
+`go get github.com/cuonggt/tug@v0.56.0`, and pass the request's context
+to `URL` and `UploadURL`, `disk.URL(c.Context(), key, expires)`, where
+the compiler points. **A Disk of the app's own, or an `Uploader`, takes
+`ctx context.Context` first in both.** An app made by `tug new -auth`
+takes the one line of `photos.go` that calls it with `tug upgrade`, with
+`-from` the tug that made it if that was before v0.55.0.
+
 ### v0.55.0
 
 `go install github.com/cuonggt/tug/cmd/tug@v0.55.0`, and in the app,
