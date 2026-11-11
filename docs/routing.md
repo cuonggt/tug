@@ -37,7 +37,7 @@ Every field has a default, so the zero `Config` works:
 
 | Field             | Default               | What it is |
 |-------------------|-----------------------|------------|
-| `Addr`            | `":8080"`, or with `TLS`, `":443"` | Where `Run` listens. |
+| `Addr`            | `":8080"`, or with `TLS`, `":443"` | Where `Run` listens, unless systemd hands it a `.socket` unit's sockets. See [Restarts](deployment.md#restarts). |
 | `TLS`             | none: plain HTTP      | Has `Run` serve HTTPS itself, with certificates from files or Let's Encrypt, and plain HTTP beside it, which sends each request to HTTPS. See [HTTPS on its own](deployment.md#https-on-its-own). |
 | `Debug`           | `false`               | Shows a server error with its details: a page of the error, a panic's stack with the app's source around it, the route that answered and the request. It's for development: in production they belong in the log only. See [While debugging](#while-debugging). |
 | `Editor`          | none                  | The editor `Debug`'s page opens a frame's file in: `vscode`, `cursor`, `zed`, `goland` or `sublime`, or a link with `{file}` and `{line}` in it. |

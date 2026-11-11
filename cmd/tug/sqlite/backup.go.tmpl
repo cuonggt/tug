@@ -1,0 +1,158 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"io"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/cuonggt/tug/storage"
+)
+
+// The database is one file, and a copy of it made with cp while the app
+// writes can be torn, a page from before a write beside one from after,
+// and misses what's still in the write-ahead log. VACUUM INTO copies it
+// instead: the database as it was at a moment, in one statement, while the
+// app goes on reading and writing, and compacted as it goes. The backup
+// command makes one by hand, ./blog backup <file>, and the backup-db job
+// one every night on the app's disk, keeping the newest BACKUP_KEEP: in
+// files/backups/, beside the database, for a mistake, or with
+// FILESYSTEM_DISK=s3, in the bucket, off the machine, for a machine that's
+// lost. A restore is the app stopped, and a backup put in the database's
+// place, with its -wal and -shm files deleted.
+
+// backupDB copies db, as it is now, to a new file at path. VACUUM INTO
+// writes over no file: one that's there already fails it.
+func backupDB(ctx context.Context, db *sql.DB, path string) error {
+	_, err := db.ExecContext(ctx, "VACUUM INTO ?", path)
+	return err
+}
+
+// backupCommand is the backup command, name backup <file>, which copies
+// the database, as it is now, to a new file, while the app serves: the
+// app's own binary, run where it runs, with the database it's given. It
+// runs no migrations as it starts, as the others do, so a backup before a
+// deploy is of the tables as they were.
+func backupCommand(ctx context.Context, db *sql.DB, name string, args []string, w io.Writer) error {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("%s backup <file> copies the database, as it is now, to a new file", name)
+	}
+	file := args[0]
+	if _, err := os.Stat(file); err == nil {
+		return fmt.Errorf("%s is there already: a backup is a new file, never written over another", file)
+	}
+	if err := backupDB(ctx, db, file); err != nil {
+		return err
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "The database is backed up to %s, %s.\n", file, sizeOf(info.Size()))
+	return nil
+}
+
+// backingUp reports whether the binary was run as the backup command,
+// which leaves the tables as they are, where each other run of it but
+// migrate's brings them up to date as it starts.
+func backingUp() bool {
+	return len(os.Args) > 1 && os.Args[1] == "backup"
+}
+
+// BackupDB is the job, every night, that backs the database up onto the
+// app's disk, as backups/2026-11-11.db, the night's date in UTC, which a
+// second run that night replaces.
+type BackupDB struct{}
+
+// backups are the database's nightly backups, on the app's disk, in
+// backupsDir: the newest keep of them, BACKUP_KEEP's.
+type backups struct {
+	db   *sql.DB
+	disk storage.Disk
+	keep int
+}
+
+const backupsDir = "backups"
+
+// run runs BackupDB jobs: the database is copied into a directory of its
+// own beside it, put on the app's disk, and the copy deleted; then the
+// backups but the newest keep go.
+func (b *backups) run(ctx context.Context, _ BackupDB) error {
+	dir, err := os.MkdirTemp(b.beside(ctx), "backup-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	file := filepath.Join(dir, "app.db")
+	if err := backupDB(ctx, b.db, file); err != nil {
+		return err
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	key := path.Join(backupsDir, time.Now().UTC().Format(time.DateOnly)+".db")
+	if err := b.disk.Put(ctx, key, f, info.Size(), "application/vnd.sqlite3"); err != nil {
+		return err
+	}
+	return b.prune(ctx)
+}
+
+// beside is the directory the database is in, where its copy is made
+// before it goes on the disk: there's room for one there already, as on
+// the image's volume, where the machine's temporary directory may be the
+// container's own layer, or memory. A database with no file of its own
+// has its copy made there.
+func (b *backups) beside(ctx context.Context) string {
+	var file string
+	err := b.db.QueryRowContext(ctx, "SELECT file FROM pragma_database_list WHERE name = 'main'").Scan(&file)
+	if err != nil || file == "" {
+		return os.TempDir()
+	}
+	return filepath.Dir(file)
+}
+
+// prune deletes the backups but the newest keep, which it tells by their
+// names, their dates, listing what's on the disk rather than counting what
+// it has put there: a file of another name, as one copied in by hand
+// before an upgrade, it leaves alone.
+func (b *backups) prune(ctx context.Context) error {
+	var dated []string
+	for e, err := range b.disk.List(ctx, backupsDir) {
+		if err != nil {
+			return err
+		}
+		if _, err := time.Parse(time.DateOnly+".db", path.Base(e.Key)); err == nil && path.Dir(e.Key) == backupsDir {
+			dated = append(dated, e.Key)
+		}
+	}
+	slices.Sort(dated)
+	for _, key := range dated[:max(len(dated)-b.keep, 0)] {
+		if err := b.disk.Delete(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sizeOf is n bytes, as a person reads a file's size.
+func sizeOf(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%d KB", n>>10)
+	}
+	return fmt.Sprintf("%d bytes", n)
+}

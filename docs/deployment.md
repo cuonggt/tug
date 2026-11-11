@@ -118,6 +118,7 @@ behind: delete it.
 | `ACME_URL`          | A CA to get them from other than Let's Encrypt, as its staging, `https://acme-staging-v02.api.letsencrypt.org/directory`, to try a deploy without spending its limits. | Let's Encrypt | `letsencrypt.FromEnv` |
 | `TLS_CERT`, `TLS_KEY` | A certificate of the app's own, with its chain, and its key, PEM files, to serve HTTPS with in place of Let's Encrypt's, read again as they change. | none | `tug.ConfigFromEnv` |
 | `HTTP_ADDR`         | Where the app serves plain HTTP beside its HTTPS, which sends each request to HTTPS. | `:80` | `tug.ConfigFromEnv` |
+| `LISTEN_PID`, `LISTEN_FDS`, `LISTEN_FDNAMES` | Set by systemd, for a service it starts with a `.socket` unit's sockets: the app serves on them in place of `ADDR` and `HTTP_ADDR`, so a restart refuses no request, and unsets them ([Restarts](#restarts)). | unset: the app listens itself | `App.Run` |
 | `TUG_DEV`           | Set by `tug dev`, for development: the app keeps an entry of each request for Inertia's DevTools ([pages.md](pages.md#devtools)), and the mail it sends with no `MAIL_HOST` in its mailbox, at `/_tug/mail`, and an app with server-side rendering leaves it to Vite. Leave it unset in production. | unset | `tug.ConfigFromEnv`, and the starters' `main.go` with `-ssr` |
 | `APP_KEY`           | Encrypts the session cookies. The auth starter also encrypts two-factor secrets with it, and signs the links in its mail and to its photos, as `SignedURL` signs. | none: the starters stop without it | `session.KeysFromEnv` |
 | `APP_PREVIOUS_KEYS` | Keys being rotated out, comma separated. They still decrypt sessions and check links. | none | `session.KeysFromEnv` |
@@ -136,6 +137,7 @@ The auth starter reads these as well:
 | `FILESYSTEM_DISK`   | `local`, the directory, or `s3`, a bucket, which instances on more than one machine share. | `local` | `storage.FromEnv` |
 | `AWS_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | The bucket, and the keys to it, for `FILESYSTEM_DISK=s3`: in S3, or a service that speaks its API, as [files.md](files.md#from-the-environment) has. | none, and `us-east-1` for the region | `storage.FromEnv` |
 | `QUEUE_WORKERS`     | How many background jobs, such as mail, run at once. With `0`, this instance runs none and leaves its jobs to the others on the database. | `4` | its `main.go` |
+| `BACKUP_KEEP`       | On SQLite, how many of the database's nightly backups the app keeps on its disk, the newest, in `backups/`; with `0`, it makes none ([Backups](#backups)). | `7` | its `main.go` |
 | `MAIL_HOST`         | The SMTP server. Without it, mail is written to the standard error instead of sent, or under `tug dev` kept in the app's mailbox. | none | `mail.FromEnv` |
 | `MAIL_PORT`         | The server's port. On 465 the connection is TLS from the start; on another, it uses STARTTLS when the server offers it. | `587` | `mail.FromEnv` |
 | `MAIL_USERNAME`, `MAIL_PASSWORD` | The login, for a server that wants one. | none | `mail.FromEnv` |
@@ -418,21 +420,12 @@ docker run -d -p 443:443 -p 80:80 -v blog-data:/data \
 ```
 
 The images keep the certificates in `/data/certs`, on their volume. On a
-machine of its own, under systemd, the app's unit gives it to the app's
-user:
-
-```ini
-[Service]
-User=blog
-WorkingDirectory=/srv/blog
-ExecStart=/srv/blog/blog
-EnvironmentFile=/srv/blog/env
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-Restart=on-failure
-```
-
-with `TLS_DOMAINS`, `APP_URL` and `APP_KEY` in `/srv/blog/env`, and the
-certificates in `/srv/blog/certs`.
+machine of its own, under systemd, a `.socket` unit listens on the ports
+and hands them to the app, which needs no right to them then, and which
+answers the requests that come as it restarts rather than refusing them:
+[Restarts](#restarts) has the units. Without one, the app's unit gives
+its user the right itself, with `AmbientCapabilities=CAP_NET_BIND_SERVICE`
+under `[Service]`.
 
 ### A certificate of the app's own
 
@@ -775,6 +768,172 @@ one runs beside the server, with its environment: `docker exec
 <container> /server jobs`. A command runs in the app as `main` makes it,
 so it needs what the server needs, `APP_KEY` among it, which the
 container has.
+
+## Restarts
+
+A deploy is a new binary and a restart: the old process shuts down, as
+above, and the new one starts, runs the migrations it has that haven't
+run, and listens. From the moment the old one lets go of its ports until
+the new one takes them, a connection is refused: a browser shows an
+error, and a proxy in front answers with a 502 of its own. Behind a load
+balancer, the instances restart one at a time, and its health checks
+send the requests to the others. On a machine of its own, systemd holds
+the ports instead, by socket activation, and hands them to each process
+of the app in turn.
+
+`/etc/systemd/system/blog.socket` listens on the app's ports, and goes
+on listening while the app restarts:
+
+```ini
+[Socket]
+ListenStream=443
+ListenStream=80
+
+[Install]
+WantedBy=sockets.target
+```
+
+`/etc/systemd/system/blog.service` is the app, which systemd hands the
+sockets of the unit with its name, and which needs no right to listen
+below 1024, as systemd has bound the ports itself:
+
+```ini
+[Unit]
+Requires=blog.socket
+After=blog.socket
+
+[Service]
+User=blog
+WorkingDirectory=/srv/blog
+ExecStart=/srv/blog/blog
+EnvironmentFile=/srv/blog/env
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+with `TLS_DOMAINS`, `APP_URL` and `APP_KEY` in `/srv/blog/env`, and the
+certificates in `/srv/blog/certs`, the app's working directory being
+its user's to write. Then:
+
+```sh
+systemctl daemon-reload
+systemctl enable --now blog.socket blog.service
+```
+
+and a deploy is the new binary moved into the old one's place, as a
+binary that's running can't be written over, and the app restarted:
+
+```sh
+scp blog example.com:/srv/blog/blog.new
+ssh example.com 'mv /srv/blog/blog.new /srv/blog/blog && systemctl restart blog'
+```
+
+The log says where the ports came from:
+
+```
+2026/11/11 10:27:12 INFO listening addr=[::]:443 scheme=https from=systemd
+2026/11/11 10:27:12 INFO listening addr=[::]:80 scheme=http from=systemd
+```
+
+- `Run` serves on the sockets systemd passes it, by `LISTEN_PID`,
+  `LISTEN_FDS` and `LISTEN_FDNAMES`, in place of `ADDR` and `HTTP_ADDR`:
+  with `TLS_DOMAINS`, or `TLS_CERT` and `TLS_KEY`, HTTPS on the first
+  the unit lists and HTTP on the second; without them, plain HTTP on the
+  one there is, as for a proxy on the same machine. A count that doesn't
+  fit stops the app, saying what it takes.
+- Sockets in units of their own, as `blog-https.socket` and
+  `blog-http.socket`, each with `Service=blog.service`, come in no order
+  systemd keeps: name them, `FileDescriptorName=https` and
+  `FileDescriptorName=http`, and the app serves each by its name.
+- While the app restarts, the connections that come wait in the kernel's
+  queue, up to `net.core.somaxconn` of them, 4096 on a recent Linux,
+  until the new process answers them: for the old one's shutdown, up to
+  `ShutdownTimeout`, and the new one's start, its migrations included.
+- `LISTEN_PID` is the process systemd started, so `ExecStart` is the
+  binary itself, or a shell that `exec`s it. The app unsets the variables
+  once it has the sockets, so what it starts, as the Node of an app with
+  server-side rendering, isn't handed them.
+- `systemctl stop blog` leaves the socket listening, and the next
+  connection starts the app again: stop `blog.socket` with it to keep the
+  app down.
+- An app started any other way listens itself, as before: under `tug
+  dev`, by hand, or in Docker, whose restart refuses connections for the
+  moment between the two processes.
+
+## Backups
+
+The auth starter on SQLite backs its database up itself. The database is
+one file, and a copy of it made with `cp` while the app writes can be
+torn, a page from before a write beside one from after, and leaves out
+what's still in its write-ahead log, `app.db-wal`. `VACUUM INTO` makes
+the copy instead, the database as it was at a moment, while the app goes
+on reading and writing, compacted as it goes:
+
+```sh
+./blog backup before-deploy.db
+```
+
+```
+The database is backed up to before-deploy.db, 1.4 MB.
+```
+
+- It makes a new file, and never writes over one, the database's
+  included. It runs no migrations as it starts, as the binary's other
+  runs do, so a deploy's new binary backs the tables up as the old one
+  left them, before its migrations change them.
+- Like the app's other commands, it runs with the server's environment,
+  `APP_KEY` among it: on a machine of its own, as the app's user, in its
+  directory, `sudo -u blog sh -c 'cd /srv/blog && set -a && . ./env &&
+  ./blog backup before-deploy.db'`, and in the image, beside the server,
+  `docker exec <container> /server backup /data/before-deploy.db`.
+- Every night at midnight UTC, the `backup-db` job puts one on the app's
+  disk, `backups/2026-11-11.db`, and keeps the newest `BACKUP_KEEP`, 7
+  unless it says, deleting older ones it finds there by their names, and
+  leaving a file of another name. On the local disk, that's
+  `files/backups/`, beside the database, which is for a mistake, a table
+  dropped or a row deleted, not for a disk or a machine that's lost: with
+  `FILESYSTEM_DISK=s3`, they're in the bucket, off the machine. They're
+  private, as the photos are, unless the bucket's own policy makes its
+  files public, which it mustn't. `BACKUP_KEEP=0` turns the job off.
+- The job makes its copy beside the database first, so the disk needs
+  room for a second one, and has 10 minutes, its `Timeout`, to make it
+  and send it. Every job's claim is held as long as the longest timeout,
+  so a job that was running as the app was killed runs again 11 minutes
+  later, rather than 2 ([jobs.md](jobs.md)).
+- A night's backup loses the day since it. For a loss of seconds,
+  [Litestream](https://litestream.io) streams each change to a bucket,
+  from a process of its own beside the app.
+
+A restore is the app stopped, the backup put in the database's place,
+and the database's `-wal` and `-shm` files deleted, as they're the
+replaced file's, then the app started:
+
+```sh
+systemctl stop blog.socket blog.service
+rm -f /srv/blog/app.db-wal /srv/blog/app.db-shm
+cp /srv/blog/before-deploy.db /srv/blog/app.db
+chown blog: /srv/blog/app.db
+systemctl start blog.socket blog.service
+```
+
+A night's backup comes from the disk first, from `files/backups/`, or
+from the bucket with any client of S3's, as `aws s3 cp`. There's no
+restore command: the database is under every request, so it can't be
+replaced safely while the app serves. In Docker, it's the same in the
+volume, with the container stopped.
+
+On Postgres or MySQL, the starter makes no backups: the server's tools
+do, `pg_dump` and `mysqldump`, or a managed database's own, which keeps
+a point to restore to for days:
+
+```sh
+pg_dump --format=custom --file=blog.dump "$DB_URL"
+pg_restore --clean --dbname="$DB_URL" blog.dump
+mysqldump --single-transaction --host=db.example.com --user=blog -p blog > blog.sql
+mysql --host=db.example.com --user=blog -p blog < blog.sql
+```
 
 ## Health checks
 

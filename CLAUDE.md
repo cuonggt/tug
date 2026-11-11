@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M62 are done, which is
+the decisions behind it and where it stands: M1 to M63 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -191,7 +191,13 @@ Upgrading's Versions, of the Go API outside `internal/`, the CLI,
 `tug.json`, the environment tug reads and tug gen's TypeScript, within
 v1, with a break waiting for v2, gorelease's job a gate on the next
 minor, and the starters' released migrations, which a test holds to
-their hashes, so a later change to a table is a migration of its own.
+their hashes, so a later change to a table is a migration of its own,
+and one machine, whole (v1.1.0): `Run` on the sockets a `.socket` unit
+passes it, systemd's, which it holds as the app restarts, so a deploy
+refuses no request, and the auth starter on SQLite backed up, by its
+`backup` command, `VACUUM INTO` a new file while it serves, and every
+night by its `backup-db` job, onto its disk, the newest `BACKUP_KEEP`
+kept.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -311,7 +317,9 @@ dev server that isn't there: delete it.
     `URL` that `appURL`, in links.go, doesn't take, and on a `Zone` that
     `time.LoadLocation` doesn't), `App`, `Run` and `Serve` with
     graceful shutdown, through `serveAll`, which serves more than one
-    `listening` server and shuts them down together, and misses. At
+    `listening` server and shuts them down together, its log saying
+    `from=systemd` for a socket systemd passed (`from`, in sockets.go),
+    and misses. At
     the first request, `freeze` adds `/` as a catch-all, unless a route
     already takes every path under every method. The catch-all answers
     trailing-slash redirects itself, with a 307, and 405s (probing the mux
@@ -355,6 +363,19 @@ dev server that isn't there: delete it.
     hosts; `serverLog` is an `http.Server`'s log, a failed handshake at
     Debug. Package tug doesn't import autocert, which a test checks by
     `go list -deps`.
+  - `sockets.go`: the sockets systemd passes the app by socket activation,
+    which `Run` serves on in place of listening: `passedSockets`, by
+    `LISTEN_PID`, the process's own or none are, `LISTEN_FDS`, from
+    descriptor 3, and `LISTEN_FDNAMES`, each a `passed`, a copy by
+    `net.FileListener`, whose original it closes, unsetting the variables,
+    so the SSR's Node isn't handed them; `httpsAndHTTP`, with TLS, by the
+    names `https` and `http`, or else in order, and `plainHTTP`, the one
+    there is, each an error, which says what it takes, for a count that
+    doesn't fit. Its tests, `sockets_unix_test.go`, run the app in a child,
+    the test binary again, by `TestMain` under `TUG_TEST_SOCKETS_APP`,
+    handed the sockets by `ExtraFiles` through `sh`, whose `exec` keeps
+    `LISTEN_PID`'s process, and restart it on them under a stream of
+    requests.
   - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
@@ -922,8 +943,16 @@ tests again with a migration of its own (`growsAMigration`), and reads
   `db_test.go.tmpl` (`testDB`, on a server a database per test, made on
   `DB_URL`'s or compose's and dropped, `newDB`, an empty one to open as
   often as a test likes, `jobsDown`, `failedDaysAgo`, and `execSQL`, for
-  a test to change a table behind the app's back), and on a server,
-  `compose.yaml.tmpl`. The jobs
+  a test to change a table behind the app's back), on SQLite,
+  `backup.go.tmpl` (`backupDB`, `VACUUM INTO` a new file; `backupCommand`,
+  the `backup` command, which `newApp` adds, and which `main` runs no
+  migrations for, `backingUp`; and `backups`, the `backup-db` job every
+  night, by `BACKUP_KEEP`, 7, or 0 for none, with a 10 minute `Timeout`,
+  whose copy is made `beside` the database, by `pragma_database_list`,
+  then put on the app's disk as `backups/<date>.db`, and whose `prune`
+  deletes the dated files but the newest, by listing them, leaving a
+  file of another name; `backup_test.go.tmpl` tests them), and on a
+  server, `compose.yaml.tmpl`. The jobs
   are in the same database: `jobs_db.go.tmpl` is a `queue.ScheduleStore`
   and a `queue.UniqueStore`, which `jobs_test.go.tmpl` runs
   `queuetest.TestStore` on, with a `schedules` table whose upsert only
@@ -958,7 +987,8 @@ tests again with a migration of its own (`growsAMigration`), and reads
   `migrations.go.tmpl` embeds `migrations/` (`migrations`, through
   `migrate.Load`), and has `upToDate`, which `main` runs as the app
   starts, unless `migrating`, the binary run as the `migrate` command,
-  which `newApp` adds, `migrate.Command`'s; the tests' `testDB` runs it,
+  which `newApp` adds, `migrate.Command`'s, or on SQLite `backingUp`, as
+  the `backup` command; the tests' `testDB` runs it,
   and `migrations_test.go` runs `migratetest.TestStore` on each
   database's table, and tests instances at once, a newer version's
   migration left alone, and the command.

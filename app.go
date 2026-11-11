@@ -36,7 +36,8 @@ import (
 // value works.
 type Config struct {
 	// Addr is where Run listens. Default ":8080", or with TLS, where it
-	// serves HTTPS, ":443".
+	// serves HTTPS, ":443". Started by systemd with a .socket unit's
+	// sockets, Run serves on those instead: see Run.
 	Addr string
 
 	// TLS has Run serve HTTPS itself, on Addr, with certificates from files
@@ -431,6 +432,16 @@ func (a *App) Go(fn func(ctx context.Context) error) {
 // for what Go runs to return. With Config.TLS, it serves HTTPS there, and
 // HTTP on TLS.HTTPAddr, and shuts both down together.
 //
+// Started by systemd with the sockets of a .socket unit, by socket
+// activation, Run serves on them in place of listening itself: on the one
+// there is, or with Config.TLS, HTTPS on the one the unit names https, by
+// FileDescriptorName, and HTTP on the one it names http, or else on the
+// first and the second, as one unit's ListenStream lines list them.
+// systemd holds the sockets across a restart, so the requests that come as
+// the app restarts wait for the new process rather than being refused, and
+// it binds ports below 1024 itself, so the app needs no right to. A count
+// of sockets that doesn't fit is an error.
+//
 // Run is also where tug gen learns about the app: started by it, with
 // TUG_GEN set to a file, Run writes the TypeScript for the app's pages and
 // named routes there, and returns without serving. And for an app with
@@ -444,10 +455,19 @@ func (a *App) Run() error {
 	if len(a.commands) > 0 && len(os.Args) > 1 {
 		return a.runCommand(ctx, os.Args[0], os.Args[1:], os.Stdout)
 	}
-	if a.config.TLS.on() {
-		return a.runTLS(ctx)
+	sockets, err := passedSockets()
+	if err != nil {
+		return err
 	}
-	ln, err := net.Listen("tcp", a.config.Addr)
+	if a.config.TLS.on() {
+		return a.runTLS(ctx, sockets)
+	}
+	var ln net.Listener
+	if len(sockets) > 0 {
+		ln, err = plainHTTP(sockets)
+	} else {
+		ln, err = net.Listen("tcp", a.config.Addr)
+	}
 	if err != nil {
 		return err
 	}
@@ -547,7 +567,7 @@ func (a *App) listed() []listedRoute {
 // tls.Config offers h2 in NextProtos, which http.Server adds for ServeTLS
 // alone: Run's own HTTPS, with Config.TLS, offers it.
 func (a *App) Serve(ctx context.Context, ln net.Listener) error {
-	return a.serveAll(ctx, nil, listening{server: a.server(a), ln: ln})
+	return a.serveAll(ctx, nil, listening{server: a.server(a), ln: ln, from: from(ln)})
 }
 
 // server is an http.Server for h, as Serve's and Run's are.
@@ -567,6 +587,7 @@ type listening struct {
 	server *http.Server
 	ln     net.Listener
 	scheme string // for the log, when there's more than one
+	from   string // for the log: systemd, for a socket it passed the app
 }
 
 // serveAll serves each of servers until ctx is done, with what Go runs, and
@@ -577,11 +598,14 @@ func (a *App) serveAll(ctx context.Context, more []func(context.Context) error, 
 	served := make(chan error, len(servers))
 	for _, s := range servers {
 		go func() { served <- s.server.Serve(s.ln) }()
+		attrs := []any{"addr", s.ln.Addr().String()}
 		if s.scheme != "" {
-			slog.Info("listening", "addr", s.ln.Addr().String(), "scheme", s.scheme)
-		} else {
-			slog.Info("listening", "addr", s.ln.Addr().String())
+			attrs = append(attrs, "scheme", s.scheme)
 		}
+		if s.from != "" {
+			attrs = append(attrs, "from", s.from)
+		}
+		slog.Info("listening", attrs...)
 	}
 
 	// What Go runs is told to stop as the servers shut down, and stops

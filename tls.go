@@ -45,7 +45,8 @@ type TLS struct {
 	// HTTPAddr is where Run serves plain HTTP beside HTTPS: each request is
 	// sent to its path over HTTPS, by a 308, but for what the source of
 	// certificates answers there, as Let's Encrypt's challenges. Default
-	// ":80". ConfigFromEnv reads it from HTTP_ADDR.
+	// ":80". ConfigFromEnv reads it from HTTP_ADDR. Started by systemd with
+	// a .socket unit's sockets, Run serves on those instead: see App.Run.
 	HTTPAddr string
 }
 
@@ -123,11 +124,19 @@ func (a *App) certificates() (Certificates, error) {
 }
 
 // runTLS is Run with Config.TLS: HTTPS on Config.Addr, and HTTP on
-// TLS.HTTPAddr.
-func (a *App) runTLS(ctx context.Context) error {
+// TLS.HTTPAddr, or on the sockets systemd passed the app.
+func (a *App) runTLS(ctx context.Context, sockets []passed) error {
 	certs, err := a.certificates()
 	if err != nil {
+		closeSockets(sockets)
 		return err
+	}
+	if len(sockets) > 0 {
+		secure, plain, err := httpsAndHTTP(sockets)
+		if err != nil {
+			return err
+		}
+		return a.serveTLS(ctx, certs, secure, plain)
 	}
 	secure, err := net.Listen("tcp", a.config.Addr)
 	if err != nil {
@@ -188,8 +197,8 @@ func (a *App) serveTLS(ctx context.Context, certs Certificates, secure, plain ne
 		work = append(work, c.Run)
 	}
 	return a.serveAll(ctx, work,
-		listening{server: a.server(a), ln: tls.NewListener(secure, config), scheme: "https"},
-		listening{server: a.server(redirect), ln: plain, scheme: "http"},
+		listening{server: a.server(a), ln: tls.NewListener(secure, config), scheme: "https", from: from(secure)},
+		listening{server: a.server(redirect), ln: plain, scheme: "http", from: from(plain)},
 	)
 }
 

@@ -66,6 +66,11 @@ go test ./...
   cache, for tug's package `cache`, which the starter keeps nothing in
   yet, and `sessions_db.go`, the sessions themselves, which
   `SESSION_STORE=database` keeps there rather than in their cookies.
+- `backup.go`: the database's backups, which a copy of `app.db` made as
+  the app writes can't be: `./[[ .Name ]] backup <file>` makes one while it
+  serves, and every night the `backup-db` job puts one on the app's disk,
+  in `files/backups/`, or with `FILESYSTEM_DISK=s3` in the bucket, off the
+  machine, keeping the newest `BACKUP_KEEP`, 7 unless it says.
 [[- else ]]
 - `db.go`: the database, [[ if .MySQL ]]MySQL[[ else ]]Postgres[[ end ]] at `DB_URL`, through `database/sql`.
   `compose.yaml` runs it in development, and the tests make a database

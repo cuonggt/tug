@@ -242,7 +242,8 @@ func showPost(c *tug.Ctx) error {
   call the app's API with, hear of each change to their account that
   could hand it to someone else, a login from a new browser too, at once
   in the app, by its bell, and by mail, the old email too, with the users
-  in SQLite, or with `-postgres` or `-mysql`, in Postgres or MySQL, and a
+  in SQLite, backed up every night onto the app's disk, or with
+  `-postgres` or `-mysql`, in Postgres or MySQL, and a
   frontend of Tailwind and shadcn's components, as Laravel's starter kits
   have, in React, Vue or Svelte. Its handlers are the app's own code, on package
   `auth`, which has the parts where a slip is a security hole: argon2id
@@ -365,9 +366,11 @@ func showPost(c *tug.Ctx) error {
   with a certificate for each domain from Let's Encrypt (package
   `letsencrypt`), asked for as it starts, kept, and renewed, and `:80`
   sends each request to HTTPS; or with `TLS_CERT` and `TLS_KEY`, a
-  certificate of the app's own, read again as it's renewed. Given one of the
-  app's commands, as `./blog jobs`, which `app.Command` adds, it runs
-  that in place of serving, in the app as `main` made it.
+  certificate of the app's own, read again as it's renewed. Under
+  systemd, it serves on the sockets a `.socket` unit hands it, which
+  systemd holds as the app restarts, so a deploy refuses no request. Given
+  one of the app's commands, as `./blog jobs`, which `app.Command` adds,
+  it runs that in place of serving, in the app as `main` made it.
 
 tug needs Go 1.26. Its dependencies are go-playground/validator, for
 package `validate`, and golang.org/x/crypto, for argon2id in package `auth`

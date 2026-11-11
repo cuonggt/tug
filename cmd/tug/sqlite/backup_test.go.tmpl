@@ -1,0 +1,218 @@
+package main
+
+import (
+	"bytes"
+	"database/sql"
+	"fmt"
+	"io"
+	"maps"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/storage"
+)
+
+// contents is every row of every table of db, each as text, sorted, for
+// two databases to be compared.
+func contents(t *testing.T, db *sql.DB) map[string][]string {
+	t.Helper()
+	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	all := map[string][]string{}
+	for _, table := range tables {
+		rows, err := db.Query(`SELECT * FROM "` + table + `"`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		columns, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		all[table] = []string{}
+		for rows.Next() {
+			values := make([]any, len(columns))
+			into := make([]any, len(columns))
+			for i := range values {
+				into[i] = &values[i]
+			}
+			if err := rows.Scan(into...); err != nil {
+				t.Fatal(err)
+			}
+			all[table] = append(all[table], fmt.Sprintf("%#v", values))
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(all[table])
+	}
+	return all
+}
+
+func TestTheBackupCommandCopiesTheDatabaseWithEveryTableAndRow(t *testing.T) {
+	app := newTestApp(t)
+	if r := register(app.client(), "Ann", "ann@example.com", "correct horse"); r.Code != http.StatusSeeOther {
+		t.Fatalf("registering: %v", r)
+	}
+	app.outbox.Next(t)
+	// Nothing writes while the two are compared.
+	app.stopQueue()
+
+	file := filepath.Join(t.TempDir(), "backup.db")
+	old := os.Args
+	os.Args = []string{"./blog", "backup", file}
+	t.Cleanup(func() { os.Args = old })
+	if err := app.Run(); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := openDB(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backup.Close()
+	got, want := contents(t, backup), contents(t, app.db)
+	if len(want["users"]) != 1 {
+		t.Fatalf("the database has users %q, want Ann alone", want["users"])
+	}
+	for _, table := range slices.Sorted(maps.Keys(want)) {
+		if !slices.Equal(got[table], want[table]) {
+			t.Errorf("the backup's %s:\n%q\nwant:\n%q", table, got[table], want[table])
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("the backup's tables: %q, want %q", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
+	}
+
+	// A backup is a new file: none is written over another, as the
+	// database itself.
+	var out bytes.Buffer
+	if err := backupCommand(t.Context(), app.db, "./blog", []string{file}, &out); err == nil || !strings.Contains(err.Error(), "is there already") {
+		t.Errorf("a backup to a file that's there: %v", err)
+	}
+	another := filepath.Join(t.TempDir(), "another.db")
+	if err := backupCommand(t.Context(), app.db, "./blog", []string{another}, &out); err != nil || !strings.HasPrefix(out.String(), "The database is backed up to "+another+", ") {
+		t.Errorf("the command says %q, %v", out.String(), err)
+	}
+	if err := backupCommand(t.Context(), app.db, "./blog", nil, &out); err == nil || !strings.Contains(err.Error(), "./blog backup <file>") {
+		t.Errorf("the command without a file: %v", err)
+	}
+}
+
+func TestTheNightlyBackupGoesOnTheAppsDiskAndTheNewestSevenAreKept(t *testing.T) {
+	app := newTestApp(t)
+	ctx := t.Context()
+	disk := &storage.Local{Dir: t.TempDir()}
+	put := func(key, data string) {
+		t.Helper()
+		if err := disk.Put(ctx, key, strings.NewReader(data), int64(len(data)), "application/octet-stream"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Seven nights' backups, and a copy made by hand, which isn't one.
+	for day := 1; day <= 7; day++ {
+		put(fmt.Sprintf("backups/2026-01-%02d.db", day), "a night's backup")
+	}
+	put("backups/before-upgrade.db", "a copy made by hand")
+
+	if err := (&backups{db: app.db, disk: disk, keep: 7}).run(ctx, BackupDB{}); err != nil {
+		t.Fatal(err)
+	}
+	tonight := "backups/" + time.Now().UTC().Format(time.DateOnly) + ".db"
+	var kept []string
+	for e, err := range disk.List(ctx, "backups") {
+		if err != nil {
+			t.Fatal(err)
+		}
+		kept = append(kept, e.Key)
+	}
+	slices.Sort(kept)
+	want := []string{"backups/2026-01-02.db", "backups/2026-01-03.db", "backups/2026-01-04.db", "backups/2026-01-05.db",
+		"backups/2026-01-06.db", "backups/2026-01-07.db", "backups/before-upgrade.db", tonight}
+	slices.Sort(want)
+	if !slices.Equal(kept, want) {
+		t.Errorf("the disk keeps %q, want %q: the oldest of eight backups gone", kept, want)
+	}
+
+	// Tonight's is the database, and its copy beside it is gone.
+	r, err := disk.Open(ctx, tonight)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	file := filepath.Join(t.TempDir(), "tonight.db")
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := openDB(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backup.Close()
+	var users int
+	if err := backup.QueryRow("SELECT count(*) FROM users").Scan(&users); err != nil {
+		t.Errorf("tonight's backup isn't the database: %v", err)
+	}
+	var path string
+	if err := app.db.QueryRow("SELECT file FROM pragma_database_list WHERE name = 'main'").Scan(&path); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "backup-*")); len(left) > 0 {
+		t.Errorf("the copy made beside the database is left: %q", left)
+	}
+}
+
+func TestTheAppBacksTheDatabaseUpEveryNightUnlessBackupKeepIsZero(t *testing.T) {
+	has := func(app *testApp, kind string) bool {
+		t.Helper()
+		var n int
+		if err := app.db.QueryRow("SELECT count(*) FROM jobs WHERE kind = ?", kind).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n > 0
+	}
+	pushed := func(app *testApp, kind string) bool {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if has(app, kind) {
+				return true
+			}
+		}
+		return false
+	}
+	if !pushed(newTestApp(t), "backup-db") {
+		t.Error("backup-db isn't on the schedule")
+	}
+
+	t.Setenv("BACKUP_KEEP", "0")
+	app := newTestApp(t)
+	// The queue pushes its schedules in the order newApp makes them, as it
+	// starts, and backup-db's would come after prune-broadcasts'.
+	if !pushed(app, "prune-broadcasts") {
+		t.Fatal("the app's schedules weren't pushed")
+	}
+	app.stopQueue()
+	if has(app, "backup-db") {
+		t.Error("backup-db is on the schedule with BACKUP_KEEP=0")
+	}
+}

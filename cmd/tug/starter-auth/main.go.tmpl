@@ -97,7 +97,10 @@ func main() {
 	}
 	// The database, db.go, with its tables brought up to date by the
 	// migrations that haven't run, but by the migrate command, which runs
-	// them itself: migrations.go. tug gen, which runs main to learn the
+	// them itself: migrations.go
+[[- if .SQLite ]], and the backup command, which copies
+	// them as they are: backup.go
+[[- end ]]. tug gen, which runs main to learn the
 	// pages and routes, needs none.
 	var db *sql.DB
 	if !tug.Generating() {
@@ -105,7 +108,7 @@ func main() {
 			log.Fatal(err)
 		}
 		defer db.Close()
-		if !migrating() {
+		if !migrating()[[ if .SQLite ]] && !backingUp()[[ end ]] {
 			if err := upToDate(context.Background(), db); err != nil {
 				log.Fatal(err)
 			}
@@ -406,6 +409,21 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	// has read them in.
 	queue.Handle(e.Queue, "prune-broadcasts", a.broadcasts.prune).Schedule(queue.Every(time.Minute), struct{}{})
 [[- end ]]
+[[- if .SQLite ]]
+	// Every night, a copy of the database, made as the app serves, on the
+	// app's disk, the newest BACKUP_KEEP of them kept, seven unless it
+	// says, or with 0, none: backup.go. A large database's copy can take
+	// minutes, sent to S3 above all: the job has ten, which every job's
+	// claim is held for too, should the app be killed as one runs.
+	keep, err := strconv.Atoi(cmp.Or(os.Getenv("BACKUP_KEEP"), "7"))
+	if err != nil || keep < 0 {
+		return nil, errors.New("BACKUP_KEEP is how many of the database's nightly backups the app keeps, such as 7, or 0 for none")
+	}
+	if keep > 0 {
+		nightly := &backups{db: e.DB, disk: e.Disk, keep: keep}
+		queue.Handle(e.Queue, "backup-db", nightly.run, queue.Timeout(10*time.Minute)).Schedule(queue.Cron("@daily"), BackupDB{})
+	}
+[[- end ]]
 	if len(e.Keys) > 1 && !tug.Generating() {
 		// APP_KEY is new, and the old one in APP_PREVIOUS_KEYS: move the
 		// two-factor secrets over to the new one before it's dropped.
@@ -512,8 +530,12 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	}
 
 	// The binary's commands, which Run runs in place of serving, on the
-	// app's database: ./blog jobs, in jobs.go, and ./blog migrate, in
+	// app's database: ./blog jobs, in jobs.go,
+[[- if .SQLite ]] ./blog migrate, in
+	// migrations.go, and ./blog backup, in backup.go.
+[[- else ]] and ./blog migrate, in
 	// migrations.go.
+[[- end ]]
 	app.Command("jobs", "list the jobs that failed for good; jobs retry <id>, or retry all, runs them again", func(ctx context.Context, args []string) error {
 		return jobsCommand(ctx, a.jobs, os.Args[0], args, os.Stdout)
 	})
@@ -524,6 +546,11 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		}
 		return migrate.Command(ctx, &migrationsTable{db: e.DB}, ms, os.Args[0], args, os.Stdout)
 	})
+[[- if .SQLite ]]
+	app.Command("backup", "copy the database, as it is now, to a new file: backup <file>", func(ctx context.Context, args []string) error {
+		return backupCommand(ctx, e.DB, os.Args[0], args, os.Stdout)
+	})
+[[- end ]]
 
 	app.Get("/", home).Name("home")
 	app.Get("/dashboard", a.usersOnly(verified(dashboard))).Name("dashboard")

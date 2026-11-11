@@ -69,7 +69,7 @@ to 3.8.0, October 2026), written against
 | M60 | Upgrading an app           | done   |
 | M61 | The API, settled           | done   |
 | M62 | v1.0.0                     | done   |
-| M63 | One machine, whole         | later  |
+| M63 | One machine, whole         | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6008,28 +6008,33 @@ Choices made on the way:
   gave apps a way to follow tug, M61 read what they'd follow, and v1.0
   is what was left.
 
-## M63 · One machine, whole — later
+## M63 · One machine, whole — done
 
 M45 had the app serve HTTPS itself, for a machine of its own with no
-proxy in front, under systemd as the guide's unit has it, and the auth
+proxy in front, under systemd as the guide's unit had it, and the auth
 starter keeps its accounts in SQLite, a file on that machine. Two things
-that machine needs, tug doesn't do. `Run` listens itself, on `:443` and
-`:80`, so a restart for a deploy refuses every connection from the
-moment the old process lets go of its ports until the new one has run
-its migrations and taken them, and the binary needs the right to listen
-below 1024 for good, which the unit's `AmbientCapabilities` gives it.
-And nothing backs SQLite up, where a copy made by `cp` while the app
-writes can be torn. To be released as v1.1.0.
+that machine needed, tug didn't do. `Run` listened itself, on `:443` and
+`:80`, so a restart for a deploy refused every connection from the
+moment the old process let go of its ports until the new one had run its
+migrations and taken them, and the binary needed the right to listen
+below 1024 for good, which the unit's `AmbientCapabilities` gave it. And
+nothing backed SQLite up, where a copy made by `cp` while the app writes
+can be torn. To be released as v1.1.0.
 
 - **Sockets from systemd:** `Run` takes the sockets a `.socket` unit
-  passes it, by systemd's own variables: `LISTEN_PID`, which has to be
-  the process's, `LISTEN_FDS`, how many, from descriptor 3, and
-  `LISTEN_FDNAMES`, their names. With `Config.TLS`, the one named
-  `https` serves HTTPS and `http` HTTP, or the first and the second, and
-  without it, the one there is. It unsets the variables once it has the
-  sockets, so what it starts, the SSR's Node, isn't handed them too, and
-  the log says where each came from. A count that doesn't fit, one socket
-  for HTTPS and HTTP, is an error that says what it takes.
+  passes it, by systemd's own variables (`passedSockets`, in
+  `sockets.go`): `LISTEN_PID`, which has to be the process's, `LISTEN_FDS`,
+  how many, from descriptor 3, and `LISTEN_FDNAMES`, their names. With
+  `Config.TLS`, the one named `https` serves HTTPS and the one named
+  `http` HTTP, a name deciding for both, or else the first and the
+  second (`httpsAndHTTP`), and without it, the one there is
+  (`plainHTTP`). It keeps a copy of each, `net.FileListener`'s, which
+  closes as the program execs another, closes the descriptors systemd
+  passed, and unsets the variables, so what it starts, the SSR's Node,
+  isn't handed them; the log's `listening` line says `from=systemd`. A
+  count that doesn't fit, one socket for HTTPS and HTTP, or two without
+  TLS, is an error that says what it takes, and another process's
+  `LISTEN_PID`, a parent's handed down, leaves them all alone.
 - **A restart that refuses nothing:** systemd holds the sockets across a
   restart of the service, so the connections that come while the old
   process finishes its requests and the new one starts wait in the
@@ -6038,31 +6043,44 @@ writes can be torn. To be released as v1.1.0.
   right to, and the unit gives it none.
 - **Nothing an app calls changes:** an app started without systemd's
   sockets listens as it did, and one made before needs only its units.
-- **SQLite backed up:** the auth starter on SQLite gains a `backup`
-  command, `./blog backup <file>`, `VACUUM INTO` the file, the database
-  as it was at a moment, made while the app runs and writes, which a copy
-  of the file can't be; and a `backup-db` job, every night, which puts
-  one on the app's disk, `backups/<date>.db`, off the machine with S3,
-  and keeps the newest `BACKUP_KEEP`, seven unless it says, by listing
-  what's there.
+- **SQLite backed up:** the auth starter on SQLite has `backup.go`, with
+  a `backup` command, `./blog backup <file>`, `VACUUM INTO` a new file,
+  the database as it was at a moment, made while the app runs and
+  writes, which a copy of the file can't be, and never over a file
+  that's there; the binary run as it runs no migrations as it starts
+  (`backingUp`), so a deploy's new binary backs the tables up as the old
+  one left them. And a `backup-db` job, every night at midnight UTC,
+  which makes the copy in a directory of its own beside the database,
+  puts it on the app's disk, `backups/<date>.db`, off the machine with
+  S3, and keeps the newest `BACKUP_KEEP`, seven unless it says, by
+  listing what's there: the files named by a date, the job's own, and
+  not one of another name. `BACKUP_KEEP=0` makes none.
 - **Postgres and MySQL:** theirs are the server's, `pg_dump` and
   `mysqldump`, or a managed database's own, which the guide names.
-- **Tests:** the test holds two sockets, as systemd does, and hands them
-  to a child app by `exec.Cmd`'s `ExtraFiles`, at 3 and 4, its
-  `LISTEN_PID` its own through `sh -c 'LISTEN_PID=$$ exec …'`: HTTPS on
-  the one named `https` and HTTP on `http`; then the app restarted on
-  them under a stream of requests, none refused; one whose `LISTEN_PID`
-  is another's, which listens itself; and a count that doesn't fit. In
-  the starter on SQLite, `backup`'s copy, opened, with every table and
-  row; and `backup-db`'s run onto a disk in a test's directory, the
-  oldest of eight gone.
-- **The guide:** Deployment's restarts, the `.socket` unit, its
-  `FileDescriptorName`s, and the service without its capability; and its
-  backups, the command, the job, a restore, which is the app stopped and
-  the file put in place, and Postgres's and MySQL's own; Accounts'
-  SQLite; the starter's README and `.env.example`, `BACKUP_KEEP`.
+- **Tests:** the app runs in a child, the test binary again, whose
+  `TestMain` runs it when `TUG_TEST_SOCKETS_APP` says, handed the
+  test's sockets by `exec.Cmd`'s `ExtraFiles`, at 3 and 4, its
+  `LISTEN_PID` its own through `sh -c 'export LISTEN_PID=$$ && exec
+  "$0"'`: HTTPS on the one named `https` and HTTP on `http`, passed http
+  first, the redirect naming HTTPS's port, and the variables gone from
+  the app's environment; then the app restarted on its socket under a
+  stream of requests, each on a connection of its own, the slowest
+  waiting a second through the restart, none refused; one whose
+  `LISTEN_PID` is another's, which listens itself; and the counts that
+  don't fit. In the starter on SQLite, `backup`'s copy, opened, with
+  every table and row, and no file written over; `backup-db`'s run onto
+  a disk in a test's directory, the oldest of eight gone, a copy made by
+  hand left, and nothing left beside the database; and the job on the
+  schedule, but with `BACKUP_KEEP=0`.
+- **The guide:** Deployment's Restarts, the `.socket` unit, a name for
+  each of two units' sockets by `FileDescriptorName`, and the service
+  without its capability, and its Backups, the command, the job, a
+  restore, which is the app stopped and the file put in place, with the
+  database's `-wal` and `-shm` gone, and Postgres's and MySQL's own;
+  `BACKUP_KEEP` and systemd's variables in its tables; Accounts' SQLite;
+  Routing's `Addr`; and the starter's README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **systemd's sockets, not a handover of the app's own:** a binary that
   hands its sockets to the next one, by a signal and an exec, as some
@@ -6076,6 +6094,11 @@ Choices, to settle before any code:
   systemd's restart is a stop, then a start, so it would take a deploy of
   the app's own to start the second, and a request can land on the old
   one as it stops.
+- **One unit in the guide, in its order:** one `.socket` with two
+  `ListenStream` lines is one file, whose sockets systemd passes in the
+  order the lines list them; two units, named, are for a machine that
+  has its own reasons, and the names are what keep them apart, as two
+  units' order isn't kept.
 - **`VACUUM INTO`, not the backup API or Litestream:** SQLite's online
   backup copies page by page through the driver's own connection,
   outside `database/sql`; Litestream streams each change to a bucket,
@@ -6087,10 +6110,25 @@ Choices, to settle before any code:
   on is one an app finds it didn't have. On the local disk, seven copies
   sit beside the database, which is for a mistake, not a lost machine;
   with `FILESYSTEM_DISK=s3` they're off it, which the guide says first.
+  `BACKUP_KEEP=0` is for an app whose database is backed up some other
+  way, as by Litestream.
 - **No restore command:** a restore replaces the database under every
   instance and every request, which is the app stopped and a file put in
   place, a step the guide shows, not one a command can make safe while
   the app serves.
+- **The copy beside the database:** `VACUUM INTO` needs a file, made
+  before it goes on the disk; the machine's temporary directory may be a
+  container's own layer, or memory, where the database's directory, the
+  image's volume, has room for one already.
+- **Ten minutes for the job:** a large database's copy, sent to S3
+  above all, outlasts a job's minute. A claim is held for the longest
+  `Timeout` of any kind, so a job of an app that was killed runs again
+  11 minutes later rather than 2, which the guide says, and which a mail
+  can wait.
+- **No migrations for the command:** a backup taken by a deploy's new
+  binary, before the restart that runs its migrations, should be of the
+  tables before them, so the binary run as `backup` leaves them, as it
+  does as `migrate`, which runs them itself.
 
 ## Decisions
 

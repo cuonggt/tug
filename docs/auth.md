@@ -109,13 +109,15 @@ them.
   `throttles_db.go`, `cache_db.go`, `sessions_db.go`, `tokens_db.go`,
   `broadcasts_db.go`, `notifications_db.go`, `logins_db.go` and
   `migrations_db.go`, the SQL of each;
-  `db_test.go`, the tests' databases; and on Postgres or MySQL,
-  `compose.yaml`, which runs the database in development.
+  `db_test.go`, the tests' databases; on SQLite, `backup.go`, its
+  backups, by the `backup` command and by a job every night; and on
+  Postgres or MySQL, `compose.yaml`, which runs the database in
+  development.
 - `main_test.go`, `auth_test.go`, `settings_test.go`, `twofactor_test.go`,
   `passkeys_test.go`, `passwordless_test.go`, `photos_test.go`, `jobs_test.go`,
   `throttles_test.go`, `cache_test.go`, `tokens_test.go`,
   `broadcasts_test.go`, `notifications_test.go`, `logins_test.go`,
-  `migrations_test.go`: a test of each flow, in browsers of package
+  `migrations_test.go`, and on SQLite, `backup_test.go`: a test of each flow, in browsers of package
   `tugtest`, with the mail kept in memory, the photos in a temporary
   directory, and a database of each test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
@@ -912,6 +914,14 @@ in that database's SQL. `go mod tidy` adds the driver, the app
 is given `DB_URL`, or `DB_PATH`, where it runs, and the data it moves
 itself.
 
+On SQLite, the app backs its database up itself, which a copy of the
+file made as it writes can't do: `./blog backup <file>` copies it as it
+is, by `VACUUM INTO`, while the app serves, and every night the
+`backup-db` job puts a copy on the app's disk, keeping the newest
+`BACKUP_KEEP`, 7: `backup.go`. [Backups](deployment.md#backups) has
+where they go and how to restore one. On Postgres and MySQL, the
+server's own tools do it, or a managed database's backups.
+
 ### Throttles
 
 The starter's six throttles count in the database, in a `throttles`
@@ -1693,7 +1703,9 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
   `APP_KEY`, and checked with `APP_PREVIOUS_KEYS` too, so the ones on
   pages already open still work after a new key.
 - **Where the database is**: SQLite is a file, on the image's volume, and
-  its instances share one machine. On Postgres or MySQL, `DB_URL` names
+  its instances share one machine. Its nightly backups are on the app's
+  disk, beside it, unless `FILESYSTEM_DISK=s3` keeps them in the bucket,
+  off the machine ([Backups](deployment.md#backups)). On Postgres or MySQL, `DB_URL` names
   the database, with the driver's settings in its query, as Postgres's
   `sslmode=require` or MySQL's `tls=true`, and instances anywhere that
   reach it share it, and its jobs. `compose.yaml` is for development: it
