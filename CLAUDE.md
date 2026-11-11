@@ -205,7 +205,8 @@ refreshed by the client as an event comes on a route of `c.Events`,
 through the transport tug gen writes, `resources/js/tug/live.ts`, with
 `inertia.Event`'s `Carry` and `ToOthers`, tugtest's `Query` and `Hear`,
 and the starters' bell, lists and verify page on them, in place of
-`lib/broadcasts.ts`.
+`lib/broadcasts.ts`, and a request on a connection the app took as it
+stopped answered, which Go's `Shutdown` hangs up on.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -325,7 +326,8 @@ dev server that isn't there: delete it.
     `URL` that `appURL`, in links.go, doesn't take, and on a `Zone` that
     `time.LoadLocation` doesn't), `App`, `Run` and `Serve` with
     graceful shutdown, through `serveAll`, which serves more than one
-    `listening` server and shuts them down together, its log saying
+    `listening` server and shuts them down together, each by `shutDown`,
+    in shutdown.go, its log saying
     `from=systemd` for a socket systemd passed (`from`, in sockets.go),
     and misses. At
     the first request, `freeze` adds `/` as a catch-all, unless a route
@@ -384,6 +386,16 @@ dev server that isn't there: delete it.
     handed the sockets by `ExtraFiles` through `sh`, whose `exec` keeps
     `LISTEN_PID`'s process, and restart it on them under a stream of
     requests.
+  - `shutdown.go`: `shutDown`, a server's graceful shutdown, which Go's
+    `Shutdown` alone isn't, as it reads a request that comes on a
+    connection once it has begun and hangs up on it: the listener closed
+    first (`closeOnce`, as `Shutdown` closes it again), keep-alives off,
+    then, until `ShutdownTimeout`, the requests in flight and each new
+    connection's first waited for, by `conns`, the server's `ConnState`
+    (an HTTP/2 connection's its own, Active and Idle by its streams), a
+    connection silent `newConnGrace`, 5 s, closed (`closeSilent`), and
+    then `Shutdown`. `shutdown_test.go` sends a request once the app is
+    shutting down.
   - `router.go`: `Router`, `Route`, `URL`. `Query` adds a route of the
     `QUERY` method (`methodQuery`), which `allowedMethods`, in app.go,
     probes for a 405's `Allow`. A route goes into the ServeMux

@@ -6220,6 +6220,13 @@ what live props now reload by the protocol. inertia-laravel 3.6.0 and
   stats are live on `/posts/events`, in place of `useEvents.ts`, its
   changes are published to others, and its archive has a search by
   `QUERY`, whose pager asks for a page in the body.
+- **A request as the app stops:** each server's listener closed first,
+  keep-alives off, and the requests in flight, and those of the
+  connections that have said nothing yet, waited for by the server's
+  `ConnState`, up to `ShutdownTimeout`, before Go's `Shutdown`, which
+  reads a request that comes once it has begun and hangs up on it; a
+  connection silent 5 seconds, which Go's own takes for idle, closed
+  then (`shutDown`, `conns`).
 - **Tests:** in package inertia, `liveProps` on a first visit, a visit
   and one with once props held, and partial reloads, for each prop that
   can be live, nested, throttled, left out and included, the panics,
@@ -6227,18 +6234,22 @@ what live props now reload by the protocol. inertia-laravel 3.6.0 and
   a `QUERY`'s 303; in package tug, a `QUERY` route and its `Allow`, its
   body bound as JSON, urlencoded and multipart, a page and a cursor read
   from a `QUERY`'s body with `Bind` reading it too, and a redirect after
-  one; DevTools' `live`; tug gen's `'query'` and `live.ts`; tugtest's
-  `QUERY` reload and `Hear`; the starter's bell, list, browsers and
-  verify page by `Hear`; and in the browser, the starters' suite on live
-  props, in each frontend, and `examples/inertia`'s search, its second
-  page, gone back to and refreshed, its archive and stats live in another
-  browser, and its form's request carrying its socket ID.
+  one, and a request a connection sends as the app shuts down answered,
+  an HTTP/2 one in flight too, and a connection that says nothing waited
+  for its grace alone; DevTools' `live`; tug gen's `'query'` and
+  `live.ts`; tugtest's `QUERY` reload and `Hear`; the starter's bell,
+  list, browsers and verify page by `Hear`; and in the browser, the
+  starters' suite on live props, in each frontend, and
+  `examples/inertia`'s search, its second page, gone back to and
+  refreshed, its archive and stats live in another browser, and its
+  form's request carrying its socket ID.
 - **The guide:** Pages, live props, a page a `QUERY` renders, and its
   Pagination's page from a body; Broadcasting, live props in place of a
   page's own `EventSource`, values and others; Accounts, the starter's
   pages on live props; Routing, `Query`; Forms, a search by `QUERY`;
   Testing, `Query` and `Hear`; TypeScript and the CLI's page, `live.ts`
-  and `'query'`; the roadmap's first lines, at 3.11.0; and the README.
+  and `'query'`; Deployment's Shutting down, a request as the app stops;
+  the roadmap's first lines, at 3.11.0; and the README.
 
 Choices made on the way:
 
@@ -6297,6 +6308,17 @@ Choices made on the way:
   git's maintenance in the background past its thresholds, which the
   starter's files crossed, and which wrote in the repository as the
   test's directory was taken away.
+- **A request as the app stops is answered:** CI's restart on systemd's
+  socket lost a request on Linux: its connection was taken by the old
+  process a moment before it stopped, and its request came once Go's
+  `Shutdown` had begun, which reads such a request and hangs up on it,
+  and a client can't tell that from a request that failed, so doesn't
+  send it again. Closing the listener first, and waiting, before
+  `Shutdown`, for each connection that has said nothing to send its
+  request answers it, at the cost of tracking the connections' states,
+  which Go keeps to itself. A connection that has said nothing for 5
+  seconds, a browser's spare one, is closed by tug then, as Go takes it
+  for idle by whole seconds of the clock, and waits up to one more.
 
 ## Decisions
 

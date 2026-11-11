@@ -588,6 +588,7 @@ type listening struct {
 	ln     net.Listener
 	scheme string // for the log, when there's more than one
 	from   string // for the log: systemd, for a socket it passed the app
+	conns  *conns // the server's connections, for shutDown
 }
 
 // serveAll serves each of servers until ctx is done, with what Go runs, and
@@ -596,7 +597,11 @@ type listening struct {
 func (a *App) serveAll(ctx context.Context, more []func(context.Context) error, servers ...listening) error {
 	a.start.Do(a.freeze)
 	served := make(chan error, len(servers))
-	for _, s := range servers {
+	for i := range servers {
+		s := &servers[i]
+		s.ln = &closeOnce{Listener: s.ln}
+		s.conns = &conns{}
+		s.server.ConnState = s.conns.track
 		go func() { served <- s.server.Serve(s.ln) }()
 		attrs := []any{"addr", s.ln.Addr().String()}
 		if s.scheme != "" {
@@ -643,7 +648,7 @@ func (a *App) serveAll(ctx context.Context, more []func(context.Context) error, 
 	var shutting sync.WaitGroup
 	for i, s := range servers {
 		shutting.Go(func() {
-			if err := s.server.Shutdown(sctx); err != nil {
+			if err := s.shutDown(sctx); err != nil {
 				s.server.Close()
 				late[i] = err
 			}
@@ -657,7 +662,8 @@ func (a *App) serveAll(ctx context.Context, more []func(context.Context) error, 
 		}
 	}
 	for ; waiting > 0; waiting-- {
-		if err := <-served; !errors.Is(err, http.ErrServerClosed) {
+		// Closed by Shutdown, or by shutDown before it.
+		if err := <-served; !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
 			serveErrs = append(serveErrs, err)
 		}
 	}

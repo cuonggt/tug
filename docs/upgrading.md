@@ -245,7 +245,9 @@ writes, `resources/js/tug/live.ts`, handed to `createInertiaApp` as its
 `live`. `tug upgrade` brings an app made by `tug new` both, and with
 `-auth` its bell, lists and verify page live, its
 `resources/js/lib/broadcasts.ts` taken away where the app hasn't changed
-it.
+it. And a request on a connection the app took as it was told to stop is
+answered, where Go's `Shutdown` hung up on it, so a restart on systemd's
+sockets drops none ([Shutting down](deployment.md#shutting-down)).
 
 ### v1.1.0
 

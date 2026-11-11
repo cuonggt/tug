@@ -738,6 +738,18 @@ after the timeout have their connections closed, and `Run` returns an
 error, "tug: requests still running after 10s", which the starters'
 `main` passes to `log.Fatal`.
 
+A request that comes on a connection the app took before it stopped
+taking them is answered too, and the connection closed after it. A
+browser sends its request a moment after it connects, so a connection
+the app took just before the signal can send its request just after it.
+Go's own `Shutdown` reads such a request and hangs up without an answer,
+which the client can't tell from a request that failed, and doesn't send
+again; `Run` waits for it instead, within the timeout. A connection that
+says nothing for 5 seconds is closed, as Go's server does: a browser
+opens a spare one for a request it may never make. A connection kept
+alive between requests is closed at once, and its client sends the next
+on another, as it does whenever a server closes one.
+
 A platform gives the process some time between SIGTERM and killing it.
 Docker's `docker stop` gives 10 seconds, the same as tug's default, so
 choose a timeout under the platform's. In the plain starter's `main`:
@@ -851,6 +863,8 @@ The log says where the ports came from:
   queue, up to `net.core.somaxconn` of them, 4096 on a recent Linux,
   until the new process answers them: for the old one's shutdown, up to
   `ShutdownTimeout`, and the new one's start, its migrations included.
+  One the old process took a moment before it stopped, it answers
+  itself, as [Shutting down](#shutting-down) says.
 - `LISTEN_PID` is the process systemd started, so `ExecStart` is the
   binary itself, or a shell that `exec`s it. The app unsets the variables
   once it has the sockets, so what it starts, as the Node of an app with
