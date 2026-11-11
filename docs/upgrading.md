@@ -233,6 +233,20 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.2.0
+
+`go get github.com/cuonggt/tug@v1.2.0`. Nothing an app calls changed
+since v1.1.0. A page's props can be live, `.Live(inertia.On(...))`, which
+the client refreshes as an event comes, and a route takes a search by
+`QUERY`, `app.Query` ([Pages](pages.md#live-props)): both need Inertia's
+client at 3.11, `@inertiajs/react`, `vue3` or `svelte`, and
+`@inertiajs/vite`, at `^3.11.0`, and live props the transport tug gen now
+writes, `resources/js/tug/live.ts`, handed to `createInertiaApp` as its
+`live`. `tug upgrade` brings an app made by `tug new` both, and with
+`-auth` its bell, lists and verify page live, its
+`resources/js/lib/broadcasts.ts` taken away where the app hasn't changed
+it.
+
 ### v1.1.0
 
 `go get github.com/cuonggt/tug@v1.1.0`. Nothing an app calls changed

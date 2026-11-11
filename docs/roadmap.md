@@ -6148,7 +6148,7 @@ the values the event carries. tug had the channels already, package
 `broadcast`'s, which a page follows through a route of `c.Events`, and
 the starters' `lib/broadcasts.ts`, which heard them and reloaded by hand
 what live props now reload by the protocol. inertia-laravel 3.6.0 and
-3.7.0 are the server's side. To be released as v1.2.0.
+3.7.0 are the server's side. Released as v1.2.0.
 
 - **QUERY routes:** `Router.Query(path, h)`, a route of the `QUERY`
   method, which a 405's `Allow` probes for, and tug routes lists among
