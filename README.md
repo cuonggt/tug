@@ -158,9 +158,16 @@ func showPost(c *tug.Ctx) error {
     too.
   - **Once:** `Once` props stay on the client until they expire.
   - **Partial reloads** reach nested props by path.
+  - **Live props:** `.Live(inertia.On(url, events...))` has the client
+    refresh a prop as an event comes on a route of `c.Events`, through the
+    transport tug gen writes, `live.ts`; `inertia.Event` carries values,
+    which spare the reload, and leaves out the page that made the change.
+  - **QUERY:** `Router.Query` takes a search in a request's body, which
+    `Bind` and the paginators read, and whose page the client reloads by
+    `QUERY` with the same body.
   - **Redirects:** a browser running an old build reloads. A 302 after a
-    PUT, PATCH or DELETE becomes a 303, and a redirect to a `#fragment`
-    keeps it.
+    PUT, PATCH, DELETE or QUERY becomes a 303, and a redirect to a
+    `#fragment` keeps it.
   - **Error pages:** errors show as a page (`Config.ErrorPage`) with their
     own status.
   - **Empty lists:** nil slices go out as `[]`, never `null`.

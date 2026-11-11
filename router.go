@@ -57,6 +57,23 @@ func (r *Router) Get(path string, h HandlerFunc, mw ...Middleware) *Route {
 	return r.Handle(http.MethodGet, path, h, mw...)
 }
 
+// Query adds a route for QUERY requests to path: a request as safe as a
+// GET, whose data is in its body rather than its query string, as
+// Inertia's client sends a search or a filter too big or too nested for a
+// URL, by router.query and <Form method="query">, and sends every reload
+// of the page it rendered with the same body again. Bind reads the body as
+// a POST's.
+//
+// The page's URL is the path alone, which a refresh asks for by GET, with
+// no body, as do the reloads of a page a form with files rendered: a page
+// a QUERY renders takes a GET of its path too, as a route of its own.
+func (r *Router) Query(path string, h HandlerFunc, mw ...Middleware) *Route {
+	return r.Handle(methodQuery, path, h, mw...)
+}
+
+// methodQuery is the QUERY method, which net/http has no name for.
+const methodQuery = "QUERY"
+
 // Post adds a route for POST requests to path.
 func (r *Router) Post(path string, h HandlerFunc, mw ...Middleware) *Route {
 	return r.Handle(http.MethodPost, path, h, mw...)

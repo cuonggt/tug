@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 import TextLink from '@/components/text-link'
 import { Button } from '@/components/ui/button'
 import { useLang } from '@/lib/lang'
-import { listen } from '@/lib/broadcasts'
 import { text } from '@/tug/lang'
 import { form, route } from '@/tug/routes'
 
@@ -17,10 +16,19 @@ export default function VerifyEmail() {
 
   const { auth } = usePage().props
   // Verified in another tab, or on the phone the mail went to, the email
-  // moves this page on: the app says so on the user's own channel, and the
-  // page reloads, which its handler, in verify.go, answers with the
-  // dashboard once the email is verified.
-  useEffect(() => listen('verified', () => router.reload()), [])
+  // moves this page on: the app says so on the user's own channel, which
+  // the page's verified prop listens for, and the page reloads, which its
+  // handler, in verify.go, answers with the dashboard, in place of the
+  // prop's own reload.
+  useEffect(
+    () =>
+      router.on('live', (event) => {
+        if (event.detail.event !== 'verified') return
+        router.reload()
+        return false
+      }),
+    [],
+  )
   return (
     <>
       <Head title={t('Verify your email')} />

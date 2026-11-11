@@ -1,0 +1,62 @@
+package main
+
+import (
+	"maps"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// reloaded is the props a reload r answers carried, by name.
+func reloaded(r *tugtest.Response) []string {
+	return slices.Sorted(maps.Keys(r.Page.Props))
+}
+
+func TestTheBellRingsOnAUsersPageAsANotificationIsMade(t *testing.T) {
+	app := newTestApp(t)
+	// A guest's page follows no channel, which only a user's reaches.
+	if guest := app.client().Get("/"); guest.Page.LiveProps != nil {
+		t.Errorf("a guest's page has live props: %v", guest.Page.LiveProps)
+	}
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	ann := user(c.Get("/dashboard"))
+	if _, err := (&notifications{db: app.db}).add(t.Context(), ann.ID, "token-added", noticeData{Name: "My script"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	r := c.Hear("/broadcasts", "notification")
+	if got := reloaded(r); !slices.Equal(got, []string{"bell", "errors"}) {
+		t.Errorf("hearing a notification on the dashboard reloaded %v, want the bell", got)
+	}
+	if n := tugtest.Prop[Bell](r, "bell").Unread; n != 1 {
+		t.Errorf("the bell counts %d, want 1", n)
+	}
+}
+
+func TestTheNotificationsPageShowsANewOneAtOnceRead(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	ann := user(c.Get("/notifications"))
+	if _, err := (&notifications{db: app.db}).add(t.Context(), ann.ID, "token-added", noticeData{Name: "My script"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	r := c.Hear("/broadcasts", "notification")
+	if got := reloaded(r); !slices.Equal(got, []string{"bell", "errors", "list"}) {
+		t.Errorf("hearing a notification on the list reloaded %v, want the list and the bell", got)
+	}
+	if list, bell := listOf(r), tugtest.Prop[Bell](r, "bell"); len(list.Data) != 1 || !list.Data[0].New || bell.Unread != 0 {
+		t.Errorf("the list %+v and the bell %+v, want the one made, new, and none unread", list.Data, bell)
+	}
+}
+
+func TestTheSecurityPageHearsABrowserComeAndGo(t *testing.T) {
+	app := newTestApp(t)
+	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	c.Get("/settings/security")
+	for _, event := range []string{"presence.joined", "presence.left"} {
+		if got := reloaded(c.Hear("/broadcasts", event)); !slices.Equal(got, []string{"browsers", "errors"}) {
+			t.Errorf("hearing %s reloaded %v, want the browsers", event, got)
+		}
+	}
+}

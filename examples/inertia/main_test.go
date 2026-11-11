@@ -114,9 +114,14 @@ func TestTheListComesAPageAtATime(t *testing.T) {
 	}
 }
 
+// archived is the page of posts the archive r shows.
+func archived(r *tugtest.Response) tug.Paginated[Post] {
+	return tugtest.Prop[tug.Paginated[Post]](r, "posts")
+}
+
 func TestEveryPostComesInNumberedPagesWithAPager(t *testing.T) {
 	c := newClient(t)
-	posts := tugtest.Props(c.Get("/posts?page=2"), PostsArchive).Posts
+	posts := archived(c.Get("/posts?page=2"))
 	if posts.CurrentPage != 2 || posts.LastPage != 3 || posts.Total != 25 || posts.Data[0].Title != "Post 11" || *posts.From != 11 || *posts.To != 20 {
 		t.Errorf("page 2: %+v", posts)
 	}
@@ -131,7 +136,7 @@ func TestEveryPostComesInNumberedPagesWithAPager(t *testing.T) {
 		t.Errorf("links %+v", posts.Links)
 	}
 	// Past the last, a page with none, which still says where the last is.
-	if posts := tugtest.Props(c.Get("/posts?page=9"), PostsArchive).Posts; len(posts.Data) != 0 || posts.LastPage != 3 || posts.From != nil {
+	if posts := archived(c.Get("/posts?page=9")); len(posts.Data) != 0 || posts.LastPage != 3 || posts.From != nil {
 		t.Errorf("page 9: %+v", posts)
 	}
 }
@@ -356,6 +361,56 @@ func TestThePagesOpenHearOfEachPostMadeChangedAndDeleted(t *testing.T) {
 	heard(event{"updated", said})
 	c.Delete(post, nil)
 	heard(event{"deleted", said})
+
+	// A post made from a page whose client says its socket ID: the event
+	// carries it, for that page to drop, as it has the post already.
+	r = c.Post("/posts", map[string]any{"title": "Made here", "body": "Heard of by the others."}, tugtest.Header("X-Socket-Id", "tab-1"))
+	heard(event{"created", fmt.Sprintf(`{"id":%s,"__inertia":{"socketId":"tab-1"}}`, strings.TrimPrefix(r.Location(), "/posts/"))})
+}
+
+func TestTheArchiveSearchesByQueryAndItsPageComesInTheBody(t *testing.T) {
+	c := newClient(t)
+	posts := archived(c.Query("/posts", map[string]any{"term": "POST 2"}))
+	var found []string
+	for _, post := range posts.Data {
+		found = append(found, post.Title)
+	}
+	if want := []string{"Post 20", "Post 21", "Post 22", "Post 23", "Post 24", "Post 25"}; !slices.Equal(found, want) || posts.Total != 6 {
+		t.Errorf("the search for POST 2 found %q of %d, want %q", found, posts.Total, want)
+	}
+	// Its second page, which the pager asks for in the body, as a page a
+	// QUERY rendered sends what it asks for: reloaded, it's the same page,
+	// as the body that rendered it goes again.
+	r := c.Query("/posts", map[string]any{"term": "post", "page": 2})
+	if posts := archived(r); posts.CurrentPage != 2 || tugtest.Prop[string](r, "term") != "post" {
+		t.Fatalf("the search's second page: %+v", posts)
+	}
+	if posts := archived(c.Reload(tugtest.Only("posts"))); posts.CurrentPage != 2 {
+		t.Errorf("the search's second page, reloaded: page %d", posts.CurrentPage)
+	}
+	// A refresh asks for the page by GET, with no body: every post.
+	if r := c.Get("/posts"); archived(r).Total != 25 || tugtest.Prop[string](r, "term") != "" {
+		t.Errorf("the archive by GET: %+v", archived(r))
+	}
+}
+
+func TestTheArchiveAndTheStatsFollowThePostsAsTheyreMade(t *testing.T) {
+	app := newTestApp(t)
+	c, elsewhere := tugtest.New(t, app), tugtest.New(t, app)
+	c.Get("/posts?page=3")
+	elsewhere.Post("/posts", map[string]any{"title": "Made elsewhere", "body": "Shown on the archive as it's made."})
+	r := c.Hear("/posts/events", "created")
+	if posts := archived(r); posts.Total != 26 || posts.Data[len(posts.Data)-1].Title != "Made elsewhere" {
+		t.Errorf("the archive's last page, as a post is made elsewhere: %+v", posts)
+	}
+	// The list's stats follow, once the page has them, and not its list,
+	// which merges by ID.
+	c.Get("/")
+	c.Reload(tugtest.Only("stats"))
+	r = c.Hear("/posts/events", "deleted")
+	if got := slices.Sorted(maps.Keys(r.Page.Props)); !slices.Equal(got, []string{"errors", "stats"}) {
+		t.Errorf("a post deleted reloaded %v of the list, want its stats", got)
+	}
 }
 
 func TestAPostsFirstVisitHasItsTitleAndWordsInItsHead(t *testing.T) {

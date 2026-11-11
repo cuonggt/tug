@@ -32,8 +32,8 @@ import (
 //		Title string `json:"title"`  // the body
 //	}
 //
-// The body is read by its Content-Type. JSON goes through encoding/json and
-// its json tags. A form, urlencoded or multipart, fills a field by its form
+// The body is read by its Content-Type, a QUERY's as a POST's. JSON goes
+// through encoding/json and its json tags. A form, urlencoded or multipart, fills a field by its form
 // tag, or else its json tag's name, or else its name; a key that repeats, or
 // ends in "[]", fills a slice. Files go to fields of type
 // *multipart.FileHeader or []*multipart.FileHeader. An empty form value
@@ -182,6 +182,102 @@ func isBindError(err error) bool {
 // past it go to temporary files, which net/http removes after the request.
 const multipartMemory = 32 << 20
 
+// isJSON reports whether a body of mediaType is JSON.
+func isJSON(mediaType string) bool {
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
+// limitBody holds the request's body to Config.BodyLimit, once.
+func (c *Ctx) limitBody() {
+	if !c.bodyLimited {
+		c.r.Body = http.MaxBytesReader(c.rw.ResponseWriter, c.r.Body, c.app.config.BodyLimit)
+		c.bodyLimited = true
+	}
+}
+
+// readBody reads the request's body once, and keeps it: a handler can bind
+// it more than once, as one that finds a post by its {id} and then binds
+// the form does, and a list reads its page from a QUERY's body beside what
+// Bind reads of it.
+func (c *Ctx) readBody() ([]byte, error) {
+	if c.body == nil && c.bodyErr == nil {
+		c.limitBody()
+		data, err := io.ReadAll(c.r.Body)
+		if err != nil {
+			c.bodyErr = bodyFailed(err)
+		} else {
+			c.body = append([]byte{}, data...)
+		}
+	}
+	return c.body, c.bodyErr
+}
+
+// postForm is a urlencoded body's values. Go's ParseForm reads the body of
+// a POST, a PUT or a PATCH alone, so a QUERY's is read here, into the
+// PostForm ParseForm then leaves as it is.
+func (c *Ctx) postForm() (url.Values, error) {
+	r := c.r
+	if r.Method == methodQuery && r.PostForm == nil {
+		data, err := c.readBody()
+		if err != nil {
+			return nil, err
+		}
+		if r.PostForm, err = url.ParseQuery(string(data)); err != nil {
+			return nil, &HTTPError{Code: http.StatusBadRequest, Err: err}
+		}
+	}
+	c.limitBody()
+	if err := r.ParseForm(); err != nil {
+		return nil, bodyFailed(err)
+	}
+	return r.PostForm, nil
+}
+
+// bodyParam is name's value in the request's body, by its Content-Type: a
+// JSON object's string or number under name, or a form's first value. A
+// body that has none, or that doesn't read, has none to give, and Bind
+// says what's wrong with it.
+func (c *Ctx) bodyParam(name string) (string, bool) {
+	r := c.r
+	if r.ContentLength == 0 {
+		return "", false
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil {
+		return "", false
+	}
+	switch {
+	case isJSON(mediaType):
+		data, err := c.readBody()
+		var fields map[string]json.RawMessage
+		if err != nil || json.Unmarshal(data, &fields) != nil {
+			return "", false
+		}
+		raw, ok := fields[name]
+		if !ok {
+			return "", false
+		}
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			return s, true
+		}
+		var n json.Number
+		if json.Unmarshal(raw, &n) == nil {
+			return n.String(), true
+		}
+	case mediaType == "application/x-www-form-urlencoded":
+		if form, err := c.postForm(); err == nil && form.Has(name) {
+			return form.Get(name), true
+		}
+	case mediaType == "multipart/form-data":
+		c.limitBody()
+		if r.ParseMultipartForm(multipartMemory) == nil && len(r.MultipartForm.Value[name]) > 0 {
+			return r.MultipartForm.Value[name][0], true
+		}
+	}
+	return "", false
+}
+
 func (c *Ctx) bindBody(dst any, v reflect.Value, fields []field) error {
 	r := c.r
 	if r.ContentLength == 0 {
@@ -191,28 +287,22 @@ func (c *Ctx) bindBody(dst any, v reflect.Value, fields []field) error {
 	if err != nil {
 		return NewHTTPError(http.StatusUnsupportedMediaType)
 	}
-	if c.body == nil {
-		r.Body = http.MaxBytesReader(c.rw.ResponseWriter, r.Body, c.app.config.BodyLimit)
-	}
 
 	switch {
-	case mediaType == "application/json" || strings.HasSuffix(mediaType, "+json"):
-		// Kept, so that a handler can bind the body more than once, as one
-		// that finds a post by its {id} and then binds the form does.
-		if c.body == nil {
-			data, err := io.ReadAll(r.Body)
-			if err != nil {
-				return bodyFailed(err)
-			}
-			c.body = append([]byte{}, data...)
+	case isJSON(mediaType):
+		data, err := c.readBody()
+		if err != nil {
+			return err
 		}
-		return bindJSON(c.body, dst)
+		return bindJSON(data, dst)
 	case mediaType == "application/x-www-form-urlencoded":
-		if err := r.ParseForm(); err != nil {
-			return bodyFailed(err)
+		form, err := c.postForm()
+		if err != nil {
+			return err
 		}
-		return bindForm(v, fields, r.PostForm, nil)
+		return bindForm(v, fields, form, nil)
 	case mediaType == "multipart/form-data":
+		c.limitBody()
 		if err := r.ParseMultipartForm(multipartMemory); err != nil {
 			return bodyFailed(err)
 		}

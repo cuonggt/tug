@@ -49,6 +49,7 @@ type Output struct {
 	Pages  string `json:"pages"`
 	Routes string `json:"routes"`
 	Lang   string `json:"lang"`
+	Live   string `json:"live"`
 }
 
 // header marks the files as written by tug gen, so that tools and people
@@ -62,7 +63,7 @@ func Generate(in Input) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
-	return Output{Pages: pages(in), Routes: r, Lang: langTS(in.Languages)}, nil
+	return Output{Pages: pages(in), Routes: r, Lang: langTS(in.Languages), Live: liveTS}, nil
 }
 
 func pages(in Input) string {

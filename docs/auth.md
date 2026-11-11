@@ -992,16 +992,18 @@ which a scheduled job, `prune-broadcasts`, rids of what's a minute old,
 every minute.
 
 A user's pages follow their own channel, `users.` and their ID, at
-`/broadcasts`, in `broadcasts.go`, which only their logins reach, on one
-connection a page, which `listen`, in `resources/js/lib/broadcasts.ts`,
-shares among whatever listens: the page that asks to verify the email
-listens for `verified`, and the layout's bell and the notifications'
-page for `notification`. Each reloads what it shows, as each event
-comes, and as the connection is made again, for what it missed: the
-verify page's reload goes to the dashboard once the email is verified.
-A reload waits while a request of Inertia's is in flight, as a form's
-visit loading the page it goes back to: the two at once would each read
-the flash the form left, and show it twice.
+`/broadcasts`, in `broadcasts.go`, which only their logins reach, by
+their live props ([Pages](pages.md#live-props)), `onUserChannel`'s, on
+one connection a page, the transport's that tug gen writes: the bell,
+shared with every page of a user's, for `notification`, as are the
+notifications' list; the security page's browsers for
+`presence.joined` and `presence.left`; and the verify page's `verified`,
+whose `live` event the page answers by reloading whole, which goes to
+the dashboard once the email is verified. Each is reloaded as its event
+comes, and as the connection is made again, for what it missed, and
+waits for a request of Inertia's in flight that has it, as a form's
+visit loading the page it goes back to. A guest's bell isn't live, as a
+guest follows no channel.
 An event of the app's for the user goes the same way,
 `a.hub.Publish(ctx, userChannel(user), name, data)`, and in a handler's
 transaction, with what it tells of, through

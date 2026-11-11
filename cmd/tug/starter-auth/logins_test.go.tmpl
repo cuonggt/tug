@@ -17,7 +17,7 @@ import (
 // security page lists them.
 func browsersOf(t *testing.T, c *tugtest.Client) []Browser {
 	t.Helper()
-	return tugtest.Props(c.Get("/settings/security"), Security).Browsers
+	return tugtest.Prop[[ "[[" ]]]Browser](c.Get("/settings/security"), "browsers")
 }
 
 // loggedIn is a browser that logs in as the user with email, a browser of

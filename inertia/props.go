@@ -44,6 +44,9 @@ type behavior struct {
 	fresh   bool
 
 	scroll bool
+
+	live     []listener // what refreshes the prop: see Live
+	throttle *int64     // its throttle, in milliseconds, when not the client's
 }
 
 // prop is a value that isn't plain data: one of the types below.
@@ -61,19 +64,33 @@ func call[T any](fn func() (T, error)) (any, error) {
 }
 
 // LazyProp is a prop worked out only when it goes out. Make one with Lazy.
-type LazyProp[T any] struct{ fn func() (T, error) }
+type LazyProp[T any] struct {
+	fn func() (T, error)
+	b  behavior
+}
 
 // Lazy is a prop worked out only when it goes out: on a full visit, and on
 // a partial reload that asks for it, but not on one that doesn't.
-func Lazy[T any](fn func() (T, error)) LazyProp[T] { return LazyProp[T]{fn} }
+func Lazy[T any](fn func() (T, error)) LazyProp[T] { return LazyProp[T]{fn: fn} }
 
 // Merge makes the prop one that a partial reload adds to what the client
-// has, rather than replace: see MergeProp.
+// has, rather than replace: see MergeProp. It panics on a live prop, as
+// each refresh would add the whole of it again.
 func (p LazyProp[T]) Merge(opts ...MergeOption) MergeProp[T] {
+	if len(p.b.live) > 0 {
+		panic(mergedLive)
+	}
 	return newMerge(p.fn, opts)
 }
 
-func (p LazyProp[T]) behave() behavior      { return behavior{} }
+// Live makes the prop one the client refreshes as the events opts name
+// come, on the routes they name: see On.
+func (p LazyProp[T]) Live(opts ...LiveOption) LazyProp[T] {
+	p.b = withLive(p.b, opts)
+	return p
+}
+
+func (p LazyProp[T]) behave() behavior      { return p.b }
 func (p LazyProp[T]) resolve() (any, error) { return call(p.fn) }
 func (p LazyProp[T]) missing() bool         { return p.fn == nil }
 
@@ -96,19 +113,43 @@ func (p OptionalProp[T]) Once(opts ...OnceOption) OptionalProp[T] {
 	return p
 }
 
+// Live makes the prop one the client refreshes as the events opts name
+// come, once the page has asked for it: see On.
+func (p OptionalProp[T]) Live(opts ...LiveOption) OptionalProp[T] {
+	p.b = withLive(p.b, opts)
+	return p
+}
+
 func (p OptionalProp[T]) behave() behavior      { return p.b }
 func (p OptionalProp[T]) resolve() (any, error) { return call(p.fn) }
 func (p OptionalProp[T]) missing() bool         { return p.fn == nil }
 
 // AlwaysProp is a prop that goes out with every response. Make one with
 // Always.
-type AlwaysProp[T any] struct{ v T }
+type AlwaysProp[T any] struct {
+	v T
+	b *behavior // a live one's, by a pointer, so a prop of a comparable T stays comparable
+}
 
 // Always is a prop that goes out with every response, including partial
 // reloads that don't ask for it, as the errors prop does.
-func Always[T any](v T) AlwaysProp[T] { return AlwaysProp[T]{v} }
+func Always[T any](v T) AlwaysProp[T] { return AlwaysProp[T]{v: v} }
 
-func (p AlwaysProp[T]) behave() behavior      { return behavior{always: true} }
+// Live makes the prop one the client refreshes as the events opts name
+// come: see On.
+func (p AlwaysProp[T]) Live(opts ...LiveOption) AlwaysProp[T] {
+	b := withLive(p.behave(), opts)
+	p.b = &b
+	return p
+}
+
+func (p AlwaysProp[T]) behave() behavior {
+	if p.b != nil {
+		return *p.b
+	}
+	return behavior{always: true}
+}
+
 func (p AlwaysProp[T]) resolve() (any, error) { return p.v, nil }
 func (p AlwaysProp[T]) missing() bool         { return false }
 
@@ -140,6 +181,15 @@ func (p DeferProp[T]) Merge(opts ...MergeOption) DeferProp[T] {
 // Once makes the prop one the client keeps; see OnceProp.
 func (p DeferProp[T]) Once(opts ...OnceOption) DeferProp[T] {
 	p.b = withOnce(p.b, opts)
+	return p
+}
+
+// Live makes the prop one the client refreshes as the events opts name
+// come: see On. A deferred prop is refreshed from the first load, as the
+// client fetches it, and after. Live panics on a merged prop, as each
+// refresh would add the whole of it again.
+func (p DeferProp[T]) Live(opts ...LiveOption) DeferProp[T] {
+	p.b = withLive(p.b, opts)
 	return p
 }
 
@@ -216,6 +266,9 @@ func PrependAt(path string) MergeOption {
 }
 
 func withMerge(b behavior, opts []MergeOption) behavior {
+	if len(b.live) > 0 {
+		panic(mergedLive)
+	}
 	b.merge = true
 	b.matchOn = slices.Clone(b.matchOn)
 	b.appendAt = slices.Clone(b.appendAt)
@@ -238,6 +291,13 @@ type OnceProp[T any] struct {
 // when a partial reload asks for it.
 func Once[T any](fn func() (T, error), opts ...OnceOption) OnceProp[T] {
 	return OnceProp[T]{fn: fn, b: withOnce(behavior{}, opts)}
+}
+
+// Live makes the prop one the client refreshes as the events opts name
+// come, though it keeps it across pages: see On.
+func (p OnceProp[T]) Live(opts ...LiveOption) OnceProp[T] {
+	p.b = withLive(p.b, opts)
+	return p
 }
 
 func (p OnceProp[T]) behave() behavior      { return p.b }
@@ -527,6 +587,7 @@ type resolver struct {
 	matchOn   []string
 	scroll    map[string]ScrollMeta
 	once      map[string]OnceMeta
+	live      map[string]LiveMeta
 	failed    func(path string, err error) // a rescued prop's error
 
 	// saw is told, for Inertia's DevTools, of each prop that goes out, or
@@ -609,6 +670,7 @@ func (rs *resolver) level(entries []entry, prefix string, parentResolved bool) (
 		}
 		rs.collectMerge(it.b, it.path)
 		rs.collectOnce(it.b, it.path)
+		rs.collectLive(it.b, it.path, parentResolved)
 		v, err := rs.value(v, it.path, true)
 		if err != nil {
 			return nil, err
@@ -664,6 +726,7 @@ func (rs *resolver) devtoolsProp(path string, b *behavior, rescued bool) devtool
 		p.DeepMerge = b.deep || len(b.matchOn) > 0
 	}
 	p.Rescued = rescued
+	p.Live = len(b.live) > 0
 	return p
 }
 
@@ -734,9 +797,11 @@ func (rs *resolver) leftOutOfFirstLoad(b behavior, path string) bool {
 		}
 		rs.collectMerge(b, path)
 		rs.collectOnce(b, path)
+		rs.collectLive(b, path, false)
 		return true
 	case rs.inertia && rs.clientHas(b, path):
 		rs.collectOnce(b, path)
+		rs.collectLive(b, path, false)
 		return true
 	}
 	return false

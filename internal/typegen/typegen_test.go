@@ -104,6 +104,7 @@ func generate() Output {
 			{Name: "home", Method: "GET", Path: "/{$}"},
 			{Name: "files", Path: "/files/{path...}"},
 			{Name: "posts.destroy", Method: "DELETE", Path: "/posts/{id}"},
+			{Name: "posts.search", Method: "QUERY", Path: "/posts"},
 			{Name: "login.store", Method: "POST", Path: "/login", Input: reflect.TypeFor[LoginInput]()},
 			{Name: "photos.store", Method: "POST", Path: "/photos/{token}", Input: reflect.TypeFor[PhotoInput]()},
 		},
@@ -175,6 +176,8 @@ func TestRoutesListTheirMethodAndTheParamsTheirPathNeeds(t *testing.T) {
 	contains(t, generate().Routes,
 		"  'files': { method: 'get', path: '/files/{path...}' },\n  'home': { method: 'get', path: '/{$}' },\n",
 		"  'posts.destroy': { method: 'delete', path: '/posts/{id}' },",
+		// Inertia's <Form> and router take a QUERY's method from 3.10.
+		"  'posts.search': { method: 'query', path: '/posts' },",
 		"  'home': Record<string, never>\n",
 		"  'posts.show': { id: string | number }\n",
 		"  'files': { path: string | number }\n",
@@ -321,5 +324,19 @@ func TestEveryLanguagesFormsFitOneDigit(t *testing.T) {
 				t.Errorf("%s gives %d the form %d, which no digit holds", locale, n, i)
 			}
 		}
+	}
+}
+
+func TestTugGenWritesTheTransportOfLivePropsWhichImportsNothing(t *testing.T) {
+	out := generate().Live
+	contains(t, out, header,
+		"export const live = { subscribe, socketId, onStatusChange }",
+		"new EventSource(url)",
+		"crypto.getRandomValues(bytes)",
+	)
+	// Of the shape of Inertia's LiveTransport, so an app's createInertiaApp
+	// takes it whatever adapter, and whatever packages the app has.
+	if strings.Contains(out, "import ") {
+		t.Errorf("live.ts imports, where an app has no @inertiajs/core of its own to import from:\n%s", out)
 	}
 }

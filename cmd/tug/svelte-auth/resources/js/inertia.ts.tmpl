@@ -2,6 +2,7 @@ import { createInertiaApp, type ResolvedComponent } from '@inertiajs/svelte'
 import AppLayout from '@/layouts/AppLayout.svelte'
 import AuthLayout from '@/layouts/AuthLayout.svelte'
 import SettingsLayout from '@/layouts/SettingsLayout.svelte'
+import { live } from '@/tug/live'
 import '../css/app.css'
 
 // Each page is its own chunk, loaded when a visit needs it. The Go server's
@@ -50,6 +51,10 @@ export function createApp() {
       if (name.startsWith('Settings/')) return [AppLayout, SettingsLayout]
       return AppLayout
     },
+    // The transport of the live props, tug gen's: a page's props that
+    // listen for the app's events, as inertia.On names them, are
+    // refreshed as each comes, in the browser alone.
+    live,
     progress: { color: '#737373' },
   })
 }

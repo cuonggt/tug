@@ -257,6 +257,40 @@ request, with the same answers, such as a draft about to be published:
 returns `validate.Errors`, or nil, in English, or in a language it's
 given, as `validate.Struct(v, catalog.In("vi"))`.
 
+## A search, by QUERY
+
+```go
+type SearchInput struct {
+	Term string `json:"term"`
+}
+
+func (p *posts) archive(c *tug.Ctx) error {
+	var in SearchInput
+	if err := c.Bind(&in); err != nil {
+		return err
+	}
+	// ...
+}
+
+app.Get("/posts", p.archive).Name("posts.archive")
+app.Query("/posts", p.archive).Name("posts.search").Takes(SearchInput{})
+```
+
+```tsx
+<Form<Inputs['posts.search']> action={form('posts.search')}>
+```
+
+A search's form sends its fields by `QUERY`, in its body, where a GET's
+would go in its query string, which a long or nested search outgrows
+([Pages](pages.md#a-page-a-query-renders)). `form()` gives a `QUERY`
+route's form `method: 'query'`, and `Bind` reads the body as it reads a
+POST's: JSON, as Inertia's client sends it, a multipart form, with a
+file, and a urlencoded one, which Go's `ParseForm` reads for a POST, a
+PUT or a PATCH alone. The same handler takes the GET of its path, whose
+`Bind` finds no body, and searches for nothing. A `QUERY` is checked for
+CSRF as a POST is, as Go's `CrossOriginProtection` lets a GET, a HEAD and
+an OPTIONS alone through, so another site's page can't send one.
+
 ## Checking each field as it's left
 
 ```tsx

@@ -1,35 +1,22 @@
 import { router } from '@inertiajs/react'
 import { LogOut, Monitor } from 'lucide-react'
-import { useEffect } from 'react'
 import Heading from '@/components/heading'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { listen } from '@/lib/broadcasts'
 import { useLang } from '@/lib/lang'
 import type { PageProps } from '@/tug/pages'
 import { route } from '@/tug/routes'
 
 // LoginSettings lists the browsers the user is logged in from, this one
 // first, and logs one of the others out, or all of them: a browser left
-// logged in on a lost laptop, say. The handlers are in logins.go.
+// logged in on a lost laptop, say. The handlers are in logins.go. The list
+// is live: a browser of the account opening or closing shows at once, as
+// each page is on the user's channel while it's open.
 export default function LoginSettings({ browsers }: PageProps<'Settings/Security'>) {
   const { t, d } = useLang()
   // day is a date as the page shows it, in the page's own language, and in
   // the reader's own zone once the page is in their browser.
   const day = (at: string) => d(at, { dateStyle: 'medium' })
-
-  // A browser of the account opening or closing shows at once: each page
-  // is on the user's channel while it's open, and the app says as one
-  // comes or goes.
-  useEffect(() => {
-    const reload = () => router.reload({ only: ['browsers'] })
-    const came = listen('presence.joined', reload)
-    const went = listen('presence.left', reload)
-    return () => {
-      came()
-      went()
-    }
-  }, [])
 
   return (
     <section className="space-y-6">

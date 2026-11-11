@@ -223,7 +223,7 @@ func (p SimplePaginated[T]) Paging() inertia.Paging {
 // which is the app's to write.
 func CursorPaginate[T, C any](c *Ctx, perPage int, fetch func(after *C, limit int) ([]T, error), cursor func(item T) C, opts ...PageOption) (CursorPaginated[T], error) {
 	o := pageOptionsOf(opts, "cursor", perPage)
-	raw := c.Query(o.name)
+	raw := c.pageParam(o.name)
 	var after *C
 	if raw != "" {
 		if data, err := base64.RawURLEncoding.DecodeString(raw); err == nil {
@@ -273,14 +273,27 @@ func (p CursorPaginated[T]) Paging() inertia.Paging {
 	return paging
 }
 
-// pageNumber reads the page the query parameter name asks for: 1, unless
-// it's a number more than that.
+// pageNumber reads the page the parameter name asks for: 1, unless it's a
+// number more than that.
 func (c *Ctx) pageNumber(name string) int {
-	page, err := strconv.Atoi(c.Query(name))
+	page, err := strconv.Atoi(c.pageParam(name))
 	if err != nil || page < 1 {
 		return 1
 	}
 	return page
+}
+
+// pageParam is the value of a list's parameter name, its page or its
+// cursor: the query's, or first a QUERY's body's, where Inertia's client
+// sends it on a page a QUERY rendered, with the rest of what rendered the
+// page, as infinite scroll does.
+func (c *Ctx) pageParam(name string) string {
+	if c.r.Method == methodQuery {
+		if v, ok := c.bodyParam(name); ok {
+			return v
+		}
+	}
+	return c.Query(name)
 }
 
 // pageLinks makes the links to the list's pages, by number: the request's

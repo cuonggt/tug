@@ -27,8 +27,12 @@ type Ctx struct {
 	// Takes, Bind checks.
 	route *Route
 
-	// body is the JSON body, once Bind has read it.
-	body []byte
+	// body is the request's body, once readBody has read it, or the error
+	// it failed with, and bodyLimited is whether it's held to
+	// Config.BodyLimit yet.
+	body        []byte
+	bodyErr     error
+	bodyLimited bool
 
 	// locale is the request's language, once Locale has picked it.
 	locale string

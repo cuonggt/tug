@@ -1,5 +1,6 @@
 import { createInertiaApp, type ResolvedComponent } from '@inertiajs/react'
 import { createRoot } from 'react-dom/client'
+import { live } from './tug/live'
 import '../css/app.css'
 
 // Each page is its own chunk, loaded when a visit needs it. The Go server's
@@ -22,6 +23,10 @@ createInertiaApp({
     }
     return (await load()).default
   },
+  // The live props' transport, which tug gen writes: a page's props that
+  // listen for the posts' events, at /posts/events, are refreshed as each
+  // comes.
+  live,
   setup({ el, App, props }) {
     createRoot(el).render(<App {...props} />)
   },

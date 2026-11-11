@@ -203,6 +203,16 @@ r := c.Get("/?page=3", tugtest.Only("posts"), tugtest.Header("X-Inertia-Infinite
 A partial reload before the client is on a page fails the test: its
 component is the page's.
 
+A page a `QUERY` rendered, by `c.Query(target, body)`, is reloaded by a
+`QUERY` with the body that rendered it, as the client does, unless the
+body was a form with files, or the page has errors; a page a GET showed
+is reloaded by a GET, as a refresh asks for it:
+
+```go
+c.Query("/posts", map[string]any{"term": "go"})
+posts := tugtest.Prop[tug.Paginated[Post]](c.Reload(tugtest.Only("posts")), "posts") // still the search's
+```
+
 ## What the client keeps
 
 The client keeps the page it's on, as a browser does, so a partial reload
@@ -363,7 +373,22 @@ func TestTheVerifyPageHearsTheEmailVerified(t *testing.T) {
 A subscription hears what's published once the store carries it, a
 moment after, and a quarter of a second in a table, so `listening`, in
 the starter's `broadcasts_test.go`, publishes an event until it comes
-back, and `heard` waits for one by its name. A client's visit returns
+back, and `heard` waits for one by its name.
+
+What a page does as an event comes is the client's: `c.Hear(url, event)`
+makes the reload the client makes as `event` comes on the route at
+`url`, of the page's live props that listen for it there, and that the
+page has, as the client asks for none it hasn't loaded
+([Pages](pages.md#live-props)). It fails the test when no prop listens
+for the event:
+
+```go
+c.Get("/dashboard")
+r := c.Hear("/broadcasts", "notification")
+if n := tugtest.Prop[Bell](r, "bell").Unread; n != 1 {
+	t.Errorf("the bell counts %d, want 1", n)
+}
+``` A client's visit returns
 once the response is whole, which a stream never is: a test of a route
 of `c.Events` runs the app on an `httptest.Server`, and reads the stream
 as it comes, as the starter's `TestAUsersPagesHearTheirOwnChannelAlone`

@@ -129,6 +129,9 @@ func newApp(cfg tug.Config, build fs.FS, hotFile string, keys [][]byte, countTim
 	p := newPosts(countTime, &broadcast.Hub{})
 	app.Get("/", p.index).Name("posts.index")
 	app.Get("/posts", p.archive).Name("posts.archive")
+	// The archive searched, by QUERY, as its form sends it: the page is
+	// /posts, which a refresh asks for by GET, which has every post.
+	app.Query("/posts", p.archive).Name("posts.search").Takes(SearchInput{})
 	app.Get("/posts.csv", p.export).Name("posts.export")
 	app.Get("/posts/events", p.events).Name("posts.events")
 	app.Get("/posts/create", p.create).Name("posts.create")
@@ -157,7 +160,7 @@ type Stats struct {
 
 type PostsIndexProps struct {
 	Posts inertia.ScrollProp[Post] `json:"posts"` // a page at a time, as the list scrolls
-	Stats inertia.DeferProp[Stats] `json:"stats"`
+	Stats inertia.DeferProp[Stats] `json:"stats"` // live, as a post is made, changed or deleted
 }
 
 var PostsIndex = tug.Page[PostsIndexProps]("Posts/Index")
@@ -167,7 +170,14 @@ var PostsIndex = tug.Page[PostsIndexProps]("Posts/Index")
 var Success = tug.Flash[string]("success")
 
 type PostsArchiveProps struct {
-	Posts tug.Paginated[Post] `json:"posts"` // a page by its number, with the links of a pager
+	Term  string                                `json:"term"`  // what a search asked for, or "" for every post
+	Posts inertia.LazyProp[tug.Paginated[Post]] `json:"posts"` // a page by its number, with the links of a pager: live
+}
+
+// SearchInput is the archive's search, which its form sends by QUERY: what
+// a post's title has, whatever its case.
+type SearchInput struct {
+	Term string `json:"term"`
 }
 
 var PostsArchive = tug.Page[PostsArchiveProps]("Posts/Archive")
@@ -252,10 +262,25 @@ func (p *posts) total() (int, error) {
 // page is the posts in order from offset, limit of them at most, as a
 // query's LIMIT and OFFSET would read them from a table.
 func (p *posts) page(limit, offset int) ([]Post, error) {
-	list := p.list()
-	from := min(offset, len(list))
-	return list[from:min(from+limit, len(list))], nil
+	return pageOf(p.list(), limit, offset), nil
 }
+
+func pageOf(list []Post, limit, offset int) []Post {
+	from := min(offset, len(list))
+	return list[from:min(from+limit, len(list))]
+}
+
+// titled is the posts whose title has term in it, whatever its case, as a
+// query's LIKE would find them.
+func (p *posts) titled(term string) []Post {
+	return slices.DeleteFunc(p.list(), func(post Post) bool {
+		return !strings.Contains(strings.ToLower(post.Title), strings.ToLower(term))
+	})
+}
+
+// postEvents are the events of the posts channel, at /posts/events, which
+// refresh a live prop of the posts.
+var postEvents = inertia.On("/posts/events", "created", "updated", "deleted")
 
 func (p *posts) count() (Stats, error) {
 	time.Sleep(p.countTime)
@@ -291,17 +316,31 @@ func (p *posts) index(c *tug.Ctx) error {
 			page, err := tug.Paginate(c, perPage, p.total, p.page)
 			return page.Data, page.Paging(), err
 		}).MatchOn("id"),
-		Stats: inertia.Defer(p.count),
+		// Counted again as a post is made, changed or deleted, here or in
+		// another browser. The list is left as it is, as its pages merge by
+		// ID: a reload would keep a post that's gone, and a new post goes on
+		// the last page, which the list may not have yet.
+		Stats: inertia.Defer(p.count).Live(postEvents),
 	})
 }
 
-// archive is every post, in numbered pages, with a pager.
+// archive is every post, in numbered pages, with a pager, or those whose
+// title has what a search sent, by QUERY, whose page of them its pager
+// asks for in its body. The page in view is live: a post made, changed or
+// deleted, here or in another browser, shows on it.
 func (p *posts) archive(c *tug.Ctx) error {
-	page, err := tug.Paginate(c, perPage, p.total, p.page)
-	if err != nil {
+	var in SearchInput
+	if err := c.Bind(&in); err != nil {
 		return err
 	}
-	return PostsArchive.Render(c, PostsArchiveProps{Posts: page})
+	in.Term = strings.TrimSpace(in.Term)
+	posts := inertia.Lazy(func() (tug.Paginated[Post], error) {
+		found := p.titled(in.Term)
+		return tug.Paginate(c, perPage,
+			func() (int, error) { return len(found), nil },
+			func(limit, offset int) ([]Post, error) { return pageOf(found, limit, offset), nil })
+	})
+	return PostsArchive.Render(c, PostsArchiveProps{Term: in.Term, Posts: posts.Live(postEvents)})
 }
 
 // export is every post as CSV, for a spreadsheet, written a row at a time
@@ -420,16 +459,21 @@ func (p *posts) destroy(c *tug.Ctx) error {
 
 // changed tells the pages open that the post with id was created, updated
 // or deleted, for them to reload what they show of it. The event says what
-// changed, not the post, which a page asks for as it reloads.
+// changed, not the post, which a page asks for as it reloads. It goes to
+// the others: the tab that made the change has it already, as its visit
+// shows it, and drops the event by its socket ID, which ToOthers reads
+// from the request.
 func (p *posts) changed(c *tug.Ctx, what string, id int64) {
-	if err := p.hub.Publish(c.Context(), "posts", what, map[string]int64{"id": id}); err != nil {
+	event := inertia.Event(map[string]int64{"id": id}, inertia.ToOthers(c.Request()))
+	if err := p.hub.Publish(c.Context(), "posts", what, event); err != nil {
 		slog.WarnContext(c.Context(), "the pages open weren't told of a post", "post", id, "err", err)
 	}
 }
 
-// events is the posts channel, as server-sent events, which the pages
-// follow with EventSource. A page that falls behind has its stream ended,
-// and connects again, reloading what it shows.
+// events is the posts channel, as server-sent events, which the pages'
+// live props follow, through tug gen's resources/js/tug/live.ts. A page
+// that falls behind has its stream ended, and connects again, reloading
+// its live props.
 func (p *posts) events(c *tug.Ctx) error {
 	return c.Events(func(ctx context.Context, send func(tug.Event) error) error {
 		for e := range p.hub.Subscribe(ctx, "posts") {

@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { Link, router } from '@inertiajs/svelte'
-  import { onMount } from 'svelte'
+  import { Link } from '@inertiajs/svelte'
   import Head from '@/Head.svelte'
   import { buttonVariants } from '@/components/ui/button'
   import { useLang } from '@/lib/lang'
-  import { listen } from '@/lib/broadcasts'
   import { cn } from '@/lib/utils'
   import type { PageProps } from '@/tug/pages'
 
@@ -13,11 +11,9 @@
 
   // Notifications is what happened to the user's account, the newest first,
   // a page at a time, which its handler, in notifications.go, marks read as
-  // it shows them: the ones new to this page have a dot. A notification made
-  // while it's open shows at once.
+  // it shows them: the ones new to this page have a dot. The list is live,
+  // so a notification made while it's open shows at once.
   let { list }: PageProps<'Notifications'> = $props()
-
-  onMount(() => listen('notification', () => router.reload({ only: ['list', 'bell'] })))
 
   // when is a time as the page shows it, with the name of the zone it's in:
   // the app's own, and the reader's once the page is in their browser.

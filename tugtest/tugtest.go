@@ -37,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/session"
 )
 
@@ -51,7 +52,9 @@ import (
 // props go over them, so Props reads the page a browser would show, and
 // the props the page object says merge are merged, a list appended or
 // prepended. A once prop, which goes out once, is kept by the key the page
-// object gives it and asked for no more, as Inertia's client asks.
+// object gives it and asked for no more, as Inertia's client asks. A page
+// a QUERY rendered is reloaded by a QUERY with the same body, and its live
+// props are refreshed as Hear hears their events.
 //
 // A Client is one browser, for one goroutine at a time.
 type Client struct {
@@ -71,6 +74,12 @@ type Client struct {
 	host    string
 	props   json.RawMessage // that page's props, as the client holds them: what a partial reload merges into
 	once    map[string]kept // the once props it has, by the key the page object keeps each by
+
+	// queried is the JSON a QUERY rendered the page with, which its reloads
+	// send again, or nil for a page a QUERY didn't render; live is the
+	// page's live props, which Hear refreshes.
+	queried []byte
+	live    map[string]inertia.LiveMeta
 }
 
 // New returns a client with the app open: handler is a *tug.App, or any
@@ -154,6 +163,16 @@ func (c *Client) Get(target string, opts ...Option) *Response {
 	return c.Visit(http.MethodGet, target, nil, opts...)
 }
 
+// Query sends body to target with a QUERY, as Inertia's router.query and
+// <Form method="query"> send a search: see Visit. The page it renders, at
+// target, is reloaded as it was rendered, by a QUERY with body, unless
+// body is a form with files, as the client keeps none, or the page has
+// errors.
+func (c *Client) Query(target string, body any, opts ...Option) *Response {
+	c.t.Helper()
+	return c.Visit("QUERY", target, body, opts...)
+}
+
 // Post sends body to target, as a form does: see Visit.
 func (c *Client) Post(target string, body any, opts ...Option) *Response {
 	c.t.Helper()
@@ -218,14 +237,52 @@ func (c *Client) Visit(method, target string, body any, opts ...Option) *Respons
 
 // Reload visits the page the client is on again, as the client's
 // router.reload does: with Only or Except, a partial reload, such as the
-// one that fetches a page's deferred props.
+// one that fetches a page's deferred props. A page a QUERY rendered is
+// reloaded by a QUERY with the body that rendered it.
 func (c *Client) Reload(opts ...Option) *Response {
 	c.t.Helper()
 	if c.page == "" {
 		c.t.Fatalf("reloading: the client isn't on a page yet: visit one first")
 		return c.none()
 	}
+	if c.queried != nil {
+		return c.Visit("QUERY", c.referer(), c.queried, opts...)
+	}
 	return c.Visit(http.MethodGet, c.referer(), nil, opts...)
+}
+
+// Hear makes the reload Inertia's client makes as event comes on the route
+// at url, as "/broadcasts", which the page's live props follow: a partial
+// reload of the props of the page the client is on that listen for it
+// there, and that the page has, as the client asks for none it hasn't
+// loaded. It's how a test says a page follows a change. It fails the test
+// when no prop of the page's listens for the event.
+func (c *Client) Hear(url, event string) *Response {
+	c.t.Helper()
+	have := object(c.props)
+	var props []string
+	for path, meta := range c.live {
+		if _, loaded := at(have, path); loaded && listens(meta, url, event) {
+			props = append(props, path)
+		}
+	}
+	if len(props) == 0 {
+		c.t.Fatalf("hearing %s on %s: no prop of the page's listens for it, of its live props %v", event, url, slices.Sorted(maps.Keys(c.live)))
+		return c.none()
+	}
+	slices.Sort(props)
+	return c.Reload(Only(props...))
+}
+
+// listens reports whether a live prop's meta has it refreshed as event
+// comes on the route at url.
+func listens(meta inertia.LiveMeta, url, event string) bool {
+	for _, l := range meta.Listeners {
+		if l.Channel.Name == url && slices.Contains(l.Events, event) {
+			return true
+		}
+	}
+	return false
 }
 
 // FirstVisit loads target whole, as a browser does an address typed in, a
@@ -369,9 +426,46 @@ func (c *Client) serve(req *request) *Response {
 	r := &Response{Code: rec.Code, Header: rec.Header(), Body: rec.Body.String(), t: c.t, client: c, req: req}
 	if r.readPage() && r.Page.Component != "" {
 		r.props = c.hold(r)
+		c.live = liveOf(c.live, r, r.Page.Component == c.page)
+		c.queried = queriedBy(req, r)
 		c.page, c.url, c.host, c.Version = r.Page.Component, r.Page.URL, req.host, r.Page.Version
 	}
 	return r
+}
+
+// liveOf is the live props of the page r shows, as the client keeps them:
+// a partial reload's go over those the page had, as it names only the
+// props it resolved, and any other answer's replace them.
+func liveOf(had map[string]inertia.LiveMeta, r *Response, samePage bool) map[string]inertia.LiveMeta {
+	if !samePage || r.req == nil || r.req.header.Get("X-Inertia-Partial-Component") == "" {
+		return maps.Clone(r.Page.LiveProps)
+	}
+	live := maps.Clone(had)
+	if live == nil {
+		live = map[string]inertia.LiveMeta{}
+	}
+	maps.Copy(live, r.Page.LiveProps)
+	return live
+}
+
+// queriedBy is the body that rendered r's page by a QUERY, which the page's
+// reloads send again, as Inertia's client keeps it: a QUERY's JSON, its
+// page at the address it was sent to, with no errors, or nil otherwise, as
+// for a form with files, which the client keeps none of.
+func queriedBy(req *request, r *Response) []byte {
+	if req.method != "QUERY" || r.Page.URL != req.path {
+		return nil
+	}
+	if req.body != nil && !strings.HasPrefix(req.header.Get("Content-Type"), "application/json") {
+		return nil
+	}
+	if errs, _ := at(object(r.props), "errors"); len(object(errs)) > 0 {
+		return nil
+	}
+	if req.body == nil {
+		return []byte("{}") // as the client sends a QUERY with no data
+	}
+	return req.body
 }
 
 // hold is the page's props as the client holds them after r, which is what

@@ -23,8 +23,9 @@ func runGen(args []string) error {
 
 Writes the TypeScript of the app's pages, named routes and languages to
 %s: pages.ts, with the props of each page declared with tug.Page,
-routes.ts, with route() to build the path of each named route, and
-lang.ts, with t() and choice() to say a page's own words.
+routes.ts, with route() to build the path of each named route,
+lang.ts, with t() and choice() to say a page's own words, and live.ts,
+the transport of live props, which createInertiaApp's live takes.
 
 tug gen builds the app and runs it, and the app's Run writes the types
 instead of serving: whatever main does before Run, it does for tug gen too.
@@ -81,7 +82,10 @@ func generate(env []string, bin string) ([]string, error) {
 	}
 
 	var changed []string
-	for name, content := range map[string]string{"pages.ts": ts.Pages, "routes.ts": ts.Routes, "lang.ts": ts.Lang} {
+	for name, content := range map[string]string{"pages.ts": ts.Pages, "routes.ts": ts.Routes, "lang.ts": ts.Lang, "live.ts": ts.Live} {
+		if content == "" {
+			continue // an app on a tug from before the file, which writes none
+		}
 		path := filepath.Join(genDir, name)
 		ok, err := writeIfChanged(path, []byte(content))
 		if err != nil {
@@ -95,13 +99,13 @@ func generate(env []string, bin string) ([]string, error) {
 }
 
 // generated is what the app writes when tug gen runs it: the TypeScript
-// of its pages, of its routes and of its languages, the texts tug says,
-// with its rules', which tug lang reads, and every route, which tug
-// routes lists.
+// of its pages, of its routes and of its languages, and the transport of
+// its live props, the texts tug says, with its rules', which tug lang
+// reads, and every route, which tug routes lists.
 type generated struct {
-	Pages, Routes, Lang string
-	Texts               []string
-	RouteList           []listedRoute
+	Pages, Routes, Lang, Live string
+	Texts                     []string
+	RouteList                 []listedRoute
 }
 
 // runForGen runs the app with TUG_GEN, as tug gen does, and reads back

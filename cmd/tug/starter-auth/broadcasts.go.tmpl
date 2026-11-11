@@ -6,24 +6,35 @@ import (
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/broadcast"
+	"github.com/cuonggt/tug/inertia"
 )
 
 // Broadcasts: events the app's broadcast.Hub carries between its
 // instances, to the pages open on any of them, through the database:
-// broadcasts_db.go. A user's pages listen on their own channel, at
-// /broadcasts, as the page that asks to verify the email does, which
-// moves on when the email is verified, in another tab or on another
-// device.
+// broadcasts_db.go. A user's pages follow their own channel, at
+// /broadcasts, by their live props, which Inertia refreshes as an event
+// comes: the header's bell rings as a notification is made, and the page
+// that asks to verify the email moves on as it's verified, in another tab
+// or on another device.
 
 // userChannel is a user's own channel, which their pages alone listen on.
 func userChannel(u *User) string {
 	return "users." + u.authID()
 }
 
+// onUserChannel has a live prop refreshed as one of events comes on the
+// user's own channel, which their pages follow at /broadcasts, with the
+// transport tug gen writes, resources/js/tug/live.ts. Every page of theirs
+// has one, the bell, so each is on the channel while it's open, which the
+// security page says of each browser.
+func onUserChannel(events ...string) inertia.LiveOption {
+	return inertia.On("/broadcasts", events...)
+}
+
 // userEvents is /broadcasts: the events on the user's own channel, which
-// their pages follow with EventSource. The stream ends as the hub closes
-// the subscription, as for a page that fell behind, and the page, which
-// connects again, reloads what it shows.
+// their pages follow by their live props. The stream ends as the hub
+// closes the subscription, as for a page that fell behind, and the page,
+// which connects again, reloads its live props, for what it missed.
 //
 // Entering the channel, rather than only following it, puts the login on
 // it while the page is open, so the other pages hear presence.joined and

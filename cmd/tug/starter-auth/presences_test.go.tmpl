@@ -109,14 +109,14 @@ func TestTheSecurityPageSaysWhichBrowsersAreOpen(t *testing.T) {
 	// Her own has no page open, as the tests' client holds none.
 	shown := func() (int, int) {
 		t.Helper()
-		props := tugtest.Props(ann.Get("/settings/security"), Security)
+		browsers := tugtest.Prop[[ "[[" ]]]Browser](ann.Get("/settings/security"), "browsers")
 		opened := 0
-		for _, b := range props.Browsers {
+		for _, b := range browsers {
 			if b.Open {
 				opened++
 			}
 		}
-		return len(props.Browsers), opened
+		return len(browsers), opened
 	}
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		browsers, opened := shown()

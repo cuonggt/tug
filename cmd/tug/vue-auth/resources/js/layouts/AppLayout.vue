@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { Link, router, usePage } from '@inertiajs/vue3'
+import { Link, usePage } from '@inertiajs/vue3'
 import { Bell } from '@lucide/vue'
-import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed } from 'vue'
 import AppLogo from '@/components/AppLogo.vue'
 import UserMenu from '@/components/UserMenu.vue'
 import { Button } from '@/components/ui/button'
 import { useLang } from '@/lib/lang'
-import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
   import { text } from '@/tug/lang'
 import { route } from '@/tug/routes'
@@ -22,20 +21,10 @@ const nav = [{ title: text('Dashboard'), href: route('dashboard') }]
 // logged in, or the way in for a guest, as on an error page.
 const page = usePage()
 const user = computed(() => page.props.auth.user)
+// The bell is live: a notification made in another tab, or on another
+// device, is counted at once, as the app says so on the user's own
+// channel.
 const unread = computed(() => page.props.bell.unread)
-
-// A notification made in another tab, or on another device, is counted
-// at once: the app says so on the user's own channel, which the layout
-// follows from its mount, in the browser, for as long as someone's logged
-// in.
-let stop: (() => void) | undefined
-const follow = (id: number | undefined) => {
-  stop?.()
-  stop = id ? listen('notification', () => router.reload({ only: ['bell'] })) : undefined
-}
-onMounted(() => follow(user.value?.id))
-watch(() => user.value?.id, follow)
-onUnmounted(() => stop?.())
 </script>
 
 <template>

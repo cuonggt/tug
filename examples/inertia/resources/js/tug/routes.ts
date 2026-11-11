@@ -6,6 +6,10 @@ export interface PostInput {
   tags: string
 }
 
+export interface SearchInput {
+  term: string
+}
+
 // routes are the app's named routes: the method each takes, and the path
 // pattern its URL is built from.
 export const routes = {
@@ -16,6 +20,7 @@ export const routes = {
   'posts.events': { method: 'get', path: '/posts/events' },
   'posts.export': { method: 'get', path: '/posts.csv' },
   'posts.index': { method: 'get', path: '/{$}' },
+  'posts.search': { method: 'query', path: '/posts' },
   'posts.show': { method: 'get', path: '/posts/{id}' },
   'posts.store': { method: 'post', path: '/posts' },
   'posts.update': { method: 'put', path: '/posts/{id}' },
@@ -30,6 +35,7 @@ export interface Params {
   'posts.events': Record<string, never>
   'posts.export': Record<string, never>
   'posts.index': Record<string, never>
+  'posts.search': Record<string, never>
   'posts.show': { id: string | number }
   'posts.store': Record<string, never>
   'posts.update': { id: string | number }
@@ -41,6 +47,7 @@ export type RouteName = keyof Params
 // it: a form's fields, and the keys of its errors, as
 // <Form<Inputs['login.store']>> and useForm<Inputs['login.store']> take them.
 export interface Inputs {
+  'posts.search': SearchInput
   'posts.store': PostInput
   'posts.update': PostInput
 }

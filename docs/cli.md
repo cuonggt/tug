@@ -394,6 +394,10 @@ date". It has no flags.
 - `lang.ts` has `t()` and `choice()`, which say a page's own words in the
   request's language, and the form each of the app's languages gives a
   count, from the rules package `lang` has.
+- `live.ts` has `live`, the transport of live props, which
+  `createInertiaApp` takes: the same in every app, tug's half of the
+  protocol between a page and the routes of `c.Events` its props follow.
+  An app on a tug from before it gets none.
 
 [TypeScript](typescript.md) has what each Go type becomes.
 

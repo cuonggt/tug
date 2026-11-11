@@ -147,6 +147,7 @@ type Prop struct {
 	MergeDirection string  `json:"mergeDirection,omitempty"` // "append" or "prepend"
 	DeepMerge      bool    `json:"deepMerge,omitempty"`
 	Rescued        bool    `json:"rescued,omitempty"`
+	Live           bool    `json:"live,omitempty"` // refreshed as events come
 }
 
 // Route is the route that answered, as an entry says it. Its action is the

@@ -96,6 +96,39 @@ test('every post comes in numbered pages, with a pager', async ({ page }) => {
   await expect(page.locator('.posts li').first()).toHaveText('Post 11')
 })
 
+test('a search goes by QUERY, its pages too, is there to go back to, and a refresh asks by GET for every post', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('link', { name: 'Every post, by page' }).click()
+  await expect(page.getByRole('heading', { name: 'Every post' })).toBeVisible()
+
+  // The search's term goes in the body, and the page is /posts still.
+  const searched = page.waitForRequest((r) => r.method() === 'QUERY')
+  await page.getByLabel('Search titles').fill('post')
+  await page.getByRole('button', { name: 'Search' }).click()
+  expect((await searched).postDataJSON()).toEqual({ term: 'post' })
+  await expect(page.getByRole('heading', { name: 'Posts with “post” in their title' })).toBeVisible()
+  await expect(page).toHaveURL(/\/posts$/)
+
+  // Its second page, asked for by QUERY too, with the term the page was
+  // searched for, and the page in the body.
+  const second = page.waitForRequest((r) => r.method() === 'QUERY' && r.postDataJSON()?.page === 2)
+  await page.getByRole('navigation', { name: 'Pages' }).getByRole('button', { name: '2', exact: true }).click()
+  expect((await second).postDataJSON()).toEqual({ term: 'post', page: 2 })
+  await expect(page.getByText(/^11 to \d+ of/)).toBeVisible()
+
+  // Gone back to from a post, the search is as it was left.
+  await page.locator('.posts li a').first().click()
+  await expect(page).toHaveURL(/\/posts\/\d+$/)
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Posts with “post” in their title' })).toBeVisible()
+  await expect(page.getByText(/^11 to \d+ of/)).toBeVisible()
+
+  // A refresh loads /posts by GET, with no body: every post.
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Every post' })).toBeVisible()
+  await expect(page.getByText('1 to 10 of 25')).toBeVisible()
+})
+
 test('every post downloads as CSV, a file to save', async ({ page }) => {
   await page.goto('/posts')
   const download = page.waitForEvent('download')
@@ -197,7 +230,13 @@ test('a post made in another browser shows in this one, on its page and in the s
   await elsewhere.goto('/posts/create')
   await elsewhere.getByLabel('Title').fill('Made elsewhere')
   await elsewhere.getByLabel('Body').fill('Shown in the other browser as it is made.')
+  // Its request says the socket ID of the page that made it, which the
+  // event carries, for that page to drop.
+  const made = elsewhere.waitForRequest(
+    (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/posts' && !r.headers()['precognition'],
+  )
   await elsewhere.getByRole('button', { name: 'Create post' }).click()
+  expect((await made).headers()['x-socket-id']).toMatch(/^[0-9a-f]{24}$/)
   await expect(elsewhere.getByRole('heading', { name: 'Made elsewhere' })).toBeVisible()
   await elsewhere.close()
 

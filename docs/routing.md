@@ -165,7 +165,10 @@ app.Delete("/posts/{id}", destroy)
 `Get`, `Post`, `Put`, `Patch`, `Delete` and `Options` add a route for their
 method, and `Any` one for every method. `Handle(method, path, h)` takes the
 method as a string, where `""` is every method. A `Get` route answers HEAD
-requests too.
+requests too. `Query` adds a route of the `QUERY` method, a request as safe
+as a GET whose data is in its body, as Inertia's client sends a search
+too big for a query string, whose page takes a GET too, as a route of its
+own ([Pages](pages.md#a-page-a-query-renders)).
 
 Paths are `ServeMux` patterns. `{id}` is one segment: `/posts/{id}` takes
 `/posts/42`, and `c.Param("id")` is `"42"`. `{path...}`, at the end, is the
@@ -709,6 +712,9 @@ a line break, or data JSON can't hold, is `send`'s error, and isn't sent.
   an event another instance has. Package `broadcast` sends one to every
   page that follows a channel, whichever instance it's on
   ([Broadcasting](broadcasting.md)).
+- A page's live props follow a route of events by its path, with the
+  transport tug gen writes, and the client reloads them as the events
+  they name come ([Pages](pages.md#live-props)).
 
 ## Binding
 

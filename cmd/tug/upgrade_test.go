@@ -387,7 +387,11 @@ func gitApp(t *testing.T, root string) {
 	for _, args := range [][]string{
 		{"init", "-q"},
 		{"add", "-A"},
-		{"-c", "user.name=tug", "-c", "user.email=tug@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", "Make the app"},
+		// No maintenance, which a commit starts in the background past
+		// git's thresholds, and which would be writing in the repository as
+		// the test's directory is taken away.
+		{"-c", "user.name=tug", "-c", "user.email=tug@example.com", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0",
+			"commit", "-q", "--no-verify", "-m", "Make the app"},
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = root

@@ -149,8 +149,11 @@ type SecurityProps struct {
 	Passkeys []Passkey `json:"passkeys"`
 
 	// Browsers are the browsers the user is logged in from, this one
-	// first, each of which they can log out: logins.go.
-	Browsers []Browser `json:"browsers"`
+	// first, each of which they can log out, and which has a page open
+	// now: logins.go. They're live, so a browser opened or closed
+	// elsewhere shows at once.
+	[[- /* Two brackets open tug new's placeholders, so a placeholder writes them. */]]
+	Browsers inertia.LazyProp[[ "[[" ]]]Browser] `json:"browsers"`
 }
 
 // TwoFactorSetup is what sets up an authenticator app.
@@ -164,26 +167,28 @@ func (a *app) securityPage(c *tug.Ctx, user *User) error {
 	if err != nil {
 		return err
 	}
+	ctx := c.Context()
 	login, _ := auth.LoginID(c.Session())
-	logins, err := a.browsers.of(c.Context(), user.ID, hashOf(login), time.Now())
-	if err != nil {
-		return err
-	}
-	// Which of them have a page open now, from who's on the user's
-	// channel: the page hears presence.joined and presence.left, and
-	// reloads this list, so a browser opened or closed elsewhere shows at
-	// once.
-	open, err := a.openNow(c.Context(), user)
-	if err != nil {
-		return err
-	}
-	for i, l := range logins {
-		logins[i].Open = open[l.member]
-	}
+	browsers := inertia.Lazy(func() ([]Browser, error) {
+		logins, err := a.browsers.of(ctx, user.ID, hashOf(login), time.Now())
+		if err != nil {
+			return nil, err
+		}
+		// Which of them have a page open now, from who's on the user's
+		// channel, which each page enters as it follows it.
+		open, err := a.openNow(ctx, user)
+		if err != nil {
+			return nil, err
+		}
+		for i, l := range logins {
+			logins[i].Open = open[l.member]
+		}
+		return logins, nil
+	})
 	props := SecurityProps{
 		User:     *user,
 		Passkeys: passkeys,
-		Browsers: logins,
+		Browsers: browsers.Live(onUserChannel("presence.joined", "presence.left")),
 		RecoveryCodes: inertia.Optional(func() ([]string, error) {
 			return a.openCodes(user.RecoveryCodes)
 		}),

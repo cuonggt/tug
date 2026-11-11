@@ -389,7 +389,7 @@ func (a *App) withoutTrailingSlash(r *http.Request) (string, bool) {
 // 405's Allow header.
 func (a *App) allowedMethods(r *http.Request) []string {
 	var allowed []string
-	for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions} {
+	for _, m := range []string{http.MethodGet, methodQuery, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions} {
 		probe := *r
 		probe.Method = m
 		if m == r.Method || !a.routed(&probe) {

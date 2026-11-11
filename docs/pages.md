@@ -445,6 +445,14 @@ for a second list on one page, and leaves the first's as it is. tug gen
 writes each kind as it writes any generic struct, as `Paginated_Post`, so
 a page without a count has no `total` in its TypeScript.
 
+On a page a `QUERY` rendered ([A page a QUERY
+renders](#a-page-a-query-renders)), the client sends a reload's data in
+its body, infinite scroll's next page among it, and the paginators read
+`page` and `cursor` from the body first, and the query after. The links
+of such a page are a GET's, `?page=2`, which would go without what the
+search sent: its pager asks for a page by `router.reload({ data: { page }
+})` instead, as `examples/inertia`'s archive does once it's searched.
+
 ## Once props
 
 ```go
@@ -485,6 +493,122 @@ props, both ways. With `DashboardProps` from [Props](#props):
 far, as `total` does above. What a prop's function returns goes out whole,
 and merge and once metadata goes only with the props asked for, not with
 those on the way.
+
+## Live props
+
+```go
+func dashboard(c *tug.Ctx) error {
+	return c.Inertia("Dashboard", tug.Props{
+		// Counted again as a post is made, changed or deleted, here or in
+		// another browser.
+		"stats": inertia.Defer(store.Stats).Live(inertia.On("/posts/events", "created", "updated", "deleted")),
+		"bell":  inertia.Lazy(unread).Live(inertia.On("/broadcasts", "notification"), inertia.Throttle(5*time.Second)),
+	})
+}
+```
+
+A live prop is one the client refreshes as an event comes, since Inertia
+3.11: a partial reload of the props the event touches, in one request, as
+`router.reload({ only })` makes. `.Live(...)` makes a `Lazy`, `Always`,
+`Defer`, `Once` or `Optional` prop live, and it stays of its type, its
+TypeScript too:
+
+- `inertia.On(url, events...)` names a route of the app's that sends
+  events with `c.Events`, by its path, as `/broadcasts`, or the path a
+  route's name makes, and the events on it that refresh the prop. The
+  route says who may follow it, as any page's says who may see it
+  ([Broadcasting](broadcasting.md#who-may-listen)). A prop can follow more
+  than one.
+- `inertia.Throttle(d)` refreshes the prop once every `d` at most,
+  however often its events come; the client's own default is a second,
+  and `0` refreshes it as each comes.
+- A deferred live prop is refreshed once the client has it, as an
+  optional one is once a partial reload has asked for it: the client asks
+  for no prop it hasn't loaded.
+- A merged prop can't be live, as each refresh would add the whole of it
+  again: `Merge` and `Scroll` have no `Live`, and a deferred prop that's
+  both panics.
+
+The page object's `liveProps` names each live prop by its path, with its
+routes and events: a response that isn't a partial reload names every
+one, those it left out too, and a partial reload those it resolved. The
+client follows the routes through the transport tug gen writes,
+`resources/js/tug/live.ts`, which the starters' `createInertiaApp` takes:
+
+```tsx
+import { live } from '@/tug/live'
+
+createInertiaApp({
+  live,
+  // ...
+})
+```
+
+- One `EventSource` for each route, shared by every event the page's
+  props listen for on it, opened with the first and closed with the last,
+  as a visit to another page leaves them.
+- The browser connects again as one drops, as when the app restarts for
+  a deploy, and the client refreshes every live prop then, for the events
+  it missed.
+- Each page is a socket of its own, by an ID it makes, which the client
+  sends with each request as `X-Socket-Id`, for `inertia.ToOthers`
+  ([Broadcasting](broadcasting.md#values-and-the-others)).
+
+As an event comes for a page's props, the client fires its `live` event,
+with the props, the route and the event's name and data, and a listener
+that returns `false` skips the reload: the auth starter's verify page
+reloads whole instead, which its handler answers with the dashboard:
+
+```tsx
+useEffect(
+  () =>
+    router.on('live', (event) => {
+      if (event.detail.event !== 'verified') return
+      router.reload()
+      return false
+    }),
+  [],
+)
+```
+
+`useProp('stats')` says whether a prop is being fetched, for a page that
+shows one refreshing.
+
+## A page a QUERY renders
+
+```go
+app.Get("/posts", posts.archive).Name("posts.archive")
+app.Query("/posts", posts.archive).Name("posts.search").Takes(SearchInput{})
+```
+
+```tsx
+<Form<Inputs['posts.search']> action={form('posts.search')}>
+  <input name="term" />
+  <button type="submit">Search</button>
+</Form>
+```
+
+A `QUERY` is a request as safe as a GET, whose data goes in its body,
+since Inertia 3.10: for a search, or a filter, too big or too nested for a
+query string. `router.query(url, data)`, `<Form method="query">` and
+`<Link method="query">` send one, as JSON, or as a multipart form with a
+file in it, and `Router.Query` adds a route of it, whose handler binds the
+body as a POST's ([Forms](forms.md#a-search-by-query)).
+
+- The page's URL is its path, as a GET's would be, with no search in it.
+  The client keeps the body that rendered it, and sends each reload of
+  the page as a `QUERY` with it again: a partial reload, a deferred prop,
+  a poll, infinite scroll and a live prop alike.
+- A refresh, a link from elsewhere, and the reloads of a page a
+  multipart form rendered, which the client keeps no body of, ask for the
+  page by GET, with no body. The path takes a GET too, as a route of its
+  own, which `posts.archive` above answers, with the same handler, with
+  every post.
+- A redirect after a `QUERY` is a 303, which the client follows with a
+  GET, where a browser would send it on as a `QUERY`: Inertia's
+  middleware turns a 302 into one, and `c.Redirect` writes one.
+- The 409 for another build goes to a GET alone, as the protocol has it:
+  the GET after a `QUERY`'s redirect gets it.
 
 ## Shared props
 
@@ -708,15 +832,13 @@ useEffect(() => {
 ```
 
 A change made elsewhere, by another person, on another instance, reaches
-the page the same way, through package `broadcast`
-([Broadcasting](broadcasting.md)): the page follows a channel, as
-`posts`, on a route of `c.Events`, and reloads what it shows of the post
-an event names, and again when its `EventSource` connects again, for what
-it missed.
+the page through package `broadcast` ([Broadcasting](broadcasting.md)),
+which a route of `c.Events` sends on, and a live prop follows: the client
+reloads it as the change's event comes ([Live props](#live-props)).
 
 `examples/inertia`'s archive has its posts as CSV, made a row at a time
-with `c.StreamDownload`, and reloads its page of posts as one is made,
-changed or deleted, in this browser or another.
+with `c.StreamDownload`, and its page of posts live, as one is made,
+changed or deleted, in another browser.
 
 ## Error pages
 

@@ -2,7 +2,7 @@
 
 tug is built in milestones, each ending in something that runs. It targets
 the Inertia.js v3 protocol (v3.0.0, March 2026, and what its client added
-to 3.8.0, October 2026), written against
+to 3.11.0, November 2026), written against
 [the spec](https://inertiajs.com/the-protocol).
 
 |     | Milestone                  | Status |
@@ -70,7 +70,7 @@ to 3.8.0, October 2026), written against
 | M61 | The API, settled           | done   |
 | M62 | v1.0.0                     | done   |
 | M63 | One machine, whole         | done   |
-| M64 | Inertia 3.11               | later  |
+| M64 | Inertia 3.11               | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6131,10 +6131,10 @@ Choices made on the way:
   tables before them, so the binary run as `backup` leaves them, as it
   does as `migrate`, which runs them itself.
 
-## M64 · Inertia 3.11 — later
+## M64 · Inertia 3.11 — done
 
-tug speaks Inertia's protocol as its client had it at 3.8.0, and the
-starters' `^3.9.1` installs 3.11.0 now, as a caret takes each minor. Two
+tug spoke Inertia's protocol as its client had it at 3.8.0, and the
+starters' `^3.9.1` installed 3.11.0, as a caret takes each minor. Two
 things that came since ask something of the server. A page can be
 rendered by a `QUERY`, since 3.10.0: a request as safe as a GET, with a
 body, for a search or a filter too big or too nested for a query string.
@@ -6144,97 +6144,103 @@ polled or scrolled, as a `QUERY` with it again. And a prop can be live,
 since 3.11.0: the page object's `liveProps` says which events on which
 channels refresh it, and the client, given a transport to hear them on,
 reloads the props an event touches in one partial reload, or writes in
-the values the event carries. tug has the channels already, package
+the values the event carries. tug had the channels already, package
 `broadcast`'s, which a page follows through a route of `c.Events`, and
-the starters' `lib/broadcasts.ts`, which hears them and reloads by hand
+the starters' `lib/broadcasts.ts`, which heard them and reloaded by hand
 what live props now reload by the protocol. inertia-laravel 3.6.0 and
 3.7.0 are the server's side. To be released as v1.2.0.
 
 - **QUERY routes:** `Router.Query(path, h)`, a route of the `QUERY`
   method, which a 405's `Allow` probes for, and tug routes lists among
   the reads, after GET's. `Bind` reads its body as a POST's: JSON and
-  multipart, as now, and a urlencoded one, which Go's `ParseForm` reads
-  for POST, PUT and PATCH alone. The paginators read their page and
-  cursor from a QUERY's body too, where infinite scroll on a page a
-  `QUERY` rendered sends them, the body kept on the `Ctx` as it's first
-  read, so that `Bind` and `Paginate` both see it. Inertia's middleware
-  turns a 302 after a `QUERY` into a 303, as inertia-laravel 3.6.0 does,
-  as the client would send a redirect on as a `QUERY`; the 409 for
-  another build stays a GET's, as the protocol has it. `form()` gives a
-  `QUERY` route's form `method: 'query'`, which `<Form>` takes from 3.10.
+  multipart, as before, and a urlencoded one, which Go's `ParseForm`
+  reads for POST, PUT and PATCH alone (`postForm`). The paginators read
+  their page and cursor from a QUERY's body first (`pageParam`,
+  `bodyParam`), where infinite scroll on a page a `QUERY` rendered sends
+  them, the body read once and kept on the `Ctx` (`readBody`), so `Bind`
+  and `Paginate` both see it. Inertia's middleware turns a 302 after a
+  `QUERY` into a 303, as inertia-laravel 3.6.0 does, as the client would
+  send a redirect on as a `QUERY`; the 409 for another build stays a
+  GET's, as the protocol has it. tug gen gives a `QUERY` route's
+  `form()` `method: 'query'`, which `<Form>` takes from 3.10.
 - **A page that answers GET too:** a page a `QUERY` rendered has its URL
   in the browser, which a refresh asks for by GET, with no body, as do
   the reloads of a page a multipart `QUERY` rendered, whose body the
-  client doesn't keep. The guide's search answers both, with one handler,
-  the GET's search empty.
+  client doesn't keep: the guide's search, and `examples/inertia`'s, takes
+  both with one handler, the GET's search empty.
 - **Live props:** `.Live(...)` on `Lazy`, `Always`, `Defer`, `Once` and
   `Optional`, as Laravel's `->live()`, which returns the prop as it was,
   of its own type, with what refreshes it: `inertia.On(url, events...)`,
-  a route of the app's that sends events with `c.Events`, and the names
-  of those that refresh it, and `inertia.Throttle(d)`. The page object's
-  `liveProps` has each live prop by its path, as `bell` or `order.total`:
-  in a response that isn't a partial reload, every live prop of the
-  page's, those it left out included, deferred, optional or once, and in
-  a partial reload, those it resolved, which the client merges with what
-  it has. `Merge` and `Scroll` have no `Live`, as a merged prop can't be
-  live, which is a compile error rather than a panic.
+  a route of the app's that sends events with `c.Events`, and the events
+  on it that refresh the prop, and `inertia.Throttle(d)`, in `live.go`.
+  The page object's `liveProps` has each by its path, `LiveMeta`, its
+  listeners grouped by route with each event once: in a response that
+  isn't a partial reload, every live prop of the page's, those it left
+  out included, deferred, optional or held once, and in a partial reload,
+  those it resolved (`collectLive`), which the client merges with what it
+  has.
 - **A channel is a route:** a live prop's channel is the path of the
   app's route that sends it, as `/broadcasts`, of the type `public`, and
-  the route says who may follow it, as M28 settled: no protocol to
-  authorize a channel by its name, as Echo's, comes with it.
-- **The transport, by tug gen:** `resources/js/tug/live.ts`, which the
-  app hands `createInertiaApp`'s `live`: one `EventSource` for each route
-  the page's live props name, shared by each of its events, opened with
-  the first and closed with the last, each event's data handed on as
-  JSON; its status, so that the client refreshes every live prop when a
-  connection comes back, for the events it missed; and a socket ID of the
-  page's own, random, which the client sends as `X-Socket-Id` with each
-  request of its own origin.
+  the route says who may follow it, as M28 settled.
+- **The transport, by tug gen:** `resources/js/tug/live.ts`, `live`,
+  which the app hands `createInertiaApp`: one `EventSource` for each
+  route the page's live props name, shared by each of its events, opened
+  with the first and closed with the last, each event's data handed on as
+  JSON; its status, so the client refreshes every live prop when a
+  connection comes back; and a socket ID of the page's own, random, which
+  the client sends as `X-Socket-Id`. Its types are its own, of the shape
+  of Inertia's `LiveTransport`, so it imports nothing.
 - **Values in an event, and to others:** `inertia.Event(data, opts...)`,
-  an event's data with the protocol's `__inertia` beside it, for
-  `hub.Publish`: `inertia.Carry(props)`, values the client writes into
-  the props that listen, with no request, resolved as a page's are and
-  within `broadcast.MaxEvent`; and `inertia.ToOthers(r)`, the request's
-  `X-Socket-Id`, as the event's `socketId`, which the client drops the
-  event on, as the tab that made a change has it already. A carried
-  value that holds a BigInt, which the client wouldn't make one, is left
-  to its prop's reload.
-- **DevTools:** a live prop's entry says it's `live`, as inertia-laravel
-  3.7.0's does.
-- **tugtest:** `Client.Query`; a partial reload of a page a `QUERY`
-  rendered goes as a `QUERY` with the body that rendered it, as the
-  browser's client's does; and `Client.Hear(url, event)`, the reload the
-  client makes as an event comes, of the page's props that listen for it
-  on that route, for an app's test to say a page follows a change.
-- **The starters, on 3.11:** Inertia at `^3.11.0`, `live.ts` handed to
+  `LiveEvent`, an event's data with the protocol's `__inertia` beside
+  its fields, for `hub.Publish`, in `event.go`: `inertia.Carry(props)`,
+  values the client writes into the props that listen, worked out as a
+  page's are, whatever their type, with no rule of a partial reload's
+  or a first load's (`carried`), and `inertia.ToOthers(r)`, the
+  request's `X-Socket-Id`, when it's one a client could have made, as
+  the event's `socketId`, which the client drops the event on. A carried
+  value that holds a BigInt is left to its prop's reload.
+- **DevTools:** a live prop's entry says `"live": true`, as
+  inertia-laravel 3.7.0's does.
+- **tugtest:** `Client.Query`; the client keeps the JSON a `QUERY`
+  rendered its page with (`queriedBy`), the page at the address it was
+  sent to and with no errors, and its `Reload` sends it as a `QUERY`
+  again; and `Client.Hear(url, event)`, the reload the client makes as an
+  event comes, of the page's live props that listen for it there and
+  that the page has, from the live props it keeps, a partial reload's
+  over the page's (`liveOf`).
+- **The starters, on 3.11:** Inertia at `^3.11.0`, `live` handed to
   `createInertiaApp` in each frontend, and `lib/broadcasts.ts` gone,
-  which `tug upgrade` takes from an app that hasn't changed it: the
-  bell, `bell`, live on `/broadcasts`' `notification`; the notifications
-  page's list, live on it too; the security page's browsers, live on
-  `presence.joined` and `presence.left`; and the verify page, which
-  moves on to the dashboard as it hears `verified`, through the
-  client's `live` event. `examples/inertia`'s archive and stats are live on
-  `/posts/events`, in place of `useEvents.ts`, its changes are published
-  to others, and its archive has a search by `QUERY`.
-- **Tests:** in package inertia, `liveProps` on a first visit, a full
-  visit and a partial reload, for each prop that can be live, nested,
-  throttled, left out and included, `Event`'s `__inertia`, and a
-  `QUERY`'s 303; in package tug, a `QUERY` route, its `Allow`, a
-  urlencoded body bound, and a page and a cursor read from a `QUERY`'s
-  body, with `Bind` reading it too; tug gen's `'query'` and `live.ts`;
-  tugtest's `QUERY` reload and `Hear`; and in the browser, the starters'
-  bell, list, browsers and verify page, as their specs have them now, on
-  live props, in each frontend, and `examples/inertia`'s search,
-  refreshed and gone back to, and its archive live in a second tab, and
-  not reloaded in the tab that made the post.
+  which `tug upgrade` takes from an app that hasn't changed it: the bell
+  live on `/broadcasts`' `notification`, by `onUserChannel`, for a user;
+  the notifications page's list, live on it too; the security page's
+  browsers, worked out lazily, live on `presence.joined` and
+  `presence.left`; and the verify page's `verified`, live on `verified`,
+  whose `live` event the page answers by reloading whole, which its
+  handler answers with the dashboard. `examples/inertia`'s archive and
+  stats are live on `/posts/events`, in place of `useEvents.ts`, its
+  changes are published to others, and its archive has a search by
+  `QUERY`, whose pager asks for a page in the body.
+- **Tests:** in package inertia, `liveProps` on a first visit, a visit
+  and one with once props held, and partial reloads, for each prop that
+  can be live, nested, throttled, left out and included, the panics,
+  `Event`'s JSON, what it carries and leaves out, and its socket ID, and
+  a `QUERY`'s 303; in package tug, a `QUERY` route and its `Allow`, its
+  body bound as JSON, urlencoded and multipart, a page and a cursor read
+  from a `QUERY`'s body with `Bind` reading it too, and a redirect after
+  one; DevTools' `live`; tug gen's `'query'` and `live.ts`; tugtest's
+  `QUERY` reload and `Hear`; the starter's bell, list, browsers and
+  verify page by `Hear`; and in the browser, the starters' suite on live
+  props, in each frontend, and `examples/inertia`'s search, its second
+  page, gone back to and refreshed, its archive and stats live in another
+  browser, and its form's request carrying its socket ID.
 - **The guide:** Pages, live props, a page a `QUERY` renders, and its
   Pagination's page from a body; Broadcasting, live props in place of a
-  page's own `EventSource`, the transport, values and others; Routing,
-  `Query`; Forms, a `QUERY` form and its body; Testing, `Query` and
-  `Hear`; TypeScript, `live.ts` and `'query'`; the roadmap's first lines,
-  at 3.11.0; and the README.
+  page's own `EventSource`, values and others; Accounts, the starter's
+  pages on live props; Routing, `Query`; Forms, a search by `QUERY`;
+  Testing, `Query` and `Hear`; TypeScript and the CLI's page, `live.ts`
+  and `'query'`; the roadmap's first lines, at 3.11.0; and the README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A channel is the app's route, not a name to authorize:** Echo's
   channels are names, which a page asks the server's
@@ -6249,25 +6255,48 @@ Choices, to settle before any code:
   changes with tug, which a file of the starter's, the app's own,
   wouldn't, and an npm package would be a second release to keep in
   step with the Go one. tug gen writes it as it writes `lang.ts`, and
-  v1's promise of tug gen's names takes in `live`.
+  only when the app's tug has one, so a newer CLI writes no empty file
+  for an app on an older tug.
 - **To others by the page's own ID, which the client drops:** a hub that
   left a connection out would have to know which subscription is which
   page, and carry the ID through the `Store`, which gains nothing in v1.
   The client drops an event whose `__inertia.socketId` is its own,
   whatever the transport, so the page makes its ID and the event carries
-  it, as Action Cable's transport has it.
+  it, as Action Cable's transport has it. The ID is the page's from the
+  start, as the client takes the transport's as it's configured, not as
+  a connection opens.
 - **`.Live` on the prop, not a wrapper:** a `Live(prop)` around another
   would be a type of its own for tug gen to look through, and would take
   a `Merge` as it takes the rest; a method that returns the prop as it
   was keeps each type's TypeScript, and leaves `Merge` and `Scroll`
-  without one.
+  without one. A deferred prop has both `Merge` and `Live`, so one that's
+  both panics, as inertia-laravel throws.
 - **A QUERY's body read once:** a body is read once, and `Paginate`
   reading `?page` alone would lose infinite scroll's page on a page a
-  `QUERY` rendered. It's kept on the `Ctx` as `Bind` reads it, up to
-  `BodyLimit`, for the paginators after it.
+  `QUERY` rendered. It's kept on the `Ctx` as it's first read, up to
+  `BodyLimit`, for `Bind` and the paginators both. A urlencoded body is
+  read for a `QUERY`, as Go reads one for a POST, and a DELETE's is left
+  as Go leaves it.
+- **A guest's bell isn't live:** a guest's page would follow
+  `/broadcasts`, which sends a guest to log in, and the browser would try
+  it again, and again.
+- **The verify page reloads whole:** its prop's own reload, a partial
+  one, would be answered with a redirect to another page, which the
+  client's async reload needn't take as a visit; the `live` event, which
+  the page returns false from, has it make the visit itself, as before.
+- **The bell's test of a visit in flight is a real one:** the old
+  `listen` waited while any request of Inertia's was in flight, which the
+  suite tested by the client's events; the client now waits for a
+  request that has the prop, and a partial reload leaves the flash to
+  the visit it was left for, so the test makes a change in its own tab,
+  and counts one toast.
 - **One milestone:** the two are a minor of the client apart, both
-  change what a route and tugtest send, and the starters move to 3.11
+  change what a route and tugtest send, and the starters moved to 3.11
   once.
+- **The upgrade test's commit runs no maintenance:** a commit starts
+  git's maintenance in the background past its thresholds, which the
+  starter's files crossed, and which wrote in the repository as the
+  test's directory was taken away.
 
 ## Decisions
 

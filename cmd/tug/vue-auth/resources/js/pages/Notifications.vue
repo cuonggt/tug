@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { Head, Link, router } from '@inertiajs/vue3'
-import { onMounted, onUnmounted } from 'vue'
+import { Head, Link } from '@inertiajs/vue3'
 import { Button } from '@/components/ui/button'
 import { useLang } from '@/lib/lang'
-import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
 import type { Pages, SharedProps } from '@/tug/pages'
 
@@ -12,13 +10,9 @@ const { t, d } = useLang()
 
 // Notifications is what happened to the user's account, the newest first,
 // a page at a time, which its handler, in notifications.go, marks read as
-// it shows them: the ones new to this page have a dot. A notification made
-// while it's open shows at once.
+// it shows them: the ones new to this page have a dot. The list is live, so
+// a notification made while it's open shows at once.
 defineProps<Pages['Notifications'] & SharedProps>()
-
-let stop: (() => void) | undefined
-onMounted(() => (stop = listen('notification', () => router.reload({ only: ['list', 'bell'] }))))
-onUnmounted(() => stop?.())
 
 // when is a time as the page shows it, with the name of the zone it's in:
 // the app's own, and the reader's once the page is in their browser.

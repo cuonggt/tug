@@ -387,12 +387,15 @@ func TestHistoryEncryptionIsSentOnlyWhenOn(t *testing.T) {
 	}
 }
 
-func TestTheMiddlewareTurnsA302AfterAPutPatchOrDeleteIntoA303(t *testing.T) {
+func TestTheMiddlewareTurnsA302AfterAPutPatchDeleteOrQueryIntoA303(t *testing.T) {
 	i := newInertia(t, Config{})
 	h := i.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/posts", http.StatusFound)
 	}))
-	for method, want := range map[string]int{"PUT": 303, "PATCH": 303, "DELETE": 303, "POST": 302} {
+	// A browser follows a 302 after a POST with a GET, and after any other
+	// method with the method again: a search by QUERY that redirects, to
+	// log in, would go there as a QUERY.
+	for method, want := range map[string]int{"PUT": 303, "PATCH": 303, "DELETE": 303, "QUERY": 303, "POST": 302} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, visit(method, "/posts/1"))
 		if rec.Code != want {

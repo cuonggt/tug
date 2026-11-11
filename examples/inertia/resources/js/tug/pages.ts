@@ -35,6 +35,7 @@ export interface Post {
 }
 
 export interface PostsArchiveProps {
+  term: string
   posts: Paginated_Post
 }
 

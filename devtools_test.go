@@ -27,7 +27,7 @@ func devtoolsPost(c *Ctx) error {
 	return c.Inertia("Posts/Show", inertia.Props{
 		"post":     map[string]any{"id": c.Param("id"), "title": "Hello", "token": "tug_abc"},
 		"password": "correct horse",
-		"filters":  inertia.Always("recent"),
+		"filters":  inertia.Always("recent").Live(inertia.On("/posts/events", "updated")),
 		"comments": inertia.Merge([]string{"first"}, inertia.Prepend()),
 		"plans":    inertia.Once(func() ([]string, error) { return []string{"free"}, nil }),
 		"feed": inertia.Scroll(func() ([]string, inertia.Paging, error) {
@@ -166,7 +166,7 @@ func TestUnderDevToolsAPagesEntrySaysItsPropsRouteAndWhereItWasRendered(t *testi
 
 	for prop, want := range map[string]string{
 		"post":     `{"shared": false, "inertiaType": null}`,
-		"filters":  `{"shared": false, "inertiaType": "always"}`,
+		"filters":  `{"shared": false, "inertiaType": "always", "live": true}`,
 		"comments": `{"shared": false, "inertiaType": "merge", "mergeDirection": "prepend"}`,
 		"plans":    `{"shared": false, "inertiaType": "once", "once": true}`,
 		"feed":     `{"shared": false, "inertiaType": "scroll", "mergeDirection": "append"}`,
@@ -244,7 +244,7 @@ func TestAPartialReloadSaysWhichPropsAreOptional(t *testing.T) {
 		"related": `{"shared": false, "inertiaType": "optional"}`,
 		// A deferred prop a partial reload asks for is as any other.
 		"stats":   `{"shared": false, "inertiaType": null}`,
-		"filters": `{"shared": false, "inertiaType": "always"}`,
+		"filters": `{"shared": false, "inertiaType": "always", "live": true}`,
 		"errors":  `{"shared": true, "inertiaType": null}`,
 	} {
 		if got := valueAt(e, "props", prop); !sameJSON(t, got, want) {

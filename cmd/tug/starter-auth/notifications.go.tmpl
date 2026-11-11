@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/lang"
 	"github.com/cuonggt/tug/queue"
 )
@@ -284,9 +285,11 @@ const notificationsPerPage = 20
 var Notifications = tug.Page[NotificationsProps]("Notifications")
 
 // NotificationsProps are the user's notifications, the newest first, a
-// page at a time.
+// page at a time: live, so one made as the page is open shows on it at
+// once, read, with the bell, which is refreshed by the same event, at
+// none.
 type NotificationsProps struct {
-	List tug.SimplePaginated[Notification] `json:"list"`
+	List inertia.LazyProp[tug.SimplePaginated[Notification]] `json:"list"`
 }
 
 // Notification is a notification as its page shows it: its line, in the
@@ -332,7 +335,10 @@ func (a *app) notificationsPage(c *tug.Ctx, user *User) error {
 			return err
 		}
 	}
-	return Notifications.Render(c, NotificationsProps{List: list})
+	// Worked out above, and marked read, before the bell counts what's
+	// unread, which goes out with it.
+	shown := inertia.Lazy(func() (tug.SimplePaginated[Notification], error) { return list, nil })
+	return Notifications.Render(c, NotificationsProps{List: shown.Live(onUserChannel("notification"))})
 }
 
 // Bell is what the header's bell shows, which every page has, shared: how

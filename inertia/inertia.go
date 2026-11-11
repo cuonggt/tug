@@ -66,6 +66,7 @@ type Page struct {
 	RescuedProps        []string              `json:"rescuedProps,omitempty"`
 	ScrollProps         map[string]ScrollMeta `json:"scrollProps,omitempty"`
 	OnceProps           map[string]OnceMeta   `json:"onceProps,omitempty"`
+	LiveProps           map[string]LiveMeta   `json:"liveProps,omitempty"`
 	Flash               map[string]any        `json:"flash,omitempty"`
 	SharedProps         []string              `json:"sharedProps,omitempty"`
 
@@ -435,7 +436,7 @@ func (i *Inertia) page(r *http.Request, component string, props any) (*Page, err
 			shared["errors"] = nil
 		}
 	}
-	p.DeferredProps, p.RescuedProps, p.ScrollProps, p.OnceProps = rs.deferred, rs.rescued, rs.scroll, rs.once
+	p.DeferredProps, p.RescuedProps, p.ScrollProps, p.OnceProps, p.LiveProps = rs.deferred, rs.rescued, rs.scroll, rs.once, rs.live
 	p.MergeProps, p.PrependProps, p.DeepMergeProps, p.MatchPropsOn = rs.merge, rs.prepends, rs.deepMerge, rs.matchOn
 	if rec != nil {
 		record(rec, p, seen, shared, ownKeys, sources)
@@ -529,8 +530,9 @@ func requestURL(r *http.Request) string {
 //     page's HTML with its JSON, or the other way round.
 //   - It answers a visit from a browser running another build of the
 //     frontend with a 409 that makes the client load the page afresh.
-//   - It turns a 302 after a PUT, PATCH or DELETE into a 303, which the
-//     client follows with a GET where it might repeat the method.
+//   - It turns a 302 after a PUT, PATCH, DELETE or QUERY into a 303, which
+//     the client follows with a GET where it might repeat the method, as a
+//     browser repeats any but a POST's.
 //   - It turns a redirect to a URL with a #fragment into a 409 with
 //     X-Inertia-Redirect: the client's XHR would follow the redirect and
 //     lose the fragment, so the client makes the visit itself.
@@ -552,7 +554,7 @@ func (i *Inertia) Middleware(next http.Handler) http.Handler {
 		}
 		rw := &redirects{ResponseWriter: w, fragments: !prefetch(r)}
 		switch r.Method {
-		case http.MethodPut, http.MethodPatch, http.MethodDelete:
+		case http.MethodPut, http.MethodPatch, http.MethodDelete, "QUERY":
 			rw.seeOther = true
 		}
 		next.ServeHTTP(rw, r)

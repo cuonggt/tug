@@ -128,7 +128,7 @@ func listRoutes(routes []listedRoute, text, dir string) []listedRoute {
 // methodOrder is where a route of method comes among a path's: the reads,
 // then the writes, as a resource's go, and a route of any method last.
 func methodOrder(method string) int {
-	if i := slices.Index([]string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, method); i >= 0 {
+	if i := slices.Index([]string{"GET", "HEAD", "QUERY", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, method); i >= 0 {
 		return i
 	}
 	if method == "ANY" {

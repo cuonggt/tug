@@ -67,42 +67,62 @@ and its `ctx` is done as the page goes away, or as the app shuts down.
 
 ## On the page
 
-```tsx
-// resources/js/useEvents.ts, in examples/inertia
-export function useEvents(url: string, names: string[], reload: () => void) {
-  const changed = useEffectEvent(reload)
-  const listened = names.join(' ')
-  useEffect(() => {
-    const events = new EventSource(url)
-    let opened = false
-    events.addEventListener('open', () => {
-      if (opened) changed()
-      opened = true
-    })
-    for (const name of listened.split(' ')) {
-      events.addEventListener(name, () => changed())
-    }
-    return () => events.close()
-  }, [url, listened])
-}
+```go
+// examples/inertia's archive, a page of every post, in numbered pages
+var postEvents = inertia.On("/posts/events", "created", "updated", "deleted")
 
-// the archive, a page of every post, in numbered pages
-useEvents(route('posts.events'), ['created', 'updated', 'deleted'], () => router.reload({ only: ['posts'] }))
+posts := inertia.Lazy(func() (tug.Paginated[Post], error) {
+	return tug.Paginate(c, perPage, p.total, p.page)
+})
+return PostsArchive.Render(c, PostsArchiveProps{Posts: posts.Live(postEvents)})
 ```
 
-A page follows a channel with the browser's `EventSource` on its route,
-and reloads the props the event is about with Inertia's `router.reload`,
-as it does for its own instance's events
-([Pages](pages.md#downloads-and-events)). The browser connects again when
-a stream ends, as when the app restarts for a deploy, or the hub closes a
-subscriber that fell behind, and the page reloads then too, for what it
-missed meanwhile.
+A page follows a channel by its live props ([Pages](pages.md#live-props)),
+each of which names the route of `c.Events` that sends the channel, as
+`/posts/events`, and the events on it that refresh it: Inertia's client
+reloads the props an event touches, through the transport tug gen
+writes, `resources/js/tug/live.ts`, which follows each route with one
+`EventSource`. The browser connects again when a stream ends, as when the
+app restarts for a deploy, or the hub closes a subscriber that fell
+behind, and the client refreshes every live prop then, for what it missed
+meanwhile.
 
-What a page reloads is what it shows of the change. The archive reloads
-its page of posts, which a post made shows on when it falls there;
-`examples/inertia`'s list reloads its stats alone, as the list, which
-scrolls, merges the pages it gets by ID, so a reload would keep a post
-that's gone.
+What a page refreshes is what it shows of the change. The archive
+reloads its page of posts, which a post made shows on when it falls
+there; `examples/inertia`'s list refreshes its stats alone, as the list,
+which scrolls, merges the pages it gets by ID, so a reload would keep a
+post that's gone. A page can follow a route with an `EventSource` of its
+own too, for what isn't a prop, as an import's progress
+([Pages](pages.md#downloads-and-events)).
+
+### Values, and the others
+
+```go
+event := inertia.Event(map[string]int64{"id": post.ID},
+	inertia.Carry(inertia.Props{"stats": stats}),
+	inertia.ToOthers(c.Request()),
+)
+if err := a.hub.Publish(c.Context(), "posts", "created", event); err != nil {
+	slog.WarnContext(c.Context(), "the pages open weren't told of a post", "err", err)
+}
+```
+
+`inertia.Event` is an event's data, an object's fields or nil, with what
+Inertia's client reads of it beside them, under the protocol's
+`__inertia`:
+
+- `inertia.Carry(props)` has the event carry values, which the client
+  writes into the live props of the same paths that listen for it, with
+  no request at all. Every page on the channel hears the same values, so
+  they're those the same for everyone on it, and within `MaxEvent` with
+  the rest of the event. They're worked out as a page's props are; a prop
+  whose value the event doesn't carry, or one that holds a BigInt, which
+  the client wouldn't make one, is reloaded.
+- `inertia.ToOthers(r)` leaves out the page that sent `r`, by the socket
+  ID its client sends with each request as `X-Socket-Id`: the client
+  drops an event with its own ID, as the tab that made the change shows
+  it already, from its visit's response. A request without one, as a
+  script's, leaves every page to hear it.
 
 ## Who may listen
 

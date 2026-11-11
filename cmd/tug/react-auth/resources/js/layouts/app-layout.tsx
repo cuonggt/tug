@@ -1,11 +1,10 @@
-import { Link, router, usePage } from '@inertiajs/react'
+import { Link, usePage } from '@inertiajs/react'
 import { Bell } from 'lucide-react'
-import { type ReactNode, useEffect } from 'react'
+import type { ReactNode } from 'react'
 import AppLogo from '@/components/app-logo'
 import UserMenu from '@/components/user-menu'
 import { Button } from '@/components/ui/button'
 import { useLang } from '@/lib/lang'
-import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
 import { text } from '@/tug/lang'
 import { route } from '@/tug/routes'
@@ -21,13 +20,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const { props, url } = usePage()
   const user = props.auth.user
+  // The bell is live: a notification made in another tab, or on another
+  // device, is counted at once, as the app says so on the user's own
+  // channel.
   const unread = props.bell.unread
-  // A notification made in another tab, or on another device, is counted
-  // at once: the app says so on the user's own channel.
-  useEffect(() => {
-    if (!user) return
-    return listen('notification', () => router.reload({ only: ['bell'] }))
-  }, [user?.id])
   return (
     <div className="flex min-h-svh flex-col">
       <header className="border-b">

@@ -141,11 +141,19 @@ func TestTheVerifyPageHearsTheEmailVerified(t *testing.T) {
 	app := newTestApp(t)
 	c := app.client()
 	register(c, "Ann", "ann@example.com", "correct horse")
-	ann := user(c.Get("/verify-email"))
-	events := listening(t, app.hub, userChannel(ann))
+	r := c.Get("/verify-email")
+	if meta, live := r.Page.LiveProps["verified"]; !live || meta.Listeners[0].Channel.Name != "/broadcasts" || meta.Listeners[0].Events[0] != "verified" {
+		t.Fatalf("the verify page's verified listens for %+v", r.Page.LiveProps)
+	}
+	events := listening(t, app.hub, userChannel(user(r)))
 	// The link, followed in another browser, as on the user's phone.
 	app.client().Get(link(t, app.outbox.Next(t), "/verify-email/"))
 	heard(t, events, "verified")
+	// The page reloads as it hears it, which its handler answers with the
+	// dashboard.
+	if r := c.Reload(); r.Location() != "/dashboard" {
+		t.Errorf("the verify page reloaded once the email is verified: %v", r)
+	}
 }
 
 func TestAGuestHasNoEventsToHear(t *testing.T) {

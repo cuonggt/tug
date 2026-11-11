@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/inertia"
 )
 
 // Verifying an email: a new user, or one who changes their email, is mailed
@@ -18,7 +19,15 @@ import (
 // The link's token is auth.Verifications', signed for the user and their
 // email as it is when it's made.
 
-var VerifyEmail = tug.Page[NoProps]("Auth/VerifyEmail")
+var VerifyEmail = tug.Page[VerifyEmailProps]("Auth/VerifyEmail")
+
+// VerifyEmailProps are the props of the page that asks for the email to
+// be verified: verified, live on the user's channel, which the page hears
+// the email verified by, in another tab or on the phone the mail went to,
+// and moves on to the dashboard.
+type VerifyEmailProps struct {
+	Verified inertia.LazyProp[bool] `json:"verified"`
+}
 
 // verifyEmailPage asks a user to follow the link mailed to them, as the
 // pages for verified users send them to. Once they have, there's nothing
@@ -27,7 +36,8 @@ func verifyEmailPage(c *tug.Ctx, user *User) error {
 	if user.EmailVerifiedAt != nil {
 		return c.RedirectRoute("dashboard")
 	}
-	return VerifyEmail.Render(c, NoProps{})
+	verified := inertia.Lazy(func() (bool, error) { return user.EmailVerifiedAt != nil, nil })
+	return VerifyEmail.Render(c, VerifyEmailProps{Verified: verified.Live(onUserChannel("verified"))})
 }
 
 // verification is the job that mails u the link that verifies their

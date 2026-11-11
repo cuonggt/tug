@@ -1,15 +1,13 @@
-import { Head, Link, router } from '@inertiajs/react'
-import { useEffect } from 'react'
+import { Head, Link } from '@inertiajs/react'
 import { Button } from '@/components/ui/button'
 import { useLang } from '@/lib/lang'
-import { listen } from '@/lib/broadcasts'
 import { cn } from '@/lib/utils'
 import type { PageProps } from '@/tug/pages'
 
 // Notifications is what happened to the user's account, the newest first,
 // a page at a time, which its handler, in notifications.go, marks read as
-// it shows them: the ones new to this page have a dot. A notification made
-// while it's open shows at once.
+// it shows them: the ones new to this page have a dot. The list is live, so
+// a notification made while it's open shows at once.
 export default function Notifications({ list }: PageProps<'Notifications'>) {
   const { t, d } = useLang()
   // when is a time as the page shows it, with the name of the zone it's
@@ -17,7 +15,6 @@ export default function Notifications({ list }: PageProps<'Notifications'>) {
   const when = (at: string) =>
     d(at, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
 
-  useEffect(() => listen('notification', () => router.reload({ only: ['list', 'bell'] })), [])
   return (
     <>
       <Head title={t('Notifications')} />

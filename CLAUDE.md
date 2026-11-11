@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M63 are done, which is
+the decisions behind it and where it stands: M1 to M64 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -197,7 +197,15 @@ passes it, systemd's, which it holds as the app restarts, so a deploy
 refuses no request, and the auth starter on SQLite backed up, by its
 `backup` command, `VACUUM INTO` a new file while it serves, and every
 night by its `backup-db` job, onto its disk, the newest `BACKUP_KEEP`
-kept.
+kept, and Inertia 3.11 (v1.2.0): `Router.Query`, a route of the `QUERY`
+method, whose body `Bind` reads, and the paginators' page in it, whose
+page the client reloads by `QUERY` with the same body, and live props,
+`.Live(inertia.On(url, events...))`, the page object's `liveProps`,
+refreshed by the client as an event comes on a route of `c.Events`,
+through the transport tug gen writes, `resources/js/tug/live.ts`, with
+`inertia.Event`'s `Carry` and `ToOthers`, tugtest's `Query` and `Hear`,
+and the starters' bell, lists and verify page on them, in place of
+`lib/broadcasts.ts`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -376,7 +384,9 @@ dev server that isn't there: delete it.
     handed the sockets by `ExtraFiles` through `sh`, whose `exec` keeps
     `LISTEN_PID`'s process, and restart it on them under a stream of
     requests.
-  - `router.go`: `Router`, `Route`, `URL`. A route goes into the ServeMux
+  - `router.go`: `Router`, `Route`, `URL`. `Query` adds a route of the
+    `QUERY` method (`methodQuery`), which `allowedMethods`, in app.go,
+    probes for a 405's `Allow`. A route goes into the ServeMux
     when it's added, so a bad or clashing pattern panics at the call that
     added it. Middleware chains are put together in `freeze`, so a group's
     `Use` after its routes still wraps them; after that, adding anything
@@ -403,7 +413,12 @@ dev server that isn't there: delete it.
     Inertia needs; `RedirectBack` goes to the Referer when it's this
     site's (`back`, in forms.go).
   - `bind.go`: `Bind` reads the body (JSON, urlencoded, multipart), then the
-    query, then path values, so the URL wins. A value that doesn't parse is
+    query, then path values, so the URL wins. The body is read once and
+    kept (`readBody`, held to `BodyLimit` by `limitBody`), so a handler
+    binds it more than once, and a paginator reads it beside `Bind`
+    (`bodyParam`); a `QUERY`'s urlencoded body, which Go's `ParseForm`
+    reads for a POST, a PUT or a PATCH alone, is read into its `PostForm`
+    (`postForm`). A value that doesn't parse is
     a `*BindError` inside an `*HTTPError`: 400, or 404 for a path value. A
     field Bind can't fill at all is a plain error, a 500. A JSON body that
     fails to decode is read again by `jsonAsForm` (`jsonform.go`), with its
@@ -477,7 +492,9 @@ dev server that isn't there: delete it.
   - `paginate.go`: `Paginate`, `SimplePaginate` and `CursorPaginate`,
     over the app's own count and fetch (limit and offset), or its
     cursor, as JSON in base64url, and the three types they return, with
-    Laravel's keys; `pageNumber` reads `?page` (1 unless more),
+    Laravel's keys; `pageNumber` reads `?page` (1 unless more), through
+    `pageParam`, a `QUERY`'s body first, as infinite scroll on a page a
+    `QUERY` rendered sends it there, as does `CursorPaginate`'s cursor,
     `pageLinks` makes paths with the request's query and the page
     changed, and `pageWindow` Laravel's pager window, three on each side;
     `span` is `from` and `to`, and the items never nil; `Paging` of each
@@ -528,7 +545,21 @@ dev server that isn't there: delete it.
     `keepFlashOnReload` reflashes before the 409 for another build.
     `Config.Session` puts the session middleware outside Inertia's.
 - `inertia`: the v3 protocol for any net/http router, with no import of
-  tug. `inertia.go` renders (HTML first visit, JSON after, `RenderStatus`
+  tug. `live.go`: live props, `.Live(...)` on `Lazy`, `Always`, `Defer`,
+  `Once` and `Optional` (`withLive`, a `behavior`'s `live` listeners and
+  `throttle`; `Merge` and `Scroll` have none, and a prop both merged and
+  live panics, `mergedLive`), `On(url, events...)`, a route of the app's
+  by its path, and `Throttle`; `collectLive` names each in the page
+  object's `liveProps`, `LiveMeta`, a listener a route with each event
+  once (`liveMeta`), the channel's type `public`: every one, those left
+  out of a first load too (`leftOutOfFirstLoad`), in a response that
+  isn't a partial reload, and in one those it resolved (`labeled`, an
+  always prop's, or one inside a prop resolved whole). `event.go`:
+  `Event`, a `LiveEvent`, an event's data with the protocol's `__inertia`
+  beside its fields, `Carry`'s props, `carried`, worked out by a
+  `resolver` with no partial or first load's rules, a BigInt's left out,
+  and `ToOthers`' socket ID, the request's `X-Socket-Id` when it's
+  `plainSocketID`. `inertia.go` renders (HTML first visit, JSON after, `RenderStatus`
   for other statuses; a first visit asks `Config.SSR`, a `Renderer`, for
   the page's head and body, and keeps the browser's when it has none or
   fails, which it logs; `WithoutSSR` skips it; `TemplateData.Nonce` is
@@ -536,7 +567,8 @@ dev server that isn't there: delete it.
   of the head from SSR; `encode` writes the page object, and again with
   `PreserveBigIntegers` when it has `bigIntMarker` in it), and holds the
   middleware (Vary, the 409 for another
-  build, and `redirects`: 302 → 303, and a redirect to a #fragment → 409
+  build, and `redirects`: 302 → 303 after a PUT, PATCH, DELETE or QUERY,
+  and a redirect to a #fragment → 409
   with X-Inertia-Redirect) and the context helpers;
   `TemplateData.Locale` and `Dir`, from `WithLocale` and `WithDir`, are
   what the document around a page says of its language, `<html lang>` and
@@ -757,7 +789,11 @@ dev server that isn't there: delete it.
   it's the app's `Module`'s; the app's, `main` or its module's; and else
   a dependency's. DevTools and the debug page share it.
 - `internal/typegen`: TypeScript from reflect.Type, as encoding/json writes
-  values: `pages.ts` (an interface per named struct, `SharedProps`,
+  values, and `live.ts` (`live.go`'s `liveTS`), the transport of live
+  props, the same for every app, of the shape of Inertia's
+  `LiveTransport`, importing nothing: an `EventSource` a route, shared by
+  its events, the connection's status, and a socket ID of the page's
+  own: `pages.ts` (an interface per named struct, `SharedProps`,
   `Pages`, `PageProps`, `FlashData`, the keys `tug.Flash` declares, each
   optional, and the `InertiaConfig` augmentation, with `flashDataType`
   only when there's a key, so an app's own doesn't clash) and
@@ -780,7 +816,8 @@ dev server that isn't there: delete it.
   page registry `declare`d by `tug.Page` in pages.go.
 - `cmd/tug`: the CLI, on the stdlib flag package. `gen.go` builds the app
   into `.tug/app` and runs it with TUG_GEN (`runForGen`, which reads back
-  the types, tug's texts and the routes, `generated`); `routes.go` is tug
+  the types, tug's texts and the routes, `generated`), and writes
+  `live.ts` only when the app's tug has one; `routes.go` is tug
   routes: `listRoutes` (by a text, in any case, by path, then
   `methodOrder`), `printRoutes` (a tabwriter's columns, the handler
   last), and `sources.handler`, the handler as the line that added the
@@ -873,7 +910,9 @@ tests again with a migration of its own (`growsAMigration`), and reads
   Postgres and MySQL, which writes its types with no database running. Every starter makes its
   app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
   `createApp`), which `app.tsx`, the browser's, and `ssr.tsx`, the
-  server's, call. React's and Vue's have `serverHead: true`, a title
+  server's, call, handing `createInertiaApp` tug gen's `live`, the
+  transport of live props, which the server's side leaves alone. React's
+  and Vue's have `serverHead: true`, a title
   from the server said through their `title` callback, as `pageTitle` in
   `main.go` says it in a first visit's HTML; Svelte's `serverHead` leaves
   the title out, as Svelte puts the document's title in the first
@@ -1039,13 +1078,16 @@ tests again with a migration of its own (`growsAMigration`), and reads
   own mail's job gone), a token made and a login from a new browser
   notify; `prune-notifications`
   deletes what was read 90 days ago. The browser's side: each layout's
-  bell, and `resources/js/lib/broadcasts.ts`'s `listen`, one connection
-  to `/broadcasts` a page, whose listeners reload as their event comes
-  and as it connects again, as the verify page, the bell and the list do,
-  once no request of Inertia's is in flight (`visiting`, counted from the
-  `inertia:start` and `inertia:finish` events it fires on the document,
-  and `waiting`), as a reload beside a form's visit would show its flash
-  twice.
+  bell, `bell`, live for a user, the list, and the security page's
+  browsers, each a live prop on `/broadcasts` by `onUserChannel`, in
+  `broadcasts.go.tmpl`, which the client follows through the transport
+  tug gen writes, one connection a page, and refreshes as its event comes
+  and as it connects again, once a request of Inertia's in flight that
+  has the prop is done; and the verify page's `verified`, whose `live`
+  event the page answers by `router.reload()`, which `verifyEmailPage`
+  answers with the dashboard. A guest's bell is a plain value, as a
+  guest's page follows no channel. The list is worked out in the
+  handler, which marks it read, before the bell, shared, counts.
   A reload is a visit, and empties the page's flash, so the tokens page
   and the recovery codes keep, in their own state, what came in it.
   `notifications_test.go` and `e2e/tests/notifications.spec.ts` test it.
@@ -1419,7 +1461,13 @@ tests again with a migration of its own (`growsAMigration`), and reads
   same item, and `deepMerged` for a map), and a once prop the answer left
   out is put back where the page says it goes (`restore`), its keys going
   out in `X-Inertia-Except-Once-Props`, as a browser's client sends them;
-  `FirstVisit` keeps none of it, as the document is loaded afresh.
+  `FirstVisit` keeps none of it, as the document is loaded afresh. It
+  keeps the JSON a `QUERY` rendered its page with (`queried`,
+  `queriedBy`: a `QUERY`'s, the page at the address it went to, with no
+  errors), which `Reload` sends as a `QUERY` again, and the page's live
+  props (`live`, `liveOf`: a partial reload's over the page's), which
+  `Hear(url, event)` reloads, those that listen for `event` on the route
+  at `url` (`listens`) and that the page has; `Query` visits by `QUERY`.
   `response.go`: `Response`, with
   `Location`, `Follow` (redirects and the protocol's 409s) and `Errors`,
   and `Props`, `Prop` and `Flash`, which read the page the client is on
@@ -1447,9 +1495,12 @@ tests again with a migration of its own (`growsAMigration`), and reads
   and `/posts.csv` is every post as CSV, `c.StreamDownload`'s (`export`),
   with `cell` putting a quote before one that would run as a formula.
   A post made, changed or deleted is an event on the posts channel of a
-  `broadcast.Hub` in memory (`changed`), which `/posts/events` sends on
-  (`events`), and which the archive, reloading its page, and the list,
-  reloading its stats, follow with `resources/js/useEvents.ts`.
+  `broadcast.Hub` in memory (`changed`), published `inertia.ToOthers`,
+  which `/posts/events` sends on (`events`), and which the archive's page
+  of posts and the list's stats follow as live props (`postEvents`). The
+  archive is searched by `QUERY` (`posts.search`, `SearchInput`, its
+  titles by `titled`), the same handler as its GET, whose pager, with
+  `go`, asks for a page in the body by `router.reload({ data })`.
   `resources/js/tug` is written by tug gen and committed (CI checks it's
   current); its flash key, `Success`, is declared with `tug.Flash`.
 - `site/`: the website, a module of its own, for goldmark and chroma,

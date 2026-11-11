@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth/passkeytest"
 	"github.com/cuonggt/tug/tugtest"
 )
@@ -18,11 +19,16 @@ func unread(c *tugtest.Client) int {
 	return tugtest.Prop[Bell](c.Get("/"), "bell").Unread
 }
 
+// listOf is the list the notifications page r shows.
+func listOf(r *tugtest.Response) tug.SimplePaginated[Notification] {
+	return tugtest.Prop[tug.SimplePaginated[Notification]](r, "list")
+}
+
 // lines are the lines of a page of c's user's notifications, the newest
 // first, which shows them read.
 func lines(c *tugtest.Client, page string) []string {
 	var got []string
-	for _, n := range tugtest.Props(c.Get("/notifications"+page), Notifications).List.Data {
+	for _, n := range listOf(c.Get("/notifications" + page)).Data {
 		got = append(got, n.Line)
 	}
 	return got
@@ -165,14 +171,14 @@ func TestTheListIsTheUsersOwnTheNewestFirstAPageAtATime(t *testing.T) {
 		t.Fatalf("the bell counts %d, want 25", n)
 	}
 	r := c.Get("/notifications")
-	page := tugtest.Props(r, Notifications).List
+	page := listOf(r)
 	if len(page.Data) != 20 || page.Data[0].Line != "Something happened to your account." || page.Data[1].Line != "An API token, Token 23, was made." || !page.Data[0].New || page.NextPageURL == nil {
 		t.Fatalf("the first page: %+v", page)
 	}
 	if n := unread(c); n != 5 {
 		t.Errorf("the bell counts %d once the first page showed 20, want 5", n)
 	}
-	if again := tugtest.Props(c.Get("/notifications"), Notifications).List.Data; again[0].New {
+	if again := listOf(c.Get("/notifications")).Data; again[0].New {
 		t.Error("a notification shown once is still new")
 	}
 	got := lines(c, "?page=2")

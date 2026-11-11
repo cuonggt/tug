@@ -5,7 +5,6 @@ import { onMounted, onUnmounted } from 'vue'
 import TextLink from '@/components/TextLink.vue'
 import { Button } from '@/components/ui/button'
 import { useLang } from '@/lib/lang'
-import { listen } from '@/lib/broadcasts'
   import { text } from '@/tug/lang'
 import { form, route } from '@/tug/routes'
 
@@ -22,11 +21,19 @@ defineOptions({
 const page = usePage()
 
 // Verified in another tab, or on the phone the mail went to, the email
-// moves this page on: the app says so on the user's own channel, and the
-// page reloads, which its handler, in verify.go, answers with the
-// dashboard once the email is verified.
+// moves this page on: the app says so on the user's own channel, which the
+// page's verified prop listens for, and the page reloads, which its
+// handler, in verify.go, answers with the dashboard, in place of the
+// prop's own reload.
 let stop: (() => void) | undefined
-onMounted(() => (stop = listen('verified', () => router.reload())))
+onMounted(
+  () =>
+    (stop = router.on('live', (event) => {
+      if (event.detail.event !== 'verified') return
+      router.reload()
+      return false
+    })),
+)
 onUnmounted(() => stop?.())
 </script>
 
