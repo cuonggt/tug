@@ -116,7 +116,9 @@ func main() {
 	}
 	// The files people upload, their photos, are kept in files/, or
 	// FILES_PATH, and served at /files by links signed with the app's key,
-	// unless FILESYSTEM_DISK=s3 keeps them in a bucket.
+	// unless FILESYSTEM_DISK=s3 keeps them in a bucket, which the app signs
+	// for with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or without them,
+	// the keys of the role it runs as, on EC2, ECS or EKS.
 	disk, err := storage.FromEnv(&storage.Local{Dir: cmp.Or(os.Getenv("FILES_PATH"), "files"), BaseURL: "/files", Keys: keys})
 	if err != nil {
 		log.Fatal(err)
@@ -522,9 +524,11 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 	)
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 	app.Get("/up", a.up)
-	// The files on the app's own disk, at the path its links start with,
-	// served only by a link that's signed: photos.go. A bucket serves its
-	// own.
+	// The photos, by the app's own links, signed for a day or two, which
+	// redirect to the disk's: photos.go. And the files on the app's own
+	// disk, at the path its links start with, served only by a link that's
+	// signed. A bucket serves its own.
+	app.Get("/photos/{name}", tug.Signed(a.showPhoto)).Name("photos.show")
 	if files, ok := e.Disk.(*storage.Local); ok {
 		app.Get("/files/{key...}", tug.WrapHandler(files))
 	}

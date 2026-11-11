@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M64 are done, which is
+the decisions behind it and where it stands: M1 to M65 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -206,7 +206,14 @@ through the transport tug gen writes, `resources/js/tug/live.ts`, with
 `inertia.Event`'s `Carry` and `ToOthers`, tugtest's `Query` and `Hear`,
 and the starters' bell, lists and verify page on them, in place of
 `lib/broadcasts.ts`, and a request on a connection the app took as it
-stopped answered, which Go's `Shutdown` hangs up on.
+stopped answered, which Go's `Shutdown` hangs up on, and S3 on the
+platform's keys (v1.3.0): `storage.KeySource`, the keys an S3 with none
+of its own signs with, a role's, fetched again five minutes before they
+expire, `InstanceRole`'s by IMDSv2, `ContainerRole`'s, ECS's and EKS's Pod
+Identity's, and `WebIdentity`'s, EKS's IRSA, by STS, which `FromEnv` takes
+from `RoleFromEnv`, where AWS's SDKs look, a link of a session's keys
+signed as of when they were first had, and the auth starter's photo by a
+link of the app's own, which redirects to the disk's.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -708,8 +715,32 @@ dev server that isn't there: delete it.
   header signed; `presign`, the query), a put streamed as
   UNSIGNED-PAYLOAD, `failure` reading S3's XML errors; a private link is
   presigned for the seven days that end at its expiry, so the same expiry
-  makes the same link; `Origin` is the address its links are at, for a
-  page's policy. `upload.go`: uploads a browser makes itself, with no app
+  makes the same link, and one of a session's keys, with a token, as of
+  when the process first had them (`firstHad`, in keys.go, by their
+  access key ID), when that's later, as a link signed before the session
+  began may not be taken; `Origin` is the address its links are at, for a
+  page's policy. The keys it signs with are `keys`': its `AccessKeyID`
+  and `SecretAccessKey`, or without them, its `KeySource`'s, which
+  `request` and `bucketRequest` get with a request, and `URL` and
+  `UploadURL` for a link, and `do`, `sign`, `presign` and `signature`
+  take. `keys.go`: `Keys` and `KeySource`, and `fetched`, a source's keys
+  and its fetch: kept until `fetchBefore`, five minutes before they
+  expire, then fetched by the signing that finds them so, one fetch at a
+  time, the others signing with the keys that work meanwhile or waiting;
+  a fetch that fails while they work logged and they used, the next
+  `fetchAgainAfter`, five seconds, on, and one that fails with none the
+  error; keys due already kept until then too. `roles.go`: the places AWS's
+  platforms put a role's keys: `WebIdentity`, STS's
+  `AssumeRoleWithWebIdentity`, unsigned, with the token file read at each,
+  in the `Region`'s endpoint; `ContainerRole`, an endpoint's JSON, with
+  its `Authorization` from `Token` or `TokenFile`, read at each, and over
+  plain HTTP only the machine itself, ECS's or EKS's address
+  (`containerEndpoint`, each address a name has); `InstanceRole`, IMDSv2's
+  token by a PUT, the role's name and its keys, never IMDSv1; the
+  container's and the instance's by `localClient`, which takes no proxy;
+  each error names where it looked (`answered`); `keysOf`, a role's keys
+  whole; and `RoleFromEnv`, the SDKs' variables in their order, the
+  instance's last unless `AWS_EC2_METADATA_DISABLED`. `upload.go`: uploads a browser makes itself, with no app
   in between: `Uploader`, which a Disk may be, whose `UploadURL` is a
   link that takes one key's `PUT` until it expires, of what its
   `Conditions` say (S3 signs the `content-type` into it, and the local
@@ -722,9 +753,12 @@ dev server that isn't there: delete it.
   nothing can hold it to what the bytes are. `presign` signs the method,
   so a link to read is no link to write, and `Local.sign` signs the
   method and the conditions after the key and the expiry, leaving a link
-  to read as it was. `env.go`: `FromEnv`, Laravel's variables. Its tests
-  check SigV4 against AWS's published examples (`sigv4_test.go`), and run
-  against a MinIO (`minio` in `s3_test.go`) when `TUG_TEST_S3` names one.
+  to read as it was. `env.go`: `FromEnv`, Laravel's variables, and with
+  no keys, `RoleFromEnv`'s source. Its tests check SigV4 against AWS's
+  published examples (`sigv4_test.go`), each source against a server of
+  the test's own (`roles_test.go`), and run against a MinIO (`minio` in
+  `s3_test.go`) when `TUG_TEST_S3` names one, with temporary keys from its
+  STS too (`assumeRole`).
 - `internal/filetype`: what a file is by its first 512 bytes, as
   `http.DetectContentType` says, without parameters (`Sniff`, `Of`), and
   what's known of each type it tells (`kinds`): its name for a message
@@ -973,8 +1007,12 @@ tests again with a migration of its own (`growsAMigration`), and reads
   the transaction that names it, and deletes it when that fails, and the
   photo it replaces goes by a `delete-file` job pushed in that
   transaction; `withPhoto`, which `a.user` calls, gives each page's user a
-  link signed to the end of the next day, the same all day, for the
-  browser's cache), its mail in `mail.go.tmpl`,
+  link of the app's own, `photos.show`, `/photos/{name}`, signed with
+  `SignedURL` to the end of the next day, the same all day, for the
+  browser's cache, as the page's own address (`RequestURI`), and
+  `showPhoto`, behind `tug.Signed`, redirects it, `no-store`, to the
+  disk's link for the same expiry, made then, as a bucket's on a role's
+  keys dies with them), its mail in `mail.go.tmpl`,
   and its users in the database its layer has, SQLite
   (modernc.org/sqlite), Postgres (pgx) or MySQL (go-sql-driver), all pure
   Go. `users.go.tmpl`, `passkeys.go.tmpl` and `jobs.go.tmpl` have the

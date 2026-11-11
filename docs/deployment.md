@@ -135,7 +135,7 @@ The auth starter reads these as well:
 | `SESSION_STORE`     | Where the sessions themselves are kept: `cookie`, in the cookies, or `database`, in the app's `sessions` table, for sessions larger than the 4 KB a cookie takes ([Kept on the server](forms.md#kept-on-the-server)). Moving to the table logs nobody out; moving back logs everybody out. | `cookie` | its `main.go` |
 | `FILES_PATH`        | The directory the photos people upload are kept in, unless `FILESYSTEM_DISK` is `s3`. | `files`, and `/data/files` in its image | its `main.go` |
 | `FILESYSTEM_DISK`   | `local`, the directory, or `s3`, a bucket, which instances on more than one machine share. | `local` | `storage.FromEnv` |
-| `AWS_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | The bucket, and the keys to it, for `FILESYSTEM_DISK=s3`: in S3, or a service that speaks its API, as [files.md](files.md#from-the-environment) has. | none, and `us-east-1` for the region | `storage.FromEnv` |
+| `AWS_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | The bucket, and the keys to it, for `FILESYSTEM_DISK=s3`, which an app that runs as a role on AWS leaves out ([A bucket's keys](#a-buckets-keys)): in S3, or a service that speaks its API, as [files.md](files.md#from-the-environment) has. | none, and `us-east-1` for the region | `storage.FromEnv` |
 | `QUEUE_WORKERS`     | How many background jobs, such as mail, run at once. With `0`, this instance runs none and leaves its jobs to the others on the database. | `4` | its `main.go` |
 | `BACKUP_KEEP`       | On SQLite, how many of the database's nightly backups the app keeps on its disk, the newest, in `backups/`; with `0`, it makes none ([Backups](#backups)). | `7` | its `main.go` |
 | `MAIL_HOST`         | The SMTP server. Without it, mail is written to the standard error instead of sent, or under `tug dev` kept in the app's mailbox. | none | `mail.FromEnv` |
@@ -702,6 +702,43 @@ yet: Vue's runtime and Svelte's make policies of their own, but
 Inertia's client writes `innerHTML` with none, for each visit's head
 elements, its progress bar and its error dialog, so every visit with a
 head would fail. They wait for Inertia's client to make one.
+
+## A bucket's keys
+
+On AWS, an app with its files in S3 runs as a role, which signs for the
+bucket with the keys the platform hands it, temporary, and the next ones
+before they expire, so the app keeps no secret for it:
+`FILESYSTEM_DISK=s3`, `AWS_BUCKET` and `AWS_DEFAULT_REGION`, and no
+`AWS_ACCESS_KEY_ID` ([On a role's keys](files.md#on-a-roles-keys)). The
+role's policy lets it do what the app does with the bucket:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], "Resource": "arn:aws:s3:::blog-files/*"},
+    {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::blog-files"}
+  ]
+}
+```
+
+- On ECS, it's the task's role, the task definition's `taskRoleArn`,
+  whose keys ECS gives the container at `169.254.170.2`.
+- On EKS, it's the pod's service account's: by IRSA, the account's
+  annotation `eks.amazonaws.com/role-arn`, which has the pod assume the
+  role with a token in a file, or by Pod Identity, an association of the
+  role with the account, whose keys EKS gives at `169.254.170.23`.
+- On EC2, it's the instance's, by an instance profile, whose keys its
+  metadata gives by IMDSv2. A container on the instance, as the
+  Dockerfile's, reaches it across two hops, which the instance allows
+  with a hop limit of 2: `aws ec2 modify-instance-metadata-options
+  --instance-id i-… --http-tokens required --http-put-response-hop-limit
+  2`.
+
+A link the app signs with a role's keys works until they expire, hours
+on, whatever it says: the auth starter's pages link to a photo by the
+app's own `/photos`, which redirects to the bucket's link, made as it's
+followed ([Links](files.md#links)).
 
 ## A bucket's CORS
 

@@ -34,7 +34,7 @@ test('a photo is uploaded, shown in place of the initials by a signed link, and 
   await page.getByRole('button', { name: 'Upload' }).click()
   await expect(page.getByText('Photo saved.')).toBeVisible()
   const photo = menu.locator('img')
-  await expect(photo).toHaveAttribute('src', /^\/files\/photos\/[a-z2-7]{26}\.png\?expires=\d+&signature=/)
+  await expect(photo).toHaveAttribute('src', /^\/photos\/[a-z2-7]{26}\.png\?expires=\d+&signature=/)
   await expect(photo).toHaveJSProperty('naturalWidth', 1)
   await expect(menu).not.toContainText('AL', initials)
   await expect(page.getByRole('img', { name: 'Your photo' })).toBeVisible()

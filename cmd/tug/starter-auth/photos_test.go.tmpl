@@ -51,6 +51,17 @@ func fetch(c *tugtest.Client, link string) *tugtest.Response {
 	return c.Do(httptest.NewRequest(http.MethodGet, link, nil))
 }
 
+// shown follows a photo's link as a browser does an <img>'s: the app's,
+// which redirects, not to be kept, to the disk's, which it gets.
+func shown(t *testing.T, c *tugtest.Client, link string) *tugtest.Response {
+	t.Helper()
+	r := fetch(c, link)
+	if r.Code != http.StatusFound || r.Header.Get("Cache-Control") != "no-store" || !strings.HasPrefix(r.Location(), "/files/photos/") {
+		t.Fatalf("the photo's link: %v, Cache-Control %q, to %s", r, r.Header.Get("Cache-Control"), r.Location())
+	}
+	return fetch(c, r.Location())
+}
+
 func TestAPhotoIsShownByALinkSignedForIt(t *testing.T) {
 	app := newTestApp(t)
 	c := app.verifiedUser("Ann", "ann@example.com", "correct horse")
@@ -61,7 +72,7 @@ func TestAPhotoIsShownByALinkSignedForIt(t *testing.T) {
 	}
 	r = r.Follow()
 	u := user(r)
-	if r.Page.Flash["success"] != "Photo saved." || u.Photo == nil || !strings.HasPrefix(*u.Photo, "/files/photos/") {
+	if r.Page.Flash["success"] != "Photo saved." || u.Photo == nil || !strings.HasPrefix(*u.Photo, "/photos/") {
 		t.Fatalf("flash %v, user %+v", r.Page.Flash, u)
 	}
 	// Kept by a name of the app's, with the extension of what it is.
@@ -71,7 +82,7 @@ func TestAPhotoIsShownByALinkSignedForIt(t *testing.T) {
 	if p := tugtest.Props(r, Profile).User.Photo; p == nil || *p != *u.Photo {
 		t.Errorf("the profile's user's photo: %v", p)
 	}
-	got := fetch(app.client(), *u.Photo)
+	got := shown(t, app.client(), *u.Photo)
 	if got.Code != http.StatusOK || got.Body != string(photo) || got.Header.Get("Content-Type") != "image/png" {
 		t.Errorf("the photo: %v %v", got, got.Header)
 	}
@@ -81,6 +92,10 @@ func TestAPhotoIsShownByALinkSignedForIt(t *testing.T) {
 	}
 	if got := fetch(c, strings.Split(*u.Photo, "?")[0]); got.Code != http.StatusForbidden {
 		t.Errorf("the photo with no signature: %v", got)
+	}
+	name := strings.TrimPrefix(strings.Split(*u.Photo, "?")[0], "/photos/")
+	if expired, _ := app.SignedURL("photos.show", time.Now().Add(-time.Minute), name); fetch(c, expired).Code != http.StatusForbidden {
+		t.Errorf("the photo by a link that's expired: %v", fetch(c, expired))
 	}
 	// The link is the same on every page, all day, so the browser keeps the
 	// photo cached.
@@ -104,7 +119,7 @@ func TestANewPhotoReplacesTheOldOne(t *testing.T) {
 		t.Errorf("on the disk: %v, and before %v", left, first)
 	}
 	u := user(c.Get("/settings/profile"))
-	if got := fetch(c, *u.Photo); got.Body != string(jpeg) || got.Header.Get("Content-Type") != "image/jpeg" {
+	if got := shown(t, c, *u.Photo); got.Body != string(jpeg) || got.Header.Get("Content-Type") != "image/jpeg" {
 		t.Errorf("the photo: %v %v", got, got.Header)
 	}
 }

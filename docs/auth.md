@@ -44,6 +44,7 @@ pgx and go-sql-driver/mysql, so `tug build` still makes a static binary.
 |-------------------------------------------|-----------------------------------------------|-----|
 | `GET /`                                   | `home`                                        | everyone |
 | `GET /up`                                 |                                               | health checks |
+| `GET /photos/{name}`                      | `photos.show`                                 | anyone with a signed link |
 | `GET /files/{key...}`                     |                                               | anyone with a signed link |
 | `GET /dashboard`                          | `dashboard`                                   | verified users |
 | `GET`, `POST /register`                   | `register`, `register.store`                  | guests |
@@ -528,9 +529,12 @@ sent again for them: they go back to the page it was on, which
   the user menu shows in place of the initials, uploaded with its progress
   shown. `photos.go` keeps it on the app's disk with package `storage`:
   `files/`, or `FILES_PATH`, or with `FILESYSTEM_DISK=s3`, a bucket. The
-  photos are private: `a.user` gives each page's user a link to theirs,
-  signed until the end of the next day, which is the same link all day so
-  the browser keeps it cached, and served at `/files` by that link alone.
+  photos are private: `a.user` gives each page's user a link of the
+  app's own to theirs, `/photos/<name>`, signed until the end of the next
+  day, which is the same link all day so the browser keeps it cached, and
+  which redirects to the disk's link, made as it's followed, served at
+  `/files` by it alone, or the bucket's, which on a role's keys works only
+  until they expire, hours on.
   A new photo replaces the old, and removing it brings the initials back;
   the file that nothing names any more is deleted by a job, `delete-file`,
   pushed in the transaction that drops it. See [Files](files.md).

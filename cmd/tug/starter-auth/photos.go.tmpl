@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"log/slog"
 	"mime/multipart"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuonggt/tug"
@@ -14,8 +17,9 @@ import (
 // A user's photo, which they upload on the profile page, and which the user
 // menu shows in place of their initials. It's kept on the app's disk: a
 // directory, files/ or FILES_PATH, or with FILESYSTEM_DISK=s3, a bucket,
-// as main has it. The photos are private: a page has a link to one that
-// works for a day or two, signed as the page renders.
+// as main has it. The photos are private: a page has a link of the app's
+// own to one, signed for a day or two as the page renders, which redirects
+// to the disk's link to it, made as the browser follows it.
 
 // PhotoInput is what the photo form sends: a PNG, JPEG or WebP of 2 MB at
 // most. What it is is told from its bytes, not its name: an SVG, which can
@@ -81,20 +85,48 @@ func (a *app) deleteStoredFile(ctx context.Context, job DeleteFile) error {
 	return a.disk.Delete(ctx, job.Key)
 }
 
-// withPhoto gives u, as the pages show them, a link to their photo. It's
-// signed to work until the end of the next day, in UTC, which is the same
-// link all day, so the browser keeps the photo cached from page to page,
-// where a link made afresh each time would be fetched afresh too. A link
-// that can't be made shows as no photo.
+// withPhoto gives u, as the pages show them, a link to their photo: the
+// app's own, at /photos, which showPhoto answers. It's signed to work
+// until the end of the next day, in UTC, which is the same link all day,
+// so the browser keeps the photo cached from page to page, where a link
+// made afresh each time would be fetched afresh too. A link that can't be
+// made shows as no photo.
 func (a *app) withPhoto(ctx context.Context, u *User) {
-	if u.PhotoKey == "" {
+	name, ok := strings.CutPrefix(u.PhotoKey, "photos/")
+	if !ok {
 		return
 	}
 	expires := time.Now().UTC().Truncate(24 * time.Hour).Add(48 * time.Hour)
-	link, err := a.disk.URL(ctx, u.PhotoKey, expires)
+	link, err := a.routes.SignedURL("photos.show", expires, name)
 	if err != nil {
 		slog.ErrorContext(ctx, "a link to a user's photo couldn't be made", "user", u.ID, "err", err)
 		return
 	}
+	// The page's own address, which its Content-Security-Policy lets
+	// images come from, whatever APP_URL's host is.
+	if signed, err := url.Parse(link); err == nil {
+		link = signed.RequestURI()
+	}
 	u.Photo = &link
+}
+
+// showPhoto answers a link withPhoto made with the disk's own link to the
+// photo, made as it's followed. A bucket's link signed with a role's keys,
+// as an app on EC2, ECS or EKS has, dies with them, hours on, whatever it
+// says, and a page in the browser's history, or open for hours, holds the
+// app's link, which works for as long as it says. The disk's link expires
+// as the app's does, so it's the same all day too, and the browser keeps
+// the photo cached by it, until the keys turn over and the link with them,
+// which is why the redirect isn't kept.
+func (a *app) showPhoto(c *tug.Ctx) error {
+	unix, err := strconv.ParseInt(c.Query("expires"), 10, 64)
+	if err != nil {
+		return err // tug.Signed has read it already
+	}
+	link, err := a.disk.URL(c.Context(), "photos/"+c.Param("name"), time.Unix(unix, 0))
+	if err != nil {
+		return err
+	}
+	c.Response().Header().Set("Cache-Control", "no-store")
+	return c.Redirect(link)
 }

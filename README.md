@@ -227,7 +227,8 @@ func showPost(c *tug.Ctx) error {
 - **Files** (package `storage`): uploads, from an Inertia form with its
   progress, kept in a directory the app serves, or in S3 or any service
   that speaks its API, Cloudflare R2 and MinIO among them, with S3's
-  signatures on the standard library. `validate` checks an upload's size
+  signatures on the standard library, by keys or the role an app on AWS
+  runs as. `validate` checks an upload's size
   and what it is, from its first bytes rather than its name, and a page
   gets a link to it, public or signed until it expires. What's served
   can't run as the app: its type is its bytes', and anything but an image

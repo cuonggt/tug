@@ -39,7 +39,8 @@ go test ./...
   `localhost` in development, not at an IP address. `settings.go`: the
   settings pages. `photos.go`: a user's photo, which they upload, kept in
   `files/` (or `FILES_PATH`), or with `FILESYSTEM_DISK=s3` in a bucket,
-  through tug's package `storage`, and shown by links signed for a day.
+  through tug's package `storage`, and shown by links of the app's own,
+  signed for a day, which redirect to the disk's.
   `mail.go`: the mail, in plain text and HTML. `tokens.go`: API tokens,
   which a user makes in their settings, for a script or another service,
   and the API, `/api`, which takes one in place of a login, as

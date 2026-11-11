@@ -37,8 +37,9 @@ import (
 // Its requests are signed with AWS's Signature Version 4, a put's without
 // hashing the file first, as S3 lets a request over TLS be, so a file
 // streams from the upload to the bucket, read once and never held whole.
-// Its keys are the ones it's given: not an instance's role, or a profile
-// in ~/.aws.
+// Its keys are its AccessKeyID and SecretAccessKey, or without them, its
+// KeySource's, as a role's that the platform the app runs on hands it:
+// RoleFromEnv finds one. A profile in ~/.aws isn't looked for.
 type S3 struct {
 	// Bucket is the bucket the files are kept in.
 	Bucket string
@@ -62,6 +63,11 @@ type S3 struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	SessionToken    string
+
+	// KeySource gives the keys an S3 with no AccessKeyID signs with, each
+	// time it signs: a role's, which expire, and which it fetches again
+	// before they do.
+	KeySource KeySource
 
 	// Public makes the files anyone's: a link is the BaseURL and the key,
 	// and works for as long as the bucket lets anyone read it. Otherwise a
@@ -101,7 +107,7 @@ func (s *S3) Put(ctx context.Context, key string, r io.Reader, size int64, conte
 	if size > 0 {
 		body = newExactly(r, size)
 	}
-	req, err := s.request(ctx, http.MethodPut, key, body)
+	req, k, err := s.request(ctx, http.MethodPut, key, body)
 	if err != nil {
 		return err
 	}
@@ -112,7 +118,7 @@ func (s *S3) Put(ctx context.Context, key string, r io.Reader, size int64, conte
 	if media, _, _ := strings.Cut(contentType, ";"); !filetype.Image(strings.ToLower(strings.TrimSpace(media))) {
 		req.Header.Set("Content-Disposition", "attachment")
 	}
-	resp, err := s.do(req, unsigned)
+	resp, err := s.do(req, k, unsigned)
 	if err != nil {
 		return fmt.Errorf("storage: putting %s in S3: %w", key, err)
 	}
@@ -128,11 +134,11 @@ func (s *S3) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 	if err := checkKey(key); err != nil {
 		return nil, err
 	}
-	req, err := s.request(ctx, http.MethodGet, key, nil)
+	req, k, err := s.request(ctx, http.MethodGet, key, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.do(req, emptySHA256)
+	resp, err := s.do(req, k, emptySHA256)
 	if err != nil {
 		return nil, fmt.Errorf("storage: reading %s from S3: %w", key, err)
 	}
@@ -153,11 +159,11 @@ func (s *S3) Delete(ctx context.Context, key string) error {
 	if err := checkKey(key); err != nil {
 		return err
 	}
-	req, err := s.request(ctx, http.MethodDelete, key, nil)
+	req, k, err := s.request(ctx, http.MethodDelete, key, nil)
 	if err != nil {
 		return err
 	}
-	resp, err := s.do(req, emptySHA256)
+	resp, err := s.do(req, k, emptySHA256)
 	if err != nil {
 		return fmt.Errorf("storage: deleting %s from S3: %w", key, err)
 	}
@@ -221,11 +227,11 @@ func (s *S3) listPage(ctx context.Context, prefix, token string) (*listing, erro
 	if s.maxKeys > 0 {
 		q.Set("max-keys", strconv.Itoa(s.maxKeys))
 	}
-	req, err := s.bucketRequest(ctx, q)
+	req, k, err := s.bucketRequest(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.do(req, emptySHA256)
+	resp, err := s.do(req, k, emptySHA256)
 	if err != nil {
 		return nil, fmt.Errorf("storage: listing the bucket: %w", err)
 	}
@@ -256,12 +262,12 @@ func (s *S3) Copy(ctx context.Context, from, to string) error {
 		// the file it was asked to keep.
 		return nil
 	}
-	req, err := s.request(ctx, http.MethodPut, to, nil)
+	req, k, err := s.request(ctx, http.MethodPut, to, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("X-Amz-Copy-Source", "/"+s.Bucket+"/"+escapeKey(from))
-	resp, err := s.do(req, emptySHA256)
+	resp, err := s.do(req, k, emptySHA256)
 	if err != nil {
 		return fmt.Errorf("storage: copying %s to %s in S3: %w", from, to, err)
 	}
@@ -303,6 +309,13 @@ func (s *S3) Move(ctx context.Context, from, to string) error {
 // one's, presigned for the seven days that end as it expires: the same
 // expiry makes the same link, whenever it's asked for, and an expiry more
 // than seven days off is an error.
+//
+// S3 ends a link with the keys that signed it, whatever its own expiry
+// says, so a link signed with temporary keys, as a role's, works until
+// they expire, which is hours off at most, and the next keys sign another.
+// One is signed as of when the process first had its keys, a time after
+// their session began, when that's later than seven days before it
+// expires, so the same keys and expiry make the same link.
 func (s *S3) URL(ctx context.Context, key string, expires time.Time) (string, error) {
 	if err := checkKey(key); err != nil {
 		return "", err
@@ -317,11 +330,24 @@ func (s *S3) URL(ctx context.Context, key string, expires time.Time) (string, er
 	if s.Public {
 		return u.String(), nil
 	}
+	now := s.clock()
 	signed := expires.Add(-longestLink)
-	if signed.After(s.clock()) {
+	if signed.After(now) {
 		return "", fmt.Errorf("storage: a link to %s that expires at %s: S3's links last seven days at most", key, expires.Format(time.RFC3339))
 	}
-	return s.presign(u, http.MethodGet, signed, longestLink, nil), nil
+	k, err := s.keys(ctx)
+	if err != nil {
+		return "", err
+	}
+	if k.SessionToken != "" {
+		// Signed seven days before it expires, a link could be signed as of
+		// a time before the session began, which there's no reason to count
+		// on S3 taking.
+		if since := firstHad(k.AccessKeyID, now); since.After(signed) && since.Before(expires) {
+			signed = since
+		}
+	}
+	return s.presign(u, http.MethodGet, signed, expires.Sub(signed), nil, k), nil
 }
 
 // UploadURL is a link a browser can PUT the file under key to, with no app
@@ -334,9 +360,6 @@ func (s *S3) UploadURL(ctx context.Context, key string, expires time.Time, c Con
 	if err := checkKey(key); err != nil {
 		return "", err
 	}
-	if s.AccessKeyID == "" || s.SecretAccessKey == "" {
-		return "", errors.New("storage: an S3 signs a link to upload to with its AccessKeyID and SecretAccessKey")
-	}
 	u, err := s.objectURL(key)
 	if err != nil {
 		return "", err
@@ -348,11 +371,15 @@ func (s *S3) UploadURL(ctx context.Context, key string, expires time.Time, c Con
 	case lasts > longestLink:
 		return "", fmt.Errorf("storage: a link to upload %s expiring at %s: S3's links last seven days at most", key, expires.Format(time.RFC3339))
 	}
+	k, err := s.keys(ctx)
+	if err != nil {
+		return "", err
+	}
 	var headers map[string]string
 	if c.ContentType != "" {
 		headers = map[string]string{"content-type": c.ContentType}
 	}
-	return s.presign(u, http.MethodPut, s.clock(), lasts, headers), nil
+	return s.presign(u, http.MethodPut, s.clock(), lasts, headers, k), nil
 }
 
 // Stat is what the file under key is: its size and when it last changed,
@@ -363,11 +390,11 @@ func (s *S3) Stat(ctx context.Context, key string) (Info, error) {
 	if err := checkKey(key); err != nil {
 		return Info{}, err
 	}
-	req, err := s.request(ctx, http.MethodHead, key, nil)
+	req, k, err := s.request(ctx, http.MethodHead, key, nil)
 	if err != nil {
 		return Info{}, err
 	}
-	resp, err := s.do(req, emptySHA256)
+	resp, err := s.do(req, k, emptySHA256)
 	if err != nil {
 		return Info{}, fmt.Errorf("storage: looking at %s in S3: %w", key, err)
 	}
@@ -383,12 +410,12 @@ func (s *S3) Stat(ctx context.Context, key string) (Info, error) {
 	if at, err := http.ParseTime(resp.Header.Get("Last-Modified")); err == nil {
 		info.At = at
 	}
-	start, err := s.request(ctx, http.MethodGet, key, nil)
+	start, k, err := s.request(ctx, http.MethodGet, key, nil)
 	if err != nil {
 		return Info{}, err
 	}
 	start.Header.Set("Range", "bytes=0-511")
-	resp, err = s.do(start, emptySHA256)
+	resp, err = s.do(start, k, emptySHA256)
 	if err != nil {
 		return Info{}, fmt.Errorf("storage: reading the start of %s in S3: %w", key, err)
 	}
@@ -427,13 +454,17 @@ func (s *S3) Origin() string {
 // its keys, which the listing alone makes. Its query is written as SigV4
 // signs one, as presign writes a link's, so that a continuation token's
 // own +, / and = reach S3 escaped the way the signature has them.
-func (s *S3) bucketRequest(ctx context.Context, q url.Values) (*http.Request, error) {
-	if s.Bucket == "" || s.AccessKeyID == "" || s.SecretAccessKey == "" {
-		return nil, errors.New("storage: an S3 needs its Bucket, AccessKeyID and SecretAccessKey")
+func (s *S3) bucketRequest(ctx context.Context, q url.Values) (*http.Request, Keys, error) {
+	if s.Bucket == "" {
+		return nil, Keys{}, errors.New("storage: an S3 needs its Bucket")
+	}
+	k, err := s.keys(ctx)
+	if err != nil {
+		return nil, Keys{}, err
 	}
 	u, err := s.objectURL("")
 	if err != nil {
-		return nil, err
+		return nil, Keys{}, err
 	}
 	if s.PathStyle {
 		// objectURL ends a key's path with the key, and the bucket's own path
@@ -442,19 +473,45 @@ func (s *S3) bucketRequest(ctx context.Context, q url.Values) (*http.Request, er
 		u.RawPath = escape(u.Path, true)
 	}
 	u.RawQuery = canonicalQuery(q)
-	return http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	return req, k, err
 }
 
-// request is a request for the object under key.
-func (s *S3) request(ctx context.Context, method, key string, body io.Reader) (*http.Request, error) {
-	if s.Bucket == "" || s.AccessKeyID == "" || s.SecretAccessKey == "" {
-		return nil, errors.New("storage: an S3 needs its Bucket, AccessKeyID and SecretAccessKey")
+// request is a request for the object under key, and the keys to sign it
+// with.
+func (s *S3) request(ctx context.Context, method, key string, body io.Reader) (*http.Request, Keys, error) {
+	if s.Bucket == "" {
+		return nil, Keys{}, errors.New("storage: an S3 needs its Bucket")
+	}
+	k, err := s.keys(ctx)
+	if err != nil {
+		return nil, Keys{}, err
 	}
 	u, err := s.objectURL(key)
 	if err != nil {
-		return nil, err
+		return nil, Keys{}, err
 	}
-	return http.NewRequestWithContext(ctx, method, u.String(), body)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+	return req, k, err
+}
+
+// keys are what the S3 signs with: its own, or without them, its
+// KeySource's.
+func (s *S3) keys(ctx context.Context) (Keys, error) {
+	if s.AccessKeyID != "" || s.SecretAccessKey != "" || s.KeySource == nil {
+		if s.AccessKeyID == "" || s.SecretAccessKey == "" {
+			return Keys{}, errors.New("storage: an S3 needs its AccessKeyID and SecretAccessKey, or a KeySource")
+		}
+		return Keys{AccessKeyID: s.AccessKeyID, SecretAccessKey: s.SecretAccessKey, SessionToken: s.SessionToken}, nil
+	}
+	k, err := s.KeySource.Keys(ctx)
+	if err != nil {
+		return Keys{}, err
+	}
+	if k.AccessKeyID == "" || k.SecretAccessKey == "" {
+		return Keys{}, errors.New("storage: the S3's KeySource gave it no AccessKeyID or SecretAccessKey")
+	}
+	return k, nil
 }
 
 // objectURL is the address of the object under key: in the bucket's host,
@@ -480,9 +537,9 @@ func (s *S3) objectURL(key string) (*url.URL, error) {
 	return u, nil
 }
 
-// do signs req, with its body's hash, and sends it.
-func (s *S3) do(req *http.Request, payloadHash string) (*http.Response, error) {
-	s.sign(req, payloadHash, s.clock())
+// do signs req with k, and its body's hash, and sends it.
+func (s *S3) do(req *http.Request, k Keys, payloadHash string) (*http.Response, error) {
+	s.sign(req, payloadHash, s.clock(), k)
 	client := s.Client
 	if client == nil {
 		client = http.DefaultClient
@@ -490,17 +547,19 @@ func (s *S3) do(req *http.Request, payloadHash string) (*http.Response, error) {
 	return client.Do(req)
 }
 
-// sign signs req as SigV4 has a request to S3 signed, in its Authorization
-// header: over its method, its path, its query, its Host and every other
-// header it has, and payloadHash, its body's SHA-256 in hex, or
-// UNSIGNED-PAYLOAD, as of t.
-func (s *S3) sign(req *http.Request, payloadHash string, t time.Time) {
+// sign signs req with k as SigV4 has a request to S3 signed, in its
+// Authorization header: over its method, its path, its query, its Host and
+// every other header it has, the session token of temporary keys among
+// them, and payloadHash, its body's SHA-256 in hex, or UNSIGNED-PAYLOAD,
+// as of t.
+func (s *S3) sign(req *http.Request, payloadHash string, t time.Time, k Keys) {
 	t = t.UTC()
 	req.Header.Del("Authorization")
+	req.Header.Del("X-Amz-Security-Token")
 	req.Header.Set("X-Amz-Date", t.Format(amzDate))
 	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
-	if s.SessionToken != "" {
-		req.Header.Set("X-Amz-Security-Token", s.SessionToken)
+	if k.SessionToken != "" {
+		req.Header.Set("X-Amz-Security-Token", k.SessionToken)
 	}
 	host := req.Host
 	if host == "" {
@@ -535,15 +594,16 @@ func (s *S3) sign(req *http.Request, payloadHash string, t time.Time) {
 		payloadHash,
 	}, "\n")
 	scope := s.scope(t)
-	req.Header.Set("Authorization", algorithm+" Credential="+s.AccessKeyID+"/"+scope+", SignedHeaders="+signed+", Signature="+s.signature(t, scope, request))
+	req.Header.Set("Authorization", algorithm+" Credential="+k.AccessKeyID+"/"+scope+", SignedHeaders="+signed+", Signature="+s.signature(t, scope, request, k.SecretAccessKey))
 }
 
-// presign is the link to u for method, signed as of t for S3 to answer for
-// as long as lasts: the query SigV4 has for it, with its Host signed, and
-// each header in headers, by its lower-case name, which the request then
-// has to send, and send the same. That's how a link to upload says what it
-// takes: content-type, which S3 refuses a PUT that says anything else.
-func (s *S3) presign(u *url.URL, method string, t time.Time, lasts time.Duration, headers map[string]string) string {
+// presign is the link to u for method, signed with k as of t for S3 to
+// answer for as long as lasts: the query SigV4 has for it, with its Host
+// signed, and each header in headers, by its lower-case name, which the
+// request then has to send, and send the same. That's how a link to upload
+// says what it takes: content-type, which S3 refuses a PUT that says
+// anything else.
+func (s *S3) presign(u *url.URL, method string, t time.Time, lasts time.Duration, headers map[string]string, k Keys) string {
 	t = t.UTC()
 	scope := s.scope(t)
 	names := []string{"host"}
@@ -554,13 +614,13 @@ func (s *S3) presign(u *url.URL, method string, t time.Time, lasts time.Duration
 	signed := strings.Join(names, ";")
 	q := url.Values{
 		"X-Amz-Algorithm":     {algorithm},
-		"X-Amz-Credential":    {s.AccessKeyID + "/" + scope},
+		"X-Amz-Credential":    {k.AccessKeyID + "/" + scope},
 		"X-Amz-Date":          {t.Format(amzDate)},
 		"X-Amz-Expires":       {strconv.FormatInt(int64(lasts/time.Second), 10)},
 		"X-Amz-SignedHeaders": {signed},
 	}
-	if s.SessionToken != "" {
-		q.Set("X-Amz-Security-Token", s.SessionToken)
+	if k.SessionToken != "" {
+		q.Set("X-Amz-Security-Token", k.SessionToken)
 	}
 	query := canonicalQuery(q)
 	var canonical strings.Builder
@@ -573,7 +633,7 @@ func (s *S3) presign(u *url.URL, method string, t time.Time, lasts time.Duration
 	}
 	request := strings.Join([]string{method, escape(u.Path, true), query, canonical.String(), signed, unsigned}, "\n")
 	link := *u
-	link.RawQuery = query + "&X-Amz-Signature=" + s.signature(t, scope, request)
+	link.RawQuery = query + "&X-Amz-Signature=" + s.signature(t, scope, request, k.SecretAccessKey)
 	return link.String()
 }
 
@@ -583,11 +643,11 @@ func (s *S3) scope(t time.Time) string {
 }
 
 // signature signs the canonical request as of t, with a key derived from
-// the secret for its day, its region and S3.
-func (s *S3) signature(t time.Time, scope, canonicalRequest string) string {
+// secret for its day, its region and S3.
+func (s *S3) signature(t time.Time, scope, canonicalRequest, secret string) string {
 	sum := sha256.Sum256([]byte(canonicalRequest))
 	toSign := algorithm + "\n" + t.Format(amzDate) + "\n" + scope + "\n" + hex.EncodeToString(sum[:])
-	key := []byte("AWS4" + s.SecretAccessKey)
+	key := []byte("AWS4" + secret)
 	for _, part := range []string{t.Format("20060102"), s.region(), "s3", "aws4_request"} {
 		key = hmacSHA256(key, part)
 	}

@@ -3,6 +3,9 @@ package storage
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -41,7 +44,7 @@ func minio(t *testing.T) *S3 {
 	}
 	bucket := func(method string) *http.Response {
 		req, _ := http.NewRequest(method, s.Endpoint+"/"+s.Bucket, nil)
-		s.sign(req, emptySHA256, time.Now())
+		s.sign(req, emptySHA256, time.Now(), Keys{AccessKeyID: s.AccessKeyID, SecretAccessKey: s.SecretAccessKey})
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("the S3 at %s: %v", s.Endpoint, err)
@@ -197,9 +200,20 @@ func TestAnS3sErrorSaysWhatWentWrong(t *testing.T) {
 }
 
 func TestAnS3WithoutItsBucketOrKeysSaysSo(t *testing.T) {
-	s := &S3{Bucket: "files"}
-	if err := s.Put(ctx, "a.png", bytes.NewReader(png), int64(len(png)), "image/png"); err == nil || !strings.Contains(err.Error(), "needs its Bucket, AccessKeyID and SecretAccessKey") {
-		t.Errorf("got %v", err)
+	s := &S3{AccessKeyID: "id", SecretAccessKey: "secret"}
+	if err := s.Put(ctx, "a.png", bytes.NewReader(png), int64(len(png)), "image/png"); err == nil || err.Error() != "storage: an S3 needs its Bucket" {
+		t.Errorf("no bucket: %v", err)
+	}
+	s = &S3{Bucket: "files"}
+	if err := s.Put(ctx, "a.png", bytes.NewReader(png), int64(len(png)), "image/png"); err == nil || err.Error() != "storage: an S3 needs its AccessKeyID and SecretAccessKey, or a KeySource" {
+		t.Errorf("no keys: %v", err)
+	}
+	if _, err := s.URL(ctx, "a.png", time.Now().Add(time.Hour)); err == nil || !strings.Contains(err.Error(), "or a KeySource") {
+		t.Errorf("a link with no keys: %v", err)
+	}
+	s = &S3{Bucket: "files", AccessKeyID: "id", KeySource: &InstanceRole{}}
+	if _, err := s.Open(ctx, "a.png"); err == nil || !strings.Contains(err.Error(), "needs its AccessKeyID and SecretAccessKey") {
+		t.Errorf("a key without its secret, and a KeySource, which the key wins over: %v", err)
 	}
 	s = &S3{Bucket: "files", Endpoint: "localhost:9000", AccessKeyID: "id", SecretAccessKey: "secret"}
 	if _, err := s.Open(ctx, "a.png"); err == nil || !strings.Contains(err.Error(), "isn't an http:// or https:// address") {
@@ -273,6 +287,91 @@ func TestAnS3SaysWhatAFileIs(t *testing.T) {
 	}
 }
 
+// assumeRole is temporary keys from the MinIO's STS, AssumeRole, which
+// its root user can ask for, by a request signed as SigV4 has one to STS.
+func assumeRole(t *testing.T, s *S3) Keys {
+	t.Helper()
+	body := "Action=AssumeRole&DurationSeconds=900&Version=2011-06-15"
+	req, err := http.NewRequest(http.MethodPost, s.Endpoint+"/", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	sum := sha256.Sum256([]byte(body))
+	payload := hex.EncodeToString(sum[:])
+	headers := "content-type:application/x-www-form-urlencoded\nhost:" + req.URL.Host + "\nx-amz-content-sha256:" + payload + "\nx-amz-date:" + now.Format(amzDate) + "\n"
+	signed := "content-type;host;x-amz-content-sha256;x-amz-date"
+	canonical := sha256.Sum256([]byte(strings.Join([]string{http.MethodPost, "/", "", headers, signed, payload}, "\n")))
+	scope := now.Format("20060102") + "/us-east-1/sts/aws4_request"
+	key := []byte("AWS4" + s.SecretAccessKey)
+	for _, part := range []string{now.Format("20060102"), "us-east-1", "sts", "aws4_request"} {
+		key = hmacSHA256(key, part)
+	}
+	signature := hex.EncodeToString(hmacSHA256(key, algorithm+"\n"+now.Format(amzDate)+"\n"+scope+"\n"+hex.EncodeToString(canonical[:])))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Amz-Content-Sha256", payload)
+	req.Header.Set("X-Amz-Date", now.Format(amzDate))
+	req.Header.Set("Authorization", algorithm+" Credential="+s.AccessKeyID+"/"+scope+", SignedHeaders="+signed+", Signature="+signature)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var assumed struct {
+		Credentials struct {
+			AccessKeyID     string    `xml:"AccessKeyId"`
+			SecretAccessKey string    `xml:"SecretAccessKey"`
+			SessionToken    string    `xml:"SessionToken"`
+			Expiration      time.Time `xml:"Expiration"`
+		} `xml:"AssumeRoleResult>Credentials"`
+	}
+	if err := xml.NewDecoder(resp.Body).Decode(&assumed); err != nil || resp.StatusCode != http.StatusOK || assumed.Credentials.SessionToken == "" {
+		t.Fatalf("the MinIO's STS: %s, %v", resp.Status, err)
+	}
+	c := assumed.Credentials
+	return Keys{AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken, Expires: c.Expiration}
+}
+
+// An S3 on a role signs with keys of a session, its token in every request
+// and link, which the MinIO's STS gives as AWS's platforms give a role's.
+func TestAnS3SignsWithASessionsKeys(t *testing.T) {
+	root := minio(t)
+	s := &S3{Bucket: root.Bucket, Endpoint: root.Endpoint, PathStyle: true, KeySource: &keysOfTheTest{keys: assumeRole(t, root)}}
+	put(t, s, "photos/ann.png", png)
+	if got := read(t, s, "photos/ann.png"); !bytes.Equal(got, png) {
+		t.Errorf("read %q", got)
+	}
+	if keys := listed(t, s, "photos"); !slices.Equal(keys, []string{"photos/ann.png"}) {
+		t.Errorf("listed %v", keys)
+	}
+	link, err := s.URL(ctx, "photos/ann.png", time.Now().Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !bytes.Equal(body, png) {
+		t.Errorf("the link: %s %q", resp.Status, body)
+	}
+	upload, err := s.UploadURL(ctx, "photos/bob.png", time.Now().Add(time.Hour), Conditions{ContentType: "image/png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodPut, upload, bytes.NewReader(png))
+	req.Header.Set("Content-Type", "image/png")
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusOK {
+		t.Errorf("the upload: %v %v", resp, err)
+	}
+	if err := s.Delete(ctx, "photos/ann.png"); err != nil {
+		t.Error(err)
+	}
+	s.Delete(ctx, "photos/bob.png")
+}
+
 func TestAnS3KeepsTheDisksPromises(t *testing.T) {
 	theDisksPromises(t, func(t *testing.T) Disk { return minio(t) })
 }
@@ -314,7 +413,7 @@ func TestAnS3ListsTheBucketAtItsOwnAddress(t *testing.T) {
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			req, err := c.disk.bucketRequest(ctx, url.Values{"list-type": {"2"}, "prefix": {"photos/"}})
+			req, _, err := c.disk.bucketRequest(ctx, url.Values{"list-type": {"2"}, "prefix": {"photos/"}})
 			if err != nil {
 				t.Fatal(err)
 			}

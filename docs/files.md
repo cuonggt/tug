@@ -181,9 +181,56 @@ photos/a.png in S3: AccessDenied: Access Denied`. `Open` of a key that
 isn't there is `fs.ErrNotExist` when S3 says `NoSuchKey`, which takes
 permission to list the bucket; without it, S3 says `AccessDenied`.
 
-Its keys are the ones it's given, with `SessionToken` for temporary ones:
-not an instance's role, or a profile in `~/.aws`. A file is one put, up to
-S3's limit for one, 5 GB.
+Its keys are its `AccessKeyID` and `SecretAccessKey`, with
+`SessionToken` for temporary ones, or a role's ([On a role's
+keys](#on-a-roles-keys)). A file is one put, up to S3's limit for one,
+5 GB.
+
+### On a role's keys
+
+An app on AWS runs as a role, whose keys the platform hands it,
+temporary, and the next ones before they expire, so it keeps no secret
+of its own. An S3 with no `AccessKeyID` signs with the keys of its
+`KeySource`, which it asks for each time it signs:
+
+```go
+disk := &storage.S3{Bucket: "blog-files", Region: "eu-west-1", KeySource: &storage.InstanceRole{}}
+```
+
+Three are tug's, the places AWS's platforms put a role's keys:
+
+- `storage.InstanceRole`: an EC2 instance's role, from its metadata, by
+  IMDSv2, at `http://169.254.169.254` or its `Endpoint`. IMDSv1, which
+  answers a plain `GET`, as a server tricked into fetching a URL makes,
+  isn't asked.
+- `storage.ContainerRole`: the keys a container's endpoint gives, as ECS
+  gives a task's at `169.254.170.2`, and EKS's Pod Identity a pod's at
+  `169.254.170.23`, with the token it takes, `Token`, or `TokenFile`, a
+  file read at each fetch. Over plain HTTP, its `URL` is the machine
+  itself or one of those addresses: an endpoint anywhere else would be
+  handed the token.
+- `storage.WebIdentity`: a role assumed with a web identity's token, in
+  a file read at each fetch, as EKS gives a pod's service account, by
+  STS's `AssumeRoleWithWebIdentity` in its `Region`, a call that no keys
+  sign.
+
+Each keeps its keys until five minutes before they expire, and the
+signing that finds them so fetches the next, one fetch at a time, the
+others signing with the keys there are meanwhile. A fetch that fails
+while they last is logged, and they sign until they expire, with the next
+fetch a few seconds on; one that fails with none left is the request's
+error, which says where it looked: `storage: no keys from the instance's
+metadata at http://169.254.169.254: the instance has no role`. The
+instance's and the container's requests take no proxy, as the keys would
+cross it. A source of the app's own, as a vault's, is a `KeySource` too:
+`Keys(ctx)`, the keys and when they expire.
+
+`storage.RoleFromEnv()` is the role the environment names, where AWS's
+SDKs look, and `FromEnv` takes it for an S3 with no keys ([From the
+environment](#from-the-environment)). A profile in `~/.aws`, SSO, a
+`credential_process` or a role assumed with another's keys isn't looked
+for: those are a developer's machine's, where keys in the environment, or
+a MinIO's, do.
 
 ### From the environment
 
@@ -195,16 +242,27 @@ filesystem reads:
 | `FILESYSTEM_DISK` | `local`, the disk `FromEnv` was given, or `s3`. | `local` |
 | `AWS_BUCKET` | The bucket. Needed for `s3`. | none |
 | `AWS_DEFAULT_REGION` | The bucket's region: `auto` for R2. | `us-east-1` |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | The keys the requests are signed with. Needed for `s3`. | none |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | The keys the requests are signed with. Needed for `s3`, but by an app that runs as a role. | none |
 | `AWS_SESSION_TOKEN` | What goes with temporary keys. | none |
 | `AWS_ENDPOINT` | A service other than AWS: R2's, MinIO's. | AWS's, for the region |
 | `AWS_USE_PATH_STYLE_ENDPOINT` | `true` puts the bucket in the path, as MinIO wants. | `false` |
 | `AWS_URL` | What a public disk's links start with, such as a CDN's address. | the bucket's |
 
+Without keys, the S3 signs with the role `RoleFromEnv` finds, where AWS's
+SDKs look, the first in this order whose variables are set, which each
+platform sets itself:
+
+| Variable | What it names |
+|----------|---------------|
+| `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN` | A web identity's token, and the role it's for, as EKS gives a pod's service account: with `AWS_ROLE_SESSION_NAME`, and STS in `AWS_REGION`, or `AWS_DEFAULT_REGION`, or at `AWS_ENDPOINT_URL_STS`. |
+| `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` | ECS's endpoint, at `169.254.170.2`, for a task's role. |
+| `AWS_CONTAINER_CREDENTIALS_FULL_URI` | Another endpoint, as EKS's Pod Identity's, with `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` or `AWS_CONTAINER_AUTHORIZATION_TOKEN`. |
+| none of those | An EC2 instance's role, from its metadata, at `AWS_EC2_METADATA_SERVICE_ENDPOINT`, or by `AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE=IPv6` at its IPv6 address, unless `AWS_EC2_METADATA_DISABLED` is `true`. |
+
 Whether the files are public is the app's to say, not the environment's:
 the S3 `FromEnv` makes is public when `local` is. A variable it can't use
 is an error that names it, as `FILESYSTEM_DISK is s3, and AWS_BUCKET isn't
-set`.
+set`, and so is half a pair of keys.
 
 ## Links
 
@@ -239,11 +297,33 @@ The same key and expiry make the same link: an S3 link is signed for the
 seven days that end as it expires, whenever it's made. So a page that asks
 for its links with an expiry that stays the same for a while lets the
 browser keep the file cached, where a new link at each render would be
-fetched afresh. The auth starter's run to the end of the next day, UTC's:
+fetched afresh. The auth starter's photos' run to the end of the next
+day, UTC's:
 
 ```go
 expires := time.Now().UTC().Truncate(24 * time.Hour).Add(48 * time.Hour)
 link, err := disk.URL(c.Context(), user.PhotoKey, expires)
+```
+
+S3 ends a link with the keys that signed it, whatever its own expiry
+says, so a link signed with temporary keys, as a role's, works until they
+expire, hours on at most, and the next keys sign another. It's signed as
+of when the S3 first had the keys, a time after their session began, so
+the same keys and expiry make the same link until they turn over. A page
+that keeps a link longer than that, as one in the browser's history does,
+has a link of the app's own, `SignedURL`'s, whose route redirects to the
+disk's, made as it's followed, as the auth starter's photos do:
+
+```go
+app.Get("/photos/{name}", tug.Signed(func(c *tug.Ctx) error {
+	expires, _ := strconv.ParseInt(c.Query("expires"), 10, 64) // Signed has read it
+	link, err := disk.URL(c.Context(), "photos/"+c.Param("name"), time.Unix(expires, 0))
+	if err != nil {
+		return err
+	}
+	c.Response().Header().Set("Cache-Control", "no-store") // the link changes as the keys do
+	return c.Redirect(link)
+})).Name("photos.show")
 ```
 
 An S3 disk's links are at its bucket's address, or a public one's
@@ -475,5 +555,6 @@ gone. A link a page has is fetched with `c.Do`, as a browser fetches an
 - No multipart uploads to S3, for files over 5 GB, and nothing resumable:
   an upload from the browser is one `PUT` ([Uploads from the
   browser](#uploads-from-the-browser)).
-- An S3 takes keys, not an instance's role or a chain of places to look
-  for them.
+- An S3 doesn't look in `~/.aws`: for a profile, SSO, a
+  `credential_process`, or a role assumed with another's keys ([On a
+  role's keys](#on-a-roles-keys)).

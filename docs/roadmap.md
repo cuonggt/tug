@@ -71,7 +71,7 @@ to 3.11.0, November 2026), written against
 | M62 | v1.0.0                     | done   |
 | M63 | One machine, whole         | done   |
 | M64 | Inertia 3.11               | done   |
-| M65 | S3 on the platform's keys  | later  |
+| M65 | S3 on the platform's keys  | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6321,115 +6321,132 @@ Choices made on the way:
   seconds, a browser's spare one, is closed by tug then, as Go takes it
   for idle by whole seconds of the clock, and waits up to one more.
 
-## M65 · S3 on the platform's keys — later
+## M65 · S3 on the platform's keys — done
 
-An S3 signs with the keys it's given, `AWS_ACCESS_KEY_ID` and
+An S3 signed with the keys it was given, `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`, with `AWS_SESSION_TOKEN` for temporary ones,
-read once as the app starts. On AWS those are an IAM user's keys, which
-never expire, kept in the app's environment, which AWS advises against:
-an app on EC2, ECS or EKS runs as a role, whose keys the platform hands
-it, temporary, and the next ones before they expire. AWS's SDKs look for
-them where each platform puts them when the environment has no keys, and
-Laravel's S3 takes them that way, through the SDK: a web identity's
-token, as EKS gives a pod's service account, the container's endpoint,
-as ECS gives a task and EKS's Pod Identity a pod, and the instance's
-metadata, as EC2 gives an instance. M61 gave `URL` and `UploadURL` a
-context for it, as a disk that fetches what it signs with needs one. The
-catch is the links: a link presigned with temporary keys dies with them,
-whatever its own expiry says, within hours, and the next keys sign
-another, so the auth starter's photo, a link to the end of the next day
-that's the same all day, would break as the keys turn over. To be
-released as v1.3.0.
+read once as the app started. On AWS those were an IAM user's keys,
+which never expire, kept in the app's environment, which AWS advises
+against: an app on EC2, ECS or EKS runs as a role, whose keys the
+platform hands it, temporary, and the next ones before they expire.
+AWS's SDKs look for them where each platform puts them when the
+environment has no keys, and Laravel's S3 takes them that way, through
+the SDK: a web identity's token, as EKS gives a pod's service account,
+the container's endpoint, as ECS gives a task and EKS's Pod Identity a
+pod, and the instance's metadata, as EC2 gives an instance. M61 gave
+`URL` and `UploadURL` a context for it, as a disk that fetches what it
+signs with needs one. The catch was the links: a link presigned with
+temporary keys dies with them, whatever its own expiry says, within
+hours, and the next keys sign another, so the auth starter's photo, a
+link to the end of the next day that was the same all day, would have
+broken as the keys turned over. To be released as v1.3.0.
 
 - **Keys from a source:** `storage.Keys`, an access key ID, its secret,
   a session token and when they expire, and `storage.KeySource`, whose
   `Keys(ctx)` an S3 asks each time it signs, an interface, so a source
   of the app's own, as a vault's, is one too. `S3.KeySource` is where an
-  S3 with no `AccessKeyID` gets its keys; with one, it signs with its
-  fields, as now, and with neither, a request or a link is an error that
-  says so.
+  S3 with no `AccessKeyID` gets its keys, `keys`, which `request` and
+  `bucketRequest` get with a request, and `URL` and `UploadURL` for a
+  link, and `do`, `sign`, `presign` and `signature` take, so a request
+  is signed by the keys it was made with; with an `AccessKeyID`, or half
+  a pair, it signs with its fields, as before, and with neither, a
+  request or a link is an error that says so.
 - **The platform's three:** `storage.WebIdentity`, a role assumed by the
   token in a file, with STS's `AssumeRoleWithWebIdentity`, a call no
-  keys sign, the file read again at each, as the cluster turns it over,
-  for STS's hour, at the endpoint of `AWS_REGION`'s region, or
-  `AWS_DEFAULT_REGION`'s; `storage.ContainerRole`, the keys of the
-  container's endpoint, `169.254.170.2` and the path ECS gives a task,
-  or an address of their own, as EKS's Pod Identity's, with the token it
-  takes as their `Authorization`, from a file read again at each fetch,
-  and over plain HTTP only to the machine itself, `169.254.170.2`,
-  `169.254.170.23` or `fd00:ec2::23`, as AWS's SDKs refuse another,
-  which would hand the token to whoever's there; and
+  keys sign, the file read again at each, for STS's hour, at the
+  endpoint of its `Region`, or the global one; `storage.ContainerRole`,
+  the keys of a container's endpoint, ECS's at `169.254.170.2`, or
+  another's, as EKS's Pod Identity's, with the `Authorization` it takes
+  from `Token` or `TokenFile`, read again at each fetch, and over plain
+  HTTP only at the machine itself, `169.254.170.2`, `169.254.170.23` or
+  `fd00:ec2::23`, by each address a name has, as AWS's SDKs have it; and
   `storage.InstanceRole`, the instance's, by IMDSv2: a token from a
   `PUT` of `/latest/api/token`, the role's name under
-  `/latest/meta-data/iam/security-credentials/`, then its keys. The
-  container's and the instance's requests take no proxy, as they're to
-  the machine itself, and the keys would cross it.
-- **Fetched as they're needed:** a source keeps its keys until five
-  minutes before they expire, as AWS's SDK for Go keeps a container's,
-  and by when EC2 has the next ones, as it promises; the signing that
-  finds them so fetches the next, one fetch at a time, the rest waiting
-  for it. A fetch that fails while the keys last is logged, and they're
-  used until they don't, with the next fetch a few seconds on; one that
-  fails with none left is the request's error, which says where it
-  looked: "storage: no keys for the S3: the instance's metadata at
-  http://169.254.169.254 didn't answer".
+  `/latest/meta-data/iam/security-credentials/`, then its keys, and
+  never IMDSv1. The container's and the instance's requests take no
+  proxy, `localClient`'s, waiting two seconds and one. An error names
+  where the source looked, and what it was told: "storage: no keys from
+  the instance's metadata at http://169.254.169.254: the instance has no
+  role".
+- **Fetched as they're needed:** `fetched` keeps a source's keys until
+  five minutes before they expire, by when EC2 has the next ones, as it
+  promises, and the signing that finds them so fetches the next, one
+  fetch at a time; meanwhile a signing with keys that work signs with
+  them, and one with none waits for the fetch, or its context. A fetch
+  that fails while the keys work is logged, and they're used until they
+  don't, with the next fetch five seconds on, as is one that gave keys
+  due already; one that fails with none left is the request's error, and
+  one its signing gave up on isn't the source's failing.
 - **From the environment, where AWS's SDKs look:** `FromEnv` with no
-  `AWS_ACCESS_KEY_ID` takes `storage.RoleFromEnv()`'s source, in the
-  SDKs' order: a web identity's, by `AWS_WEB_IDENTITY_TOKEN_FILE` and
-  `AWS_ROLE_ARN`, with `AWS_ROLE_SESSION_NAME` or a name of tug's; the
+  `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` takes
+  `storage.RoleFromEnv()`'s source, in the SDKs' order: a web
+  identity's, by `AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`, with
+  `AWS_ROLE_SESSION_NAME` or a name of tug's, and STS in `AWS_REGION`,
+  or `AWS_DEFAULT_REGION`, or at `AWS_ENDPOINT_URL_STS`; the
   container's, by `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`, or
   `AWS_CONTAINER_CREDENTIALS_FULL_URI` with
   `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` or
   `AWS_CONTAINER_AUTHORIZATION_TOKEN`; and else the instance's, at
   `AWS_EC2_METADATA_SERVICE_ENDPOINT`, or IPv6's by
   `AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE`, unless
-  `AWS_EC2_METADATA_DISABLED` is `true`. An app on a role sets
-  `FILESYSTEM_DISK=s3`, `AWS_BUCKET` and its region, and nothing secret;
-  half a pair of keys is an error, as now.
+  `AWS_EC2_METADATA_DISABLED` is `true`, which leaves an error that says
+  so. An app on a role sets `FILESYSTEM_DISK=s3`, `AWS_BUCKET` and its
+  region, and nothing secret; half a pair of keys is an error, as
+  before.
 - **A link as long as its keys:** S3 ends a link with the keys that
-  signed it, so `URL` signs one with temporary keys, those with a
-  session token, as of the later of when the S3 first had them and seven
-  days before it expires: the same keys and expiry make the same link,
-  and a browser keeps a file cached until the keys turn over. An IAM
-  user's keys make the links they make now. A link asked for past its
-  keys' expiry isn't refused, as an app on a role can't have keys that
-  last longer: it works until they expire.
+  signed it, so `URL` signs one with a session's keys, those with a
+  token, as of when the process first had them, `firstHad`'s, when
+  that's later than seven days before it expires: the same keys and
+  expiry make the same link, and a browser keeps a file cached until the
+  keys turn over. An IAM user's keys make the links they made before. A
+  link asked for past its keys' expiry isn't refused, as an app on a
+  role can't have keys that last longer: it works until they expire.
 - **The starter's photo, by a link of the app's:** `withPhoto` gives a
-  page a link of the app's own, `/photos/{name}`, signed with the app's
-  key to the end of the next day, as `SignedURL` signs, and the same all
-  day, whose route, behind `tug.Signed`, redirects to the disk's link,
-  made as it's asked for, in a redirect the browser doesn't keep. A page
-  in the browser's history, or open for hours, holds a link that works
-  as long as it says, whatever the disk's keys do, and the bucket's link
-  it leads to stays the same until they turn over, so the browser keeps
-  the photo cached. On the local disk it leads to `/files`, one route
-  for both, and the bucket's `Origin` is in `img-src` already. `tug
-  upgrade` brings it to an app.
-- **Tests:** each source against a server of the test's own: STS's XML,
-  the container's JSON with its `Authorization` read again from its
-  file, IMDSv2's token and paths, and a plain-HTTP address elsewhere
-  refused; keys kept until five minutes before they expire, one fetch
-  for many signings at once, a fetch that fails while keys last logged
-  and theirs used, and with none left, the request's error;
-  `RoleFromEnv`'s order, and `FromEnv` taking a role with no keys; SigV4
-  with a session token, in a request and in a link; a link signed as of
-  its keys' arrival, the same for the same keys and expiry, and another
-  for the next keys; against a MinIO, an S3 on temporary keys from its
-  STS, `AssumeRole`, which its root user can ask for, a put, a read, a
-  link and a link to upload to; and the starter's photo, its link the
-  app's, redirecting to the disk's, refused when it's unsigned or
-  expired, and in the browser, the avatar, in each frontend.
-- **The guide:** Files: In S3, a role's keys or the app's own; From the
-  environment, each source's variables, in their order; Links, a link on
+  page a link of the app's own, `photos.show`, `/photos/{name}`, signed
+  with `SignedURL` to the end of the next day, the same all day, at the
+  page's own address, whatever `APP_URL`'s host, and `showPhoto`, behind
+  `tug.Signed`, redirects it to the disk's link for the same expiry,
+  made as it's followed, in a redirect with `Cache-Control: no-store`. A
+  page in the browser's history, or open for hours, holds a link that
+  works as long as it says, whatever the disk's keys do, and the
+  bucket's link it leads to stays the same until they turn over, so the
+  browser keeps the photo cached. On the local disk it leads to
+  `/files`, one route for both, and the bucket's `Origin` was in
+  `img-src` already. `tug upgrade` brings it to an app.
+- **Tests:** in package storage, `fetched`'s keys kept until five
+  minutes before they expire, one fetch for ten signings at once, keys
+  that work signing while the next are fetched, a fetch that fails
+  logged and theirs used, then with none left the error and the next
+  fetch a few seconds on, a signing that gives up, keys that expired
+  before they came, and keys due already; each source against a server
+  of the test's own: STS's XML and its refusal, the token file read
+  again, a session's name, and the region's endpoint; the container's
+  JSON, its token file read again, a refusal said, the addresses it may
+  be at over plain HTTP, and one elsewhere never asked; IMDSv2's token
+  and role, an instance with no role, one with IMDSv1 alone, never asked
+  by a plain `GET`, and none at all; `RoleFromEnv`'s order, and what
+  doesn't add up; `FromEnv` taking a role with no keys, and none with
+  the metadata off; an S3 asking its source at each signing, its token
+  in a header that's signed, and the source's error its own; a session's
+  token signed into a request and a link; a link signed as of its keys'
+  arrival, the same for the same keys and expiry, and another for the
+  next keys; against a MinIO, an S3 on temporary keys from its STS's
+  `AssumeRole`, which its root user can ask for, a put, a read, a
+  listing, a link and a link to upload to; the starter's photo, its link
+  the app's, redirecting, not to be kept, to the disk's, refused
+  unsigned, for another photo and expired; and in the browser, the
+  avatar by the app's link, in each frontend.
+- **The guide:** Files: In S3, its keys or a role's; On a role's keys,
+  the three sources, how they fetch, and `RoleFromEnv`; From the
+  environment, the role's variables, in their order; Links, a link on
   temporary keys ending with them, and a link of the app's own that
-  redirects, for a page that keeps one; What's not here yet, without the
-  role. Deployment: a role for the bucket, the actions its policy
-  allows, ECS's task role, EKS's IRSA or Pod Identity, and EC2's, whose
-  IMDSv2 answers a container on the instance only with a hop limit of 2;
-  Accounts, the photo's link, and the keys left out on a role;
-  Upgrading, v1.3.0.
+  redirects, for a page that keeps one; What's not here yet, `~/.aws`.
+  Deployment: A bucket's keys, the role's policy, ECS's task role, EKS's
+  IRSA or Pod Identity, and EC2's, whose IMDSv2 answers a container on
+  the instance only with a hop limit of 2. Accounts: the photo's route
+  and link. The README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Where AWS's SDKs look, on a server:** the three places a platform
   puts a role's keys, in the SDKs' order, as Laravel's S3 takes them
@@ -6446,23 +6463,44 @@ Choices, to settle before any code:
   for Go would be tug's largest dependency, for three calls.
 - **Fetched by the signing that needs them, not ahead:** a disk has no
   `Run` to refresh its keys in the background; a fetch is a request to
-  the machine itself, or STS's once an hour, and the signings meanwhile
-  wait for it, as they'd wait for keys anyway.
+  the machine itself, or STS's once an hour, and only a signing with no
+  keys that work waits for it.
 - **A link as long as its keys, not refused:** an app on a role can't
   have keys that outlast the platform's, so a link that says it lasts
   longer works until they expire, as S3 has it, rather than not at all;
   the starter's photo, which a page keeps, goes by a link of the app's
   own, which lasts as long as it says.
 - **Signed as of the keys' arrival:** seven days before the link
-  expires, as one is signed now, can be before a role's session began,
-  which there's no reason to count on S3 taking; when the keys came is
-  after it, and the same for every link they sign, so the links stay the
-  same until the keys turn over.
+  expires, as one is signed otherwise, can be before a role's session
+  began, which there's no reason to count on S3 taking; when the keys
+  came is after it, and the same for every link they sign, so the links
+  stay the same until the keys turn over.
 - **The photo by a redirect, not the app's bytes or a link at each
   render:** a link made at each render changes as the keys turn over,
   and one in the browser's history dies with them; the app sending the
   photo itself would serve an upload from its own origin, which the
   bucket's host is there to keep it from.
+- **When the keys came, the process's:** an S3 is a struct an app may
+  copy, which a lock in it would have `go vet` refuse, so the time a
+  session's keys were first had is kept by the process, by their access
+  key ID, which no two sessions share, and forgotten after a week, as no
+  session lasts that long.
+- **An error that says where it looked, as it is:** a source's error
+  names it and the address it asked, which the S3 returns as it's given,
+  rather than wrapping it in another "no keys", which would say it
+  twice.
+- **A token for each fetch:** keys are fetched an hour or more apart, so
+  IMDSv2's token is asked for at each, for five minutes, rather than
+  kept for six hours, which would be a second thing to expire for a
+  request more an hour.
+- **`AWS_ENDPOINT_URL_STS` too:** the SDKs' variable for STS at an
+  address of its own, as a partition other than AWS's main one has, or a
+  test's, which the plan left out, and which `RoleFromEnv` reads with
+  the rest.
+- **The photo's two links, one expiry:** the disk's link expires when
+  the app's does, so a local disk's, and a bucket's on keys that don't
+  expire, are the links they were, and a browser's cache of a photo with
+  them.
 
 ## Decisions
 
