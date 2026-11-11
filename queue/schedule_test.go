@@ -106,37 +106,42 @@ func TestCronInRunsOnTheZonesClock(t *testing.T) {
 }
 
 func TestCronInRunsAFixedTimeOnceWhateverTheClockDoes(t *testing.T) {
+	// The clocks' changes here are 2025's. The zone database leaves the
+	// past as it was, but changes a country's future as its laws do, and
+	// the host's copy is the one read: tzdata 2026f kept Cuba on daylight
+	// time from March 2026 to November 2027, which this test had going
+	// back on 1 November 2026.
 	for _, tc := range []struct {
 		zone, expr, after, first string
 	}{
-		// Paris goes forward from 2:00 to 3:00 on 28 March 2027: 2:30 runs
+		// Paris goes forward from 2:00 to 3:00 on 30 March 2025: 2:30 runs
 		// as it does.
-		{"Europe/Paris", "30 2 * * *", "2027-03-28 00:00 +0100", "2027-03-28 03:00 +0200"},
-		{"Europe/Paris", "30 2 * * *", "2027-03-28 03:00 +0200", "2027-03-29 02:30 +0200"},
-		{"Europe/Paris", "0,30 2 * * *", "2027-03-28 00:00 +0100", "2027-03-28 03:00 +0200"},
-		{"Europe/Paris", "0,30 2 * * *", "2027-03-28 03:00 +0200", "2027-03-29 02:00 +0200"},
-		{"Europe/Paris", "0 3 * * *", "2027-03-28 01:59 +0100", "2027-03-28 03:00 +0200"},
-		// It goes back from 3:00 to 2:00 on 25 October 2026: 2:30 runs the
+		{"Europe/Paris", "30 2 * * *", "2025-03-30 00:00 +0100", "2025-03-30 03:00 +0200"},
+		{"Europe/Paris", "30 2 * * *", "2025-03-30 03:00 +0200", "2025-03-31 02:30 +0200"},
+		{"Europe/Paris", "0,30 2 * * *", "2025-03-30 00:00 +0100", "2025-03-30 03:00 +0200"},
+		{"Europe/Paris", "0,30 2 * * *", "2025-03-30 03:00 +0200", "2025-03-31 02:00 +0200"},
+		{"Europe/Paris", "0 3 * * *", "2025-03-30 01:59 +0100", "2025-03-30 03:00 +0200"},
+		// It goes back from 3:00 to 2:00 on 26 October 2025: 2:30 runs the
 		// first time, and not again, even for an app that was down then.
-		{"Europe/Paris", "30 2 * * *", "2026-10-25 02:00 +0200", "2026-10-25 02:30 +0200"},
-		{"Europe/Paris", "30 2 * * *", "2026-10-25 02:30 +0200", "2026-10-26 02:30 +0100"},
-		{"Europe/Paris", "30 2 * * *", "2026-10-25 02:10 +0100", "2026-10-26 02:30 +0100"},
-		// New York's clock: forward from 2:00 to 3:00 on 14 March 2027, back
-		// from 2:00 to 1:00 on 1 November 2026.
-		{"America/New_York", "30 2 * * *", "2027-03-14 01:00 -0500", "2027-03-14 03:00 -0400"},
-		{"America/New_York", "30 1 * * *", "2026-11-01 01:00 -0400", "2026-11-01 01:30 -0400"},
-		{"America/New_York", "30 1 * * *", "2026-11-01 01:30 -0400", "2026-11-02 01:30 -0500"},
-		// Lord Howe Island's goes by half an hour: from 2:00 to 2:30 on 4
-		// October 2026, and back from 2:00 to 1:30 on 4 April 2027.
-		{"Australia/Lord_Howe", "15 2 * * *", "2026-10-04 01:30 +1030", "2026-10-04 02:30 +1100"},
-		{"Australia/Lord_Howe", "45 2 * * *", "2026-10-04 01:30 +1030", "2026-10-04 02:45 +1100"},
-		{"Australia/Lord_Howe", "45 1 * * *", "2027-04-04 01:00 +1100", "2027-04-04 01:45 +1100"},
-		{"Australia/Lord_Howe", "45 1 * * *", "2027-04-04 01:45 +1100", "2027-04-05 01:45 +1030"},
-		// Havana's changes at midnight: it goes from 0:00 to 1:00 on 14
-		// March 2027, and shows 0:00 twice on 1 November 2026.
-		{"America/Havana", "@daily", "2027-03-13 01:00 -0500", "2027-03-14 01:00 -0400"},
-		{"America/Havana", "@daily", "2026-10-31 01:00 -0400", "2026-11-01 00:00 -0400"},
-		{"America/Havana", "@daily", "2026-11-01 00:00 -0400", "2026-11-02 00:00 -0500"},
+		{"Europe/Paris", "30 2 * * *", "2025-10-26 02:00 +0200", "2025-10-26 02:30 +0200"},
+		{"Europe/Paris", "30 2 * * *", "2025-10-26 02:30 +0200", "2025-10-27 02:30 +0100"},
+		{"Europe/Paris", "30 2 * * *", "2025-10-26 02:10 +0100", "2025-10-27 02:30 +0100"},
+		// New York's clock: forward from 2:00 to 3:00 on 9 March 2025, back
+		// from 2:00 to 1:00 on 2 November 2025.
+		{"America/New_York", "30 2 * * *", "2025-03-09 01:00 -0500", "2025-03-09 03:00 -0400"},
+		{"America/New_York", "30 1 * * *", "2025-11-02 01:00 -0400", "2025-11-02 01:30 -0400"},
+		{"America/New_York", "30 1 * * *", "2025-11-02 01:30 -0400", "2025-11-03 01:30 -0500"},
+		// Lord Howe Island's goes by half an hour: back from 2:00 to 1:30 on
+		// 6 April 2025, and from 2:00 to 2:30 on 5 October 2025.
+		{"Australia/Lord_Howe", "45 1 * * *", "2025-04-06 01:00 +1100", "2025-04-06 01:45 +1100"},
+		{"Australia/Lord_Howe", "45 1 * * *", "2025-04-06 01:45 +1100", "2025-04-07 01:45 +1030"},
+		{"Australia/Lord_Howe", "15 2 * * *", "2025-10-05 01:30 +1030", "2025-10-05 02:30 +1100"},
+		{"Australia/Lord_Howe", "45 2 * * *", "2025-10-05 01:30 +1030", "2025-10-05 02:45 +1100"},
+		// Havana's changes at midnight: it goes from 0:00 to 1:00 on 9 March
+		// 2025, and shows 0:00 twice on 2 November 2025.
+		{"America/Havana", "@daily", "2025-03-08 01:00 -0500", "2025-03-09 01:00 -0400"},
+		{"America/Havana", "@daily", "2025-11-01 01:00 -0400", "2025-11-02 00:00 -0400"},
+		{"America/Havana", "@daily", "2025-11-02 00:00 -0400", "2025-11-03 00:00 -0500"},
 	} {
 		if got := queue.CronIn(tc.zone, tc.expr).Next(in(t, tc.zone, tc.after)); !got.Equal(in(t, tc.zone, tc.first)) {
 			t.Errorf("CronIn(%q, %q) after %s: %v, want %s", tc.zone, tc.expr, tc.after, got, tc.first)
@@ -145,17 +150,18 @@ func TestCronInRunsAFixedTimeOnceWhateverTheClockDoes(t *testing.T) {
 }
 
 func TestCronInFollowsTheClockForATimeWithAStar(t *testing.T) {
+	// 2025's clock changes, as above.
 	for _, tc := range []struct {
 		zone, expr, after, first string
 	}{
 		// Nothing runs in the hour the clock skips, which never happened...
-		{"Europe/Paris", "*/15 * * * *", "2027-03-28 01:50 +0100", "2027-03-28 03:00 +0200"},
-		{"Europe/Paris", "@hourly", "2027-03-28 01:00 +0100", "2027-03-28 03:00 +0200"},
+		{"Europe/Paris", "*/15 * * * *", "2025-03-30 01:50 +0100", "2025-03-30 03:00 +0200"},
+		{"Europe/Paris", "@hourly", "2025-03-30 01:00 +0100", "2025-03-30 03:00 +0200"},
 		// ...and the hour the clock shows again runs again, as it did happen.
-		{"Europe/Paris", "*/15 * * * *", "2026-10-25 02:45 +0200", "2026-10-25 02:00 +0100"},
-		{"Europe/Paris", "30 * * * *", "2026-10-25 02:30 +0200", "2026-10-25 02:30 +0100"},
-		{"Europe/Paris", "@hourly", "2026-10-25 02:00 +0200", "2026-10-25 02:00 +0100"},
-		{"Australia/Lord_Howe", "*/15 * * * *", "2027-04-04 01:45 +1100", "2027-04-04 01:30 +1030"},
+		{"Europe/Paris", "*/15 * * * *", "2025-10-26 02:45 +0200", "2025-10-26 02:00 +0100"},
+		{"Europe/Paris", "30 * * * *", "2025-10-26 02:30 +0200", "2025-10-26 02:30 +0100"},
+		{"Europe/Paris", "@hourly", "2025-10-26 02:00 +0200", "2025-10-26 02:00 +0100"},
+		{"Australia/Lord_Howe", "*/15 * * * *", "2025-04-06 01:45 +1100", "2025-04-06 01:30 +1030"},
 	} {
 		if got := queue.CronIn(tc.zone, tc.expr).Next(in(t, tc.zone, tc.after)); !got.Equal(in(t, tc.zone, tc.first)) {
 			t.Errorf("CronIn(%q, %q) after %s: %v, want %s", tc.zone, tc.expr, tc.after, got, tc.first)
