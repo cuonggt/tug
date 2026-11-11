@@ -6339,7 +6339,7 @@ signs with needs one. The catch was the links: a link presigned with
 temporary keys dies with them, whatever its own expiry says, within
 hours, and the next keys sign another, so the auth starter's photo, a
 link to the end of the next day that was the same all day, would have
-broken as the keys turned over. To be released as v1.3.0.
+broken as the keys turned over. Released as v1.3.0.
 
 - **Keys from a source:** `storage.Keys`, an access key ID, its secret,
   a session token and when they expire, and `storage.KeySource`, whose

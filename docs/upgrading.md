@@ -233,6 +233,19 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.3.0
+
+`go get github.com/cuonggt/tug@v1.3.0`. Nothing an app calls changed
+since v1.2.0. An S3 with no keys signs with those of the role the app
+runs as, which `storage.FromEnv` finds where AWS's SDKs look, so an app
+on EC2, ECS or EKS whose role may use the bucket leaves out
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` ([A bucket's
+keys](deployment.md#a-buckets-keys)). A link signed with temporary keys,
+`AWS_SESSION_TOKEN`'s too, is signed as of when the app first had them,
+so it isn't the link it was. `tug upgrade` brings an app made by `tug new
+-auth` its photo by a link of the app's own, `/photos/{name}`, which
+redirects to the disk's, in `photos.go` and `main.go`.
+
 ### v1.2.0
 
 `go get github.com/cuonggt/tug@v1.2.0`. Nothing an app calls changed
