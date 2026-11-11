@@ -124,11 +124,14 @@ jobs:
   # retracted, which mimetype's v1.4.15 was.
   #
   # The last release is the one before HEAD, so a release's own commit is
-  # read against the release before it, not against itself. And tug's own
-  # versions come straight from GitHub: the run of a release's commit
-  # starts seconds after its tag, and a module proxy asked for a version
-  # before its tag shows keeps it missing for up to half an hour, for
-  # everyone, as v0.56.0 was.
+  # read against the release before it, not against itself, as its branch
+  # is pushed, before its tag. The run of its tag's push has nothing to
+  # ask: gorelease refuses the version, which is the tag by then, and
+  # suggests none against the release HEAD is. So it says so, and passes.
+  # And tug's own versions come straight from GitHub: the run of a
+  # release's commit starts seconds after its tag, and a module proxy
+  # asked for a version before its tag shows keeps it missing for up to
+  # half an hour, for everyone, as v0.56.0 was.
   api:
     name: api (gorelease)
     runs-on: ubuntu-24.04
@@ -144,6 +147,10 @@ jobs:
           go-version: stable
       - name: gorelease
         run: |
+          if release=$(git describe --tags --exact-match --match 'v*' HEAD 2>/dev/null); then
+            echo "HEAD is $release, whose API was read against the release before it as its branch was pushed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           base=$(git describe --tags --abbrev=0 --match 'v*' HEAD^)
           IFS=. read -r major minor _ <<< "${base#v}"
           next="v$major.$((minor + 1)).0"
