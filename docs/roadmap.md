@@ -6019,7 +6019,7 @@ moment the old process let go of its ports until the new one had run its
 migrations and taken them, and the binary needed the right to listen
 below 1024 for good, which the unit's `AmbientCapabilities` gave it. And
 nothing backed SQLite up, where a copy made by `cp` while the app writes
-can be torn. To be released as v1.1.0.
+can be torn. Released as v1.1.0.
 
 - **Sockets from systemd:** `Run` takes the sockets a `.socket` unit
   passes it, by systemd's own variables (`passedSockets`, in

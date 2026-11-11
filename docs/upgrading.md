@@ -233,6 +233,18 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.1.0
+
+`go get github.com/cuonggt/tug@v1.1.0`. Nothing an app calls changed
+since v1.0.0. An app under systemd serves on the sockets a `.socket` unit
+holds once it has the units, with no change to its code, so a deploy's
+restart refuses no request ([Restarts](deployment.md#restarts)). `tug
+upgrade` brings an app made by `tug new -auth` on SQLite the starter's
+backups, `backup.go`, with the `backup` command and the nightly
+`backup-db` job, which keeps the newest `BACKUP_KEEP`, 7, on the app's
+disk ([Backups](deployment.md#backups)), and the lines of `main.go` that
+add them.
+
 ### v1.0.0
 
 `go get github.com/cuonggt/tug@v1.0.0`. Nothing an app calls changed
