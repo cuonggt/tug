@@ -85,6 +85,17 @@ export async function logIn(page: Page, user: User, password = user.password) {
   await page.getByRole('button', { name: 'Log in', exact: true }).click()
 }
 
+// opened goes to path, and waits for the page to be the browser's: for the
+// connection its live props listen on, which the client opens once it has
+// hydrated the markup the server rendered. A click on that markup before
+// then does nothing, as the button's handler isn't there yet. Every page of
+// a user's has one, for the bell.
+export async function opened(page: Page, path: string) {
+  const live = page.waitForResponse((r) => r.url().endsWith('/broadcasts'))
+  await page.goto(path)
+  await live
+}
+
 export async function logOut(page: Page) {
   await page.getByRole('button', { name: 'Your account' }).click()
   await page.getByRole('menuitem', { name: 'Log out' }).click()

@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { authenticator, dashboard, expect, logIn, logOut, mailedLink, registeredWithPasskey, test } from './helpers'
+import { authenticator, dashboard, expect, logIn, logOut, mailedLink, opened, registeredWithPasskey, test } from './helpers'
 
 // noAutofill keeps the login page from logging in with the passkey as its
 // email field is focused, as the virtual authenticator picks one at once,
@@ -14,7 +14,7 @@ test('someone registers with a passkey from the link mailed to them, and logs in
   await authenticator(page)
   const user = await registeredWithPasskey(page, info)
   await expect(page.getByText(`Welcome, ${user.name}!`)).toBeVisible()
-  await page.goto('/settings/security')
+  await opened(page, '/settings/security')
   await expect(page.getByLabel('Current password')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Set a password' })).toBeVisible()
 
@@ -27,7 +27,7 @@ test('an account with no password sets one, and removes it again, with a passkey
   await noAutofill(page)
   await authenticator(page)
   const user = await registeredWithPasskey(page, info)
-  await page.goto('/settings/security')
+  await opened(page, '/settings/security')
   await page.getByLabel('New password', { exact: true }).fill(user.password)
   await page.getByLabel('New password again').fill(user.password)
   await page.getByRole('button', { name: 'Set a password' }).click()
@@ -37,7 +37,7 @@ test('an account with no password sets one, and removes it again, with a passkey
   await logIn(page, user)
   await expect(dashboard(page, user)).toBeVisible()
 
-  await page.goto('/settings/security')
+  await opened(page, '/settings/security')
   await page.getByRole('button', { name: 'Remove the password' }).click()
   await expect(page.getByText('Password removed: your passkeys log you in.')).toBeVisible()
   await logOut(page)

@@ -469,6 +469,12 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 		kind, said = "password-set", "Your password is set."
 	}
 	u.PasswordHash, u.Password = auth.HashPassword(in.Password), true
+	// The day's wrong codes were tried with the old password, which
+	// whoever tried them hasn't once it's reset. They're cleared first, so
+	// that a failure to clear them changes nothing.
+	if err := a.codesToday.Clear(c.Context(), u.authID()); err != nil {
+		return err
+	}
 	// The link came to the email, which it shows is theirs; and the owner
 	// is told, as for any new password.
 	err = a.inTx(c.Context(), func(tx *sql.Tx) error {
@@ -484,11 +490,6 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 		return a.notify(c.Context(), tx, u.ID, kind, noticeData{})
 	})
 	if err != nil {
-		return err
-	}
-	// The day's wrong codes were tried with the old password, which
-	// whoever tried them hasn't any more.
-	if err := a.codesToday.Clear(c.Context(), u.authID()); err != nil {
 		return err
 	}
 	// The new password ends every login made with the old one, and the

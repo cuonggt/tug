@@ -1,9 +1,9 @@
 import type { Page } from '@playwright/test'
-import { authenticator, dashboard, expect, logIn, logOut, madeToken, registered, test, totp } from './helpers'
+import { authenticator, dashboard, expect, logIn, logOut, madeToken, opened, registered, test, totp } from './helpers'
 
 test('two-factor logins go on with a code from the app, and then each login asks for one', async ({ page }, info) => {
   const user = await registered(page, info)
-  await page.goto('/settings/security')
+  await opened(page, '/settings/security')
   await page.getByRole('button', { name: 'Turn two-factor logins on' }).click()
 
   // The key an authenticator app would scan, which the page also shows in
@@ -38,7 +38,7 @@ test('two-factor logins go on with a code from the app, and then each login asks
   await page.getByRole('button', { name: 'Log in' }).click()
   await expect(dashboard(page, user)).toBeVisible()
 
-  await page.goto('/settings/security')
+  await opened(page, '/settings/security')
   await page.getByRole('button', { name: 'Turn two-factor logins off' }).click()
   await expect(page.getByText('Two-factor logins are off.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Turn two-factor logins on' })).toBeVisible()
@@ -70,14 +70,14 @@ test('with no passkey autofill, the button logs in with a passkey, which is then
   await page.getByRole('button', { name: 'Log in with a passkey' }).click()
   await expect(dashboard(page, user)).toBeVisible()
 
-  await page.goto('/settings/security')
+  await opened(page, '/settings/security')
   await page.getByRole('button', { name: 'Remove My phone' }).click()
   await expect(page.getByText('Passkey removed.')).toBeVisible()
   await expect(page.getByText('My phone')).toHaveCount(0)
 })
 
 async function addPasskey(page: Page, name: string) {
-  await page.goto('/settings/security')
+  await opened(page, '/settings/security')
   await page.getByRole('button', { name: 'Add a passkey' }).click()
   const dialog = page.getByRole('dialog', { name: 'Add a passkey' })
   await dialog.getByLabel('Name').fill(name)
@@ -89,7 +89,7 @@ async function addPasskey(page: Page, name: string) {
 
 test('a new password logs in, and the old one no longer does', async ({ page }, info) => {
   const user = await registered(page, info)
-  await page.goto('/settings/security')
+  await opened(page, '/settings/security')
   await page.getByLabel('Current password').fill(user.password)
   await page.getByLabel('New password', { exact: true }).fill('battery staple horse')
   await page.getByLabel('New password again').fill('battery staple horse')

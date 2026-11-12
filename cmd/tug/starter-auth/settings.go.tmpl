@@ -263,6 +263,13 @@ func (a *app) removePassword(c *tug.Ctx, user *User) error {
 // tells them of it, as notice kind. The new hash ends every login made
 // with the old one, rows and all; this browser logs in with the new.
 func (a *app) newPassword(c *tug.Ctx, user *User, hash, kind string) error {
+	// The day's wrong codes were tried with the old password, which
+	// whoever tried them hasn't once it's changed. They're cleared first,
+	// so that a failure to clear them changes nothing, where after the
+	// change it would leave this browser logged out with the rest.
+	if err := a.codesToday.Clear(c.Context(), user.authID()); err != nil {
+		return err
+	}
 	err := a.inTx(c.Context(), func(tx *sql.Tx) error {
 		if err := a.users.in(tx).setPassword(c.Context(), user.ID, hash); err != nil {
 			return err
@@ -273,11 +280,6 @@ func (a *app) newPassword(c *tug.Ctx, user *User, hash, kind string) error {
 		return a.notify(c.Context(), tx, user.ID, kind, noticeData{})
 	})
 	if err != nil {
-		return err
-	}
-	// The day's wrong codes were tried with the old password, which
-	// whoever tried them hasn't any more.
-	if err := a.codesToday.Clear(c.Context(), user.authID()); err != nil {
 		return err
 	}
 	user.PasswordHash, user.Password = hash, hash != ""

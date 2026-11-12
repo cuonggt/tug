@@ -989,7 +989,11 @@ tests again with a migration of its own (`growsAMigration`), and reads
   can't resolve `PageProps<'Name'>`. `e2e/` is one Playwright suite for
   the auth starter in every frontend (`setup.ts` makes the apps with tug
   new and runs them, their mail in `app.log`; `apps.ts` has the ports and
-  `dotEnv`): the three are one app, word for word, so a change to one
+  `dotEnv`; the apps render on the server, so a spec that clicks as a page
+  opens goes there by `helpers.ts`' `opened`, which waits for its live
+  connection, `/broadcasts`, the sign the client has hydrated it, as a
+  click on the server's markup before then is lost): the three are one
+  app, word for word, so a change to one
   frontend is made to all three. The starters declare their flash keys in
   `flash.go`, the auth starter's `Success`, `Failure` (`error`),
   `RecoveryCodes` and `NewToken` (`token`), and set them through it, with
