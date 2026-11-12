@@ -10,6 +10,8 @@ tug gen          write the TypeScript of the app's pages and routes
 tug routes [text]
                  list the app's routes, or those whose path or name has text in it
 tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
+tug lang -check [lang]
+                 say what's left to translate in each language, or lang, and fail for it
 tug migrate new <name>
                  write a new migration, migrations/<when>_<name>.sql, for the app to run
 tug build        build the app into one binary, with its frontend in it
@@ -528,6 +530,38 @@ For tug's texts, and the app's rules, it builds the app and runs it as
 the app's Go, but its tests and the directories `tug dev` doesn't look in.
 A text made as the app runs, as `c.T(message)` of a variable, or
 `t(message)` on a page, it can't see: a translator adds it by hand.
+
+```
+tug lang -check
+```
+
+Writes nothing, and says what's left to translate in every file of
+`lang/`, or with a language, `tug lang -check vi`, in its own, by the same
+texts `tug lang` finds: a text the file hasn't, which `tug lang vi` adds,
+one with no words, which the app says in English, and a translation that
+loses a placeholder of its English's, as `:count`, which it then says
+without the value, or says one the English hasn't, which it says as
+written. `:name`, `:Name` and `:NAME` are one placeholder, and a choice's
+translation may say `:count`, which `Choice` fills, whether or not its
+English does.
+
+```
+lang/vi.json: ":count posts deleted" loses :count
+lang/vi.json: "Post created" has no words
+lang/vi.json: "Your receipt" isn't there
+lang/vi.json: "An old text" is said nowhere now, for its translator to delete
+lang/vi.json: 2 of 96 texts to translate, and 1 to fix
+tug: 2 texts to translate, and 1 to fix
+```
+
+Any of those fails it, status 1, as `gofmt -l` fails a CI run; a text the
+file has that the app no longer says is a note, which doesn't, as `tug
+lang` keeps it for the translator to delete. An English file, as
+`en.json`, words only what it would have the app say otherwise, so a text
+it hasn't, or leaves empty, is the English, and only its placeholders are
+checked. An app with no languages has nothing to check, and passes; a
+language named that has no file is an error, which says `tug lang vi`
+makes one.
 
 ## `tug migrate`
 

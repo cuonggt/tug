@@ -9,7 +9,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,8 +26,10 @@ import (
 
 func runLang(args []string) error {
 	flags := flag.NewFlagSet("lang", flag.ContinueOnError)
+	check := flags.Bool("check", false, "write nothing, and say what's left to translate")
 	flags.Usage = func() {
 		fmt.Fprint(flags.Output(), `usage: tug lang <language>
+       tug lang -check [language]
 
 Writes lang/<language>.json, as lang/vi.json, with every text the app says
 to a person, in English, for its translation: tug's own, as a form's
@@ -35,6 +39,15 @@ Choice, and those its pages give t and choice. A file that's there keeps
 what it has, and gets the texts it hasn't. A text left empty is said in
 English.
 
+With -check, it writes nothing, and says what's left to translate in the
+language named, or with none, in every file of lang/: a text the app says
+that the file hasn't, one with no words, and a translation that loses a
+placeholder of its English's, as :count, or says one the English hasn't.
+Any of those fails it, for CI; a text the file has that the app no longer
+says is a note, which doesn't. An English file, as en.json, words only
+what it would have the app say otherwise, so its placeholders alone are
+checked.
+
 tug lang builds the app and runs it, as tug gen does, for tug's texts and
 the app's rules, and reads the app's Go and its frontend for the rest.
 `)
@@ -42,11 +55,22 @@ the app's rules, and reads the app's Go and its frontend for the rest.
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 1 || !languageTag(flags.Arg(0)) {
-		return errors.New("tug lang takes a language, as tug lang vi or tug lang pt-BR")
+	if flags.NArg() > 1 || !*check && flags.NArg() != 1 || flags.NArg() == 1 && !languageTag(flags.Arg(0)) {
+		return errors.New("tug lang takes a language, as tug lang vi or tug lang pt-BR, and tug lang -check one or none")
 	}
 	if err := checkProject(); err != nil {
 		return err
+	}
+	var files []string
+	if *check {
+		var err error
+		if files, err = langFiles(".", flags.Arg(0)); err != nil {
+			return err
+		}
+		if len(files) == 0 {
+			fmt.Println("lang/ has no languages to check")
+			return nil
+		}
 	}
 	env, err := appEnv()
 	if err != nil {
@@ -67,6 +91,9 @@ the app's rules, and reads the app's Go and its frontend for the rest.
 	said, err := pageTexts(filepath.Join("resources", "js"))
 	if err != nil {
 		return err
+	}
+	if *check {
+		return checkLanguages(os.Stdout, files, slices.Concat(g.Texts, own, said))
 	}
 	path := filepath.Join("lang", flags.Arg(0)+".json")
 	added, total, err := addTexts(path, slices.Concat(g.Texts, own, said))
@@ -226,6 +253,189 @@ func structTag(f *ast.Field) reflect.StructTag {
 	}
 	s, _ := strconv.Unquote(f.Tag.Value)
 	return reflect.StructTag(s)
+}
+
+// langFiles are the language files -check reads, in dir's lang/: the one
+// named, or with none, every one there, by its name, as lang's Load reads
+// them. One named that isn't there is an error that says what makes it.
+func langFiles(dir, named string) ([]string, error) {
+	if named != "" {
+		path := filepath.Join(dir, "lang", named+".json")
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%s isn't there: tug lang %s makes it", filepath.Join("lang", named+".json"), named)
+		} else if err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "lang", "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, path := range paths {
+		if languageTag(strings.TrimSuffix(filepath.Base(path), ".json")) {
+			files = append(files, path)
+		}
+	}
+	return files, nil
+}
+
+// checked is what -check found in a language's file: the problems, which
+// fail it, and the notes, which don't, each said of a text, in its English's
+// order, and how many texts are left to translate, and to fix.
+type checked struct {
+	problems, notes []string
+	translate, fix  int
+	said            int // the texts the app says
+}
+
+// checkTexts checks the language file at path against texts, those the app
+// says: a text the file hasn't, one with no words, and a translation whose
+// placeholders aren't its English's are problems, and a text the file has
+// that the app no longer says is a note. An English file words only what it
+// would have the app say otherwise, so a text it hasn't, or leaves empty,
+// is the English, as the app has it, and its placeholders alone are checked.
+func checkTexts(path string, texts []string) (checked, error) {
+	have, err := readTexts(path)
+	if err != nil {
+		return checked{}, err
+	}
+	tag := strings.FieldsFunc(strings.TrimSuffix(filepath.Base(path), ".json"), func(r rune) bool { return r == '-' || r == '_' })
+	english := len(tag) > 0 && strings.EqualFold(tag[0], "en")
+	said := map[string]bool{}
+	for _, t := range texts {
+		if t != "" {
+			said[t] = true
+		}
+	}
+	c := checked{said: len(said)}
+	for _, text := range slices.Sorted(maps.Keys(said)) {
+		words, ok := have[text]
+		switch {
+		case !ok && !english:
+			c.problems = append(c.problems, fmt.Sprintf("%q isn't there", text))
+			c.translate++
+		case words == "" && !english:
+			c.problems = append(c.problems, fmt.Sprintf("%q has no words", text))
+			c.translate++
+		case words != "":
+			if wrong := placeholdersOf(text, words); wrong != "" {
+				c.problems = append(c.problems, fmt.Sprintf("%q %s", text, wrong))
+				c.fix++
+			}
+		}
+	}
+	for _, text := range slices.Sorted(maps.Keys(have)) {
+		if !said[text] {
+			c.notes = append(c.notes, fmt.Sprintf("%q is said nowhere now, for its translator to delete", text))
+		}
+	}
+	return c, nil
+}
+
+// placeholdersOf says how a translation's placeholders aren't its English's:
+// one it loses, whose value it doesn't say, and one it says that the English
+// hasn't, which it says as written; or "" when they're the same. A choice's
+// translation may say :count, which Choice fills, whether or not its English
+// does.
+func placeholdersOf(english, words string) string {
+	want, got := placeholders(english), placeholders(words)
+	choice := strings.Contains(english, "|")
+	var lost, made []string
+	for _, name := range slices.Sorted(maps.Keys(want)) {
+		if !got[name] {
+			lost = append(lost, ":"+name)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(got)) {
+		if !want[name] && !(choice && name == "count") {
+			made = append(made, ":"+name)
+		}
+	}
+	var says []string
+	if len(lost) > 0 {
+		says = append(says, "loses "+strings.Join(lost, " and "))
+	}
+	if len(made) > 0 {
+		says = append(says, "says "+strings.Join(made, " and ")+", which the English doesn't")
+	}
+	return strings.Join(says, ", and ")
+}
+
+// placeholders are the names of a text's placeholders, as package lang's
+// fill reads them: a colon, a letter, and letters, digits and underscores,
+// :name, :Name and :NAME each name.
+func placeholders(text string) map[string]bool {
+	names := map[string]bool{}
+	letter := func(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }
+	for i := 0; i < len(text); i++ {
+		if text[i] != ':' || i+1 == len(text) || !letter(text[i+1]) {
+			continue
+		}
+		j := i + 1
+		for j < len(text) && (letter(text[j]) || '0' <= text[j] && text[j] <= '9' || text[j] == '_') {
+			j++
+		}
+		names[strings.ToLower(text[i+1:j])] = true
+		i = j - 1
+	}
+	return names
+}
+
+// checkLanguages checks each of files against texts, and says what it found
+// in w, a line a problem or a note, and a line a file of what's left; any
+// problem is its error, for the status a CI run fails by.
+func checkLanguages(w io.Writer, files, texts []string) error {
+	var translate, fix int
+	for _, path := range files {
+		c, err := checkTexts(path, texts)
+		if err != nil {
+			return err
+		}
+		name := filepath.Join("lang", filepath.Base(path))
+		for _, line := range slices.Concat(c.problems, c.notes) {
+			fmt.Fprintf(w, "%s: %s\n", name, line)
+		}
+		switch {
+		case c.translate == 0 && c.fix == 0:
+			fmt.Fprintf(w, "%s: every text translated, %d of them\n", name, c.said)
+		case c.fix == 0:
+			fmt.Fprintf(w, "%s: %d of %d texts to translate\n", name, c.translate, c.said)
+		case c.translate == 0:
+			fmt.Fprintf(w, "%s: %d of %d texts to fix\n", name, c.fix, c.said)
+		default:
+			fmt.Fprintf(w, "%s: %d of %d texts to translate, and %d to fix\n", name, c.translate, c.said, c.fix)
+		}
+		translate, fix = translate+c.translate, fix+c.fix
+	}
+	switch {
+	case translate == 0 && fix == 0:
+		return nil
+	case fix == 0:
+		return fmt.Errorf("%s to translate", several(translate, "text", "texts"))
+	case translate == 0:
+		return fmt.Errorf("%s to fix", several(fix, "text", "texts"))
+	default:
+		return fmt.Errorf("%s to translate, and %d to fix", several(translate, "text", "texts"), fix)
+	}
+}
+
+// readTexts reads the language file at path, an object of texts, each a
+// string; a file of null is one of none.
+func readTexts(path string) (map[string]string, error) {
+	have := map[string]string{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &have); err != nil {
+		return nil, fmt.Errorf("%s isn't an object of texts, each a string: %w", path, err)
+	}
+	if have == nil {
+		have = map[string]string{}
+	}
+	return have, nil
 }
 
 // addTexts adds the texts that the language file at path hasn't got, each

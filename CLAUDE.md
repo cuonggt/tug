@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M65 are done, which is
+the decisions behind it and where it stands: M1 to M66 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -213,7 +213,11 @@ expire, `InstanceRole`'s by IMDSv2, `ContainerRole`'s, ECS's and EKS's Pod
 Identity's, and `WebIdentity`'s, EKS's IRSA, by STS, which `FromEnv` takes
 from `RoleFromEnv`, where AWS's SDKs look, a link of a session's keys
 signed as of when they were first had, and the auth starter's photo by a
-link of the app's own, which redirects to the disk's.
+link of the app's own, which redirects to the disk's, and translations,
+checked (v1.4.0): `tug lang -check`, what's left to translate in each
+language, or one, a text not there, one with no words, and a
+placeholder lost or made up, failing CI till there's none, a text no
+longer said a note, and an English file's placeholders alone checked.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -877,7 +881,14 @@ dev server that isn't there: delete it.
   its pages' own from their markup (`pageTexts`, `saidInPages`: what
   `t`, `text` and `choice` are given in `resources/js`, by the quotes
   around it, `unquoteJS`), added to `lang/<lang>.json` (`addTexts`,
-  sorted, only when it adds, and a file of `null` is as an empty one);
+  sorted, only when it adds, and a file of `null` is as an empty one),
+  or with `-check`, writing nothing, of `langFiles`, the one named or
+  every one by its tag, `checkLanguages`, a line a problem or a note, and
+  a file's count, and the problems its error, for status 1: `checkTexts`,
+  a text not there, one with no words, and `placeholdersOf`, a
+  translation's `placeholders`, as package lang's `fill` reads them, not
+  its English's, a choice's `:count` its own, as problems, and a text no
+  longer said a note, an English file's placeholders alone;
   `key.go` is tug key, which prints `newKey`, as `tug new`'s `.env` has
   one; `migrate.go` is tug migrate new, which writes a migration's file
   (`newMigration`, named in UTC, the next second when one's taken,

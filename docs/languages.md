@@ -227,7 +227,16 @@ and `Choice`, and those its pages give `t` and `choice`, as they're
 written, in quotes. Run it again after the app changes, for the new ones:
 what the file has, it keeps. A text made as the app runs, `c.T(message)`
 or `t(message)` of a variable, is the translator's to add.
-[The CLI](cli.md#tug-lang) has the rest.
+
+```sh
+tug lang -check
+```
+
+says what's left to translate in each language, and fails, for CI, until
+there's nothing: a text the file hasn't, one with no words, which the app
+says in English, and a translation that loses a placeholder, as `:count`,
+or says one its English hasn't. A text the app no longer says is a note,
+for the translator to delete. [The CLI](cli.md#tug-lang) has the rest.
 
 The binary embeds the files, so `tug dev` builds again when one changes.
 
@@ -379,6 +388,3 @@ shift of half the element's own width, which is the middle either way.
   it's said. One that means two things is written two ways.
 - **Files in directories**, as Laravel's `lang/vi/validation.php`: a
   language is one file.
-- **How much of a language is translated**: `tug lang` says how many
-  texts it added, and a text left empty says the English, but nothing
-  lists the ones still empty, or counts them.

@@ -72,7 +72,7 @@ to 3.11.0, November 2026), written against
 | M63 | One machine, whole         | done   |
 | M64 | Inertia 3.11               | done   |
 | M65 | S3 on the platform's keys  | done   |
-| M66 | Translations, checked      | later  |
+| M66 | Translations, checked      | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6503,54 +6503,70 @@ Choices made on the way:
   expire, are the links they were, and a browser's cache of a photo with
   them.
 
-## M66 · Translations, checked — later
+## M66 · Translations, checked — done
 
-`tug lang vi` writes every text the app says into `lang/vi.json`, each
-with no words until a translator writes them, and says how many it
-added. A text left empty is said in English, quietly, and nothing lists
-the ones still empty, or counts them: the last line of the Languages
-page's What's not here yet. A translation that loses a placeholder, as
-`:count`, says the text without its value, which nothing checks either,
-and a text the app no longer says stays in the file, said nowhere. M66
-adds `tug lang -check`, which reads them all, writes nothing, and fails,
-as `gofmt -l` fails a CI run, until every text the app says is
-translated. To be released as v1.4.0.
+`tug lang vi` wrote every text the app says into `lang/vi.json`, each
+with no words until a translator wrote them, and said how many it added.
+A text left empty was said in English, quietly, and nothing listed the
+ones still empty, or counted them: the last line of the Languages page's
+What's not here yet. A translation that lost a placeholder, as `:count`,
+said the text without its value, which nothing checked either, and a
+text the app no longer said stayed in the file, said nowhere. M66 added
+`tug lang -check`, which reads them all, writes nothing, and fails, as
+`gofmt -l` fails a CI run, until every text the app says is translated.
+To be released as v1.4.0.
 
 - **`tug lang -check`:** with a language, `tug lang -check vi`, its
-  file, and with none, every file in `lang/`. It gathers the texts as
-  `tug lang` does, building and running the app as tug gen does and
-  reading its Go and its pages, and writes nothing. For each file, by
-  the English, in its order: a text the app says that the file hasn't,
-  which `tug lang vi` adds; one with no words, which the app says in
-  English; a translation that loses a placeholder its English has, which
-  it says without the value, or has one the English hasn't, which it
-  says as written, by placeholders as `fill` reads them, `:name`,
-  `:Name` and `:NAME` one, and a choice's `:count`, which `Choice`
-  fills, the translation's to say whether or not its English does; and,
-  as notes, the texts the file has that the app no longer says, which
-  `tug lang` keeps for the translator to delete. A line a file ends it,
-  `lang/vi.json: 3 of 96 texts to translate`, or every one translated; a
-  problem fails it, status 1, and a note doesn't.
+  file, and with none, every file in `lang/` named for a language
+  (`langFiles`). It gathers the texts as `tug lang` does, building and
+  running the app as tug gen does and reading its Go and its pages, and
+  writes nothing. For each file, by the English, in its order
+  (`checkTexts`): a text the app says that the file hasn't, which `tug
+  lang vi` adds; one with no words, which the app says in English; and a
+  translation that loses a placeholder its English has, which it says
+  without the value, or has one the English hasn't, which it says as
+  written (`placeholdersOf`), by placeholders as package lang's `fill`
+  reads them (`placeholders`), `:name`, `:Name` and `:NAME` one, and a
+  choice's `:count`, which `Choice` fills, the translation's to say
+  whether or not its English does; and, as notes, the texts the file has
+  that the app no longer says. A line a file ends it (`checkLanguages`),
+  `lang/vi.json: 2 of 96 texts to translate, and 1 to fix`, or `every
+  text translated, 96 of them`; the problems are tug's error, `tug: 2
+  texts to translate, and 1 to fix`, status 1, and a note isn't.
+- **An English file, its placeholders:** `en.json`, and a region's of
+  English, words only what it would have the app say otherwise, as
+  package lang falls back to it, then to the English, so a text it
+  hasn't, or leaves empty, is the English, and its placeholders alone
+  are checked.
 - **Nothing to check, or nothing there:** with no file in `lang/`, it
-  says the app has no languages and passes, as the starters' `lang/` has
-  a `.gitkeep` until a language comes; a language named that has no file
-  is an error, which says `tug lang vi` makes one.
+  says the app has no languages and passes, before it builds the app, as
+  the starters' `lang/` has a `.gitkeep` until a language comes; a
+  language named that has no file is an error, `lang/ja.json isn't
+  there: tug lang ja makes it`.
 - **The starters' notes:** their `AGENTS.md`, where it says `tug lang
   vi` writes a page's words to translate, says `tug lang -check` lists
-  what's left, and isn't among the commands that check a change, as a
-  change that adds a text in English is done before its translation is.
+  what's left, and that a change is done before its translation is, so
+  it isn't among the commands that check one. tug's usage, and its
+  package's comment, list it.
 - **Tests:** the check of a file, by files of the test's own: a text not
-  there, one empty, a placeholder lost and one made up, `:Count` and
-  `:COUNT` as `:count`, a choice's own `:count`, a text no longer said
-  as a note, and the status; `tug lang -check` on an app of the test's
-  own, with no languages, with one translated whole, with one a text
-  short, every file and one, and a language with no file; and the
-  starters' notes, by `notesProblems`, as now.
-- **The guide:** Languages: `tug lang`, a translation checked, and
-  What's not here yet without how much is translated; the CLI's `tug
-  lang` and its usage, `-check`; and the starters' `AGENTS.md`.
+  there, one empty, a placeholder lost and one made up, both at once,
+  two lost, `:Name` as `:name` and `:COUNT` as `:count`, a choice's own
+  `:count`, a URL and a time with none, a text no longer said as a note,
+  and the counts; an English file's, and a region's, placeholders alone;
+  the files, every one named for a language, one, and one that isn't
+  there; what the check says, a line a problem and a file, and its
+  error; and in the CLI's suite, the plain starter's app, with no
+  languages, which passes, with the file `tug lang vi` wrote, which
+  fails for every text, every language, with the Arabic of no texts it
+  had for its head, which fails for both, Vietnamese translated whole,
+  which passes, and a language with no file; and the starters' notes, by
+  `notesProblems`, as before.
+- **The guide:** Languages: `tug lang`, and a translation checked, and
+  What's not here yet without how much is translated; the CLI: the
+  usage, and `tug lang -check`, what it says, and an English file's; and
+  the starters' `AGENTS.md`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A check of `tug lang`'s, not a command of its own:** it gathers what
   `tug lang` gathers, by the same build and the same readers, so a text
@@ -6571,6 +6587,17 @@ Choices, to settle before any code:
   says.
 - **Every language, or one:** with none named, CI checks every file, and
   a translator names their own.
+- **An English file by its placeholders alone:** which the plan left
+  out. An app's `en.json` rewords a few of its English texts, and
+  package lang falls back to it, and to the English, so checked as a
+  translation it would fail every app that has one, for every text it
+  leaves as it is.
+- **Files named for a language:** every file of `lang/` that the check
+  reads is one whose name is a language's tag, as package lang loads
+  them, so a file of another kind there isn't read as a language.
+- **The status by tug's own error:** the last line is the error tug
+  says, status 1, as `tug upgrade` says what it left to do, so a script
+  reads the check by its status, and a person by its last line.
 
 ## Decisions
 

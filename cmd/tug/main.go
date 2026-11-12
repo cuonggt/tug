@@ -6,6 +6,7 @@
 //	tug gen          write the TypeScript of the app's pages and routes
 //	tug routes       list the app's routes
 //	tug lang vi      write the texts to translate into lang/vi.json
+//	tug lang -check  say what's left to translate, and fail for it
 //	tug migrate new  write a new migration, for the app to run
 //	tug build        build the app into one binary, frontend and all
 //	tug key          print a new key for APP_KEY
@@ -31,6 +32,8 @@ const usage = `tug makes and runs tug apps.
   tug routes [text]
                    list the app's routes, or those whose path or name has text in it
   tug lang <lang>  write the texts the app says into lang/<lang>.json, to translate
+  tug lang -check [lang]
+                   say what's left to translate in each language, or lang, and fail for it
   tug migrate new <name>
                    write a new migration, migrations/<when>_<name>.sql, for the app to run
   tug build        build the app into one binary, with its frontend in it

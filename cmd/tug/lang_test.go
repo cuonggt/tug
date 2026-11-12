@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -221,5 +222,115 @@ func TestTheStartersFrontendsSayTheSameWords(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestACheckSaysWhatsLeftToTranslate(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, map[string]string{"lang/vi.json": `{
+  "Post created": "Đã tạo bài viết",
+  "Log in": "",
+  ":count posts": "bài viết",
+  "Hello": "Xin chào :name",
+  "Welcome, :name": "Chào mừng, :Name",
+  "one post|many posts": "{0} không có bài viết|[1,*] :count bài viết",
+  ":count comment|:count comments": ":COUNT bình luận",
+  "Visit https://example.com at 10:30": "Ghé https://example.com lúc 10:30",
+  "An old text": "Một văn bản cũ"
+}`})
+	texts := []string{
+		"Post created", "Log in", "Delete your account", ":count posts", "Hello", "Welcome, :name",
+		"one post|many posts", ":count comment|:count comments", "Visit https://example.com at 10:30", "", "Post created",
+	}
+	c, err := checkTexts(filepath.Join(dir, "lang", "vi.json"), texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// By the English, in its order: a text not there, one with no words, a
+	// placeholder lost, and one the English hasn't; :Name is :name, :COUNT
+	// :count, a choice's translation may say :count, which Choice fills, and
+	// a URL or a time has none.
+	want := []string{
+		`":count posts" loses :count`,
+		`"Delete your account" isn't there`,
+		`"Hello" says :name, which the English doesn't`,
+		`"Log in" has no words`,
+	}
+	if !slices.Equal(c.problems, want) {
+		t.Errorf("the problems:\n%s\nwant\n%s", strings.Join(c.problems, "\n"), strings.Join(want, "\n"))
+	}
+	if want := []string{`"An old text" is said nowhere now, for its translator to delete`}; !slices.Equal(c.notes, want) {
+		t.Errorf("the notes: %q", c.notes)
+	}
+	if c.translate != 2 || c.fix != 2 || c.said != 9 {
+		t.Errorf("%d to translate, %d to fix, of %d", c.translate, c.fix, c.said)
+	}
+	if got := placeholdersOf("Welcome, :name, to :site", "Chào mừng"); got != "loses :name and :site" {
+		t.Errorf("two lost: %q", got)
+	}
+	if got := placeholdersOf("Welcome, :name", "Chào mừng :user"); got != "loses :name, and says :user, which the English doesn't" {
+		t.Errorf("one lost and one made up: %q", got)
+	}
+}
+
+// An English file words only what it would have the app say otherwise: a
+// text it hasn't, or leaves empty, is the English, as the app has it.
+func TestAnEnglishFileIsCheckedForItsPlaceholdersAlone(t *testing.T) {
+	dir := t.TempDir()
+	file := `{"Log in": "Sign in", "Post created": "", ":count posts": "Some posts"}`
+	write(t, dir, map[string]string{"lang/en.json": file, "lang/en-GB.json": file})
+	for _, name := range []string{"en.json", "en-GB.json"} {
+		c, err := checkTexts(filepath.Join(dir, "lang", name), []string{"Log in", "Post created", "Delete your account", ":count posts"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{`":count posts" loses :count`}; !slices.Equal(c.problems, want) || c.translate != 0 || c.fix != 1 {
+			t.Errorf("%s: %q, %d to translate, %d to fix", name, c.problems, c.translate, c.fix)
+		}
+	}
+}
+
+func TestTheCheckReadsOneLanguageOrEvery(t *testing.T) {
+	dir := t.TempDir()
+	if files, err := langFiles(dir, ""); err != nil || len(files) != 0 {
+		t.Errorf("an app with no lang/: %q, %v", files, err)
+	}
+	write(t, dir, map[string]string{
+		"lang/vi.json": "{}", "lang/pt-BR.json": "{}", "lang/.gitkeep": "", "lang/notes.txt": "", "lang/settings.json": "{}",
+	})
+	every, err := langFiles(dir, "")
+	if want := []string{filepath.Join(dir, "lang", "pt-BR.json"), filepath.Join(dir, "lang", "vi.json")}; err != nil || !slices.Equal(every, want) {
+		t.Errorf("every language: %q, %v", every, err)
+	}
+	if one, err := langFiles(dir, "vi"); err != nil || !slices.Equal(one, []string{filepath.Join(dir, "lang", "vi.json")}) {
+		t.Errorf("one: %q, %v", one, err)
+	}
+	if _, err := langFiles(dir, "ja"); err == nil || err.Error() != "lang/ja.json isn't there: tug lang ja makes it" {
+		t.Errorf("a language with no file: %v", err)
+	}
+}
+
+func TestTheCheckSaysWhatsLeftAndFailsForIt(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, map[string]string{
+		"lang/ja.json": `{"Post created": "投稿を作成しました", "Hello, :name": "こんにちは"}`,
+		"lang/vi.json": `{"Post created": "Đã tạo bài viết", "Log in": "Đăng nhập", "Hello, :name": "Xin chào, :name"}`,
+	})
+	files := []string{filepath.Join(dir, "lang", "ja.json"), filepath.Join(dir, "lang", "vi.json")}
+	texts := []string{"Post created", "Log in", "Hello, :name"}
+	var out bytes.Buffer
+	err := checkLanguages(&out, files, texts)
+	want := `lang/ja.json: "Hello, :name" loses :name
+lang/ja.json: "Log in" isn't there
+lang/ja.json: 1 of 3 texts to translate, and 1 to fix
+lang/vi.json: every text translated, 3 of them
+`
+	if out.String() != want || err == nil || err.Error() != "1 text to translate, and 1 to fix" {
+		t.Errorf("said\n%s\nwant\n%s\nand %v", out.String(), want, err)
+	}
+	write(t, dir, map[string]string{"lang/ja.json": `{"Post created": "投稿を作成しました", "Hello, :name": "こんにちは、:name", "Log in": "ログイン", "Old": "古い"}`})
+	out.Reset()
+	if err := checkLanguages(&out, files, texts); err != nil || !strings.Contains(out.String(), `lang/ja.json: "Old" is said nowhere now`) {
+		t.Errorf("translated whole, with a note: %v\n%s", err, out.String())
 	}
 }

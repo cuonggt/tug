@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"go/format"
 	"html"
 	"io"
@@ -632,14 +633,28 @@ func listsItsRoutes(t *testing.T, dir string) {
 
 // writesItsTexts runs tug lang in the app in dir, and checks the file has
 // tug's texts, from the app's run, and the name of the starter's form's
-// field, from its Go.
+// field, from its Go; and tug lang -check, of the app with no languages,
+// with the file it wrote, which has no words, and with it translated.
 func writesItsTexts(t *testing.T, dir string) {
 	t.Helper()
 	t.Chdir(dir)
+	// The app has Arabic, of no texts, which showsItsHead gave it: put
+	// aside, it has no languages, and nothing to check.
+	arabic := filepath.Join(dir, "lang", "ar.json")
+	if err := os.Rename(arabic, arabic+".aside"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runLang([]string{"-check"}); err != nil {
+		t.Fatalf("checking an app with no languages: %v", err)
+	}
+	if err := os.Rename(arabic+".aside", arabic); err != nil {
+		t.Fatal(err)
+	}
 	if err := runLang([]string{"vi"}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "lang", "vi.json"))
+	path := filepath.Join(dir, "lang", "vi.json")
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,6 +666,29 @@ func writesItsTexts(t *testing.T, dir string) {
 		if _, ok := texts[want]; !ok {
 			t.Errorf("lang/vi.json hasn't %q", want)
 		}
+	}
+	if err := runLang([]string{"-check", "vi"}); err == nil || err.Error() != fmt.Sprintf("%d texts to translate", len(texts)) {
+		t.Errorf("checking a file with no words: %v, of %d texts", err, len(texts))
+	}
+	// Every language: Vietnamese's texts, with no words, and Arabic's, none
+	// there.
+	if err := runLang([]string{"-check"}); err == nil || err.Error() != fmt.Sprintf("%d texts to translate", 2*len(texts)) {
+		t.Errorf("checking every language: %v, of %d texts each", err, len(texts))
+	}
+	// Each text said as its English says it, its placeholders and all, which
+	// translates it as far as the check can tell.
+	for text := range texts {
+		texts[text] = text
+	}
+	data, _ = json.Marshal(texts)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runLang([]string{"-check", "vi"}); err != nil {
+		t.Errorf("checking a file translated whole: %v", err)
+	}
+	if err := runLang([]string{"-check", "ja"}); err == nil || err.Error() != "lang/ja.json isn't there: tug lang ja makes it" {
+		t.Errorf("checking a language with no file: %v", err)
 	}
 }
 
