@@ -72,6 +72,7 @@ to 3.11.0, November 2026), written against
 | M63 | One machine, whole         | done   |
 | M64 | Inertia 3.11               | done   |
 | M65 | S3 on the platform's keys  | done   |
+| M66 | Translations, checked      | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6501,6 +6502,75 @@ Choices made on the way:
   the app's does, so a local disk's, and a bucket's on keys that don't
   expire, are the links they were, and a browser's cache of a photo with
   them.
+
+## M66 · Translations, checked — later
+
+`tug lang vi` writes every text the app says into `lang/vi.json`, each
+with no words until a translator writes them, and says how many it
+added. A text left empty is said in English, quietly, and nothing lists
+the ones still empty, or counts them: the last line of the Languages
+page's What's not here yet. A translation that loses a placeholder, as
+`:count`, says the text without its value, which nothing checks either,
+and a text the app no longer says stays in the file, said nowhere. M66
+adds `tug lang -check`, which reads them all, writes nothing, and fails,
+as `gofmt -l` fails a CI run, until every text the app says is
+translated. To be released as v1.4.0.
+
+- **`tug lang -check`:** with a language, `tug lang -check vi`, its
+  file, and with none, every file in `lang/`. It gathers the texts as
+  `tug lang` does, building and running the app as tug gen does and
+  reading its Go and its pages, and writes nothing. For each file, by
+  the English, in its order: a text the app says that the file hasn't,
+  which `tug lang vi` adds; one with no words, which the app says in
+  English; a translation that loses a placeholder its English has, which
+  it says without the value, or has one the English hasn't, which it
+  says as written, by placeholders as `fill` reads them, `:name`,
+  `:Name` and `:NAME` one, and a choice's `:count`, which `Choice`
+  fills, the translation's to say whether or not its English does; and,
+  as notes, the texts the file has that the app no longer says, which
+  `tug lang` keeps for the translator to delete. A line a file ends it,
+  `lang/vi.json: 3 of 96 texts to translate`, or every one translated; a
+  problem fails it, status 1, and a note doesn't.
+- **Nothing to check, or nothing there:** with no file in `lang/`, it
+  says the app has no languages and passes, as the starters' `lang/` has
+  a `.gitkeep` until a language comes; a language named that has no file
+  is an error, which says `tug lang vi` makes one.
+- **The starters' notes:** their `AGENTS.md`, where it says `tug lang
+  vi` writes a page's words to translate, says `tug lang -check` lists
+  what's left, and isn't among the commands that check a change, as a
+  change that adds a text in English is done before its translation is.
+- **Tests:** the check of a file, by files of the test's own: a text not
+  there, one empty, a placeholder lost and one made up, `:Count` and
+  `:COUNT` as `:count`, a choice's own `:count`, a text no longer said
+  as a note, and the status; `tug lang -check` on an app of the test's
+  own, with no languages, with one translated whole, with one a text
+  short, every file and one, and a language with no file; and the
+  starters' notes, by `notesProblems`, as now.
+- **The guide:** Languages: `tug lang`, a translation checked, and
+  What's not here yet without how much is translated; the CLI's `tug
+  lang` and its usage, `-check`; and the starters' `AGENTS.md`.
+
+Choices, to settle before any code:
+
+- **A check of `tug lang`'s, not a command of its own:** it gathers what
+  `tug lang` gathers, by the same build and the same readers, so a text
+  one finds, the other does; `-check` is to `tug lang` what `gofmt -l`
+  is to `gofmt -w`.
+- **Empty fails:** a text left empty is said in English, which is right
+  for a few, as a name, which a translator writes as it is; a check that
+  let an empty text pass would pass a file nobody has translated.
+- **A text no longer said is a note:** it's said nowhere, so it does no
+  harm, and `tug lang` keeps it, as a text can come back, or be renamed
+  by a word; the translator deletes it, which the note says.
+- **Placeholders by name, not forms by count:** a placeholder lost is a
+  value lost, in every language; a choice's forms are picked by the
+  language's rules, and an interval form, `[2,*]`, stands for many
+  counts, so how many forms a translation has isn't checked.
+- **Writes nothing:** a check that added the texts it found missing
+  would change the tree CI checks; `tug lang vi` adds them, as the check
+  says.
+- **Every language, or one:** with none named, CI checks every file, and
+  a translator names their own.
 
 ## Decisions
 
