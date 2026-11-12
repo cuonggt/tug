@@ -1,0 +1,100 @@
+package main
+
+import (
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/cuonggt/tug/auth"
+)
+
+// breaches is a Pwned Passwords of the test's own, which has seen
+// "password" three times, answers 503 while it's down, and counts what
+// it's asked.
+type breaches struct {
+	*auth.PwnedPasswords
+	down  atomic.Bool
+	asked atomic.Int32
+}
+
+func pwnedPasswords(t *testing.T) *breaches {
+	t.Helper()
+	b := &breaches{}
+	sum := sha1.Sum([]byte("password"))
+	seen := strings.ToUpper(hex.EncodeToString(sum[:]))[5:] + ":3\r\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b.asked.Add(1)
+		if b.down.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprint(w, "0018A45C4D1DEF81644B54AB7F969B88D65:1\r\n"+seen)
+	}))
+	t.Cleanup(srv.Close)
+	b.PwnedPasswords = &auth.PwnedPasswords{URL: srv.URL}
+	return b
+}
+
+// newTestAppCheckingBreaches is the app with CHECK_BREACHED_PASSWORDS on,
+// asking b.
+func newTestAppCheckingBreaches(t *testing.T, b *breaches) *testApp {
+	t.Helper()
+	return startApp(t, testDB(t), [][]byte{key(1)}, nil, func(e *env) { e.Breaches = b.PwnedPasswords })
+}
+
+const leaked = "that password has been leaked in a breach: choose another"
+
+func TestAPasswordLeakedInABreachIsTurnedAwayWhereverItsSet(t *testing.T) {
+	b := pwnedPasswords(t)
+	app := newTestAppCheckingBreaches(t, b)
+	if errs := register(app.client(), "Ann", "ann@example.com", "password").Follow().Errors(); errs["password"] != leaked {
+		t.Errorf("registering with it: %v", errs)
+	}
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	r := ann.Put("/settings/password", map[string]any{"current_password": "correct horse", "password": "password", "password_confirmation": "password"})
+	if errs := r.Follow().Errors(); errs["password"] != leaked {
+		t.Errorf("a new password in the settings: %v", errs)
+	}
+	reset := resetLink(t, app, "ann@example.com")
+	if errs := resetPassword(t, app.client(), reset, "password").Follow().Errors(); errs["password"] != leaked {
+		t.Errorf("a reset's: %v", errs)
+	}
+	// One that isn't among them is taken, by the same link.
+	if r := resetPassword(t, app.client(), reset, "battery staple"); r.Location() != "/dashboard" {
+		t.Errorf("a reset to one that wasn't leaked: %v", r)
+	}
+}
+
+// Precognition checks the password as the field is left, which tells the
+// service nothing: only the form, as it's sent, asks it.
+func TestABreachIsntAskedAsTheFieldIsLeft(t *testing.T) {
+	b := pwnedPasswords(t)
+	app := newTestAppCheckingBreaches(t, b)
+	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(`{"name": "Ann", "email": "ann@example.com", "password": "password", "password_confirmation": "password"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Precognition", "true")
+	req.Header.Set("Precognition-Validate-Only", "password")
+	if r := app.client().Do(req); r.Code != http.StatusNoContent || b.asked.Load() != 0 {
+		t.Errorf("a Precognition check: %v, and the service asked %d times", r, b.asked.Load())
+	}
+}
+
+// A service that doesn't answer lets the password through, as one that
+// refused while it was down would make it part of the app's uptime; and
+// an app that doesn't check asks nothing.
+func TestAPasswordIsTakenWhenTheBreachesArentAsked(t *testing.T) {
+	b := pwnedPasswords(t)
+	b.down.Store(true)
+	app := newTestAppCheckingBreaches(t, b)
+	if r := register(app.client(), "Ann", "ann@example.com", "password"); r.Location() != "/dashboard" || b.asked.Load() != 1 {
+		t.Errorf("with the service down: %v, asked %d times", r, b.asked.Load())
+	}
+	if r := register(newTestApp(t).client(), "Bob", "bob@example.com", "password"); r.Location() != "/dashboard" {
+		t.Errorf("with no check: %v", r)
+	}
+}

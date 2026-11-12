@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M66 are done, which is
+the decisions behind it and where it stands: M1 to M67 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -217,7 +217,13 @@ link of the app's own, which redirects to the disk's, and translations,
 checked (v1.4.0): `tug lang -check`, what's left to translate in each
 language, or one, a text not there, one with no words, and a
 placeholder lost or made up, failing CI till there's none, a text no
-longer said a note, and an English file's placeholders alone checked.
+longer said a note, and an English file's placeholders alone checked,
+and accounts, guarded (v1.5.0): the auth starter's codes counted by the
+day too, ten an account, past which a recovery code or a passkey still
+logs in, the owner told once a day that someone else has the password,
+and with `CHECK_BREACHED_PASSWORDS`, a new password checked against
+Pwned Passwords, `auth.PwnedPasswords`, told five characters of its
+SHA-1 alone.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -995,8 +1001,17 @@ tests again with a migration of its own (`growsAMigration`), and reads
   `validator()`, a method the typed one's type leaves out. The auth
   starter's handlers are in `auth.go.tmpl`
   (who's logged in, and the wrappers `usersOnly`, `verified`,
-  `passwordConfirmed` and `guestsOnly`), `verify.go.tmpl`,
-  `twofactor.go.tmpl`, `passkeys.go.tmpl` (the `passkeys` table, and the
+  `passwordConfirmed` and `guestsOnly`, and `breached`, a new password
+  among those leaked in breaches, as registering, a reset and the
+  settings ask once their checks have passed, by `a.breaches`, the env's
+  `Breaches`, `CHECK_BREACHED_PASSWORDS`'s, nil without it, letting a
+  password through, logged, when the service doesn't answer),
+  `verify.go.tmpl`, `twofactor.go.tmpl` (the challenge, five codes a
+  minute, `codes`, and of the app's, ten a day, `codesToday`, past which
+  `tooManyToday` says a recovery code or a passkey still logs in, and
+  `codesFailing` tells the owner once a day, by `codesTold`; a code that's
+  right, a recovery code that logs in and a new password clear the day),
+  `passkeys.go.tmpl` (the `passkeys` table, and the
   handlers of adding them, but the last of an account with no password,
   logging in and confirming with them, `checkPasskey`, which deleting an
   account with no password shares too, on `auth.Passkeys`, whose site is
@@ -1098,7 +1113,7 @@ tests again with a migration of its own (`growsAMigration`), and reads
   after the commit: registering, adding a passkey and a new email push
   their mail in the transaction that writes what it's about;
   `prune-jobs` runs every night and deletes jobs that failed a month ago.
-  Its six `auth.Throttle`s, each named, count in the database: every
+  Its eight `auth.Throttle`s, each named, count in the database: every
   layer's `throttles_db.go` is `throttles`, an `auth.ThrottleStore` (an
   upsert with `RETURNING`, or in MySQL a transaction that reads back),
   whose `prune` runs every hour as `prune-throttles`; `throttles_test.go`
@@ -1136,8 +1151,9 @@ tests again with a migration of its own (`growsAMigration`), and reads
   (`markRead`, by the IDs' range); and `Bell`, shared as `bell`, the
   unread count. A new password, in the settings or by a reset, a new
   email, told at the old one, two-factor logins off, a passkey added (its
-  own mail's job gone), a token made and a login from a new browser
-  notify; `prune-notifications`
+  own mail's job gone), a token made, a login from a new browser, and
+  wrong codes after the password, once a day, `codes-failing`, notify;
+  `prune-notifications`
   deletes what was read 90 days ago. The browser's side: each layout's
   bell, `bell`, live for a user, the list, and the security page's
   browsers, each a live prop on `/broadcasts` by `onUserChannel`, in
@@ -1352,7 +1368,11 @@ tests again with a migration of its own (`growsAMigration`), and reads
   (ES256, Ed25519, RSA) and their signatures; `cbor.go`, a strict reader
   of the CBOR WebAuthn writes, fuzzed.
   `passkeytest`: an authenticator in software, for tests, with its own
-  CBOR writer.
+  CBOR writer. `pwned.go`: `PwnedPasswords`, whose `Seen` is how many
+  times Pwned Passwords has a password among its breaches, by the range
+  API, told the first five characters of its SHA-1 alone, with
+  `Add-Padding`, the rest compared in the app, padding none, and an error
+  the service's, for the app to let the password through.
 - `mail`: `Message` (with `Cc`, `Bcc`, `ReplyTo`, `Attachments`,
   `Headers` and `Unsubscribe`), `SMTP` on net/smtp (STARTTLS, TLS on 465,
   deadlines from the context), `Mailbox`, which keeps mail in

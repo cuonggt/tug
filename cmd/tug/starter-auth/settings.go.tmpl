@@ -224,6 +224,9 @@ func (a *app) updatePassword(c *tug.Ctx, user *User) error {
 			return err
 		}
 	}
+	if err := a.breached(c, in.Password); err != nil {
+		return err
+	}
 	kind, said := "password-changed", "Password changed. You've been logged out everywhere else."
 	if first {
 		kind, said = "password-set", "Password set: it logs you in too. You've been logged out everywhere else."
@@ -270,6 +273,11 @@ func (a *app) newPassword(c *tug.Ctx, user *User, hash, kind string) error {
 		return a.notify(c.Context(), tx, user.ID, kind, noticeData{})
 	})
 	if err != nil {
+		return err
+	}
+	// The day's wrong codes were tried with the old password, which
+	// whoever tried them hasn't any more.
+	if err := a.codesToday.Clear(c.Context(), user.authID()); err != nil {
 		return err
 	}
 	user.PasswordHash, user.Password = hash, hash != ""

@@ -44,7 +44,8 @@ type notice struct {
 }
 
 // notices are the kinds of notification, by the name the table keeps.
-// Each change to an account that could hand it to someone else is one.
+// Each change to an account that could hand it to someone else is one, and
+// so are wrong codes after the password, which say someone else has it.
 var notices = map[string]notice{
 	"password-changed": {
 		line: func(c *tug.Ctx, _ noticeData) string { return c.T("Your password was changed.") },
@@ -141,6 +142,20 @@ var notices = map[string]notice{
 				Intro:  w.T("Your account was logged in to from :browser, at :address: a browser it hadn't been logged in from before.", "browser", d.Browser, "address", d.IP),
 				Action: w.T("See where you're logged in"), URL: link,
 				Outro: w.T("If that wasn't you, log it out there, and :secure: someone else has a way in.", "secure", secureIt(w, u)),
+			}
+		},
+	},
+	"codes-failing": {
+		line: func(c *tug.Ctx, d noticeData) string {
+			return c.T("Wrong codes were entered after your password, from :address.", "address", d.IP)
+		},
+		link: "security.edit", mailLink: "security.edit",
+		mail: func(w lang.Words, u *User, d noticeData, link string) message {
+			return message{
+				To: u, Subject: w.T("Someone has your :app password", "app", appName),
+				Intro:  w.T("Wrong two-factor codes were entered after your password today, from :address: someone else knows your password, and is trying to get past your codes.", "address", d.IP),
+				Action: w.T("Change your password"), URL: link,
+				Outro: w.T("Your account takes no more codes from the app today, but a recovery code or a passkey still logs you in."),
 			}
 		},
 	},

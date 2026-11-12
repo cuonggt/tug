@@ -179,6 +179,9 @@ func (a *app) register(c *tug.Ctx) error {
 	if err != nil {
 		return err
 	}
+	if err := a.breached(c, in.Password); err != nil {
+		return err
+	}
 	// The account and the mail that verifies its email are kept together:
 	// an account with no link on its way would wait for one for ever.
 	hash := auth.HashPassword(in.Password)
@@ -204,6 +207,28 @@ func (a *app) register(c *tug.Ctx) error {
 	// The dashboard is for verified users, so this is the page that asks
 	// them to follow the link, until they have.
 	return c.RedirectRoute("dashboard")
+}
+
+// breached is the error of a new password that's among those leaked in
+// breaches, with CHECK_BREACHED_PASSWORDS on, which a handler asks once the
+// form is sent: a Precognition check, as a field is left, has been
+// answered already, as asking then would tell the service a prefix of
+// every password tried on the way to the one kept. A service that doesn't
+// answer lets the password through, and is logged, as a check that refused
+// while it was down would make it part of the app's uptime.
+func (a *app) breached(c *tug.Ctx, password string) error {
+	if a.breaches == nil {
+		return nil
+	}
+	seen, err := a.breaches.Seen(c.Context(), password)
+	if err != nil {
+		slog.WarnContext(c.Context(), "a new password wasn't checked against the breaches", "err", err)
+		return nil
+	}
+	if seen > 0 {
+		return validate.Errors{"password": "that password has been leaked in a breach: choose another"}
+	}
+	return nil
 }
 
 // confirmed checks that a password was typed the same twice.
@@ -434,6 +459,9 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 	if u == nil || !a.resets.Check(in.Token, u.authID(), u.PasswordHash) {
 		return validate.Errors{"email": "this link has expired, or been used"}
 	}
+	if err := a.breached(c, in.Password); err != nil {
+		return err
+	}
 	// A first password, of an account made with a passkey, is set as a new
 	// one is: its passkeys stay, as they're still the owner's.
 	kind, said := "password-changed", "Your password is reset."
@@ -456,6 +484,11 @@ func (a *app) resetPassword(c *tug.Ctx) error {
 		return a.notify(c.Context(), tx, u.ID, kind, noticeData{})
 	})
 	if err != nil {
+		return err
+	}
+	// The day's wrong codes were tried with the old password, which
+	// whoever tried them hasn't any more.
+	if err := a.codesToday.Clear(c.Context(), u.authID()); err != nil {
 		return err
 	}
 	// The new password ends every login made with the old one, and the

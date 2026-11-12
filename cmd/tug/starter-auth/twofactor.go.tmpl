@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cuonggt/tug"
 	"github.com/cuonggt/tug/auth"
@@ -67,6 +70,21 @@ func (a *app) twoFactorChallenge(c *tug.Ctx) error {
 		return err
 	}
 	if in.Code != "" {
+		// Ten of the app's codes a day as well, at which a guess takes ninety
+		// years, where five a minute take weeks. Past them, the owner still
+		// logs in with a recovery code, which no guess reaches, or a passkey,
+		// which has no code to give, and is told, once a day, that someone
+		// else has the password.
+		wait, err := a.codesToday.Try(c.Context(), id)
+		if err != nil {
+			return err
+		}
+		if wait > 0 {
+			if err := a.codesFailing(c, u); err != nil {
+				return err
+			}
+			return validate.Errors{"code": tooManyToday(wait)}
+		}
 		ok, err = a.useCode(c.Context(), u, in.Code)
 	} else {
 		ok, err = a.useRecoveryCode(c.Context(), u, in.RecoveryCode)
@@ -83,6 +101,9 @@ func (a *app) twoFactorChallenge(c *tug.Ctx) error {
 	if err := a.codes.Clear(c.Context(), id); err != nil {
 		return err
 	}
+	if err := a.codesToday.Clear(c.Context(), id); err != nil {
+		return err
+	}
 	// A login a reset began is no login to tell of: the reset's mail has
 	// just come.
 	reset := s.Get(resetLoginKey) == true
@@ -92,6 +113,28 @@ func (a *app) twoFactorChallenge(c *tug.Ctx) error {
 	}
 	auth.SetPasswordConfirmed(s)
 	return toIntended(c)
+}
+
+// tooManyToday is what the challenge says once a day's codes are spent:
+// the ways in that are left, and when the codes are taken again.
+func tooManyToday(wait time.Duration) string {
+	in := "an hour"
+	if hours := int(math.Ceil(wait.Hours())); hours > 1 {
+		in = fmt.Sprintf("%d hours", hours)
+	}
+	return "too many wrong codes today: log in with a recovery code or a passkey, or try again in " + in
+}
+
+// codesFailing tells u, once a day, that wrong codes were entered after
+// their password: someone else has it.
+func (a *app) codesFailing(c *tug.Ctx, u *User) error {
+	wait, err := a.codesTold.Try(c.Context(), u.authID())
+	if err != nil || wait > 0 {
+		return err
+	}
+	return a.inTx(c.Context(), func(tx *sql.Tx) error {
+		return a.notify(c.Context(), tx, u.ID, "codes-failing", noticeData{IP: c.IP()})
+	})
 }
 
 // useCode reports whether code is the one u's app shows, and uses it: a

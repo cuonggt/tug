@@ -73,7 +73,7 @@ to 3.11.0, November 2026), written against
 | M64 | Inertia 3.11               | done   |
 | M65 | S3 on the platform's keys  | done   |
 | M66 | Translations, checked      | done   |
-| M67 | Accounts, guarded          | later  |
+| M67 | Accounts, guarded          | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6612,13 +6612,13 @@ Choices made on the way:
   page that missed an event hears it never, so the hub follows first,
   and an event that comes before the member is kept is the page's too.
 
-## M67 · Accounts, guarded — later
+## M67 · Accounts, guarded — done
 
-The auth starter takes five codes a minute after the password, which is
-7,200 a day: someone who has an account's password, each code about
-three in a million to be right, gets past its second factor in a few
-weeks, and nobody hears of it, as Accounts says. And Laravel's starter
-has a guard tug's hasn't: a new password checked against those leaked in
+The auth starter took five codes a minute after the password, which is
+7,200 a day: someone who had an account's password, each code about
+three in a million to be right, got past its second factor in a few
+weeks, and nobody heard of it, as Accounts said. And Laravel's starter
+had a guard tug's hadn't: a new password checked against those leaked in
 breaches, by Have I Been Pwned's Pwned Passwords, whose range API is
 told the first five characters of the password's SHA-1, never the
 password. M67 counts the codes by the day too, tells the account's owner
@@ -6626,46 +6626,56 @@ when the code keeps failing after the right password, and checks a new
 password against the breaches, when the app says to. To be released as
 v1.5.0.
 
-- **Codes counted by the day:** a throttle of the app's codes, beside
-  the five a minute, `codes-today`, ten a day an account, counted as the
-  minute's are, before a code is checked, and cleared by one that's
-  right. Past it, the challenge says so, and that a recovery code or a
-  passkey still logs in: a recovery code, ten random letters and digits,
-  which no guess reaches, is taken still, and a passkey has no code to
-  give, so the owner keeps a way in that whoever has the password
-  hasn't. A new password, in the settings or by a reset, clears the
-  day's count, which was the old password's.
-- **The owner told:** an account's first code refused for the day
-  notifies it, `codes-failing`, in the bell and by mail, once a day by a
-  throttle of its own: wrong codes were entered after its password, so
-  someone else has it, and the mail says to change it, as `secureIt`
-  says, with the security page linked.
+- **Codes counted by the day:** `codesToday`, a throttle of the app's
+  codes, `codes-today`, ten a day an account, beside the five a minute,
+  counted as the minute's are, before a code is checked. Past it, the
+  challenge turns the app's codes away, the right one too, with
+  `tooManyToday`, which says a recovery code or a passkey still logs in:
+  a recovery code, ten random letters and digits, which no guess
+  reaches, is taken still, and a passkey has no code to give, so the
+  owner keeps a way in that whoever has the password hasn't. A code
+  that's right, a recovery code that logs in, and a new password, in the
+  settings or by a reset, clear the day's count, which the old
+  password's codes made.
+- **The owner told:** the first code turned away in a day calls
+  `codesFailing`, which notifies the account, `codes-failing`, in the
+  bell and by mail, once a day by a throttle of its own, `codesTold`,
+  from the address the codes came from: wrong codes were entered after
+  its password, so someone else has it, and the mail links to changing
+  it, and says a recovery code or a passkey still logs in.
 - **Breached passwords, when the app says:** `auth.PwnedPasswords`, in
   package auth, whose `Seen(ctx, password)` is how many times Pwned
   Passwords has the password among its breaches: the first five
   characters of its SHA-1, in upper case, sent with `Add-Padding: true`
-  and a user agent, the rest compared in the app, and padding, of a
-  count of 0, none. The auth starter, with
-  `CHECK_BREACHED_PASSWORDS=true`, asks it of a password that
-  registering, a reset or the settings set, as the form is sent: one
-  seen is the field's error, and an answer that doesn't come lets the
-  password through, logged, so registering never waits on the service.
-  Without it, nothing is asked.
+  and a user agent, the rest compared in the app, either case, and
+  padding, of a count of 0, none. The auth starter's `main`, with
+  `CHECK_BREACHED_PASSWORDS=true`, hands `newApp` one in the env's
+  `Breaches`, and `breached` asks it of a password that registering, a
+  reset or the settings set, once their checks have passed, so a
+  Precognition check, as a field is left, never does: one seen is the
+  field's error, and an answer that doesn't come lets the password
+  through, logged. Without the variable, nothing is asked, and another
+  value than true or false stops the app.
 - **Tests:** package auth's `PwnedPasswords` against a server of the
-  test's own: the prefix in the path, the header, a password found and
-  its count, one not, the padding, and an answer that isn't one; the
-  starter's codes, ten wrong in a day at no more than five a minute, the
-  next refused, a recovery code taken still, the count cleared by a
-  right code and by a new password, and the owner told once, in the bell
-  and by mail; and with the check on, a breached password refused in
-  each of the three forms, one that isn't taken, and the service down
-  letting it through.
-- **The guide:** Accounts: the codes' day, the notification, and the
-  breach check, the security notes on guessing a code and on passwords
-  rewritten, and package auth's `PwnedPasswords`; Deployment's
-  configuration, `CHECK_BREACHED_PASSWORDS`.
+  test's own: the prefix in the path, the header and a user agent, a
+  password found and its count in either case, one not, its own hash as
+  padding, and an answer that isn't one, a count that isn't one, and no
+  service; the starter's codes, ten wrong in a day at no more than five
+  a minute, a minute's ended by hand in the throttles' table
+  (`aMinutePasses`), the right one refused past them, a recovery code
+  taken still, which starts the day again, the owner told once for two
+  codes turned away, in the bell and by mail, and a reset's new password
+  clearing the day; and with the check on, a breached password refused
+  in each of the three forms, one that isn't taken, a Precognition check
+  asking nothing, the service down letting it through, and no check
+  asking nothing.
+- **The guide:** Accounts: the codes' day in Two-factor logins, the
+  notification, the throttles, eight now, Breached passwords, a part of
+  its own, the security notes on guessing a code and on passwords, and
+  package auth's Pwned Passwords; Deployment's configuration,
+  `CHECK_BREACHED_PASSWORDS`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A day's cap on the app's codes, not on recovery codes:** a recovery
   code is no code to guess, so it stays the owner's way in for the day
@@ -6695,6 +6705,17 @@ Choices, to settle before any code:
   are what it asks for.
 - **In package auth, not a validate tag:** a tag's check runs with no
   context, and this one asks a service.
+- **The service in the env, not its address in the environment:** the
+  tests hand the app a Pwned Passwords of their own, as `env` takes what
+  `main` makes, so the environment has one variable, true or false, and
+  no address an app has no use for.
+- **A minute ended in the table:** the tests can't wait a minute between
+  five codes and the next, so they end the minute's counts in the
+  throttles' table, every other throttle of the starter's being a minute
+  long, and leave the day's.
+- **The address the codes came from, in the notification:** as a new
+  login's says its browser and address, so the owner can tell where
+  whoever has the password is trying from.
 
 ## Decisions
 

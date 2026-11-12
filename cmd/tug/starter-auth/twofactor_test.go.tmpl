@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -204,5 +205,97 @@ func TestTwoFactorSecretsMoveToANewKey(t *testing.T) {
 	logIn(c, "ann@example.com", "correct horse")
 	if r := c.Post("/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)}); r.Location() != "/dashboard" {
 		t.Errorf("the code, with the old key gone: %v", r)
+	}
+}
+
+// aMinutePasses ends the throttles' minutes, as a minute passing would,
+// and leaves the day's counts of codes.
+func (a *testApp) aMinutePasses() {
+	a.t.Helper()
+	execSQL(a.t, a.db, fmt.Sprintf("UPDATE throttles SET ends_at = 0 WHERE ends_at < %d", time.Now().Add(2*time.Minute).UnixMilli()))
+}
+
+// wrongCodes enters n wrong codes at the challenge in c, five a minute at
+// most, as the minute's throttle takes them.
+func wrongCodes(t *testing.T, app *testApp, c *tugtest.Client, n int) {
+	t.Helper()
+	for i := range n {
+		if i > 0 && i%5 == 0 {
+			app.aMinutePasses()
+		}
+		if errs := c.Post("/two-factor-challenge", map[string]any{"code": "000000"}).Follow().Errors(); errs["code"] != "that code isn't right, or has been used: try the next one" {
+			t.Fatalf("wrong code %d: %v", i+1, errs)
+		}
+	}
+	app.aMinutePasses()
+}
+
+func TestTenWrongCodesADayStopTheAppsCodesButNotARecoveryCode(t *testing.T) {
+	app := newTestApp(t)
+	secret, recovery := turnOnTwoFactor(t, app, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	c := app.client()
+	if r := logIn(c, "ann@example.com", "correct horse"); r.Location() != "/two-factor-challenge" {
+		t.Fatalf("the password: %v", r)
+	}
+	wrongCodes(t, app, c, 10)
+	// The day's are spent, and the right code is turned away with the rest.
+	errs := c.Post("/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)}).Follow().Errors()
+	if !strings.HasPrefix(errs["code"], "too many wrong codes today: log in with a recovery code or a passkey, or try again in ") {
+		t.Fatalf("the right code past the day's ten: %v", errs)
+	}
+	// A recovery code, which no guess reaches, still logs in, and starts
+	// the day's count again.
+	if r := c.Post("/two-factor-challenge", map[string]any{"recovery_code": recovery[0]}); r.Location() != "/dashboard" {
+		t.Fatalf("a recovery code: %v", r)
+	}
+	c = app.client()
+	logIn(c, "ann@example.com", "correct horse")
+	if r := c.Post("/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)}); r.Location() != "/dashboard" {
+		t.Errorf("the right code, once the recovery code has logged in: %v", r)
+	}
+}
+
+func TestTheOwnerIsToldOnceADayThatSomeoneHasTheirPassword(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	turnOnTwoFactor(t, app, ann)
+	c := app.client()
+	logIn(c, "ann@example.com", "correct horse")
+	wrongCodes(t, app, c, 10)
+	if n := unread(ann); n != 0 {
+		t.Fatalf("told before the day's codes were spent: %d", n)
+	}
+	for range 2 {
+		c.Post("/two-factor-challenge", map[string]any{"code": "000000"})
+	}
+	if n := unread(ann); n != 1 {
+		t.Errorf("the bell counts %d, want one, for two codes turned away", n)
+	}
+	if got := lines(ann, ""); len(got) != 1 || !strings.HasPrefix(got[0], "Wrong codes were entered after your password, from ") {
+		t.Errorf("listed %q", got)
+	}
+	m := app.outbox.NextTo(t, "ann@example.com")
+	if m.Subject != "Someone has your "+appName+" password" {
+		t.Errorf("mailed %q", m.Subject)
+	}
+	link(t, m, "/settings/security")
+	app.outbox.None(t)
+}
+
+func TestANewPasswordClearsTheDaysWrongCodes(t *testing.T) {
+	app := newTestApp(t)
+	secret, _ := turnOnTwoFactor(t, app, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	c := app.client()
+	logIn(c, "ann@example.com", "correct horse")
+	wrongCodes(t, app, c, 10)
+	// Its owner resets the password, and the reset's login, which takes a
+	// code, takes the right one: the day's wrong ones were the old
+	// password's.
+	owner := app.client()
+	if r := resetPassword(t, owner, resetLink(t, app, "ann@example.com"), "battery staple"); r.Location() != "/two-factor-challenge" {
+		t.Fatalf("the reset: %v", r)
+	}
+	if r := owner.Post("/two-factor-challenge", map[string]any{"code": nextCode(t, app, secret)}); r.Location() != "/dashboard" {
+		t.Errorf("the right code after a new password: %v", r)
 	}
 }

@@ -442,6 +442,18 @@ return a.users.setTwoFactorStep(ctx, u.ID, step)
   seen over the user's shoulder is no use.
 - Five tries a minute for a login, counted before the code is checked, as
   the password's are: a million codes can't be tried one by one.
+- Ten of the app's codes a day as well, `codes-today`, at which a guess
+  takes ninety years on average, where five a minute takes weeks. Past
+  them, the challenge turns the app's codes away, the right one too, and
+  says a recovery code or a passkey still logs in: a recovery code, ten
+  random letters and digits, which no guess reaches, is taken still, and
+  a passkey has no code to give, so the owner keeps a way in that whoever
+  has the password hasn't. The first code turned away in a day tells the
+  owner, in the bell and by mail, that someone else has their password,
+  once a day, by a throttle of its own, `codes-told`. A code that's
+  right, a recovery code that logs in, and a new password, in the
+  settings or by a reset, start the day's count again: the wrong codes
+  were tried with the old password.
 - A recovery code works once too, whatever its case, and with or without
   its dash. Using one stores the codes without it, only if no one else has
   changed them since.
@@ -802,7 +814,8 @@ passkey, and a password removed; a new email, told at the old one, the
 address its owner may still read, as the new one gets its link to
 verify; two-factor logins turned off; a passkey added; an API token
 made; and a login from a browser the account hasn't logged in from before
-([Browsers](#browsers)).
+([Browsers](#browsers)). And wrong codes after the password, which say
+someone else has it, once a day ([Two-factor logins](#two-factor-logins)).
 
 ```go
 err := a.inTx(c.Context(), func(tx *sql.Tx) error {
@@ -928,7 +941,7 @@ server's own tools do it, or a managed database's backups.
 
 ### Throttles
 
-The starter's six throttles count in the database, in a `throttles`
+The starter's eight throttles count in the database, in a `throttles`
 table, whose SQL is in `throttles_db.go`: every instance of the app
 counts the tries made at any of them, and a restart, as each deploy is,
 forgets none.
@@ -946,6 +959,8 @@ a := &app{
 | `logins`     | logins with a password, and with a passkey, five a minute                 | the email and the address, or the address |
 | `passwords`  | the password, or a passkey, of someone logged in, as they confirm it's them, change it or delete their account, five a minute | the user |
 | `codes`      | the codes of a login waiting for its second factor, five a minute         | the user |
+| `codes-today` | the app's codes of a login waiting for its second factor, ten a day      | the user |
+| `codes-told` | telling the owner that wrong codes keep coming, once a day                 | the user |
 | `mails`      | reset links, links to register with a passkey, and verification links, one a minute | the email, or the user |
 | `reset-asks` | asks for a reset link, five a minute                                      | the address |
 | `registration-asks` | asks for a link to register with a passkey, five a minute          | the address |
@@ -964,6 +979,34 @@ A throttle that can't count, as when the database is down, has an error
 for the handler to return, as any of the database's: the login is a 500,
 rather than let in unthrottled, or turned away as though it had tried too
 often.
+
+### Breached passwords
+
+With `CHECK_BREACHED_PASSWORDS=true`, a new password, as an account is
+registered, as one is reset, and as one is changed or first set in the
+settings, is checked against those leaked in breaches, by Pwned
+Passwords, through package auth's `PwnedPasswords` ([Pwned
+Passwords](#pwned-passwords)): one that's been seen is the field's error,
+"that password has been leaked in a breach: choose another".
+
+```go
+if err := a.breached(c, in.Password); err != nil {
+	return err
+}
+```
+
+- The service is told the first five characters of the password's SHA-1
+  alone, and its answer is padded, so it learns neither the password nor
+  which of the hashes it sent was asked about.
+- It's asked as the form is sent, once a handler's checks have passed:
+  not as the field is left, by Precognition, which would tell it a prefix
+  of every password tried on the way to the one kept.
+- A service that doesn't answer lets the password through, and is logged,
+  `a new password wasn't checked against the breaches`, as a check that
+  refused while it was down would make it part of the app's uptime.
+- Without the variable, nothing is asked. Length, 8 to 200 characters,
+  is all that's asked otherwise: no mixed case, numbers or symbols, which
+  NIST's guidance for passwords advises against.
 
 ### The sessions
 
@@ -1404,6 +1447,33 @@ each, as the starter's do on its table in each database.
 A throttle on a route, rather than in a handler, is `tug.Limit`
 ([Routing](routing.md#a-limit-for-a-route)).
 
+### Pwned Passwords
+
+```go
+breaches := &auth.PwnedPasswords{}
+
+seen, err := breaches.Seen(ctx, password)
+if err != nil {
+    // the service didn't answer: let the password through, and log it
+}
+if seen > 0 {
+    // "that password has been leaked in a breach: choose another"
+}
+```
+
+`PwnedPasswords` asks Have I Been Pwned's Pwned Passwords how many times a
+password is among those leaked in breaches, 0 when it isn't, by its range
+API: it's told the first five characters of the password's SHA-1, and
+answers with the rest of each hash it has that starts so, and how many
+times each was seen, which `Seen` compares in the app. It sends
+`Add-Padding: true`, so the answer's size says nothing of the prefix, and
+its padding, hashes seen no times, is none. `URL` is the service's
+address, `https://api.pwnedpasswords.com` unless set, as a test's; `Client`
+makes the requests. An error is the service's, as a status that isn't 200:
+an app lets the password through then, as the auth starter does ([Breached
+passwords](#breached-passwords)), rather than refusing passwords while
+the service is down.
+
 ### Access tokens
 
 ```go
@@ -1685,17 +1755,18 @@ logs in with them from a `passkeytest.Authenticator`, as a phone would.
 - **Registering says who has an account**: the register form turns away an
   email that has one, as the field is left, with no throttle, and so does
   the profile. Logging in and a forgotten password don't say.
-- **Passwords**: 8 to 200 characters, and nothing else is asked of them.
-  Laravel's starter also asks, in production, for mixed case, numbers and
-  symbols, and checks the password against those leaked in breaches.
+- **Passwords**: 8 to 200 characters, and with
+  `CHECK_BREACHED_PASSWORDS=true`, none leaked in a breach ([Breached
+  passwords](#breached-passwords)). Laravel's starter also asks, in
+  production, for mixed case, numbers and symbols, which NIST's guidance
+  advises against, and checks the breaches without being told to.
 - **Guessing a code**: five tries a minute, as Laravel's starter allows,
-  is 7,200 a day, and each has about three in a million to be right, so
+  is 7,200 a day, at about three in a million each to be right, so
   someone with the password could get past the code in a few weeks of
-  trying. Counting failed codes over a longer window as well, in
-  `twoFactorChallenge`, stops that, at the price of letting whoever has
-  the password lock its owner out for as long. Codes that keep failing
-  after the right password mean someone else knows it: mailing the user
-  then is worth doing.
+  trying; ten a day, as the starter allows too, takes ninety years. The
+  price is that whoever has the password can spend a day's codes, and the
+  owner logs in with a recovery code or a passkey until the next, as
+  they're told by the notification the codes that keep failing send.
 - **Mail that keeps failing**: a mail job runs 10 times over about four
   hours, then stays in the `jobs` table as failed for a month, with an
   error in the log. `./blog jobs` lists the jobs that failed, and runs them

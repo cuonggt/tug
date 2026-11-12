@@ -144,8 +144,19 @@ func main() {
 	if cfg.TLS.Certificates, err = letsencrypt.FromEnv(); err != nil {
 		log.Fatal(err)
 	}
+	// With CHECK_BREACHED_PASSWORDS=true, a new password is checked against
+	// those leaked in breaches, by Pwned Passwords, which is told the first
+	// five characters of its hash alone: auth.go.
+	var breaches *auth.PwnedPasswords
+	switch check := os.Getenv("CHECK_BREACHED_PASSWORDS"); check {
+	case "", "false":
+	case "true":
+		breaches = &auth.PwnedPasswords{}
+	default:
+		log.Fatalf("CHECK_BREACHED_PASSWORDS is true or false, not %q", check)
+	}
 	app, err := newApp(cfg, env{
-		Build: build, Keys: keys, DB: db, Disk: disk, Mailer: mailer, Words: words, Queue: q, Hub: hub,
+		Build: build, Keys: keys, DB: db, Disk: disk, Mailer: mailer, Words: words, Queue: q, Hub: hub, Breaches: breaches,
 [[- if .SSR ]]
 		SSR: bundle,
 [[- end ]]
@@ -187,6 +198,11 @@ type env struct {
 	// Hub carries events to the pages open on any of the app's instances,
 	// which main runs beside the server, and the tests on its own.
 	Hub *broadcast.Hub
+
+	// Breaches is asked whether a new password is among those leaked in
+	// breaches: Pwned Passwords, with CHECK_BREACHED_PASSWORDS=true, or a
+	// test's own. Nil asks nothing.
+	Breaches *auth.PwnedPasswords
 [[- if .SSR ]]
 
 	// SSR is the SSR build: the pages, for Node to render on the server.
@@ -256,17 +272,24 @@ type app struct {
 
 	// Tries, counted so that none can be made fast enough to guess: logins
 	// by email and address; the password of someone logged in, and the
-	// codes of a login waiting for its second factor, by user; and mail,
-	// by what it's for and to whom, so that no one's inbox can be flooded,
-	// and the asks for a reset link, and for a link to register with a
-	// passkey, which are jobs, by address. They're counted in the database,
-	// where every instance of the app counts: throttles_db.go.
+	// codes of a login waiting for its second factor, by user, a minute's
+	// and a day's, and the owner told of a day's once; and mail, by what
+	// it's for and to whom, so that no one's inbox can be flooded, and the
+	// asks for a reset link, and for a link to register with a passkey,
+	// which are jobs, by address. They're counted in the database, where
+	// every instance of the app counts: throttles_db.go.
 	logins           *auth.Throttle
 	passwords        *auth.Throttle
 	codes            *auth.Throttle
+	codesToday       *auth.Throttle
+	codesTold        *auth.Throttle
 	mails            *auth.Throttle
 	resetAsks        *auth.Throttle
 	registrationAsks *auth.Throttle
+
+	// breaches is asked whether a new password is among those leaked in
+	// breaches, or nil, as the environment says: auth.go.
+	breaches *auth.PwnedPasswords
 }
 
 // inTx runs fn in one transaction, which it commits, and then wakes the
@@ -380,6 +403,9 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		logins:        &auth.Throttle{Name: "logins", Max: 5, Window: time.Minute, Store: counts},
 		passwords:     &auth.Throttle{Name: "passwords", Max: 5, Window: time.Minute, Store: counts},
 		codes:         &auth.Throttle{Name: "codes", Max: 5, Window: time.Minute, Store: counts},
+		codesToday:    &auth.Throttle{Name: "codes-today", Max: 10, Window: 24 * time.Hour, Store: counts},
+		codesTold:     &auth.Throttle{Name: "codes-told", Max: 1, Window: 24 * time.Hour, Store: counts},
+		breaches:      e.Breaches,
 		mails:         &auth.Throttle{Name: "mails", Max: 1, Window: time.Minute, Store: counts},
 		resetAsks:     &auth.Throttle{Name: "reset-asks", Max: 5, Window: time.Minute, Store: counts},
 
