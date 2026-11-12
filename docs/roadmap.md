@@ -6514,7 +6514,7 @@ said the text without its value, which nothing checked either, and a
 text the app no longer said stayed in the file, said nowhere. M66 added
 `tug lang -check`, which reads them all, writes nothing, and fails, as
 `gofmt -l` fails a CI run, until every text the app says is translated.
-To be released as v1.4.0.
+Released as v1.4.0.
 
 - **`tug lang -check`:** with a language, `tug lang -check vi`, its
   file, and with none, every file in `lang/` named for a language

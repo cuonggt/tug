@@ -233,6 +233,14 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.4.0
+
+`go get github.com/cuonggt/tug@v1.4.0`, and the CLI at v1.4.0 for `tug
+lang -check`, which says what's left to translate in each language, and
+fails until there's nothing ([Languages](languages.md#tug-lang)).
+Nothing an app calls changed since v1.3.0. `tug upgrade` brings an app
+made by `tug new` the line of its `AGENTS.md` that says so.
+
 ### v1.3.0
 
 `go get github.com/cuonggt/tug@v1.3.0`. Nothing an app calls changed
