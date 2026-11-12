@@ -73,6 +73,7 @@ to 3.11.0, November 2026), written against
 | M64 | Inertia 3.11               | done   |
 | M65 | S3 on the platform's keys  | done   |
 | M66 | Translations, checked      | done   |
+| M67 | Accounts, guarded          | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6610,6 +6611,90 @@ Choices made on the way:
   followed the channel after it, once `verified` had come and gone. A
   page that missed an event hears it never, so the hub follows first,
   and an event that comes before the member is kept is the page's too.
+
+## M67 · Accounts, guarded — later
+
+The auth starter takes five codes a minute after the password, which is
+7,200 a day: someone who has an account's password, each code about
+three in a million to be right, gets past its second factor in a few
+weeks, and nobody hears of it, as Accounts says. And Laravel's starter
+has a guard tug's hasn't: a new password checked against those leaked in
+breaches, by Have I Been Pwned's Pwned Passwords, whose range API is
+told the first five characters of the password's SHA-1, never the
+password. M67 counts the codes by the day too, tells the account's owner
+when the code keeps failing after the right password, and checks a new
+password against the breaches, when the app says to. To be released as
+v1.5.0.
+
+- **Codes counted by the day:** a throttle of the app's codes, beside
+  the five a minute, `codes-today`, ten a day an account, counted as the
+  minute's are, before a code is checked, and cleared by one that's
+  right. Past it, the challenge says so, and that a recovery code or a
+  passkey still logs in: a recovery code, ten random letters and digits,
+  which no guess reaches, is taken still, and a passkey has no code to
+  give, so the owner keeps a way in that whoever has the password
+  hasn't. A new password, in the settings or by a reset, clears the
+  day's count, which was the old password's.
+- **The owner told:** an account's first code refused for the day
+  notifies it, `codes-failing`, in the bell and by mail, once a day by a
+  throttle of its own: wrong codes were entered after its password, so
+  someone else has it, and the mail says to change it, as `secureIt`
+  says, with the security page linked.
+- **Breached passwords, when the app says:** `auth.PwnedPasswords`, in
+  package auth, whose `Seen(ctx, password)` is how many times Pwned
+  Passwords has the password among its breaches: the first five
+  characters of its SHA-1, in upper case, sent with `Add-Padding: true`
+  and a user agent, the rest compared in the app, and padding, of a
+  count of 0, none. The auth starter, with
+  `CHECK_BREACHED_PASSWORDS=true`, asks it of a password that
+  registering, a reset or the settings set, as the form is sent: one
+  seen is the field's error, and an answer that doesn't come lets the
+  password through, logged, so registering never waits on the service.
+  Without it, nothing is asked.
+- **Tests:** package auth's `PwnedPasswords` against a server of the
+  test's own: the prefix in the path, the header, a password found and
+  its count, one not, the padding, and an answer that isn't one; the
+  starter's codes, ten wrong in a day at no more than five a minute, the
+  next refused, a recovery code taken still, the count cleared by a
+  right code and by a new password, and the owner told once, in the bell
+  and by mail; and with the check on, a breached password refused in
+  each of the three forms, one that isn't taken, and the service down
+  letting it through.
+- **The guide:** Accounts: the codes' day, the notification, and the
+  breach check, the security notes on guessing a code and on passwords
+  rewritten, and package auth's `PwnedPasswords`; Deployment's
+  configuration, `CHECK_BREACHED_PASSWORDS`.
+
+Choices, to settle before any code:
+
+- **A day's cap on the app's codes, not on recovery codes:** a recovery
+  code is no code to guess, so it stays the owner's way in for the day
+  that whoever has the password has spent; capping it too would leave
+  the owner nothing but to wait.
+- **Ten a day:** a person mistypes a code once or twice; ten wrong in a
+  day is someone else, and at ten a day, three in a million each, a
+  guess takes ninety years, on average, where five a minute takes weeks.
+- **Told once a day:** a mail for each refusal would be whoever has the
+  password's to send; once a day says it, and the bell keeps it.
+- **A new password clears the day:** the codes that failed were tried
+  with the old one, which whoever tried them hasn't any more.
+- **The breach check is the app's to turn on:** it asks an outside
+  service each time a password is set, which an app may not want to
+  depend on, though it's told five characters of a hash alone; Laravel's
+  starter checks in production, and tug's leaves it to
+  `CHECK_BREACHED_PASSWORDS`.
+- **It lets a password through when the service doesn't answer:** a
+  check that refused registering while the service was down would make
+  the service part of the app's uptime.
+- **As the form is sent, not as the field is left:** Precognition checks
+  a field as it's left, and asking the service each time would tell it a
+  prefix of every password tried on the way to the one kept.
+- **No rules of composition:** mixed case, numbers and symbols, which
+  Laravel's starter asks in production, NIST's guidance for passwords
+  advises against; length, which tug's 8 to 200 asks, and the breaches
+  are what it asks for.
+- **In package auth, not a validate tag:** a tag's check runs with no
+  context, and this one asks a service.
 
 ## Decisions
 
