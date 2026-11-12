@@ -233,6 +233,15 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.5.1
+
+Tug's Go is as it was, so `go get github.com/cuonggt/tug@v1.5.1` changes
+nothing in an app. `tug upgrade` brings an app made by `tug new -auth` at
+v1.5.0 a fix of its own: `newPassword`, in `settings.go`, and
+`resetPassword`, in `auth.go`, clear the day's wrong codes before the
+new password is kept, so a failure to clear them changes nothing, where
+after it the browser was left logged out.
+
 ### v1.5.0
 
 `go get github.com/cuonggt/tug@v1.5.0`. Nothing an app calls changed

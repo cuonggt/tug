@@ -6715,6 +6715,10 @@ Choices made on the way:
 - **The address the codes came from, in the notification:** as a new
   login's says its browser and address, so the owner can tell where
   whoever has the password is trying from.
+- **Cleared before the password changes, since v1.5.1:** v1.5.0 cleared
+  the day's count once a new password was kept, so a failure to clear it
+  left the browser logged out with the rest, the old login's row gone
+  and no new one; cleared first, a failure changes nothing.
 
 ## Decisions
 
