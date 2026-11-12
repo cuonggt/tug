@@ -6623,8 +6623,7 @@ breaches, by Have I Been Pwned's Pwned Passwords, whose range API is
 told the first five characters of the password's SHA-1, never the
 password. M67 counts the codes by the day too, tells the account's owner
 when the code keeps failing after the right password, and checks a new
-password against the breaches, when the app says to. To be released as
-v1.5.0.
+password against the breaches, when the app says to. Released as v1.5.0.
 
 - **Codes counted by the day:** `codesToday`, a throttle of the app's
   codes, `codes-today`, ten a day an account, beside the five a minute,

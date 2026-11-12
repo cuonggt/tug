@@ -233,6 +233,18 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.5.0
+
+`go get github.com/cuonggt/tug@v1.5.0`. Nothing an app calls changed
+since v1.4.0: package auth has `PwnedPasswords` too. `tug upgrade`
+brings an app made by `tug new -auth` the codes counted by the day, ten
+of the app's an account, past which a recovery code or a passkey still
+logs in, the owner told once a day that someone else has the password,
+and the check of a new password against those leaked in breaches, which
+`CHECK_BREACHED_PASSWORDS=true` turns on
+([Accounts](auth.md#breached-passwords)), in `twofactor.go`,
+`notifications.go`, `auth.go`, `settings.go` and `main.go`.
+
 ### v1.4.0
 
 `go get github.com/cuonggt/tug@v1.4.0`, and the CLI at v1.4.0 for `tug
