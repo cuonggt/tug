@@ -74,10 +74,17 @@ func (h *Hub) Enter(ctx context.Context, m Member, channel string) (<-chan Event
 	if channel == "" {
 		return nil, errors.New("broadcast: a member is on a channel, such as users.42")
 	}
+	// The page follows the channel before its member is kept: a store's
+	// write can wait, as a database's does for its lock, and an event that
+	// came meanwhile, which a page that has its stream thinks it would hear,
+	// would reach it never.
+	following, unfollow := context.WithCancel(ctx)
+	events := h.Subscribe(following, channel)
 	key := rand.Text()
 	store := h.presence()
 	arrived, err := store.Enter(ctx, channel, m, key, time.Now().Add(h.lease()))
 	if err != nil {
+		unfollow()
 		return nil, fmt.Errorf("broadcast: keeping a member on %s: %w", channel, err)
 	}
 	h.mu.Lock()
@@ -86,13 +93,15 @@ func (h *Hub) Enter(ctx context.Context, m Member, channel string) (<-chan Event
 	}
 	h.here[key] = channel
 	h.mu.Unlock()
-	events := h.Subscribe(ctx, channel)
 	if arrived {
 		if err := h.Publish(ctx, channel, "presence.joined", m); err != nil {
 			slog.Error("broadcast: a member arrived, and the channel wasn't told", "channel", channel, "member", m.ID, "err", err)
 		}
 	}
-	context.AfterFunc(ctx, func() { h.leave(channel, key, m) })
+	context.AfterFunc(ctx, func() {
+		unfollow()
+		h.leave(channel, key, m)
+	})
 	return events, nil
 }
 

@@ -251,7 +251,10 @@ members, err := hub.Here(ctx, "users."+user.ID)
 
 `Enter` follows a channel as `Subscribe` does, and says who's following
 it: the member stays on the channel while that subscription lives, so a
-page that listens is there and a connection that drops isn't. Those on
+page that listens is there and a connection that drops isn't. It follows
+the channel before the store keeps the member, so an event that comes
+while the store writes, as a database's write waits for its lock,
+reaches the page that asked. Those on
 the channel hear `presence.joined` as a member arrives that wasn't there,
 and `presence.left` as the last page of one goes, with the member as the
 event's data, so a page that shows who's here reloads it then. `Here` is

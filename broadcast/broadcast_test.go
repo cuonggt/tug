@@ -283,6 +283,66 @@ func TestEnteringAChannelSaysWhosThereAndTellsThemOfEachOther(t *testing.T) {
 	})
 }
 
+// slowPresence is a hub's own presence, whose Enter waits to be let go, as
+// a database's write waits for its lock.
+type slowPresence struct {
+	broadcast.PresenceStore
+	enter chan struct{}
+}
+
+func (p slowPresence) Enter(ctx context.Context, channel string, m broadcast.Member, key string, until time.Time) (bool, error) {
+	<-p.enter
+	return p.PresenceStore.Enter(ctx, channel, m, key, until)
+}
+
+// An event that comes as a page enters a channel, while its member is
+// kept, reaches the page, which has its stream already, and would never
+// hear it again.
+func TestAnEventThatComesAsAPageEntersReachesIt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := slowPresence{PresenceStore: broadcast.LocalPresence(), enter: make(chan struct{})}
+		hub := &broadcast.Hub{Presence: p}
+		var events <-chan broadcast.Event
+		entered := make(chan error)
+		go func() {
+			var err error
+			events, err = hub.Enter(ctx, broadcast.Member{ID: "ann"}, "users.1")
+			entered <- err
+		}()
+		synctest.Wait() // her member is being kept
+		if err := hub.Publish(ctx, "users.1", "verified", nil); err != nil {
+			t.Fatal(err)
+		}
+		close(p.enter)
+		if err := <-entered; err != nil {
+			t.Fatal(err)
+		}
+		if got := received(events); len(got) != 2 || got[0].Name != "verified" || got[1].Name != "presence.joined" {
+			t.Errorf("the page got %+v, want verified, then her own arrival", got)
+		}
+	})
+}
+
+// failingPresence is one whose store is down.
+type failingPresence struct{ broadcast.PresenceStore }
+
+func (failingPresence) Enter(context.Context, string, broadcast.Member, string, time.Time) (bool, error) {
+	return false, errors.New("the database is down")
+}
+
+func TestAPageThatCantEnterFollowsNothing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		hub := &broadcast.Hub{Presence: failingPresence{broadcast.LocalPresence()}}
+		if _, err := hub.Enter(ctx, broadcast.Member{ID: "ann"}, "users.1"); err == nil || !strings.Contains(err.Error(), "the database is down") {
+			t.Fatalf("entering with the store down: %v", err)
+		}
+		synctest.Wait()
+		if n := hub.Followers(); n != 0 {
+			t.Errorf("the page that couldn't enter left %d following the channel", n)
+		}
+	})
+}
+
 func TestTheLastPageOfAMemberGoingTellsTheChannel(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		hub := &broadcast.Hub{}

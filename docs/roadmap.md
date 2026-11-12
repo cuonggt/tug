@@ -6548,6 +6548,10 @@ Released as v1.4.0.
   what's left, and that a change is done before its translation is, so
   it isn't among the commands that check one. tug's usage, and its
   package's comment, list it.
+- **An event as a page enters a channel:** `Hub.Enter` follows the
+  channel before the `PresenceStore` keeps the member, and stops
+  following it when the store fails, so an event published as the store
+  writes reaches the page, which has its stream already.
 - **Tests:** the check of a file, by files of the test's own: a text not
   there, one empty, a placeholder lost and one made up, both at once,
   two lost, `:Name` as `:name` and `:COUNT` as `:count`, a choice's own
@@ -6598,6 +6602,14 @@ Choices made on the way:
 - **The status by tug's own error:** the last line is the error tug
   says, status 1, as `tug upgrade` says what it left to do, so a script
   reads the check by its status, and a person by its last line.
+- **The channel followed before the member is kept:** the release's CI
+  caught the auth starter's verify page, in Vue, staying where it was as
+  the link was followed in another tab: `c.Events` sends the stream's
+  headers as it starts, so the page listened, while `Enter` kept the
+  member in SQLite, whose write waited for the verify's transaction, and
+  followed the channel after it, once `verified` had come and gone. A
+  page that missed an event hears it never, so the hub follows first,
+  and an event that comes before the member is kept is the page's too.
 
 ## Decisions
 

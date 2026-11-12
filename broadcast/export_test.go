@@ -6,3 +6,11 @@ package broadcast
 func LocalPresence() PresenceStore {
 	return &localPresence{}
 }
+
+// Followers is how many subscriptions the hub hands its events to, for a
+// test that one went with what it was for.
+func (h *Hub) Followers() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subs)
+}

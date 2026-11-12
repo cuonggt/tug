@@ -1491,7 +1491,8 @@ tests again with a migration of its own (`growsAMigration`), and reads
   `Listen` again after it fails, `listenAgain`, a second, doubling to a
   minute, having dropped every subscriber. `presence.go`: who's on a
   channel, a `Member` the app names and whatever the pages should know of
-  them; `Hub.Enter` follows a channel as `Subscribe` does and keeps the
+  them; `Hub.Enter` follows a channel as `Subscribe` does, first, so an
+  event that comes as the store writes reaches the page, and keeps the
   member on it while that subscription lives, under a connection's key of
   its own, so a second page is no second member, and publishes
   `presence.joined` as one arrives that wasn't there and `presence.left`

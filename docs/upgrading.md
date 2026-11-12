@@ -239,7 +239,11 @@ app to do.
 lang -check`, which says what's left to translate in each language, and
 fails until there's nothing ([Languages](languages.md#tug-lang)).
 Nothing an app calls changed since v1.3.0. `tug upgrade` brings an app
-made by `tug new` the line of its `AGENTS.md` that says so.
+made by `tug new` the line of its `AGENTS.md` that says so. And
+`broadcast.Hub.Enter` follows its channel before the `PresenceStore`
+keeps the member, so an event that comes as the store writes reaches the
+page: the auth starter's verify page could miss `verified`, and stay
+where it was, as the link was followed in another tab.
 
 ### v1.3.0
 
