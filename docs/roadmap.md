@@ -74,6 +74,7 @@ to 3.11.0, November 2026), written against
 | M65 | S3 on the platform's keys  | done   |
 | M66 | Translations, checked      | done   |
 | M67 | Accounts, guarded          | done   |
+| M68 | What an agent can see      | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6719,6 +6720,154 @@ Choices made on the way:
   the day's count once a new password was kept, so a failure to clear it
   left the browser logged out with the rest, the old login's row gone
   and no new one; cleared first, a failure changes nothing.
+
+## M68 · What an agent can see — later
+
+An app's `AGENTS.md` says the tests are how a page is checked, and that
+`tug dev` serves until it's stopped, so it answers nothing in a script.
+But an agent that runs a command in the background, as Claude Code does,
+can keep `tug dev` running, and look at the app with a browser of its
+own, or with `curl`: how a page looks, and a flow through it. Under
+`tug dev`, the app keeps what it would need in files the notes never
+mention: each request's entry for Inertia's DevTools, in
+`.tug/devtools`, with the page's component and the props it was sent,
+and the auth starter's mail, in `.tug/mail`, the link that verifies an
+email among it, in a message as a server takes it, quoted-printable, its
+`=` as `=3D` and a long link broken over lines. A page behind
+`usersOnly` and `verified` takes registering and that link. And none of
+an app's commands runs in development: the app never reads `.env`, whose
+`APP_KEY` every run of the binary needs, and `tug dev` runs it with no
+arguments, as a server. M68 points the notes at the files, keeps a
+mail's text as it reads, adds `tug run`, which runs one of the app's
+commands as `tug dev` runs the app, and gives the auth starter a command
+of development's alone, `account`, which makes a verified account to log
+in as. To be released as v1.6.0.
+
+- **`tug run <command>`:** runs one of the app's commands, built into
+  `.tug/app` as `tug gen` builds it, with the environment `tug dev`
+  gives the app: `.env` read, `TUG_DEV=1`, `APP_URL`, unless it's set,
+  at the port of `ADDR` or `PORT`, or 8080, and a deploy's HTTPS left
+  out. The arguments after the command's name are its own, and its
+  output and its exit status are the command's:
+  `tug run migrate status`, `tug run jobs retry all`, and on SQLite
+  `tug run backup <file>`. The app is given `tug run` as its name,
+  `os.Args[0]`, so its `help` and its messages say
+  `tug run migrate down`, not `.tug/app`'s. A mail a command sends is
+  kept in the mailbox, as the server's is under `tug dev`. Without a
+  command, it says what it's for, and that `tug dev` serves the app.
+- **An argument under DevTools is a command's:** `Run` given an
+  argument, with `Config.DevTools`, which `TUG_DEV` turns on, runs the
+  command it names, or says the app has none of that name, where an app
+  without commands serves whatever its arguments, and so would serve
+  `tug run`'s. `tug dev` runs the app with no arguments.
+- **`account`, the auth starter's, under `tug dev` alone:** `newApp`
+  adds it with `Config.DevTools`, and `tug run account` makes a verified
+  account to log in as, `test@example.com`, named Test User, unless it's
+  given another address, or takes the account an address has already,
+  and prints its password, made at each run: its email verified, the
+  password new, which ends its other logins as a new password does, and
+  two-factor logins off. The binary a deploy runs has no such command,
+  and its `help` lists none.
+- **A mail's text, as it reads:** the mailbox keeps a mail's plain text
+  in its `.json` too, as `text`, beside who it's `to` and its `subject`,
+  so a link in it is whole, as the app wrote it. The `.eml` is as it
+  was, the message as a server takes it, which the mail's page reads.
+- **The notes:** each starter's `AGENTS.md` says how to see the app
+  running, in a few lines, as they're in an agent's context at every
+  turn: `tug dev` in the background, at the address it prints, built
+  again as a file changes, with the app's log in its output; and each
+  request's entry, a file in `.tug/devtools` named by when it came, so
+  the newest is last, whose `__meta` has its `url`, its `status` and the
+  page's `component`, `propValues` the props the page was sent, and
+  `route` the function that answered. The auth starter's add the mail,
+  in `.tug/mail`, each a `.json` with its `text`, and `tug run account`,
+  the account to log in as, by the login page, or by `curl` with a
+  cookie jar, as not every agent has a browser. The tests are still how
+  a change is checked.
+- **Kept true:** `notesProblems` checks that each command the notes run
+  by `tug run` is one the app's Go adds with `app.Command`, as it checks
+  each `npm run` script is in `package.json`. A path in `.tug/`, which
+  tug writes as the app runs, it passes over already, as it does every
+  span that starts with a dot, and an entry's keys, as DevTools'
+  protocol names them, `propValues` among them, it takes as the
+  protocol's, not as names the app's Go declares.
+- **Tests:** `Run` under DevTools, given an argument, with no commands,
+  an error, and without DevTools serving, as before; `tug run` without a
+  command an error that says what it's for, and the environment it gives
+  the app, `.env`'s with `TUG_DEV` and `APP_URL`, without a deploy's
+  HTTPS; in the full suite, in the auth app `tug new` made,
+  `tug run help` listing `account`, and `tug run account` printing a
+  password that logs in to the app as it serves, and in a plain app,
+  `tug run` of a name saying it has no commands; the starter's
+  `account`: `test@example.com` made verified, logging in with the
+  password printed, a second run's password new and the first refused,
+  two-factor logins off, an address given, an account registered and not
+  verified, verified, and no such command outside development; the
+  mailbox's `text`, a long link in it whole, which the `.eml` has
+  quoted-printable; and each kind's notes naming `.tug/devtools`, and
+  the auth starter's `.tug/mail` and `tug run account`, with
+  `notesProblems` finding a `tug run` of a command the app hasn't.
+- **Tried on an agent:** as v0.43.0's notes were, a headless Claude Code
+  in an app `tug new -auth` made, asked to change a page behind the
+  login and to see it running: what it trips on, the notes say before
+  the release.
+- **The guide:** CLI: `tug run`, `.tug`'s mail, and the notes `tug new`
+  writes; Accounts: the `account` command, and the mailbox's `text`;
+  Pages: DevTools' entries read as files; Migrations and Jobs: their
+  commands in development, by `tug run`; the README; and the starters'
+  READMEs.
+
+Choices, to settle before any code:
+
+- **Files, as tug keeps them, and commands, as a person runs them:** an
+  agent reads a file and runs a command, as `AGENTS.md` has it do
+  already, so the notes say where tug keeps what it shows a person: not
+  an MCP server or skills, which M48 weighed, nor a command of tug's
+  that prints an entry, which is a file of JSON already. DevTools'
+  endpoints answer the same entries over HTTP, for the browser's panel.
+- **The tests still check a change:** seeing the app run is for what a
+  test can't show, as how a page looks, and the notes keep saying that
+  the tests are how a change is checked, as they have since v0.43.3.
+- **The mail's text kept as it reads:** an agent that read the `.eml`
+  would follow a link with its `=3D` and its broken lines in it; the
+  text, as the app wrote it, has the link whole, and the `.eml` stays
+  what a server takes, for the mail's page.
+- **`tug run`, as the app never reads `.env`:** a deployed app takes its
+  settings from its environment, as it has; tug reads `.env` for it in
+  development, as `tug dev`, `tug gen` and `tug build` do, and now for
+  its commands, which had no way to run in development but with `.env`'s
+  variables set by hand, `APP_KEY` among them. With `TUG_DEV`, a command
+  is in development as the server `tug dev` runs is, its mail kept in
+  the mailbox, and `account` there; and built as `tug gen` builds the
+  app, into `.tug/app`, which a `tug dev` that's serving goes on running
+  from, as it does while `tug gen` writes its types.
+- **A command, not a route that logs in:** a route that logged a browser
+  in with no password, under `tug dev`, would be acting as a user, which
+  Decisions leave to packages, and any page the developer opened could
+  send their browser to it; a command is run by whoever has the
+  checkout, and its account logs in as any does, by the login page and
+  its password.
+- **Under `tug dev` alone:** an account made with no mail is a way past
+  verifying an email, which a deploy's people have no use for, and
+  making a deploy's accounts by hand is account administration, which
+  Decisions leave to packages; `newApp` adds `account` only with
+  DevTools, as tug's own mailbox and DevTools are on only then, so
+  `./blog account`, deployed, isn't a command.
+- **A password made at each run, and printed:** Laravel's starter seeds
+  `test@example.com` with the password `password`, which a development
+  database copied to a server takes with it, a verified account anyone
+  can log in to; a password made at each run, by `rand.Text`, is the
+  developer's and their agent's alone, and a second run makes another,
+  which ends the logins of the first, as a new password does.
+- **`test@example.com`, Test User:** Laravel's starter's; example.com is
+  for examples, and takes no mail, so what the app mails the account
+  reaches no one.
+- **Verified, with two-factor logins off, at every run, and its owner
+  not told:** it's a way in, which a code from an authenticator the
+  agent hasn't got would stop, and an address given is the developer's
+  own account, verified as its link would have verified it; a new
+  password's notification tells an owner that someone changed it, where
+  this is the developer's own run, in development.
 
 ## Decisions
 
