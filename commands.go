@@ -33,8 +33,10 @@ type command struct {
 // makes, its queue, for the jobs it pushes, and its database, but neither
 // the server nor what Go runs: a job it pushes runs on the instances that
 // serve. Its arguments are its own, to read with package flag or by hand.
-// An app without commands serves whatever its arguments, and under tug
-// gen, Run writes the types, whatever they are.
+// An app without commands serves whatever its arguments, but with
+// Config.DevTools, as under tug dev, where tug run runs a command with the
+// app's .env, an argument is always a command's, and one the app hasn't
+// is an error. Under tug gen, Run writes the types, whatever they are.
 //
 // Command panics on a name that's taken, help, which lists them, or one
 // that isn't a word of letters, digits and :-_, and once the app is
@@ -82,18 +84,26 @@ func (a *App) runCommand(ctx context.Context, bin string, args []string, out io.
 				return cmd.run(ctx, args[1:])
 			}
 		}
+		if len(a.commands) == 0 {
+			return fmt.Errorf("the app has no commands, so none is named %q", name)
+		}
 		return fmt.Errorf("%s has no command %q: %s help lists the ones it has", bin, name, bin)
 	}
 }
 
 // listCommands says what the binary bin runs: the server, without a
-// command, or one of the app's, each with its summary.
+// command, or one of the app's, each with its summary. Under DevTools, bin
+// is tug run, which runs a command alone, as tug dev serves the app.
 func (a *App) listCommands(bin string, out io.Writer) {
 	width := len("help")
 	for _, cmd := range a.commands {
 		width = max(width, len(cmd.name))
 	}
-	fmt.Fprintf(out, "Without a command, %s serves. Its commands:\n\n", bin)
+	if a.config.DevTools {
+		fmt.Fprint(out, "The app's commands:\n\n")
+	} else {
+		fmt.Fprintf(out, "Without a command, %s serves. Its commands:\n\n", bin)
+	}
 	for _, cmd := range a.commands {
 		fmt.Fprintf(out, "  %s %-*s  %s\n", bin, width, cmd.name, cmd.summary)
 	}

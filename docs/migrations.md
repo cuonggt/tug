@@ -82,7 +82,9 @@ Undid 20261001140000_create_posts: ./blog migrate runs it again.
 
 The `migrate` command runs them itself, where every other run of the
 binary, the server's and the other commands', runs them as it starts.
-Under `tug dev`, the app runs a new one as it's built again.
+Under `tug dev`, the app runs a new one as it's built again, and
+`tug run migrate status`, or `tug run migrate down`, runs the command
+with the app's `.env` ([CLI](cli.md#tug-run)).
 
 `down` undoes the migration whose name comes last, by its down part: a
 migration that has run with no down part, or whose file has changed since

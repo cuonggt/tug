@@ -1,0 +1,84 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io"
+	netmail "net/mail"
+
+	"github.com/cuonggt/tug/auth"
+)
+
+// testAccount is the account the account command makes, as Laravel's
+// starter seeds it: example.com is for examples, and takes no mail, so
+// what the app mails it reaches no one.
+const testAccount = "test@example.com"
+
+// accountCommand is the account command, name account, which newApp adds
+// under tug dev alone, as tug run account runs it: a verified account to
+// log in as, test@example.com, Test User, or the account of the address
+// it's given, made when there's none, for a developer, or their coding
+// agent, to see the pages behind the login without a mail's link. Each run
+// gives it a new password, which it prints, and which ends its other
+// logins, as a new password does, with its email verified and two-factor
+// logins off, so the password alone logs in. Its owner isn't told, as a
+// new password's notification tells an owner someone changed it, where
+// this is the developer's own run.
+//
+// It's no command of a deploy's: an account made with no mail is a way
+// past verifying an email, which a deploy's people have no use for. And
+// its password is made at each run, never one that's known, as a
+// development database copied to a server takes its accounts with it.
+func accountCommand(ctx context.Context, db *sql.DB, name string, args []string, w io.Writer) error {
+	email := testAccount
+	switch {
+	case len(args) > 1:
+		return fmt.Errorf("%s account takes one email address, or none for %s", name, testAccount)
+	case len(args) == 1:
+		if addr, err := netmail.ParseAddress(args[0]); err != nil || addr.Address != args[0] {
+			return fmt.Errorf("%s account takes an email address, as %s, not %q", name, testAccount, args[0])
+		}
+		email = args[0]
+	}
+	password := rand.Text()
+	hash := auth.HashPassword(password) // before the transaction, as it's slow
+	us := &users{db: db}
+	u, err := us.byEmail(ctx, email)
+	if errors.Is(err, errNoUser) {
+		u = nil
+	} else if err != nil {
+		return err
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if u == nil {
+		if u, err = us.in(tx).add(ctx, "Test User", email, hash, ""); err != nil {
+			return err
+		}
+	} else {
+		if err := us.in(tx).setPassword(ctx, u.ID, hash); err != nil {
+			return err
+		}
+		if err := us.in(tx).setTwoFactor(ctx, u.ID, "", "", 0); err != nil {
+			return err
+		}
+		if err := (&browsers{db: db}).in(tx).endAll(ctx, u.ID); err != nil {
+			return err
+		}
+	}
+	if err := us.in(tx).setVerified(ctx, u.ID, u.Email); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%s logs in with the password %s: its email is verified, and two-factor logins are off.\n", u.Email, password)
+	return nil
+}

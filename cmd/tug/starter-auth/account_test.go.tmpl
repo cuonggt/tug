@@ -1,0 +1,102 @@
+package main
+
+import (
+	"regexp"
+	"strings"
+	"testing"
+
+	"github.com/cuonggt/tug/tugtest"
+)
+
+// account runs the account command on the app's database, as tug run
+// account does, with args, and returns the password it says to log in
+// with.
+func (a *testApp) account(args ...string) string {
+	a.t.Helper()
+	var out strings.Builder
+	if err := accountCommand(a.t.Context(), a.db, "./blog", args, &out); err != nil {
+		a.t.Fatal(err)
+	}
+	said := regexp.MustCompile(`^\S+ logs in with the password (\S+): its email is verified, and two-factor logins are off\.\n$`).FindStringSubmatch(out.String())
+	if said == nil {
+		a.t.Fatalf("account said %q", out.String())
+	}
+	return said[1]
+}
+
+// onTheDashboard fails the test unless c, logged in, is shown the
+// dashboard, which takes an email that's verified, and returns its user.
+func onTheDashboard(t *testing.T, c *tugtest.Client) *User {
+	t.Helper()
+	r := c.Get("/dashboard")
+	if r.Location() != "" || r.Page.Component != "Dashboard" {
+		t.Fatalf("the dashboard: %v", r)
+	}
+	return user(r)
+}
+
+func TestTheAccountCommandMakesAVerifiedAccountToLogInAs(t *testing.T) {
+	app := newTestApp(t)
+	password := app.account()
+	app.outbox.None(t) // made with no link to follow, and nobody told
+	c := app.loggedIn("test@example.com", password)
+	if u := onTheDashboard(t, c); u.Name != "Test User" || u.Email != "test@example.com" || u.EmailVerifiedAt == nil || !u.Password {
+		t.Errorf("the account %+v", u)
+	}
+	app.outbox.NextTo(t, "test@example.com") // the login, from a browser it hasn't had
+
+	// Again, a new password, which ends the logins of the old, as a new
+	// password does, but tells nobody.
+	again := app.account()
+	app.outbox.None(t)
+	if again == password {
+		t.Fatal("the same password again")
+	}
+	if r := c.Get("/dashboard"); r.Location() != "/login" {
+		t.Errorf("the old password's login: %v", r)
+	}
+	if r := logIn(app.client(), "test@example.com", password); r.Location() == "/dashboard" {
+		t.Errorf("the old password logs in: %v", r)
+	}
+	onTheDashboard(t, app.loggedIn("test@example.com", again))
+}
+
+// An address given is the account the developer registered: verified,
+// with its own name, and two-factor logins off, so the password alone
+// logs in. Its owner, the developer, isn't told.
+func TestTheAccountCommandTakesTheAccountAnAddressHas(t *testing.T) {
+	app := newTestApp(t)
+	turnOnTwoFactor(t, app, app.verifiedUser("Ann", "ann@example.com", "correct horse"))
+	if r := register(app.client(), "Bob", "bob@example.com", "battery staple"); r.Location() != "/dashboard" {
+		t.Fatalf("registering: %v", r)
+	}
+	app.outbox.NextTo(t, "bob@example.com") // the link it would have followed
+	passwords := map[string]string{"ann@example.com": app.account("ann@example.com"), "bob@example.com": app.account("bob@example.com")}
+	app.outbox.None(t)
+	for _, who := range []struct{ name, email string }{{"Ann", "ann@example.com"}, {"Bob", "bob@example.com"}} {
+		u := onTheDashboard(t, app.loggedIn(who.email, passwords[who.email]))
+		if u.Name != who.name || u.EmailVerifiedAt == nil || u.TwoFactor {
+			t.Errorf("%s's account %+v", who.email, u)
+		}
+	}
+	if r := logIn(app.client(), "ann@example.com", "correct horse"); r.Location() == "/dashboard" || r.Location() == "/two-factor-challenge" {
+		t.Errorf("the password Ann had logs in: %v", r)
+	}
+}
+
+func TestTheAccountCommandTakesOneAddressOrNone(t *testing.T) {
+	app := newTestApp(t)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"ann"}, `./blog account takes an email address, as test@example.com, not "ann"`},
+		{[]string{"Ann <ann@example.com>"}, `./blog account takes an email address, as test@example.com, not "Ann <ann@example.com>"`},
+		{[]string{"ann@example.com", "bob@example.com"}, "./blog account takes one email address, or none for test@example.com"},
+	} {
+		var out strings.Builder
+		if err := accountCommand(t.Context(), app.db, "./blog", tc.args, &out); err == nil || err.Error() != tc.want || out.Len() > 0 {
+			t.Errorf("account %q: %v, said %q", tc.args, err, out.String())
+		}
+	}
+}

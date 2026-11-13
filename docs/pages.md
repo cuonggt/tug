@@ -1000,6 +1000,14 @@ function that answered.
 Recording never fails a response: an entry that can't be kept is dropped,
 and the log says why, at Debug.
 
+A coding agent reads the entries as files, as the starters' `AGENTS.md`
+has it do, to see what a page was sent while `tug dev` serves the app:
+each is JSON, named by its ID, which sorts by when the request came, so
+the newest is last, with the request's `url`, `status` and page
+`component` in its `__meta`, the props as the client got them in
+`propValues`, and the function that answered in `route`, whether the
+request came from a browser or from `curl`.
+
 ## Package inertia without tug
 
 Package `inertia` imports nothing of tug, and neither does `vite`, so they

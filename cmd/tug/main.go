@@ -3,6 +3,7 @@
 //	tug new blog     a new app, in ./blog, ready to run
 //	tug upgrade      bring the app what the starter has gained since
 //	tug dev          run the app, rebuilt and reloaded as it changes
+//	tug run jobs     run one of the app's commands, with its .env
 //	tug gen          write the TypeScript of the app's pages and routes
 //	tug routes       list the app's routes
 //	tug lang vi      write the texts to translate into lang/vi.json
@@ -28,6 +29,8 @@ const usage = `tug makes and runs tug apps.
   tug new <dir>    make a new app in dir, ready to run
   tug upgrade      bring the app what the starter has gained since the tug that made it
   tug dev          run the app, rebuilding and reloading it as it changes
+  tug run <command> [arguments]
+                   run one of the app's commands, with its .env, as tug dev runs the app
   tug gen          write the TypeScript of the app's pages and routes
   tug routes [text]
                    list the app's routes, or those whose path or name has text in it
@@ -56,6 +59,8 @@ func main() {
 		err = runUpgrade(args, os.Stdout)
 	case "dev":
 		err = runDev(args)
+	case "run":
+		err = runRun(args, os.Stdout, os.Stderr)
 	case "gen":
 		err = runGen(args)
 	case "routes":
@@ -78,6 +83,10 @@ func main() {
 	}
 	if errors.Is(err, flag.ErrHelp) {
 		os.Exit(2)
+	}
+	var status exitStatus
+	if errors.As(err, &status) {
+		os.Exit(int(status))
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tug:", err)

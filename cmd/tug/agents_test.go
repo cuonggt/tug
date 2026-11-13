@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -70,6 +71,14 @@ func TestEveryAppsNotesForAgentsAreTheApps(t *testing.T) {
 			if strings.Contains(notes, "renders on the server too") != data.SSR {
 				t.Error("AGENTS.md's rule for a page rendered on the server is in an app without SSR, or not in one with it")
 			}
+			// How an agent sees the app running: the page's entry, and in
+			// the auth starter, the mail, and an account to log in as.
+			if !strings.Contains(notes, "## See it running") || !strings.Contains(notes, "`.tug/devtools`") || !strings.Contains(notes, "`propValues`") {
+				t.Error("AGENTS.md doesn't say how to see the app running, by its requests' entries in .tug/devtools")
+			}
+			if strings.Contains(notes, "`.tug/mail`") != data.Auth || strings.Contains(notes, "tug run account") != data.Auth {
+				t.Error("AGENTS.md's mail and account to log in as are in an app without accounts, or not in one with them")
+			}
 			// Claude Code reads AGENTS.md itself only where there's no
 			// CLAUDE.md: this one keeps it read once the app has one.
 			if got := read("CLAUDE.md"); got != "@AGENTS.md\n" {
@@ -85,6 +94,7 @@ var (
 	codeSpan = regexp.MustCompile("`([^`\n]+)`")
 	fence    = regexp.MustCompile("(?s)```.*?```")
 	npmRun   = regexp.MustCompile(`npm run ([\w:-]+)`)
+	tugRun   = regexp.MustCompile(`tug run ([\w:-]+)`)
 	ownName  = regexp.MustCompile(`^(?:a\.)?([a-z][a-z0-9]*[A-Z][A-Za-z0-9]*)$`)
 	pathExts = []string{".go", ".ts", ".tsx", ".vue", ".svelte", ".json", ".sql", ".md", ".yaml", ".html", ".css", ".mod"}
 )
@@ -101,11 +111,14 @@ func notesHold(t *testing.T, root, notes string) {
 // notesProblems are what notes, an AGENTS.md, gives that the app in root
 // hasn't, as a note an agent trusts that has gone out of date is worse
 // than none: a path in backticks that's no file or directory of the
-// app's, a script npm runs that its package.json hasn't, and a name of its
-// own, in backticks by itself, as usersOnly or a.inTx, that its Go doesn't
-// declare and its frontend doesn't have. A path with a part to fill in, as
-// <Name>, is an example, as a block of code is, and resources/js/tug is
-// tug gen's, which install writes.
+// app's, a script npm runs that its package.json hasn't, a command tug
+// run runs that its Go doesn't add, and a name of its own, in backticks by
+// itself, as usersOnly or a.inTx, that its Go doesn't declare and its
+// frontend doesn't have. A path with a part to fill in, as <Name>, is an
+// example, as a block of code is, resources/js/tug is tug gen's, which
+// install writes, and .tug/ is what tug writes as the app runs, as a span
+// that starts with a dot is no path of the app's; and a key of a DevTools
+// entry's, as propValues, is the protocol's.
 func notesProblems(t *testing.T, root, notes string) []string {
 	t.Helper()
 	var problems []string
@@ -118,6 +131,12 @@ func notesProblems(t *testing.T, root, notes string) []string {
 			problems = append(problems, "AGENTS.md runs npm run "+m[1]+", which package.json hasn't")
 		}
 	}
+	commands := appCommands(t, root)
+	for _, m := range tugRun.FindAllStringSubmatch(notes, -1) {
+		if m[1] != "help" && !commands[m[1]] {
+			problems = append(problems, "AGENTS.md runs tug run "+m[1]+", a command the app's Go doesn't add")
+		}
+	}
 	declared := mainNames(t, root)
 	frontend := frontendText(t, root)
 	for _, m := range codeSpan.FindAllStringSubmatch(fence.ReplaceAllString(notes, ""), -1) {
@@ -127,7 +146,7 @@ func notesProblems(t *testing.T, root, notes string) []string {
 				problems = append(problems, "AGENTS.md gives "+span+", which isn't the app's")
 			}
 		}
-		if n := ownName.FindStringSubmatch(span); n != nil && !declared[n[1]] && !regexp.MustCompile(`\b`+n[1]+`\b`).MatchString(frontend) {
+		if n := ownName.FindStringSubmatch(span); n != nil && !declared[n[1]] && !devtoolsKeys[n[1]] && !regexp.MustCompile(`\b`+n[1]+`\b`).MatchString(frontend) {
 			problems = append(problems, "AGENTS.md gives "+span+", which neither the app's Go nor its frontend has")
 		}
 	}
@@ -141,9 +160,11 @@ func TestANoteForAgentsThatIsntTheAppsIsCaught(t *testing.T) {
 	}
 	notes := "Run `npm run typecheck`, then npm run lint. See `main.go`, `newApp`, `resources/js/tug/pages.ts`, " +
 		"`resources/js/pages/<Name>.tsx` and `Posts/Index`; not `pages.go`, `resources/js/nope.ts`, `migrations/` or `a.noSuchThing`.\n" +
+		"An entry in `.tug/devtools` has `propValues`; `tug run help` lists the commands, and `tug run account` is none of this app's.\n" +
 		"```go\nfunc postsIndex(c *tug.Ctx) error // `examples.go` in a block\n```\n"
 	want := []string{
 		"AGENTS.md runs npm run lint, which package.json hasn't",
+		"AGENTS.md runs tug run account, a command the app's Go doesn't add",
 		"AGENTS.md gives pages.go, which isn't the app's",
 		"AGENTS.md gives resources/js/nope.ts, which isn't the app's",
 		"AGENTS.md gives migrations/, which isn't the app's",
@@ -173,6 +194,40 @@ func appPath(span string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// devtoolsKeys are the keys of an entry of Inertia's DevTools, as tug
+// keeps it in .tug/devtools, by the protocol, which the notes name for an
+// agent that reads one: the protocol's names, not the app's.
+var devtoolsKeys = map[string]bool{"propValues": true, "componentPath": true, "renderSource": true, "redirectLocation": true, "requestType": true}
+
+// appCommands are the commands the Go of the app in root adds, by
+// app.Command, each by the name it's given.
+func appCommands(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	commands := map[string]bool{}
+	files, _ := filepath.Glob(filepath.Join(root, "*.go"))
+	for _, path := range files {
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Command" {
+				if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					if name, err := strconv.Unquote(lit.Value); err == nil {
+						commands[name] = true
+					}
+				}
+			}
+			return true
+		})
+	}
+	return commands
 }
 
 // mainNames are the names the Go of the app in root declares at its top:

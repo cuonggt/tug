@@ -144,13 +144,17 @@ starts: a job a command pushes runs on the instances that serve. Its
 arguments are its own, to read with package `flag` or by hand; tug parses
 none. A name that isn't a command is an error that says to ask `help`.
 
-The tug CLI can't run an app's commands, as a deployed app is its binary,
-where tug isn't: in a container, `docker exec <container> /server
-users:admin ann@example.com`. An app without commands serves whatever its
-arguments, and under `tug gen`, `Run` writes the types, whatever they
-are. A command's name is a word of letters, digits and `:-_`, and
-`Command` panics on one that's taken, on `help`, and once the app is
-serving.
+A deployed app is its binary, where tug isn't, so its commands run by
+it: in a container, `docker exec <container> /server users:admin
+ann@example.com`. In development, `tug run users:admin ann@example.com`
+runs one with the app's `.env`, as `tug dev` runs the app
+([CLI](cli.md#tug-run)), whose `help` lists them as `tug run`'s. An app
+without commands serves whatever its arguments, but with
+`Config.DevTools`, as under `tug dev` and `tug run`, an argument is
+always a command's, and one the app hasn't is an error; and under
+`tug gen`, `Run` writes the types, whatever they are. A command's name is
+a word of letters, digits and `:-_`, and `Command` panics on one that's
+taken, on `help`, and once the app is serving.
 
 ## Routes
 

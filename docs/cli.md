@@ -6,6 +6,8 @@
 tug new <dir>    make a new app in dir, ready to run
 tug upgrade      bring the app what the starter has gained since the tug that made it
 tug dev          run the app, rebuilding and reloading it as it changes
+tug run <command> [arguments]
+                 run one of the app's commands, with its .env, as tug dev runs the app
 tug gen          write the TypeScript of the app's pages and routes
 tug routes [text]
                  list the app's routes, or those whose path or name has text in it
@@ -20,9 +22,10 @@ tug version      print tug's version
 ```
 
 `tug <command> -h` prints a command's flags. A command that fails says why
-after `tug:`, and exits with status 1.
+after `tug:`, and exits with status 1, but `tug run`, which exits with the
+app's command's status, as it has said why itself.
 
-`tug upgrade`, `tug dev`, `tug gen`, `tug routes`, `tug lang` and
+`tug upgrade`, `tug dev`, `tug run`, `tug gen`, `tug routes`, `tug lang` and
 `tug build` run in the app's directory, the one with its `main` package and its `package.json`,
 and stop, saying which is missing, anywhere else. The directory needn't have a `go.mod` of its own,
 as an app inside a bigger Go module doesn't.
@@ -31,10 +34,10 @@ as an app inside a bigger Go module doesn't.
 
 ### `.env` and the environment
 
-`tug dev`, `tug gen` and `tug build` read the app's `.env`, and run `go`,
-npm and the app with what it sets. A variable set in tug's own environment
-wins over the file's, so `ADDR=127.0.0.1:9000 tug dev` runs the app there
-whatever `.env` says. The file is lines of `KEY=value`:
+`tug dev`, `tug run`, `tug gen` and `tug build` read the app's `.env`, and
+run `go`, npm and the app with what it sets. A variable set in tug's own
+environment wins over the file's, so `ADDR=127.0.0.1:9000 tug dev` runs
+the app there whatever `.env` says. The file is lines of `KEY=value`:
 
 ```sh
 # A comment is a line that starts with #.
@@ -57,6 +60,9 @@ The variables tug itself uses:
   the app, unless `.env` or the environment has one.
 - `TLS_DOMAINS`, `TLS_CERT`, `TLS_KEY` and `HTTP_ADDR`: a deploy's HTTPS,
   which `tug dev` leaves out of the app's environment.
+- `TUG_DEV`: set by `tug dev` and `tug run` for the app, which has its
+  development's own under it, as its DevTools and its mailbox; see
+  [`tug dev`](#tug-dev).
 - `TUG_GEN`: set by tug when it runs the app for its types; see
   [`tug gen`](#tug-gen).
 - `NO_COLOR`: when it's set, `tug dev`'s labels aren't colored. They're
@@ -73,11 +79,13 @@ installs with npm, and the starter's Dockerfile builds with it.
 ### `.tug`
 
 `.tug/` is where tug works in the app. `.tug/app` is the app's binary, as
-`tug gen` and `tug dev` build it; `.tug/gen.json` is the TypeScript the app
+`tug gen`, `tug dev` and `tug run` build it; `.tug/gen.json` is the TypeScript the app
 writes for `tug gen`; `.tug/reload` is the file `tug dev` writes to
-reload the browser; and `.tug/devtools` has the app's entries for Inertia's
-DevTools under `tug dev` ([pages.md](pages.md#devtools)). The starter's
-`.gitignore` and `.dockerignore` leave it out.
+reload the browser; `.tug/devtools` has the app's entries for Inertia's
+DevTools under `tug dev` ([pages.md](pages.md#devtools)); and `.tug/mail`
+has the mail the app keeps there, rather than send it, with no
+`MAIL_HOST` ([Accounts](auth.md#package-mail)). The starter's `.gitignore`
+and `.dockerignore` leave it out.
 
 ## `tug new`
 
@@ -128,13 +136,16 @@ is `tug new -auth blog`.
    does, which needs no database running.
 
 Each starter has an `AGENTS.md`, for a coding agent: how to change the
-app as tug has it done, its rules, and the commands that check a change,
-with the app's frontend, database and `-ssr` in it, and a link to this
-guide at the tug the app requires: a release's tag, the commit of a
-pseudo-version, or `main` for a checkout's. Its `CLAUDE.md` is
-`@AGENTS.md`, which has Claude Code read it once the app has a
-`CLAUDE.md` of its own, as Claude Code reads `AGENTS.md` itself only
-while there's none.
+app as tug has it done, its rules, the commands that check a change, and
+how to see it running under `tug dev`, by what tug keeps in `.tug`: each
+request's entry for the DevTools, with the props its page was sent, and
+in the auth starter, the mail the app sends, with `tug run account`, an
+account to log in as. It has the app's frontend, database and `-ssr` in
+it, and a link to this guide at the tug the app requires: a release's
+tag, the commit of a pseudo-version, or `main` for a checkout's. Its
+`CLAUDE.md` is `@AGENTS.md`, which has Claude Code read it once the app
+has a `CLAUDE.md` of its own, as Claude Code reads `AGENTS.md` itself
+only while there's none.
 
 After `-no-install`, run `go mod tidy` before `tug dev`, as `tug new` says:
 the app doesn't build until that has filled in its `go.mod` and `go.sum`.
@@ -376,6 +387,43 @@ Vite's port is 5173, and fixed (`strictPort`), because `public/hot` and
 `server.origin` name it: when another app's Vite has it, this one exits,
 and `tug dev` with it. To run two apps at once, give one of them another
 port in its `vite.config.ts`, in both `devServer` and `server.port`.
+
+## `tug run`
+
+```
+tug run <command> [arguments]
+```
+
+Runs one of the app's [commands](routing.md#commands) in development, as
+`tug run migrate status`, `tug run jobs retry all`, or the auth starter's
+`tug run account`. The app never reads `.env`, and a command needs what
+it sets, `APP_KEY` among it, as the server does, so `tug run` runs the
+app as `tug dev` runs it: built into `.tug/app`, as `tug gen` builds it,
+and run with `.env` read, `TUG_DEV=1`, and `APP_URL`, unless `.env` has
+one, at the address `tug dev` takes, where `ADDR` or `PORT` say, or
+`http://localhost:8080`, without its look for a free port, as a command
+listens on none. A deploy's HTTPS is left out, as under `tug dev`.
+
+```
+$ tug run help
+The app's commands:
+
+  tug run jobs     list the jobs that failed for good; jobs retry <id>, or retry all, runs them again
+  tug run migrate  run the migrations that haven't run; migrate status lists them, and migrate down undoes the last
+  tug run backup   copy the database, as it is now, to a new file: backup <file>
+  tug run account  make a verified account to log in as, test@example.com, or account <email>, and print a new password for it
+  tug run help     list these commands
+```
+
+The arguments after the command's name are its own, and `tug run` takes
+no flags of its own. The command runs as the binary would run it, on the
+app's database, while `tug dev` serves too, and what it says, and its
+exit status, are the app's. The app is given `tug run` as its name, its
+`os.Args[0]`, so its help and its messages say `tug run migrate down`,
+not `.tug/app`'s. Under `TUG_DEV`, a mail a command sends is kept in the
+mailbox, as the server's is, with no `MAIL_HOST`, and an argument is
+always a command's: an app with none says so, rather than serve. Ctrl-C
+reaches the app, which stops its command, and `tug run` waits for it.
 
 ## `tug gen`
 

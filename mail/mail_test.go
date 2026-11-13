@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -11,6 +12,8 @@ import (
 	"net"
 	netmail "net/mail"
 	"net/textproto"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -550,5 +553,34 @@ func TestAMailboxKeepsAMessageAsAServerWouldTakeIt(t *testing.T) {
 	// What SMTP wouldn't send isn't kept.
 	if err := box.Send(context.Background(), Message{Subject: "to nobody"}); err == nil || len(mailbox.New(dir).List()) != 1 {
 		t.Errorf("a message to nobody: %v", err)
+	}
+}
+
+// A coding agent reads the mail as files: the .json has the text as the app
+// wrote it, a long link in it whole, where the message has it
+// quoted-printable, its = as =3D and broken over lines.
+func TestAMailboxKeepsTheTextAsTheAppWroteIt(t *testing.T) {
+	dir := t.TempDir()
+	box := &Mailbox{Dir: dir, URL: "http://localhost:8080", W: io.Discard, From: "hello@blog.example"}
+	verify := "http://localhost:8080/verify-email/1/ann%40example.com?expires=1763020800&signature=" + strings.Repeat("Ab3_", 11)
+	text := "Hello Ann,\n\nVerify your email:\n\n" + verify + "\n"
+	if err := box.Send(context.Background(), Message{To: []string{"ann@example.com"}, Subject: "Verify your email", Text: text}); err != nil {
+		t.Fatal(err)
+	}
+	m := mailbox.New(dir).List()[0]
+	data, err := os.ReadFile(filepath.Join(dir, m.ID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept struct{ Text string }
+	if err := json.Unmarshal(data, &kept); err != nil || kept.Text != text {
+		t.Errorf("the .json's text %q, %v, want %q", kept.Text, err, text)
+	}
+	message, err := os.ReadFile(filepath.Join(dir, m.ID+".eml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(message, []byte(verify)) || !bytes.Contains(message, []byte("expires=3D")) {
+		t.Errorf("the message has the link as it's written, not quoted-printable:\n%s", message)
 	}
 }

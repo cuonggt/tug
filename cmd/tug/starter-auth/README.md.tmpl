@@ -55,6 +55,9 @@ go test ./...
   `notifications.go`: what happened to an account, a new password or
   email, a passkey or a token, which its owner hears of by the header's
   bell, at once, a page of them, and a mail.
+  `account.go`: `tug run account`, under tug dev alone, a verified
+  account to log in as, `test@example.com`, with a new password, which
+  it prints, each time it runs.
 - `users.go`: the users. `jobs.go`: the background jobs, in the same
   database, for tug's package `queue`, which runs them beside the server.
   The mail goes by jobs, so a mail server that's down, or a restart,
@@ -119,8 +122,9 @@ go test ./...
   writes them into the same file as the Go's.
 - `resources/js/tug`: the TypeScript tug gen writes from the Go types. It
   isn't edited by hand; tug dev and tug build write it again.
-- `AGENTS.md`: how to change the app, for a coding agent, its rules, and
-  the commands that check a change, which `CLAUDE.md` hands Claude Code.
+- `AGENTS.md`: how to change the app, for a coding agent, its rules, the
+  commands that check a change, and how to see it running, which
+  `CLAUDE.md` hands Claude Code.
 - `tug.json`: the tug whose starter the app has, and the flags it was made
   with, which `tug upgrade` reads to bring the app what the starter has
   gained since, merged into its own changes.
@@ -133,7 +137,9 @@ go test ./...
   from Let's Encrypt, and `MAIL_HOST` and the rest of `.env.example` for
   its mail, and for the photos, a volume, or `FILESYSTEM_DISK=s3` and a
   bucket. In development, tug dev sets `APP_URL`, and mail is kept in the
-  app's mailbox, at `/_tug/mail`, which tug dev's terminal links to.
+  app's mailbox, at `/_tug/mail`, which tug dev's terminal links to, and
+  `tug run` runs the binary's commands with it, as
+  `tug run migrate status`.
 [[- else ]]
   address, `DB_URL`, its database, `TRUSTED_PROXIES` behind a load
   balancer, or `TLS_DOMAINS` on a machine of its own, for the app to serve
@@ -141,7 +147,9 @@ go test ./...
   the rest of `.env.example` for its mail, and for the photos, a volume,
   or `FILESYSTEM_DISK=s3` and a bucket. In development, `DB_URL` is
   compose.yaml's database, tug dev sets `APP_URL`, and mail is kept in the
-  app's mailbox, at `/_tug/mail`, which tug dev's terminal links to.
+  app's mailbox, at `/_tug/mail`, which tug dev's terminal links to, and
+  `tug run` runs the binary's commands with it, as
+  `tug run migrate status`.
 [[- end ]]
 [[ if and .SSR .SQLite -]]
 - `Dockerfile`: the app as one static binary on a distroless image with

@@ -581,6 +581,14 @@ func newApp(cfg tug.Config, e env) (*tug.App, error) {
 		return backupCommand(ctx, e.DB, os.Args[0], args, os.Stdout)
 	})
 [[- end ]]
+	// And under tug dev alone, as tug run runs it, tug run account: an
+	// account to log in as, verified, in account.go. A deploy's binary has
+	// no such command.
+	if cfg.DevTools {
+		app.Command("account", "make a verified account to log in as, test@example.com, or account <email>, and print a new password for it", func(ctx context.Context, args []string) error {
+			return accountCommand(ctx, e.DB, os.Args[0], args, os.Stdout)
+		})
+	}
 
 	app.Get("/", home).Name("home")
 	app.Get("/dashboard", a.usersOnly(verified(dashboard))).Name("dashboard")

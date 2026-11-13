@@ -210,6 +210,8 @@ of the app that's serving finds it at its next poll. In the starter's
 image, the binary is `/server`: `docker exec <container> /server jobs`. The
 command is the app's own, added in its `newApp`, and written in `jobs.go`,
 rather than tug's: a deployed app runs as its binary, where tug isn't.
+In development, `tug run jobs` runs it with the app's `.env`
+([CLI](cli.md#tug-run)).
 
 A job a request pushed says which, by the request's ID, which the job's
 log lines have too ([What a job carries](#what-a-job-carries)).

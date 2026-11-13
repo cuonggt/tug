@@ -95,7 +95,8 @@ them.
   tokens. `broadcasts.go`: the events a user's pages follow.
   `notifications.go`: what happened to an account, in the app and by
   mail. `logins.go`: the browsers a user is logged in from, and logging
-  one out. `mail.go`: the mail the app sends.
+  one out. `mail.go`: the mail the app sends. `account.go`: the
+  `account` command, under `tug dev` alone, an account to log in as.
 - `jobs.go`: the background jobs, in tables of their own, for package
   `queue`, which runs them beside the server, and the `jobs` command,
   which lists the ones that failed for good and runs them again. The mail
@@ -118,7 +119,7 @@ them.
   `passkeys_test.go`, `passwordless_test.go`, `photos_test.go`, `jobs_test.go`,
   `throttles_test.go`, `cache_test.go`, `tokens_test.go`,
   `broadcasts_test.go`, `notifications_test.go`, `logins_test.go`,
-  `migrations_test.go`, and on SQLite, `backup_test.go`: a test of each flow, in browsers of package
+  `migrations_test.go`, `account_test.go`, and on SQLite, `backup_test.go`: a test of each flow, in browsers of package
   `tugtest`, with the mail kept in memory, the photos in a temporary
   directory, and a database of each test's own.
 - `resources/js`: `inertia.tsx`, which makes the app and picks each
@@ -161,6 +162,19 @@ the laptop's, the phone's, or a password manager. Passkeys work at
 `http://localhost:8080`, where `tug dev` shows the app: browsers make them
 for a domain, not an IP address such as `127.0.0.1`. SQLite's database is
 `app.db`, or wherever `DB_PATH` says, and `.gitignore` leaves it out.
+
+An account to log in as, without registering, is `tug run account`'s:
+`test@example.com`, Test User, verified, or the account of the address
+it's given, as `tug run account ann@example.com`, with a new password,
+which it prints, and two-factor logins off, so the password alone logs
+in. It's for a developer, and their coding agent, which the app's
+`AGENTS.md` sends to it, to see the pages behind the login: a deploy's
+binary has no such command.
+
+```
+$ tug run account
+test@example.com logs in with the password 4LGVRHJ7KQ2XNM5D3CBSZ6WTPA: its email is verified, and two-factor logins are off.
+```
 
 ## How it works
 
@@ -802,8 +816,22 @@ The binary has a command, which `newApp` adds with `app.Command`, and
 which runs in place of the server, on the same database, and exits:
 `./blog jobs` lists the jobs that failed for good, with their errors, and
 `./blog jobs retry 42`, or `retry all`, runs them again. In the image,
-it's `docker exec <container> /server jobs`. `./blog help` lists the
-commands, for an app that adds more.
+it's `docker exec <container> /server jobs`, and in development,
+`tug run jobs`, with the app's `.env` ([CLI](cli.md#tug-run)).
+`./blog help` lists the commands, for an app that adds more.
+
+Under `tug dev` alone, as `tug run` runs a command, `newApp` adds
+`account`, `account.go`, which makes an account to log in as,
+`test@example.com`, Test User, or the account of the address it's given,
+verified, and gives it a new password, which it prints, ending its
+other logins, as a new password does, and turns its two-factor logins
+off: a way in, for a developer, or their coding agent, with no mail. Its
+owner isn't told, as this is the developer's own run. A deploy's binary
+has no such command, as an account made with no mail is a way past
+verifying an email. And the password is made at each run, never one
+that's known, as `password` is, which Laravel's starter seeds
+`test@example.com` with: a development database copied to a server
+takes no account with it that anyone can log in to.
 
 ### Notifications
 
@@ -1631,9 +1659,13 @@ mail is from when a message doesn't say.
   can't hold on to it.
 
 `Mailbox` keeps mail instead, for development: each mail as `SMTP` would
-send it, in its `Dir`, `.tug/mail`, which git leaves out, and a line in
-its `W`, or the standard error, which `tug dev` shows: whom it's to, `Bcc`
-too, its subject, and its link at `URL`, the app's address. Under
+send it, in its `Dir`, `.tug/mail`, which git leaves out, an `.eml`, and
+beside it a `.json` of whom it's from and to, its subject, and its
+`text`, as the app wrote it, for a coding agent that reads the mail as a
+file, where the message's quoted-printable has a link's `=` as `=3D`,
+and a long one broken over lines; and a line in its `W`, or the standard
+error, which `tug dev` shows: whom it's to, `Bcc` too, its subject, and
+its link at `URL`, the app's address. Under
 `tug dev`, the App shows the mailbox at `/_tug/mail`, as it answers
 Inertia's DevTools: the mail newest first, the newest 100, and each
 mail's headers, its `Bcc`, its HTML in a sandboxed frame, whose links

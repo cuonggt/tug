@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M67 are done, which is
+the decisions behind it and where it stands: M1 to M68 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -223,7 +223,14 @@ day too, ten an account, past which a recovery code or a passkey still
 logs in, the owner told once a day that someone else has the password,
 and with `CHECK_BREACHED_PASSWORDS`, a new password checked against
 Pwned Passwords, `auth.PwnedPasswords`, told five characters of its
-SHA-1 alone.
+SHA-1 alone, and what an agent can see (v1.6.0): each app's `AGENTS.md`
+pointing at what tug keeps under tug dev, a request's entry for the
+DevTools, in `.tug/devtools`, with the props its page was sent, and the
+mail, in `.tug/mail`, whose `.json` has its text, its links whole, and
+`tug run`, one of the app's commands in development, with its `.env`
+and `TUG_DEV`, under which an argument is always a command's, and the
+auth starter's `account`, under tug dev alone, a verified account to log
+in as, with a new password at each run, which it prints.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -502,10 +509,12 @@ dev server that isn't there: delete it.
     `gone`, a 404, for a mail past the newest 100.
   - `commands.go`: `Command` adds one of the app's commands (`command`,
     in the App's `commands`), which `Run` runs in place of serving
-    (`runCommand`) when it has any and the binary has an argument, with
-    the rest and `Run`'s signal context; `help` lists them
-    (`listCommands`), and a name that isn't one is an error. What `Go`
-    runs doesn't start, and tug gen's run writes the types first.
+    (`runCommand`) when it has any, or under `Config.DevTools`, as tug
+    run runs it, and the binary has an argument, with the rest and
+    `Run`'s signal context; `help` lists them (`listCommands`), as tug
+    run's under DevTools, and a name that isn't one is an error, in an
+    app with none too. What `Go` runs doesn't start, and tug gen's run
+    writes the types first.
   - `limit.go`: `Limit`, a HandlerFunc wrapper, not middleware, so a
     refusal is a 429 `*HTTPError` for the ErrorHandler, with
     `Retry-After`; it takes a `Limiter`, the `Try` `*auth.Throttle` has,
@@ -830,7 +839,8 @@ dev server that isn't there: delete it.
 - `internal/mailbox`: the mail an app keeps under tug dev, which
   `mail.Mailbox` writes and the App's pages read: `Store` (`Keep`, an
   `.eml` of the message as built and a `.json` of the rest, its `Mail`,
-  each written beside its place and renamed, the `.json` last, and the
+  the text as the app wrote it among it, for a coding agent that reads
+  the mail as a file, each written beside its place and renamed, the `.json` last, and the
   newest `keep`, 100, kept; `List`, newest first; and `Get`, by a ULID
   alone), `Dir`, `.tug/mail`, and `Path`, `/_tug/mail`; `Parse`, a
   message read back for its page (its headers in order, their encoded
@@ -895,6 +905,12 @@ dev server that isn't there: delete it.
   translation's `placeholders`, as package lang's `fill` reads them, not
   its English's, a choice's `:count` its own, as problems, and a text no
   longer said a note, an English file's placeholders alone;
+  `run.go` is tug run: the app built as tug gen builds it, `buildApp`,
+  and run with a command and its arguments, its `os.Args[0]` `tug run`,
+  in `runEnv`, tug dev's environment (`devEnv`) at tug dev's address,
+  without its look for a free port, its exit status tug's
+  (`exitStatus`, which `main` exits with, saying nothing), a SIGTERM
+  handed on, and Ctrl-C the app's own, in the terminal's group;
   `key.go` is tug key, which prints `newKey`, as `tug new`'s `.env` has
   one; `migrate.go` is tug migrate new, which writes a migration's file
   (`newMigration`, named in UTC, the next second when one's taken,
@@ -948,9 +964,13 @@ dev server that isn't there: delete it.
   `Guide`, the guide's link at the tug the app requires, a release's tag,
   a pseudo-version's commit or main, `DatabaseName` and `AppLayoutFile`
   fill it in, and `agents_test.go`'s `notesProblems` finds a path, an
-  `npm run` script, or a name of the app's own in backticks by itself,
-  that the app hasn't, in every kind `writeStarter` makes, and in each app
-  `tug_test.go` makes with tug new. A shared file that differs between frontends by a
+  `npm run` script, a command `tug run` runs that the app's Go doesn't
+  add (`appCommands`), or a name of the app's own in backticks by itself,
+  but a DevTools entry's key (`devtoolsKeys`), that the app hasn't, in
+  every kind `writeStarter` makes, and in each app `tug_test.go` makes
+  with tug new, whose auth app runs `tug run account` and logs in with
+  its password to a page whose entry it reads (`runsItsCommands`), and
+  whose plain app says it has no commands (`saysItHasNoCommands`). A shared file that differs between frontends by a
   line takes a condition, as `app.html` (`viteReactRefresh` is React's
   alone) and `vite.config.ts` do; one that's a frontend's own is in its
   layer.
@@ -968,7 +988,7 @@ dev server that isn't there: delete it.
   `migrate` command on a new database (`migratesByItsCommand`), and its
 tests again with a migration of its own (`growsAMigration`), and reads
   a page's entry for the DevTools from it under `TUG_DEV`
-  (`answersTheDevTools`), and the mail registering sends from its mailbox, and checks that one, and each SSR one, sends the
+  (`answersTheDevTools`), and the mail registering sends from its mailbox, its link whole in the mail's `.json`, and checks that one, and each SSR one, sends the
   build's scripts gzipped (`sendsItsBuildGzipped`), and one on each of
   Postgres and MySQL, which writes its types with no database running. Every starter makes its
   app in `resources/js/inertia.tsx` (`.ts` in Vue and Svelte:
@@ -1071,7 +1091,14 @@ tests again with a migration of its own (`growsAMigration`), and reads
   then put on the app's disk as `backups/<date>.db`, and whose `prune`
   deletes the dated files but the newest, by listing them, leaving a
   file of another name; `backup_test.go.tmpl` tests them), and on a
-  server, `compose.yaml.tmpl`. The jobs
+  server, `compose.yaml.tmpl`. `account.go.tmpl` is `accountCommand`,
+  the `account` command, which `newApp` adds under `Config.DevTools`
+  alone, as tug dev and tug run run the app: a verified account to log
+  in as, `testAccount`, `test@example.com`, Test User, or the account of
+  the address it's given, made when there's none, with a password made
+  by `rand.Text` at each run, which it prints, its other logins ended,
+  and two-factor logins off, its owner told nothing; `account_test.go.tmpl`
+  tests it. The jobs
   are in the same database: `jobs_db.go.tmpl` is a `queue.ScheduleStore`
   and a `queue.UniqueStore`, which `jobs_test.go.tmpl` runs
   `queuetest.TestStore` on, with a `schedules` table whose upsert only
@@ -1380,8 +1407,8 @@ tests again with a migration of its own (`growsAMigration`), and reads
 - `mail`: `Message` (with `Cc`, `Bcc`, `ReplyTo`, `Attachments`,
   `Headers` and `Unsubscribe`), `SMTP` on net/smtp (STARTTLS, TLS on 465,
   deadlines from the context), `Mailbox`, which keeps mail in
-  `internal/mailbox`'s store under tug dev, with a line in the log of its
-  link at `URL`, `Log`, which writes mail out, and `FromEnv`, a `Mailbox`
+  `internal/mailbox`'s store under tug dev, its text in the `.json` as
+  the app wrote it, with a line in the log of its link at `URL`, `Log`, which writes mail out, and `FromEnv`, a `Mailbox`
   with no `MAIL_HOST` under `TUG_DEV`, its `URL` `APP_URL`'s. `build` writes a message as a server takes it, and returns
   its envelope: the headers, the app's among them, which `checkHeader`
   refuses when they're a name the fields set (`ownHeaders`, and any

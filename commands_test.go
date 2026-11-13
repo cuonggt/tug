@@ -84,6 +84,32 @@ func TestANameThatIsntACommandSaysSo(t *testing.T) {
 	}
 }
 
+// Under DevTools, as tug run runs it, the app is given an argument for a
+// command alone: one it hasn't is an error, where serving would leave tug
+// run waiting on a server, and help lists them, as tug run's.
+func TestUnderDevToolsAnArgumentIsACommandsInAnAppWithNone(t *testing.T) {
+	t.Chdir(t.TempDir())
+	app := New(Config{Addr: "256.0.0.1:1", DevTools: true}) // an address that Run fails on, were it to listen
+	app.Get("/", text("home"))
+	withArgs(t, "tug run", "jobs")
+	if err := app.Run(); err == nil || err.Error() != `the app has no commands, so none is named "jobs"` {
+		t.Errorf("Run: %v", err)
+	}
+
+	app = New(Config{DevTools: true})
+	app.Command("account", "make an account to log in as", func(context.Context, []string) error { return nil })
+	var out bytes.Buffer
+	if err := app.runCommand(context.Background(), "tug run", []string{"help"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := "The app's commands:\n\n" +
+		"  tug run account  make an account to log in as\n" +
+		"  tug run help     list these commands\n"
+	if out.String() != want {
+		t.Errorf("help:\n%s\nwant\n%s", out.String(), want)
+	}
+}
+
 func TestTugGenWritesTheTypesWhateverTheArguments(t *testing.T) {
 	ran := false
 	app := New(Config{})

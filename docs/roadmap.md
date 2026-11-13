@@ -74,7 +74,7 @@ to 3.11.0, November 2026), written against
 | M65 | S3 on the platform's keys  | done   |
 | M66 | Translations, checked      | done   |
 | M67 | Accounts, guarded          | done   |
-| M68 | What an agent can see      | later  |
+| M68 | What an agent can see      | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6721,7 +6721,7 @@ Choices made on the way:
   left the browser logged out with the rest, the old login's row gone
   and no new one; cleared first, a failure changes nothing.
 
-## M68 · What an agent can see — later
+## M68 · What an agent can see — done
 
 An app's `AGENTS.md` says the tests are how a page is checked, and that
 `tug dev` serves until it's stopped, so it answers nothing in a script.
@@ -6817,7 +6817,7 @@ in as. To be released as v1.6.0.
   commands in development, by `tug run`; the README; and the starters'
   READMEs.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Files, as tug keeps them, and commands, as a person runs them:** an
   agent reads a file and runs a command, as `AGENTS.md` has it do
@@ -6868,6 +6868,42 @@ Choices, to settle before any code:
   own account, verified as its link would have verified it; a new
   password's notification tells an owner that someone changed it, where
   this is the developer's own run, in development.
+- **`help`, under DevTools, the commands alone:** `./blog help` says
+  that without a command the binary serves, which `tug run` doesn't, as
+  it says what it's for without one, so under DevTools, as `tug run`
+  runs the app, `help` begins "The app's commands:".
+- **The day's codes as they were:** a new password clears the day's
+  wrong codes, as they were the old one's, but `account` turns
+  two-factor logins off, so the count asks nothing until they're on
+  again, and the command takes the database alone, as `backup` does, and
+  no throttle.
+- **Its first login told of:** logging in as the account from a browser
+  it hasn't had tells it so, `new-login`, as any login does, which the
+  mailbox keeps, to example.com; `account` itself tells nothing.
+- **Whether a deploy has it, the suite's to check:** the starter's tests
+  make the app as a deploy does, without DevTools, so the CLI's full
+  suite checks it in an app `tug new` made: `tug run help` lists
+  `account`, the binary's own `help` doesn't, and `tug run account`'s
+  password logs in by a form, as the notes' `curl` does, to the
+  dashboard, whose entry, in `.tug/devtools`, has the account's email in
+  its `propValues`.
+- **An entry kept as its response has gone out:** DevTools keeps an
+  entry once the handler is done, a moment after the client has the
+  answer, so the suite waits for the file; an agent that reads it by a
+  command of its own, after `curl`'s, has it.
+- **Tried on an agent, before the release:** a headless Claude Code, in
+  an app `tug new -auth` made from the checkout, asked to show the
+  unread notifications on the dashboard, and to make sure it works in
+  the running app too, logged in, read its notes by `CLAUDE.md`, made
+  the change and its test, ran the checks, then `tug dev` in the
+  background, `tug run account`, logged in by the notes' `curl`, read
+  the dashboard's entry in `.tug/devtools`, its `bell` among its
+  `propValues`, and stopped `tug dev`: 43 turns, three minutes. It asked
+  for the page object too, by `curl` with `X-Inertia`, as Inertia's
+  client does, and saw the count its login had made, a `new-login` from
+  a browser the account hadn't had. Nothing of tug's stopped it: its
+  session's own rules kept it from a headless Chrome, to see the page
+  drawn, so the notes stay as they were.
 
 ## Decisions
 

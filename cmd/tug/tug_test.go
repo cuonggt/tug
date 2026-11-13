@@ -14,6 +14,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -582,11 +584,13 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 			}
 			if kind.name == "plain" {
 				writesItsTexts(t, dir)
+				saysItHasNoCommands(t, dir)
 			}
 			if kind.name == "auth" {
 				migratesByItsCommand(t, dir)
 				answersTheDevTools(t, dir)
 				listsItsRoutes(t, dir)
+				runsItsCommands(t, dir)
 				growsAMigration(t, dir)
 			}
 		})
@@ -901,8 +905,102 @@ func answersTheDevTools(t *testing.T, dir string) {
 	}
 	_, after, _ := strings.Cut(kept, `<a href="/_tug/mail/`)
 	id, _, _ = strings.Cut(after, `"`)
-	if _, html := get("/_tug/mail/" + id + "/html"); !strings.Contains(html, "http://"+addr+"/verify-email/") {
-		t.Errorf("the mail %s's HTML has no link that verifies the email:\n%s", id, html)
+	_, page = get("/_tug/mail/" + id + "/html")
+	link := regexp.MustCompile(`href="(http://` + regexp.QuoteMeta(addr) + `/verify-email/[^"]+)"`).FindStringSubmatch(page)
+	if link == nil {
+		t.Fatalf("the mail %s's HTML has no link that verifies the email:\n%s", id, page)
+	}
+	// And in its .json, for a coding agent that reads the mail as a file,
+	// the text, with the link whole, on a line of its own, where the
+	// message has it quoted-printable.
+	data, err := os.ReadFile(filepath.Join(dir, ".tug", "mail", id+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mail struct{ Text string }
+	if err := json.Unmarshal(data, &mail); err != nil || !strings.Contains(mail.Text, "\n"+link[1]+"\n") {
+		t.Errorf("the mail %s's .json hasn't the link %s whole: %v\n%s", id, link[1], err, data)
+	}
+}
+
+// runsItsCommands runs the commands of the auth app in dir as tug run
+// does, in development, with its .env, as AGENTS.md has an agent do: tug
+// run help lists account, which the binary a deploy runs hasn't, and tug
+// run account makes an account whose password logs the app in, served as
+// tug dev serves it, from curl, to its dashboard, whose entry DevTools
+// keeps.
+func runsItsCommands(t *testing.T, dir string) {
+	t.Helper()
+	t.Chdir(dir)
+	var stdout, stderr bytes.Buffer
+	if err := runRun([]string{"help"}, &stdout, &stderr); err != nil || !strings.Contains(stdout.String(), "\n  tug run account ") {
+		t.Fatalf("tug run help: %v\n%s%s", err, stdout.String(), stderr.String())
+	}
+	vars, err := readDotEnv(".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployed := exec.Command(filepath.Join(dir, "app"), "help") // as migratesByItsCommand built it
+	deployed.Env = append(append(os.Environ(), vars...), "APP_URL=http://localhost:8080", "DB_PATH="+filepath.Join(t.TempDir(), "app.db"))
+	if out, err := deployed.CombinedOutput(); err != nil || !strings.Contains(string(out), "app migrate ") || strings.Contains(string(out), "account") {
+		t.Errorf("./app help, deployed: %v\n%s", err, out)
+	}
+
+	stdout.Reset()
+	if err := runRun([]string{"account"}, &stdout, &stderr); err != nil {
+		t.Fatalf("tug run account: %v\n%s", err, stderr.String())
+	}
+	said := regexp.MustCompile(`^test@example\.com logs in with the password (\S+): `).FindStringSubmatch(stdout.String())
+	if said == nil {
+		t.Fatalf("tug run account said %q", stdout.String())
+	}
+	base, out := serveApp(t, dir, "TUG_DEV=1")
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	var resp *http.Response
+	for deadline := time.Now().Add(30 * time.Second); resp == nil; time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the app didn't serve; it said\n%s", out.String())
+		}
+		resp, _ = client.PostForm(base+"/login", url.Values{"email": {"test@example.com"}, "password": {said[1]}})
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/dashboard" {
+		t.Fatalf("logging in with the password tug run account said: %d to %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if resp, err = client.Get(base + "/dashboard"); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	// The entry is kept as the response has gone out, a moment after.
+	id := resp.Header.Get("X-Inertia-Devtools-Id")
+	data, err := os.ReadFile(filepath.Join(".tug", "devtools", id+".json"))
+	for deadline := time.Now().Add(5 * time.Second); err != nil && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		data, err = os.ReadFile(filepath.Join(".tug", "devtools", id+".json"))
+	}
+	if resp.StatusCode != http.StatusOK || err != nil {
+		t.Fatalf("the dashboard: %d, its entry %q: %v", resp.StatusCode, id, err)
+	}
+	var entry struct {
+		Meta       struct{ Component string } `json:"__meta"`
+		PropValues struct {
+			Auth struct{ User struct{ Email string } }
+		}
+	}
+	if err := json.Unmarshal(data, &entry); err != nil || entry.Meta.Component != "Dashboard" || entry.PropValues.Auth.User.Email != "test@example.com" {
+		t.Errorf("the dashboard's entry, %v:\n%s", err, data)
+	}
+}
+
+// saysItHasNoCommands runs tug run in the plain app in dir, which has no
+// commands, and which says so, rather than serve.
+func saysItHasNoCommands(t *testing.T, dir string) {
+	t.Helper()
+	t.Chdir(dir)
+	var stdout, stderr bytes.Buffer
+	err := runRun([]string{"jobs"}, &stdout, &stderr)
+	if status, ok := err.(exitStatus); !ok || status != 1 || !strings.Contains(stderr.String(), `the app has no commands, so none is named "jobs"`) {
+		t.Errorf("tug run jobs, in an app with no commands: %v\n%s%s", err, stdout.String(), stderr.String())
 	}
 }
 

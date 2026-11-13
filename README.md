@@ -130,7 +130,8 @@ func showPost(c *tug.Ctx) error {
   gained since, merged into its own changes, with what clashes marked, and
   the migrations the starter changed listed for it to write. `tug dev` runs
   it with Vite: Go is rebuilt and restarted as it changes, and the browser
-  reloaded. `tug gen` writes the
+  reloaded, and `tug run` runs one of its commands with its `.env`, as
+  `tug run migrate status`. `tug gen` writes the
   TypeScript of each page's props and of the named routes, with a typed
   `route()`, of what each route's form sends, the struct its handler binds,
   with a `form()` of its path and method, and of the flash data's keys, so
@@ -140,8 +141,10 @@ func showPost(c *tug.Ctx) error {
   binary with the frontend in it, which sends its scripts and styles
   gzipped, and the app comes with a Dockerfile for a distroless image, and
   an `AGENTS.md`, for a coding agent: how to add a page, a form, a table or
-  a test as tug has it done, the rules the code doesn't show, and the
-  commands that check a change.
+  a test as tug has it done, the rules the code doesn't show, the
+  commands that check a change, and how to see it running, by the files
+  tug keeps of each request's page and props, and of the mail, with an
+  account to log in as, `tug run account`.
 - **Inertia pages** (package `inertia`), to the whole v3 protocol: a first
   visit gets HTML with the page object, later visits get JSON.
   `tug.Page[Props]` ties a component to the props it takes, and props nest
@@ -181,7 +184,8 @@ func showPost(c *tug.Ctx) error {
   - **DevTools:** under `tug dev`, each request is kept for Inertia's
     DevTools, the browser's panel: its route and the function that
     answered, where the page was rendered, each prop with its type and
-    value, and the headers and bodies, with secrets redacted.
+    value, and the headers and bodies, with secrets redacted, in a file
+    of JSON a coding agent reads too.
 - **Server-side rendering** (package `ssr`), when an app wants it, as
   `tug new -ssr` makes one: a first visit's page comes with its HTML, for
   search engines and pages that show before their scripts run, rendered by

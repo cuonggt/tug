@@ -34,7 +34,10 @@ const Path = "/_tug/mail"
 const keep = 100
 
 // Mail is a mail as it was kept, but for its message: who it's from and
-// to, its Bcc, which no header has, its subject, and when it came.
+// to, its Bcc, which no header has, its subject, and when it came, and its
+// text as the app wrote it, for a coding agent that reads the mail as a
+// file: the message has it quoted-printable, a link's = as =3D, and a
+// long link broken over lines.
 type Mail struct {
 	ID      string    `json:"id"`
 	At      time.Time `json:"at"`
@@ -43,6 +46,7 @@ type Mail struct {
 	Cc      []string  `json:"cc,omitempty"`
 	Bcc     []string  `json:"bcc,omitempty"`
 	Subject string    `json:"subject"`
+	Text    string    `json:"text,omitempty"`
 }
 
 // A Store keeps mail in a directory: each mail's message, as a server

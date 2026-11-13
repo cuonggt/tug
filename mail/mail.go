@@ -293,7 +293,10 @@ func (l *Log) Send(ctx context.Context, m Message) error {
 // Mailbox keeps email rather than sending it, for development: each mail,
 // as a server would take it, in Dir, which an app under tug dev shows at
 // /_tug/mail, as a mail program would, and a line in the log for it, with
-// its link there. FromEnv returns one under tug dev, with no MAIL_HOST.
+// its link there. Beside the message, an .eml, a .json says who it's from
+// and to, its subject, and its text, as the app wrote it, whole, for a
+// coding agent that reads the mail as a file, where the message's text is
+// quoted-printable. FromEnv returns one under tug dev, with no MAIL_HOST.
 type Mailbox struct {
 	// Dir is where the mail is kept: .tug/mail by default, where the App
 	// reads it.
@@ -323,7 +326,7 @@ func (b *Mailbox) Send(ctx context.Context, m Message) error {
 		return err
 	}
 	b.once.Do(func() { b.store = mailbox.New(cmp.Or(b.Dir, mailbox.Dir)) })
-	id, err := b.store.Keep(mailbox.Mail{From: from, To: m.To, Cc: m.Cc, Bcc: m.Bcc, Subject: m.Subject}, data)
+	id, err := b.store.Keep(mailbox.Mail{From: from, To: m.To, Cc: m.Cc, Bcc: m.Bcc, Subject: m.Subject, Text: m.Text}, data)
 	if err != nil {
 		return fmt.Errorf("mail: the mailbox didn't keep it: %w", err)
 	}
