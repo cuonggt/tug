@@ -233,6 +233,20 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.6.0
+
+`go get github.com/cuonggt/tug@v1.6.0`, and the CLI at v1.6.0 for
+`tug run`, which runs one of the app's commands in development, with its
+`.env`, as `tug run migrate status` ([CLI](cli.md#tug-run)). Nothing an
+app calls changed since v1.5.1, but with `Config.DevTools`, as under
+`tug dev` and `tug run`, `Run` takes an argument for a command's, in an
+app with no commands too, and the mailbox keeps a mail's text in its
+`.json`, whole. `tug upgrade` brings an app made by `tug new` the
+section of its `AGENTS.md` that says how to see it running, and an app
+made by `tug new -auth` the `account` command, under `tug dev` alone, a
+verified account to log in as ([Accounts](auth.md#trying-it)), in
+`account.go`, `account_test.go` and `main.go`.
+
 ### v1.5.1
 
 Tug's Go is as it was, so `go get github.com/cuonggt/tug@v1.5.1` changes

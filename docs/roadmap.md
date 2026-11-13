@@ -6741,7 +6741,7 @@ arguments, as a server. M68 points the notes at the files, keeps a
 mail's text as it reads, adds `tug run`, which runs one of the app's
 commands as `tug dev` runs the app, and gives the auth starter a command
 of development's alone, `account`, which makes a verified account to log
-in as. To be released as v1.6.0.
+in as. Released as v1.6.0.
 
 - **`tug run <command>`:** runs one of the app's commands, built into
   `.tug/app` as `tug gen` builds it, with the environment `tug dev`
