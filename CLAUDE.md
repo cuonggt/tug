@@ -1008,7 +1008,8 @@ tests again with a migration of its own (`growsAMigration`), and reads
   are `defineProps<Pages['Name'] & SharedProps>()`, as Vue's compiler
   can't resolve `PageProps<'Name'>`. `e2e/` is one Playwright suite for
   the auth starter in every frontend (`setup.ts` makes the apps with tug
-  new and runs them, their mail in `app.log`; `apps.ts` has the ports and
+  new and runs them, their mail in `app.log`, which CI keeps with a
+  failed test's trace, as an artifact, `e2e-starters`; `apps.ts` has the ports and
   `dotEnv`; the apps render on the server, so a spec that clicks as a page
   opens goes there by `helpers.ts`' `opened`, which waits for its live
   connection, `/broadcasts`, the sign the client has hydrated it, as a

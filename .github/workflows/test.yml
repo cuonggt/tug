@@ -212,6 +212,15 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
+      # A failed test's trace, to open with npx playwright show-trace, as a
+      # failure that doesn't come again locally can't be read otherwise.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-examples-inertia
+          path: examples/inertia/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
 
   starters:
     name: e2e (the starters)
@@ -233,5 +242,20 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npx playwright install --with-deps chromium
-      # setup.ts makes an app of each frontend with tug new, and runs them.
-      - run: npx playwright test
+      # setup.ts makes an app of each frontend with tug new, and runs them,
+      # in TUG_E2E_DIR, each with its log, app.log.
+      - run: mkdir -p "$TUG_E2E_DIR" && npx playwright test
+        env:
+          TUG_E2E_DIR: ${{ runner.temp }}/tug-e2e
+      # A failed test's trace, to open with npx playwright show-trace, and
+      # each app's log, what it answered, as a failure that doesn't come
+      # again locally can't be read otherwise.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-starters
+          path: |
+            cmd/tug/e2e/test-results/
+            ${{ runner.temp }}/tug-e2e/*/app.log
+          retention-days: 14
+          if-no-files-found: ignore

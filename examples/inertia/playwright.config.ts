@@ -10,6 +10,8 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     channel: process.env.CI ? undefined : 'chrome',
+    // A failed test's trace, in test-results/, which CI keeps.
+    trace: 'retain-on-failure',
   },
   webServer: {
     command: `ADDR=127.0.0.1:${port} go run .`,
