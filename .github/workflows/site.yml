@@ -17,9 +17,9 @@ name: site
 
 on:
   push:
-    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', 'lang/**', 'go.mod', '.github/workflows/site.yml', '*xyw*' ]
+    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', 'lang/**', 'go.mod', '.github/workflows/site.yml']
   pull_request:
-    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', 'lang/**', 'go.mod', '.github/workflows/site.yml', '*xyw*']
+    paths: ['docs/**', 'README.md', 'bench/results.json', 'site/**', 'lang/**', 'go.mod', '.github/workflows/site.yml']
   workflow_dispatch:
 
 concurrency:
@@ -32,12 +32,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: linux-xarm92
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
-                ActionScript
-                assigned-all
       pages: read
     defaults:
       run:
@@ -45,8 +43,8 @@ jobs:
     env:
       DEPLOY: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     steps:
-      - uses: actions/checkout@v10
-      - uses: actions/setup-go@v10
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: site/go.mod
           cache-dependency-path: site/go.sum
@@ -66,17 +64,14 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
-    runs-on: linux-xarm92 
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       pages: write
-             assigned-all
       id-token: write
-                assigned-all
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-            synchronize
-        uses: actions/deploy-pages@v8
+        uses: actions/deploy-pages@v5
