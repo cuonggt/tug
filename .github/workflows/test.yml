@@ -22,6 +22,9 @@
 #
 # And what's changed of the API since the last release, in the run's
 # summary, for the release's notes.
+#
+# And the known vulnerabilities in what tug calls, in its own requirements
+# and in Go's library.
 name: test
 
 on:
@@ -165,6 +168,26 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+  # The known vulnerabilities in what tug calls, by govulncheck, which
+  # fails only for a function tug's own code reaches, in a module it
+  # requires or in Go's library: an update that fixes nothing tug calls
+  # waits for a release. It reads Go's vulnerability database as it runs,
+  # so a push can fail for what was published since the one before, which
+  # is when to know of it: before a tag. Once, with Go's stable: what it
+  # finds in a module doesn't change with the Go, and a hole in Go's own
+  # library is fixed in both the releases Go supports at once. An app's
+  # drivers are its own, at their latest as tug new makes it.
+  vuln:
+    name: vuln (govulncheck)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
   # The benchmarks' module, bench/, a module of its own: that ServeMux and
   # tug answer the benchmarks' request alike, that tug's App and its

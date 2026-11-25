@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at bc3e51969757 -->
+<!-- translated from docs/README.md at 0d6aa7196464 -->
 
 # Hướng dẫn sử dụng tug
 
@@ -68,9 +68,9 @@ tiết còn lại.
     những gì starter có thêm kể từ bản tug đã tạo ra nó, được gộp vào
     những thay đổi của chính ứng dụng, và những gì mỗi bản phát hành đã
     thay đổi trong API của tug.
-19. [CLI](../cli.md): `tug new`, `tug upgrade`, `tug dev`, `tug gen`,
-    `tug routes`, `tug lang`, `tug migrate`, `tug build` và `tug key`, đầy
-    đủ chi tiết.
+19. [CLI](../cli.md): `tug new`, `tug upgrade`, `tug dev`, `tug run`,
+    `tug gen`, `tug routes`, `tug lang`, `tug migrate`, `tug build` và
+    `tug key`, đầy đủ chi tiết.
 
 [Lộ trình](../roadmap.md) kể lại tug đã được xây dựng ra sao và những
 quyết định đằng sau nó, còn

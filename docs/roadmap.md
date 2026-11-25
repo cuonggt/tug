@@ -75,7 +75,7 @@ to 3.11.0, November 2026), written against
 | M66 | Translations, checked      | done   |
 | M67 | Accounts, guarded          | done   |
 | M68 | What an agent can see      | done   |
-| M69 | Flash, kept and forgotten  | later  |
+| M69 | Flash, kept and forgotten  | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6906,7 +6906,7 @@ Choices made on the way:
   session's own rules kept it from a headless Chrome, to see the page
   drawn, so the notes stay as they were.
 
-## M69 · Flash, kept and forgotten — later
+## M69 · Flash, kept and forgotten — done
 
 A handler leaves flash data for the next page shown, and a request that
 shows no page hands it on: a redirect does, through a chain of them, and
@@ -6960,9 +6960,9 @@ page shown gets it. To be released as v1.7.0.
   there, and none a request later; a key the handler flashed itself,
   forgotten; one flashed again after, shown; a declared key's `Forget`;
   a key that isn't there, and no key, changing nothing; a form's errors
-  left as they were; with no session, nothing done; and a partial reload
-  whose handler forgets, leaving the flash for the visit it was left
-  for.
+  left as they were; with no session, a key of the handler's own
+  forgotten all the same; and a partial reload whose handler forgets,
+  leaving the flash for the visit it was left for.
 - **The guide:** Forms, flash messages: a `Location` among what a flash
   goes on through, and forgetting a key; Pages, redirects and visits:
   the flash going along with a `Location`, and what answers a visit, a
@@ -6970,7 +6970,7 @@ page shown gets it. To be released as v1.7.0.
   leaves the client an empty dialog, and `c.RedirectBack()` goes back;
   Upgrading, v1.7.0's entry; and the index's `tug run`.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **Two of the four:** inertia-laravel 3.8.0 keeps flash data across the
   reload for a new build, across `Inertia::location()` and across the
@@ -7038,6 +7038,33 @@ Choices, to settle before any code:
   fixes nothing tug calls waits for a release, as Upgrading's Versions
   has the dependencies move. An app takes its drivers' latest as
   `tug new` makes it, by `go mod tidy`, so they aren't tug's to check.
+- **The request's own, out of its flash, and the request before's, by
+  name:** a key the handler flashed itself is taken out of what it has
+  flashed, at once, so a later flash of it is shown with no more to do;
+  the request before's can't be taken out of the session, which a
+  partial reload leaves as it came, so the request keeps the keys it
+  has forgotten, and the page it renders, and what its redirect or its
+  `Location` hands on, leave them out.
+- **An emptied flash, out of the session:** a handler that flashes a
+  key and forgets it has nothing for the next page, and its flash comes
+  out of the session with it: an empty one would begin a session for a
+  browser that has none, or have the next request write a cookie to say
+  it's gone.
+- **With no session, the handler's own:** a page shows what its own
+  request flashed with no `Config.Session`, and forgetting takes that
+  back all the same; there's no request before's to forget.
+- **What the three brought:** locales v0.14.2, universal-translator
+  v0.18.2, golang.org/x/sys v0.50.0 and golang.org/x/text v0.44.0, each
+  its latest, which `bench/`'s `go.mod` names too, and tidying leaves
+  `site/`'s as it was.
+- **The index's translations, still current:** each language's index
+  takes `tug run` in its line, a command's name in any language, and
+  names the English it was made from by its new blob, so the site says
+  none is behind.
+- **Each test shown to fail:** with `c.Location`'s carrying taken out,
+  the tests of it fail, tugtest's among them, and so do those of
+  forgetting with the page's leaving out, the redirect's, or the
+  emptied flash's.
 
 ## Decisions
 

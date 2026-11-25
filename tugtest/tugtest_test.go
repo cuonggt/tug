@@ -237,6 +237,22 @@ func TestFlashDataReadsIntoAType(t *testing.T) {
 	}
 }
 
+func TestFollowReadsTheFlashALocationCarried(t *testing.T) {
+	app := newApp(t)
+	// A draft's page is one the app leaves Inertia for: the form redirects
+	// to it, and it loads a page whole, which shows what the form flashed.
+	app.Post("/drafts", func(c *tug.Ctx) error {
+		c.Flash("success", "Draft kept")
+		return c.Redirect("/drafts/latest")
+	})
+	app.Get("/drafts/latest", func(c *tug.Ctx) error { return c.Location("/posts/1") })
+
+	r := tugtest.New(t, app).Post("/drafts", nil).Follow()
+	if r.Code != http.StatusOK || r.Page.Component != "Posts/Show" || r.Page.Flash["success"] != "Draft kept" {
+		t.Errorf("%v: the page a Location led to has flash %v", r, r.Page.Flash)
+	}
+}
+
 func TestPropsReadIntoTheTypesTheirPageDeclares(t *testing.T) {
 	r := tugtest.New(t, newApp(t)).Get("/")
 	// counts.views is a prop type, which Props leaves to Prop.

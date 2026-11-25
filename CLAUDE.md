@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M68 are done, which is
+the decisions behind it and where it stands: M1 to M69 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -230,7 +230,13 @@ mail, in `.tug/mail`, whose `.json` has its text, its links whole, and
 `tug run`, one of the app's commands in development, with its `.env`
 and `TUG_DEV`, under which an argument is always a command's, and the
 auth starter's `account`, under tug dev alone, a verified account to log
-in as, with a new password at each run, which it prints.
+in as, with a new password at each run, which it prints, and flash,
+kept and forgotten (v1.7.0): `c.Location` handing the flash data on, as
+a redirect does, to the page its full load fetches, or the one the
+browser comes back to, and `c.ForgetFlash`, a declared key's `Forget`,
+which takes a key back before the next page shown gets it, whichever
+request flashed it, with tug's modules at their latest, and govulncheck
+in CI.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -252,6 +258,7 @@ go test -race ./...                        # what CI runs; a server is concurren
 go test -run '^$' -bench . -benchmem .     # tug next to ServeMux alone; bench/ has the rest
 go vet ./... && gofmt -l .
 go run golang.org/x/exp/cmd/gorelease@v0.0.0-20261014143641-f0251eb4aa3e -base=v0.55.0  # what changed in the API since a release, as CI's api job reports; with everything committed
+go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...  # the known vulnerabilities in what tug calls, as CI's vuln job finds them
 ADDR=127.0.0.1:8080 go run ./examples/api
 ```
 
@@ -559,18 +566,23 @@ dev server that isn't there: delete it.
     (which, under DevTools, records where the app rendered the page),
     `Ctx.Head`, the elements of the page's head, which `pageRequest`, in
     forms.go, gives the page through `inertia.WithHead`, after
-    middleware's, and `errorPage` drops, and `Ctx.Location`.
+    middleware's, and `errorPage` drops, and `Ctx.Location`, which hands
+    the flash on first, as `Redirect` does, by `carryFlash`, in forms.go.
     `Config.Inertia` puts the Inertia middleware inside the App's own.
   - `flash.go`: `Flash[T]`, which declares a flash key and its value's
     type in the registry tug gen reads (`declareFlash`,
     `declaredFlashes`), panicking for a key of two types, and returns a
-    `FlashOf[T]`, whose `Set` flashes it; `checkFlash`, which `Ctx.Flash`
-    runs, panics for a declared key's value of another type.
+    `FlashOf[T]`, whose `Set` flashes it, and whose `Forget` takes it
+    back; `checkFlash`, which `Ctx.Flash` runs, panics for a declared
+    key's value of another type.
   - `forms.go`: `BindValid`/`Validate` (tags, then the handler's checks;
     a Precognition request is answered in `precognition` and returns
     `errAnswered`, which `adapt` keeps from the ErrorHandler),
     `answerInvalid` (flash the errors and go `back`, or a 422), and the
-    glue between sessions and pages: `Flash`, `ClearHistory`,
+    glue between sessions and pages: `Flash`, `ForgetFlash`, which takes
+    keys back from what the next page shown gets, the request's own, out
+    of its `flash`, and with it the session's, once it's empty, and the
+    request before's, by `forgotten`, `ClearHistory`,
     `PreserveFragment`, and `pageRequest`, which puts the request's
     language and its direction in the context, `inertia.WithLocale` and
     `WithDir` of `lang.Dir`, and hands a render the errors
@@ -579,7 +591,9 @@ dev server that isn't there: delete it.
     shows; a partial reload of the page it renders shows none of the
     session's, and `Pass`es the session, so the flash is for the visit it
     was left for, as a reload, as the bell's, can come beside it with one
-    cookie, from another tab too. `carryFlash` sends them on when `Ctx.Redirect` redirects again;
+    cookie, from another tab too. `carryFlash` sends them on, but the
+    keys forgotten, when `Ctx.Redirect` redirects again, or
+    `Ctx.Location` leaves, which shows no page either;
     `keepFlashOnReload` reflashes before the 409 for another build.
     `Config.Session` puts the session middleware outside Inertia's.
 - `inertia`: the v3 protocol for any net/http router, with no import of

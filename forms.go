@@ -164,6 +164,34 @@ func (c *Ctx) Flash(key string, value any) {
 	}
 }
 
+// ForgetFlash takes keys back from the flash data the next page shown
+// gets, whichever request flashed them: the one before, whose data this
+// request would show, or hand on with a redirect, or this one.
+//
+//	c.ForgetFlash("success") // the page says so itself
+//	return c.Inertia("Posts/Show", props)
+//
+// The other keys go on as they would have, shown once. A key flashed again
+// after it's forgotten is shown, as the later of two flashes is, and a key
+// that isn't there changes nothing. A form's errors aren't flash data, and
+// stay.
+func (c *Ctx) ForgetFlash(keys ...string) {
+	for _, key := range keys {
+		if c.forgotten == nil {
+			c.forgotten = map[string]bool{}
+		}
+		c.forgotten[key] = true
+		delete(c.flash, key)
+	}
+	// What this request flashed is in the session already, for the page
+	// after a redirect: with nothing left of it, there's nothing to keep,
+	// and an empty flash would have the next request write a cookie to say
+	// it's gone.
+	if s := c.Session(); s != nil && c.flash != nil && len(c.flash) == 0 {
+		s.Unflash(flashKey)
+	}
+}
+
 // ClearHistory has the next page shown tell the client to clear the
 // history it has encrypted, as signing out should. See
 // inertia.Config.EncryptHistory.
@@ -185,9 +213,9 @@ func (c *Ctx) PreserveFragment() {
 }
 
 // pageRequest is the request, carrying what its page, component, shows
-// besides its props: what the request before left for it, and what this
-// one flashed. A partial reload of it shows only this one's, and passes
-// the session.
+// besides its props: what the request before left for it, but the keys
+// this one has forgotten, and what this one flashed. A partial reload of
+// it shows only this one's, and passes the session.
 func (c *Ctx) pageRequest(component string) *http.Request {
 	ctx := c.r.Context()
 	flash := map[string]any{}
@@ -206,6 +234,9 @@ func (c *Ctx) pageRequest(component string) *http.Request {
 			}
 			if before, ok := s.Flashed(flashKey).(map[string]any); ok {
 				maps.Copy(flash, before)
+				for key := range c.forgotten {
+					delete(flash, key)
+				}
 			}
 			clearHistory = clearHistory || s.Flashed(clearHistoryKey) == true
 			preserveFragment = preserveFragment || s.Flashed(fragmentKey) == true
@@ -237,13 +268,19 @@ func (c *Ctx) pageRequest(component string) *http.Request {
 }
 
 // carryFlash sends on what the request before flashed when this one
-// redirects: a redirect shows no page, so the page after it is the one to
-// show what was meant for it. flash is this request's own, which wins.
-func carryFlash(s *session.Session, flash map[string]any) {
+// redirects, or leaves by Location: neither shows a page, so the page after
+// it is the one to show what was meant for it. flash is this request's own,
+// which wins, and forgotten the keys it has taken back.
+func carryFlash(s *session.Session, flash map[string]any, forgotten map[string]bool) {
 	if before, ok := s.Flashed(flashKey).(map[string]any); ok && len(before) > 0 {
 		merged := maps.Clone(before)
+		for key := range forgotten {
+			delete(merged, key)
+		}
 		maps.Copy(merged, flash)
-		s.Flash(flashKey, merged)
+		if len(merged) > 0 {
+			s.Flash(flashKey, merged)
+		}
 	}
 	for _, key := range []string{clearHistoryKey, fragmentKey} {
 		if s.Flashed(key) == true {

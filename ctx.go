@@ -38,8 +38,11 @@ type Ctx struct {
 	locale string
 
 	// flash and clearHistory are what this request has for the next page
-	// shown; see Flash.
+	// shown; see Flash. forgotten is the keys it has taken back of what
+	// the request before left for that page, which its own flash of one
+	// still goes over; see ForgetFlash.
 	flash            map[string]any
+	forgotten        map[string]bool
 	clearHistory     bool
 	preserveFragment bool
 
@@ -187,7 +190,7 @@ func (c *Ctx) Redirect(to string) error {
 		return errors.New("tug: flash data needs Config.Session to reach the page after a redirect")
 	}
 	if s != nil {
-		carryFlash(s, c.flash)
+		carryFlash(s, c.flash, c.forgotten)
 	}
 	code := http.StatusSeeOther
 	if c.r.Method == http.MethodGet || c.r.Method == http.MethodHead {

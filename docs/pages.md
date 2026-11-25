@@ -780,8 +780,17 @@ The client's XHR follows a redirect, expecting an Inertia page at the end.
 To send the browser to another site, or to a page of the app that isn't an
 Inertia page, `c.Location(url)` has it load the URL whole: Inertia's
 client gets a 409 with the URL in `X-Inertia-Location`, and any other
-request a redirect. `inertia.Location(w, r, url)` does the same for any
-net/http handler.
+request a redirect. Flash data goes along with it too, for the next page
+of the app's the browser is shown: the one it loads, or the one it comes
+back to from another site. `inertia.Location(w, r, url)` does the same
+for any net/http handler, without the flash data, as it knows no session.
+
+A visit from Inertia's client needs a page, a redirect or a `Location`
+for an answer. A handler that returns nil having written nothing answers
+a 200 with no body, as net/http does, which the client can only show as
+an empty dialog, as it shows any answer that isn't Inertia's:
+`return c.RedirectBack()` goes back to the page the visit came from, with
+its props fresh.
 
 ### A new build
 

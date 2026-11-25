@@ -110,8 +110,15 @@ func (c *Ctx) Head(head ...inertia.HeadElement) {
 }
 
 // Location sends the client to url with a full page load, which is how an
-// Inertia app leaves for another site: see inertia.Location.
+// Inertia app leaves for another site, or for a page of its own that isn't
+// an Inertia page: see inertia.Location. Like a redirect, it shows no page,
+// so flash data goes on with it, the request before's and this one's, to
+// the next page shown: the one the load fetches, when that's a page of the
+// app's, or else the one the browser comes back to.
 func (c *Ctx) Location(url string) error {
+	if s := c.Session(); s != nil {
+		carryFlash(s, c.flash, c.forgotten)
+	}
 	inertia.Location(&c.rw, c.r, url)
 	return nil
 }

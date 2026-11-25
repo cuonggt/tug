@@ -227,7 +227,8 @@ func showPost(c *tug.Ctx) error {
   are. `tug key` makes a key.
 - **Sessions** (package `session`): in an encrypted cookie, keyed by
   `APP_KEY`, with flash data. `c.Flash` reaches the next page shown, after
-  a redirect or not, and only that one.
+  a redirect, a `c.Location` or neither, and only that one, and
+  `c.ForgetFlash` takes a key back.
 - **Files** (package `storage`): uploads, from an Inertia form with its
   progress, kept in a directory the app serves, or in S3 or any service
   that speaks its API, Cloudflare R2 and MinIO among them, with S3's

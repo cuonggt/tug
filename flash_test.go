@@ -70,6 +70,26 @@ func TestADeclaredKeyFlashesItsValueForTheNextPage(t *testing.T) {
 	}
 }
 
+func TestADeclaredKeyForgetsItsValue(t *testing.T) {
+	app, _ := formApp(t)
+	app.Post("/saved", func(c *Ctx) error {
+		flashSaved.Set(c, "Saved")
+		flashCodes.Set(c, []string{"a-b", "c-d"})
+		return c.Redirect("/codes")
+	})
+	// The page of the codes shows them, and says nothing of saving.
+	app.Get("/codes", func(c *Ctx) error {
+		flashSaved.Forget(c)
+		return c.Inertia("Codes", nil)
+	})
+	v := &visitor{t: t, app: app}
+	v.do("POST", "/saved", "{}")
+	want := map[string]any{"test-codes": []any{"a-b", "c-d"}}
+	if p := v.page(v.do("GET", "/codes", "")); !reflect.DeepEqual(p.Flash, want) {
+		t.Errorf("the page's flash is %v, want %v", p.Flash, want)
+	}
+}
+
 func TestFlashOfADeclaredKeyTakesAValueOfItsTypeAlone(t *testing.T) {
 	logs := captureLog(t)
 	app, _ := formApp(t)

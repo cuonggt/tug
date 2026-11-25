@@ -1,4 +1,4 @@
-<!-- translated from docs/README.md at bc3e51969757 -->
+<!-- translated from docs/README.md at 0d6aa7196464 -->
 
 # La guía de tug
 
@@ -78,9 +78,9 @@ los detalles.
     aplicación lo que el kit de inicio ha ganado desde el tug que la creó,
     fusionado con sus propios cambios, y lo que cada versión cambió de la
     API de tug.
-19. [La CLI](../cli.md): `tug new`, `tug upgrade`, `tug dev`, `tug gen`,
-    `tug routes`, `tug lang`, `tug migrate`, `tug build` y `tug key`, en
-    detalle.
+19. [La CLI](../cli.md): `tug new`, `tug upgrade`, `tug dev`, `tug run`,
+    `tug gen`, `tug routes`, `tug lang`, `tug migrate`, `tug build` y
+    `tug key`, en detalle.
 
 [La hoja de ruta](../roadmap.md) cuenta cómo se construyó tug y las
 decisiones que hay detrás, y

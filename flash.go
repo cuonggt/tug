@@ -39,6 +39,10 @@ func (f FlashOf[T]) Key() string { return f.key }
 // Set flashes v under the key, as Ctx.Flash does.
 func (f FlashOf[T]) Set(c *Ctx, v T) { c.Flash(f.key, v) }
 
+// Forget takes the key back from the flash data the next page shown gets,
+// whichever request flashed it, as Ctx.ForgetFlash does.
+func (f FlashOf[T]) Forget(c *Ctx) { c.ForgetFlash(f.key) }
+
 // flashes are the keys Flash has declared, and their types.
 var flashes = struct {
 	sync.Mutex

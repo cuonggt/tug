@@ -359,8 +359,10 @@ export default function Flash() {
 `c.Flash(key, value)` leaves data for the next page shown, the one this
 request renders or else the one it redirects to, and for that page alone.
 A page that only redirects shows nothing, so flash data goes on through a
-chain of redirects, and a browser that reloads for a new build of the
-frontend gets it on the reloaded page. The client reads it as
+chain of redirects, and through a
+[`c.Location`](pages.md#redirects-and-visits), which loads a page whole,
+and a browser that reloads for a new build of the frontend gets it on the
+reloaded page. The client reads it as
 `usePage().flash`, apart from the props, and doesn't keep it in history, so
 going back doesn't show it again. A value can be anything encoding/json
 writes, and flashing a key twice keeps the later value.
@@ -394,6 +396,22 @@ An app that declares no key may type its flash itself, with Inertia's
 `flashDataType`, as one made before v0.33.0 does in
 `resources/js/types.ts`. Once it declares one, `tug gen` writes
 `flashDataType`, and the app's own goes, as the two would clash.
+
+A handler takes a key back with `c.ForgetFlash(keys...)`, or a declared
+key's `Forget`, whichever request flashed it: a message the request before
+left, for a page that shouldn't show it, or one of its own.
+
+```go
+// the page says the post was made itself, with no toast
+Success.Forget(c)
+return c.Inertia("Posts/Show", props)
+```
+
+The page the request renders doesn't show the key, and nor does the page
+after its redirect or its `Location`; the other keys go on as they would
+have, shown once. A key flashed again after it's forgotten is shown, as
+the later of two flashes is, and a key that isn't there changes nothing.
+A form's errors aren't flash data, and stay for the form's page.
 
 `c.ClearHistory()` and `c.PreserveFragment()` reach the next page the same
 way, through redirects. `ClearHistory` has the page tell the client to
