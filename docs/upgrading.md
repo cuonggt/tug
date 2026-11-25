@@ -233,6 +233,20 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.7.0
+
+`go get github.com/cuonggt/tug@v1.7.0`. Nothing an app calls changed
+since v1.6.0: a `Ctx` has `ForgetFlash` too, and a declared flash key
+`Forget`, which take a key back from what the next page shown gets
+([Forms](forms.md#flash-messages)). And `c.Location` hands the flash on,
+as `c.Redirect` does, to the page its full load fetches, or the one the
+browser comes back to: a message that met a `Location` on its way, from
+a redirect before it or from its own handler, was dropped
+([Pages](pages.md#redirects-and-visits)). tug's own requirements are at
+their latest, validator v10.30.6, golang.org/x/crypto v0.59.0 and
+golang.org/x/net v0.63.0, on Go 1.26 still. The starters are as they
+were, so `tug upgrade` brings an app nothing.
+
 ### v1.6.0
 
 `go get github.com/cuonggt/tug@v1.6.0`, and the CLI at v1.6.0 for

@@ -6923,7 +6923,7 @@ before left, for a page that shouldn't show it. The fourth is of a rule
 tug hasn't got, Laravel's redirect back for an action that returns
 nothing, and tug stays without it. M69 has `c.Location` carry the flash,
 as a redirect does, and adds `Forget`, which drops a key before the next
-page shown gets it. To be released as v1.7.0.
+page shown gets it. Released as v1.7.0.
 
 - **`c.Location` carries the flash:** it hands on what the request
   before flashed, with what its own handler has, the later of a key
