@@ -75,6 +75,7 @@ to 3.11.0, November 2026), written against
 | M66 | Translations, checked      | done   |
 | M67 | Accounts, guarded          | done   |
 | M68 | What an agent can see      | done   |
+| M69 | Flash, kept and forgotten  | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -6904,6 +6905,139 @@ Choices made on the way:
   a browser the account hadn't had. Nothing of tug's stopped it: its
   session's own rules kept it from a headless Chrome, to see the page
   drawn, so the notes stay as they were.
+
+## M69 · Flash, kept and forgotten — later
+
+A handler leaves flash data for the next page shown, and a request that
+shows no page hands it on: a redirect does, through a chain of them, and
+so does the 409 that reloads a browser for a new build. inertia-laravel,
+tug's reference where the spec says nothing, changed four things of
+flash data in its 3.8.0, on 23 November. One tug has had since M3: its
+409 for a new build goes out before the handler runs, with the flash
+kept for the page the reload fetches. Two it hasn't. `c.Location`, which
+sends the browser to a URL with a full page load, shows no page either,
+and drops what the request before flashed, where `c.Redirect` carries
+it: a message that meets a `Location` on its way to a page is never
+shown. And a handler can flash a key, but not take back one the request
+before left, for a page that shouldn't show it. The fourth is of a rule
+tug hasn't got, Laravel's redirect back for an action that returns
+nothing, and tug stays without it. M69 has `c.Location` carry the flash,
+as a redirect does, and adds `Forget`, which drops a key before the next
+page shown gets it. To be released as v1.7.0.
+
+- **`c.Location` carries the flash:** it hands on what the request
+  before flashed, with what its own handler has, the later of a key
+  winning, as `c.Redirect` does, and `ClearHistory`'s and
+  `PreserveFragment`'s marks with it, whichever way it answers: the 409
+  with `X-Inertia-Location`, which Inertia's client follows by loading
+  the URL whole, or a redirect, for a request that isn't the client's.
+  The page that load fetches shows it, once, in its HTML's page object,
+  as a first visit shows any flash.
+- **`Forget`, a key taken back:** `c.ForgetFlash(keys...)` drops the
+  keys from the flash data the next page shown gets, both what the
+  request before left and what this one has flashed, and a declared key
+  has `Forget(c)`, as it has `Set`: `Success.Forget(c)`. The page the
+  request renders doesn't show them, nor does the page after its
+  redirect or its `Location`; the other keys go on as they would have,
+  shown once. A key flashed again after it's forgotten is shown, as the
+  later of two flashes is, and a key that isn't there, or no key at all,
+  changes nothing.
+- **With the release:** tug's own modules at their latest, validator
+  v10.30.6, golang.org/x/crypto v0.59.0 and golang.org/x/net v0.63.0,
+  and what they bring, each on Go 1.26, so the go line stays; CI running
+  govulncheck, v1.10.0, on each push, a job beside gorelease's, which
+  fails for a known vulnerability in what tug calls; and the guide's
+  index naming `tug run` among the CLI's commands, which M68 left out of
+  that line, in each language's.
+- **Tests:** a flash that meets a `Location` after a redirect, shown on
+  the page after it, once, by Inertia's client's 409 and by a browser's
+  redirect; a flash of the `Location`'s own handler beside it, the later
+  of a key winning; `ClearHistory` reaching the page the same way; a
+  `Location` with no session answering as before; in tugtest, `Follow`
+  past a `Location` reading the flash it carried; a key the request
+  before flashed, forgotten, not on the page the request renders, nor on
+  the one after its redirect or its `Location`, with the other keys
+  there, and none a request later; a key the handler flashed itself,
+  forgotten; one flashed again after, shown; a declared key's `Forget`;
+  a key that isn't there, and no key, changing nothing; a form's errors
+  left as they were; with no session, nothing done; and a partial reload
+  whose handler forgets, leaving the flash for the visit it was left
+  for.
+- **The guide:** Forms, flash messages: a `Location` among what a flash
+  goes on through, and forgetting a key; Pages, redirects and visits:
+  the flash going along with a `Location`, and what answers a visit, a
+  page, a redirect or a `Location`, where a handler that answers nothing
+  leaves the client an empty dialog, and `c.RedirectBack()` goes back;
+  Upgrading, v1.7.0's entry; and the index's `tug run`.
+
+Choices, to settle before any code:
+
+- **Two of the four:** inertia-laravel 3.8.0 keeps flash data across the
+  reload for a new build, across `Inertia::location()` and across the
+  redirect back it makes of an empty response, and adds
+  `Inertia::forgetFlashed()`. Its page had read the flash from the
+  session before its middleware saw the build was another, so the first
+  is a fix of its own: tug's middleware answers that 409 before the
+  handler runs, and `keepFlashOnReload` has kept the flash for the
+  reloaded page since M3, which a test holds. `Location` and forgetting
+  are M69's.
+- **A handler that answers nothing, as it was:** a Laravel controller's
+  action may return nothing, and inertia-laravel has long turned that
+  empty 200, for Inertia's client, into a redirect back, which 3.8.0 has
+  carry the flash. A tug handler returns an error or nil, and one that
+  returns nil having written nothing answers a 200 with no body, as
+  net/http has it, which Inertia's client shows as an empty dialog. A
+  redirect back in its place would change what such a handler answers,
+  and fail an app's test that asks for its 200, which within v1 waits
+  for v2; and `return c.RedirectBack()` says it in a line, and carries
+  the flash already. The guide says what a visit needs for an answer.
+- **Carried by `c.Location`, as `c.Redirect` carries:** the guide has
+  flash data left for the next page shown, a request that shows none
+  handing it on, and a `Location` shows none: the client follows it with
+  a visit, a full one, as it follows a redirect with one of its own.
+  Dropping it was the one way a message was lost on its way, so carrying
+  it is a fix, with nothing an app calls changed. Package `inertia`'s
+  `Location`, which knows no session, is as it was, as is a redirect a
+  handler writes itself, by `http.Redirect`: the carrying is `Ctx`'s, as
+  it has been since M4.
+- **A site left, and come back to:** a `Location` to another site, as a
+  payment's, leaves the flash in the session for the next page of the
+  app the browser is shown, as what its own handler flashes before
+  leaving has always waited there: a message for the page the payment
+  comes back to, for as long as the session lasts.
+- **No error without a session:** `c.Redirect` fails, with a 500, for a
+  handler that flashes with no `Config.Session`, rather than lose the
+  message, and has since before v1.0. `c.Location` never has, and an app
+  that flashes and leaves that way answers as it did: there's no session
+  to carry anything in, and a 500 where it had a 409 would be a break.
+- **`Forget`, the reference's word:** the session's `Unflash` takes back
+  what this request flashed, where the key may be the request before's,
+  which `Forget` drops too, so it has a name of its own,
+  inertia-laravel's: `ForgetFlash` on a `Ctx`, as `Flash` is, and
+  `Forget` on a declared key, as `Set` is.
+- **What's left ages as it would have:** forgetting flashes nothing
+  again. The keys left are shown by the page the request renders and
+  gone after it, or handed on by its redirect, as inertia-laravel's puts
+  back what's left without flashing it, so it still lasts one page.
+- **The keys named, and no more:** it takes the keys to drop, as
+  `forgetFlashed` does, with no form that drops them all; and a form's
+  errors, flashed beside the flash data, are no key of it: they go back
+  to the form's page as they did.
+- **A partial reload, as before:** a partial reload of a page neither
+  shows nor takes the session's flash, and leaves the session as it
+  came, whatever its handler forgets: the visit the flash was left for
+  runs the handler too, and forgets it there.
+- **Nothing of the starters':** none of their handlers flashes on the
+  way to a `Location`, or has a key to take back, so `tug upgrade`
+  brings an app nothing of M69, and tugtest's `Follow` follows a
+  `Location` already, by a first visit, whose page has the flash.
+- **govulncheck on each push, with Go's stable alone:** it reads Go's
+  vulnerability database as it runs, so a push can fail for what was
+  published since the one before, which is when to know of it: before a
+  tag. It fails only for what tug's code reaches, where an update that
+  fixes nothing tug calls waits for a release, as Upgrading's Versions
+  has the dependencies move. An app takes its drivers' latest as
+  `tug new` makes it, by `go mod tidy`, so they aren't tug's to check.
 
 ## Decisions
 
