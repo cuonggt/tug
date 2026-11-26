@@ -6338,8 +6338,13 @@ Choices made on the way:
   in flight, counted by the `inertia:start` and `inertia:finish` events
   Inertia dispatches on `document`, but its async reloads and its
   prefetches, and hands them on as it finishes, once the browser has the
-  answer's cookie. The suite's test of a new password holds the answer
-  half a second, which a transport without the hold fails every time.
+  answer's cookie. And it drops a reload of live props that starts then,
+  by Inertia's cancelable `inertia:before`, as the client may have
+  planned one already, of an event before, throttled to the second, as
+  CI showed the first time the release's commit ran: the visit's answer
+  brings the page anew. The suite's test of a new password holds the
+  answer half a second and counts the reloads meanwhile, which a
+  transport without the hold fails every time.
   Another tab's page has no visit in flight, and can still reload in that
   moment, with the cookie as it was: a race that wants the session's
   cookie written only as it changes, which is left for later.

@@ -881,8 +881,11 @@ dev server that isn't there: delete it.
   and an event that comes while a visit of the page's own is in flight,
   as a form's, held till it finishes (`visiting`, `held`, counted by
   Inertia's `inertia:start` and `inertia:finish` on `document`, but its
-  async reloads and prefetches), as the change it tells of can be the
-  visit's own, whose answer brings the cookie a reload should go with:
+  async reloads and prefetches), and a reload of live props Inertia had
+  planned already dropped then, by its cancelable `inertia:before`
+  (`liveReload`: async, `only`, `preserveErrors`, and not a deferred
+  prop's, a poll's or a scroll's), as the change an event tells of can be
+  the visit's own, whose answer brings the cookie a reload should go with:
   `pages.ts` (an interface per named struct, `SharedProps`,
   `Pages`, `PageProps`, `FlashData`, the keys `tug.Flash` declares, each
   optional, and the `InertiaConfig` augmentation, with `flashDataType`

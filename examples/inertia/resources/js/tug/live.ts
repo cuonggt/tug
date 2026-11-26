@@ -13,12 +13,15 @@
 // inertia.ToOthers carries the ID of the page that made the change, and
 // that page, which has the change already, drops it.
 //
-// An event that comes while one of the page's own visits is in flight, as
-// a form's, waits for the visit to finish. The change the event tells of
-// can be the visit's own, published as it commits, before its answer has
-// come: a reload of the prop then would go with the cookie the change
-// replaced, as a new password's login, and its answer, coming after the
-// visit's, would put that cookie back, logging the browser out.
+// While one of the page's own visits is in flight, as a form's, its live
+// props aren't reloaded: an event that comes meanwhile waits for the visit
+// to finish, and a reload Inertia had already planned, of an event that
+// came before, is dropped, as the visit's answer brings the page anew. The
+// change an event tells of can be the visit's own, published as it
+// commits, before its answer has come: a reload then would go with the
+// cookie the change replaced, as a new password's login, and its answer,
+// coming after the visit's, would put that cookie back, logging the
+// browser out.
 
 type Channel = { name: string; type: string; params?: Record<string, unknown> }
 type Handler = (payload: unknown) => void
@@ -29,19 +32,49 @@ type Handler = (payload: unknown) => void
 let visiting = 0
 const held: Array<() => void> = []
 
-type VisitEvent = CustomEvent<{ visit?: { async?: boolean; prefetch?: boolean } }>
+type Visit = {
+  async?: boolean
+  prefetch?: boolean
+  only?: string[]
+  preserveErrors?: boolean
+  deferredProps?: boolean
+  poll?: boolean
+  preserveUrl?: boolean
+}
 
-function ownVisit(event: Event): boolean {
-  const visit = (event as VisitEvent).detail?.visit
+function visitOf(event: Event): Visit | undefined {
+  return (event as CustomEvent<{ visit?: Visit }>).detail?.visit
+}
+
+function ownVisit(visit: Visit | undefined): boolean {
   return !!visit && !visit.async && !visit.prefetch
 }
 
+// liveReload reports whether visit is Inertia's reload of live props, as
+// its client makes one: async, of the props it names, keeping the page's
+// errors, and none of a deferred prop's load, a poll's or a scroll's,
+// which keep the errors too.
+function liveReload(visit: Visit | undefined): boolean {
+  return (
+    !!visit?.async &&
+    !visit.prefetch &&
+    !!visit.preserveErrors &&
+    !visit.deferredProps &&
+    !visit.poll &&
+    !visit.preserveUrl &&
+    (visit.only?.length ?? 0) > 0
+  )
+}
+
 if (typeof document !== 'undefined') {
+  document.addEventListener('inertia:before', (event) => {
+    if (visiting > 0 && liveReload(visitOf(event))) event.preventDefault()
+  })
   document.addEventListener('inertia:start', (event) => {
-    if (ownVisit(event)) visiting++
+    if (ownVisit(visitOf(event))) visiting++
   })
   document.addEventListener('inertia:finish', (event) => {
-    if (!ownVisit(event) || visiting === 0) return
+    if (!ownVisit(visitOf(event)) || visiting === 0) return
     visiting--
     if (visiting === 0) for (const deliver of held.splice(0)) deliver()
   })
