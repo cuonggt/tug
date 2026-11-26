@@ -233,6 +233,18 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.8.1
+
+`go get github.com/cuonggt/tug@v1.8.1`, then `tug gen`, or `tug dev` or
+`tug build`, which write it too, for the new `resources/js/tug/live.ts`:
+an event that comes while one of the page's own visits is in flight, as
+a form's, waits for the visit to finish, as a live prop's reload before
+then could go with the cookie the visit replaces, and put it back
+([Pages](pages.md#live-props)). In the auth starter, changing the
+password on the security page could log the browser out, now and then.
+Nothing an app calls changed, and the starters are as they were, so
+`tug upgrade` brings an app nothing.
+
 ### v1.8.0
 
 `go get github.com/cuonggt/tug@v1.8.0`, and the CLI at v1.8.0 for
