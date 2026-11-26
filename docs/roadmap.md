@@ -76,6 +76,7 @@ to 3.11.0, November 2026), written against
 | M67 | Accounts, guarded          | done   |
 | M68 | What an agent can see      | done   |
 | M69 | Flash, kept and forgotten  | done   |
+| M70 | A plain app's database     | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -7065,6 +7066,115 @@ Choices made on the way:
   the tests of it fail, tugtest's among them, and so do those of
   forgetting with the page's leaving out, the redirect's, or the
   emptied flash's.
+
+## M70 · A plain app's database — later
+
+An app `tug new` makes without `-auth` has no database: no table to keep
+anything in, and none of what tug's packages keep in one. Package
+`migrate` and package `queue` each take a store, which the auth
+starter's layers, `sqlite/`, `postgres/` and `mysql/`, have, each a
+table's SQL beside the accounts' own. A plain app that wants a table
+made by a migration, or a job that outlives a restart, writes its store
+first, or copies the auth starter's, or starts with `-auth` and takes
+the accounts out. And `tug new -postgres` without `-auth` is refused:
+"without -auth, the app has no database". M70 has `tug new -sqlite`,
+`-postgres` and `-mysql` make the plain app with its database: the auth
+starter's tables for what tug's packages keep, its migrations, jobs,
+cache, sessions, throttles, broadcasts and presence, and its commands,
+without its accounts. To be released as v1.8.0.
+
+- **`tug new -sqlite`, `-postgres` and `-mysql`, without `-auth`:** the
+  plain app, in its frontend, with its database's layer but the
+  accounts' files: SQLite in `app.db`, or wherever `DB_PATH` says, and
+  Postgres or MySQL at `DB_URL`, with the `compose.yaml` that runs one in
+  development, as `-auth` has them. `-sqlite` is new, and with `-auth` it
+  says what `-auth` does already; `tug.json` keeps it, for `tug upgrade`.
+- **The tables tug's packages keep things in:** the migrations table,
+  and the `migrate` command, the migrations run as the app starts, as
+  the auth starter's are; the jobs, run beside the server by
+  `QUEUE_WORKERS`, with the `jobs` command; the cache, a `cache.Cache` on
+  its table; the sessions, kept in theirs with `SESSION_STORE=database`;
+  the throttles, for an `auth.Throttle` of the app's, as `tug.Limit`
+  takes, counted on every instance; and the broadcasts and presence, a
+  `broadcast.Hub` run beside the server, for `c.Events` and live props on
+  every instance. Each table is pruned by a job, as the auth starter's
+  are.
+- **On SQLite, its backups:** the `backup` command, and the nightly
+  `backup-db` job, keeping `BACKUP_KEEP`, onto the app's disk, which an
+  app with a database on SQLite has, `storage.FromEnv`'s, `files/` or a
+  bucket, as the auth starter has.
+- **The same files:** each table's migration is the auth starter's, by
+  its name and its SQL, which `migrations.sha256` holds; and the Go
+  that's the same on every database, `jobs.go` and `migrations.go`, moves
+  from `starter-auth/` to a layer both apps take, `database/`, with the
+  tests of the stores' promises, where the accounts' tests stay.
+- **The plain starter's own files, a database's where they differ:** its
+  `main.go`, opening the database, but under `tug gen`, and wiring the
+  stores and the commands; its `Dockerfile`, the database on the volume
+  on SQLite, or `DB_URL`; its `.gitignore`, `.dockerignore` and
+  `.env.example`; and its `README.md` and `AGENTS.md`: the database, a
+  migration made by `tug migrate new` and run by the app, and the
+  commands by `tug run`, which `notesProblems` checks are the app's.
+- **Tests:** `tug new`'s flags: `-sqlite`, `-postgres` and `-mysql`
+  without `-auth` a plain app with its database, `-auth -sqlite` the
+  same as `-auth`, two databases refused, and `tug.json`'s flags,
+  `-sqlite` for a plain app's and none for an auth app's, as before;
+  each kind's starter: the database's files and none of the accounts',
+  its migrations the auth starter's, and its notes kept true; in the
+  full suite, an app `tug new -sqlite` made, whose own tests pass,
+  whose `migrate` command makes a new database, whose binary serves,
+  and whose `tug run migrate status` lists its migrations, and one
+  each made with `-postgres` and `-mysql` on the servers the suite
+  has; and in the app, each store's promises on its table, the
+  migrations of a new database, the `jobs` command, and on SQLite its
+  backups.
+- **The guide:** Getting started and the CLI, `tug new`'s flags;
+  Migrations, Jobs, Cache, Forms' sessions and Broadcasting, the tables
+  an app with a database has, where they named the auth starter's alone;
+  Deployment, the database on the volume, and its backups; Upgrading,
+  v1.8.0's entry; and the README.
+
+Choices, to settle before any code:
+
+- **A flag, not the default:** `tug new` alone stays the app with no
+  database, which a site of pages and forms has no need of, and which
+  `tug upgrade` keeps as it was made: a database by default would come
+  to every plain app at its next upgrade. Laravel's new app has SQLite
+  unless told otherwise; tug's has it by `-sqlite`.
+- **`-sqlite` of its own:** `-auth` takes SQLite unless told Postgres or
+  MySQL, as accounts need a database; a plain app is told it wants one
+  at all, by the one it wants, and SQLite needs no server.
+- **Every store the auth starter keeps, not `migrate`'s and `queue`'s
+  alone:** those two have nothing without a store, where the cache,
+  throttles, sessions and broadcasts work in memory on one instance; but
+  more than one instance is what a database is for, and with the tables,
+  each of tug's packages works across them as soon as the app uses it.
+  Each is written and tested already, and one the app never uses is a
+  table it never writes. The narrower app, the migrations and the jobs
+  alone, is the other way, with the rest added by hand.
+- **The released migrations, unmoved:** a plain app's tables are the
+  auth starter's, so a later change to one is one migration for both,
+  and each layer stays one directory per database, the accounts' files
+  left out of a plain app by a list, as `notInAuth` and `onlySSR` leave
+  files out, since `migrations.sha256` keys each migration by its path.
+- **Shared, not copied:** the Go the two apps have alike is in one
+  layer, `database/`, laid before the database's own. An auth app's
+  files are as they were, but its tests of the stores' promises, which
+  move there, so neither app runs them twice, and `tug upgrade` brings
+  an auth app that alone.
+- **A disk for SQLite's backups:** the nightly copy is to leave the
+  database's volume, for a bucket, or `files/` by default, so a plain
+  app on SQLite has `storage.FromEnv`'s disk, where on Postgres and MySQL
+  the backups are the server's own, as in the auth starter.
+- **Nothing else of the auth starter's:** no mail, no `APP_URL`
+  required, and no table of the app's own: its home page and form are as
+  they were, the queue runs the jobs that prune the tables until the app
+  pushes its own, and the hub carries nothing until it publishes. A
+  first table is the app's, by `tug migrate new create_posts`, as
+  Migrations has it.
+- **One app more on each database in the suite:** React's, made with
+  `-sqlite`, and on the servers `-postgres` and `-mysql`, as a frontend
+  changes nothing of the database; the suite's time grows by those.
 
 ## Decisions
 
