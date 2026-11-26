@@ -2,15 +2,104 @@ package main
 
 import (
 	"bytes"
+[[- if .Database ]]
+	"context"
+	"database/sql"
+[[- end ]]
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
+[[- if .Database ]]
+	"time"
+[[- end ]]
 
 	"github.com/cuonggt/tug"
+[[- if .Database ]]
+	"github.com/cuonggt/tug/broadcast"
+	"github.com/cuonggt/tug/middleware"
+	"github.com/cuonggt/tug/queue"
+[[- end ]]
+[[- if .SQLite ]]
+	"github.com/cuonggt/tug/storage"
+[[- end ]]
 	"github.com/cuonggt/tug/tugtest"
 )
+[[- if .Database ]]
+
+// testApp is the app on a database of the test's own
+[[- if .SQLite ]], with a disk of its own
+// for the backups
+[[- end ]].
+type testApp struct {
+	*tug.App
+	t    *testing.T
+	db   *sql.DB
+	keys [][]byte
+	hub  *broadcast.Hub // carries the app's events, which a test can subscribe to
+
+	// stopQueue stops the app's queue, which runs beside the test, for a
+	// test that claims jobs of its own, and returns once it has.
+	stopQueue func()
+}
+
+func key(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
+
+// newTestApp is the app on a database of the test's own, testDB's.
+func newTestApp(t *testing.T) *testApp {
+	t.Helper()
+	return startApp(t, testDB(t), [][]byte{key(1)})
+}
+
+// startApp makes the app on db, with keys, as a deploy does, and runs its
+// jobs, and the hub of its events, until the test ends. A job that has
+// come due runs at once, rather than at the next second's poll.
+func startApp(t *testing.T, db *sql.DB, keys [][]byte) *testApp {
+	t.Helper()
+	q := queue.New(queue.Config{Store: &jobs{db: db}, Poll: 10 * time.Millisecond, Carry: []queue.Carrier{middleware.CarryRequestID}})
+	data := newDatabase(db, q[[ if .SQLite ]], &storage.Local{Dir: t.TempDir()}[[ end ]])
+	app, err := newApp(tug.Config{}, fstest.MapFS{}, keys[[ if .SSR ]], fstest.MapFS{}[[ end ]], data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queueCtx, stopQueue := context.WithCancel(context.Background())
+	queueRan := make(chan struct{})
+	go func() {
+		q.Run(queueCtx)
+		close(queueRan)
+	}()
+	hubCtx, stopHub := context.WithCancel(context.Background())
+	hubRan := make(chan struct{})
+	go func() {
+		data.hub.Run(hubCtx)
+		close(hubRan)
+	}()
+	a := &testApp{App: app, t: t, db: db, keys: keys, hub: data.hub}
+	a.stopQueue = func() {
+		stopQueue()
+		<-queueRan
+	}
+	t.Cleanup(func() {
+		a.stopQueue()
+		stopHub()
+		<-hubRan
+	})
+	return a
+}
+
+// client is a browser with the app open, which the tests use as Inertia's
+// client in it does: its visits get the pages as JSON, so the tests run
+// without a frontend build. See package tugtest.
+func (a *testApp) client() *tugtest.Client {
+	return tugtest.New(a.t, a)
+}
+
+// newClient is a browser with the app open, on a database of its own.
+func newClient(t *testing.T) *tugtest.Client {
+	return newTestApp(t).client()
+}
+[[- else ]]
 
 // newClient is a browser with the app open, which the tests use as
 // Inertia's client in it does: its visits get the pages as JSON, so the
@@ -22,18 +111,32 @@ func newClient(t *testing.T) *tugtest.Client {
 	}
 	return tugtest.New(t, app)
 }
+[[- end ]]
 
 func TestTheAppSaysItsUp(t *testing.T) {
 	// What a load balancer, or whatever watches the app, asks for.
+[[- if .Database ]]
+	app := newTestApp(t)
+[[- else ]]
 	app, err := newApp(tug.Config{}, fstest.MapFS{}, [][]byte{bytes.Repeat([]byte{1}, 32)}[[ if .SSR ]], fstest.MapFS{}[[ end ]])
 	if err != nil {
 		t.Fatal(err)
 	}
+[[- end ]]
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, httptest.NewRequest("GET", "/up", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "up" {
 		t.Errorf("GET /up: %d %q", rec.Code, rec.Body.String())
 	}
+[[- if .Database ]]
+	// And it isn't, to a load balancer, once its database doesn't answer.
+	app.db.Close()
+	rec = httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest("GET", "/up", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET /up with the database gone: %d %q", rec.Code, rec.Body.String())
+	}
+[[- end ]]
 }
 
 func TestTheHomePageGreets(t *testing.T) {

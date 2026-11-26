@@ -9,3 +9,7 @@
 /.env
 /certs/
 /test-results/
+[[ if .SQLite -]]
+/app.db*
+/files/
+[[ end -]]

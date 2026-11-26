@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M69 are done, which is
+the decisions behind it and where it stands: M1 to M70 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -236,7 +236,12 @@ a redirect does, to the page its full load fetches, or the one the
 browser comes back to, and `c.ForgetFlash`, a declared key's `Forget`,
 which takes a key back before the next page shown gets it, whichever
 request flashed it, with tug's modules at their latest, and govulncheck
-in CI.
+in CI, and a plain app's database (v1.8.0): `tug new -sqlite`,
+`-postgres` and `-mysql` without `-auth`, the plain starter with the auth
+starter's tables for what tug's packages keep, its migrations, jobs,
+cache, sessions, throttles, broadcasts and presence, its commands and,
+on SQLite, its backups, by its `database.go`, and none of its accounts,
+the Go the two have alike in a layer of its own, `database/`.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -959,16 +964,25 @@ dev server that isn't there: delete it.
   replacing an earlier one's of the same name: `starter/`, the Go and what
   every frontend uses, then the frontend's own, `react/`, `vue/` or
   `svelte/` (`-vue`, `-svelte`); with `-auth`, `starter-auth/`, then
-  `react-auth/`, `vue-auth/` or `svelte-auth/`, then the database's,
-  `sqlite/`, `postgres/` or `mysql/` (`-postgres`, `-mysql`), whose
-  conditions are `[[ if .SQLite ]]` and the rest; `DBName` is the app's
+  `react-auth/`, `vue-auth/` or `svelte-auth/`; and with a database,
+  which `-auth` always has, `database/`, the Go that's the same on each,
+  `jobs.go`, `migrations.go` and the tests of the stores, and the plain
+  app's own `database.go`, then the database's, `sqlite/`, `postgres/` or
+  `mysql/` (`-sqlite`, `-postgres`, `-mysql`), whose conditions are
+  `[[ if .SQLite ]]` and the rest, and of which a plain app leaves out the
+  accounts' files and migrations (`accountsOnly`). A file the two apps
+  share has their differences under `[[ if .Auth ]]`, as the store
+  tests' account tests, and the plain starter's under `[[ if .Database ]]`,
+  each placed so that an app without the other renders as it did, which
+  `tug upgrade` would otherwise bring it; `DBName` is the app's
   name as SQL takes it, and `DevURL` compose.yaml's database, which the
   `.env` tug new writes names. The `.tmpl` files are
   filled in with `starterData` between `[[ ]]` (two brackets in Go, as
   `OptionalProp[[]string]`, are written by a placeholder, `[[ "[[" ]]`,
   and a bracket before an action, as `plugins: [react()`, by trimming the
   space between them, `[ [[- .Frontend ]]()`); `notInAuth` lists the plain
-  starter's files an auth app leaves out, and `onlySSR` those only an app
+  starter's files an auth app leaves out, its `Layout` and `database.go`,
+  and `onlySSR` those only an app
   with `-ssr` has, by the frontend's extensions (`Script`, `Component`).
   `-ssr` is `[[ if .SSR ]]` in the templates, and a frontend
   `[[ if .Vue ]]`, written `[[- if ]]` before an indented line, as `-]]`
@@ -1080,8 +1094,9 @@ tests again with a migration of its own (`growsAMigration`), and reads
   keys dies with them), its mail in `mail.go.tmpl`,
   and its users in the database its layer has, SQLite
   (modernc.org/sqlite), Postgres (pgx) or MySQL (go-sql-driver), all pure
-  Go. `users.go.tmpl`, `passkeys.go.tmpl` and `jobs.go.tmpl` have the
-  types and the Go that's the same on each, and every layer the same
+  Go. `users.go.tmpl`, `passkeys.go.tmpl` and `database/`'s
+  `jobs.go.tmpl` have the types and the Go that's the same on each, and
+  every layer the same
   files of SQL: `db.go.tmpl` (`dbFromEnv`, from `DB_PATH` or `DB_URL`,
   `openDB`, which opens and connects, SQLite's trying again while `busy`,
   as instances opening a new file at once can't each wait for the other

@@ -97,10 +97,15 @@ tug new [flags] <dir>
   with a second factor if the user likes, or a passkey, resetting a
   password by email, and settings, a photo among them, with the users in
   SQLite and a frontend of Tailwind and shadcn's components.
-- `-postgres`, `-mysql`: with `-auth`, the users in Postgres or in MySQL,
-  rather than SQLite: the same app, with its SQL written for the
-  database, and a `compose.yaml` that runs it in development, which the
-  `.env` names, as `DB_URL`. An app has one of them at most.
+- `-sqlite`, `-postgres`, `-mysql`: with a database, SQLite, Postgres or
+  MySQL: the tables tug's packages keep things in, the migrations, the
+  background jobs, the cache, the sessions, the throttles' counts and the
+  events between the app's instances, with the commands that run on it,
+  `migrate` and `jobs`, and on SQLite `backup`. With `-auth`, the users
+  are in it too, which is SQLite unless `-postgres` or `-mysql` says. On
+  Postgres or MySQL, the SQL is written for the database, and a
+  `compose.yaml` runs it in development, which the `.env` names, as
+  `DB_URL`. An app has one of them at most.
 - `-vue`, `-svelte`: the frontend in Vue or in Svelte, rather than React:
   the same app, with its pages as `.vue` or `.svelte` components, and the
   same Go. An app has one of them at most.
@@ -120,9 +125,12 @@ is `tug new -auth blog`.
 2. writes the starter, from layers in tug's source, each laid over the
    ones before it, whose files replace theirs of the same name and add
    the rest: `cmd/tug/starter`, the Go and what every frontend uses, then
-   the frontend's own, `react`, `vue` or `svelte`; and with `-auth`,
-   `starter-auth`, then `react-auth`, `vue-auth` or `svelte-auth`, then
-   the database's, `sqlite`, `postgres` or `mysql`. The directory's name
+   the frontend's own, `react`, `vue` or `svelte`; with `-auth`,
+   `starter-auth`, then `react-auth`, `vue-auth` or `svelte-auth`; and
+   with a database, which `-auth` always has, `database`, the Go that's
+   the same on each, then the database's own, `sqlite`, `postgres` or
+   `mysql`, whose tables of the accounts an app without `-auth` leaves
+   out. The directory's name
    is the app's: in `package.json`, the page titles, and the `appName`
    prop, and on Postgres or MySQL, its database's, as SQL takes a name
    without quotes. With it goes `tug.json`, the tug whose starter it is,
@@ -167,6 +175,19 @@ and most of its other files are the auth starter's own: `main.go`,
 `tsconfig.json`, `app.tsx` (`app.ts`), `app.css`, the pages it has,
 `Dockerfile`, `.env.example`, `.gitignore`, `.dockerignore`, `README.md`
 and `AGENTS.md`. [Accounts](auth.md) goes through them.
+
+With a database and no `-auth`, the plain starter gets the database's
+files but the accounts': `database.go`, which hands the app the database
+and what tug's packages keep in it, and `jobs.go`, `migrations.go`,
+`db.go`, `jobs_db.go`, `throttles_db.go`, `cache_db.go`,
+`sessions_db.go`, `broadcasts_db.go`, `presences_db.go`,
+`migrations_db.go` and `db_test.go`, with their tests, and `migrations/`,
+the auth starter's own files but the accounts' tables', so the two apps'
+tables are the same; on SQLite, `backup.go`, and on Postgres or MySQL,
+`compose.yaml`. Its `main.go`, `main_test.go`, `Dockerfile`,
+`.gitignore`, `.dockerignore`, `README.md` and `AGENTS.md` have the
+database in them. [Migrations](migrations.md), [Background jobs](jobs.md)
+and [Cache](cache.md) go through what it keeps there.
 
 With `-ssr`, either starter gets `resources/js/ssr.tsx` (`ssr.ts` in Vue
 and Svelte) and `ssr/.gitkeep`,

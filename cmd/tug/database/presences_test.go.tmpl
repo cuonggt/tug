@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+[[- if .Auth ]]
 	"net/http"
 	"net/http/httptest"
+[[- end ]]
 	"testing"
 	"time"
 
 	"github.com/cuonggt/tug/broadcast"
 	"github.com/cuonggt/tug/broadcast/broadcasttest"
+[[- if .Auth ]]
 	"github.com/cuonggt/tug/tugtest"
+[[- end ]]
 )
 
 func TestThePresenceKeepsItsPromises(t *testing.T) {
@@ -73,6 +77,7 @@ func TestThePresencePastItsLeaseIsPruned(t *testing.T) {
 		t.Errorf("leaving the pruned connection: %v, %v", left, err)
 	}
 }
+[[- if .Auth ]]
 
 // The security page says which of the account's browsers have a page open
 // now: another browser's page is on the user's channel while it listens,
@@ -139,3 +144,4 @@ func TestTheSecurityPageSaysWhichBrowsersAreOpen(t *testing.T) {
 		}
 	}
 }
+[[- end ]]

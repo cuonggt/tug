@@ -75,13 +75,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app, err := newApp(cfg, build, keys, bundle)
-[[- else ]]
-	app, err := newApp(cfg, build, keys)
 [[- end ]]
+[[- if .Database ]]
+	// The database, with the jobs that run on it and the events it carries
+	// between the app's instances: database.go.
+	data, err := databaseFromEnv()
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer data.close()
+[[- end ]]
+	app, err := newApp(cfg, build, keys[[ if .SSR ]], bundle[[ end ]][[ if .Database ]], data[[ end ]])
+	if err != nil {
+		log.Fatal(err)
+	}
+[[- if .Database ]]
+	data.run(app)
+[[- end ]]
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
@@ -91,10 +101,11 @@ func main() {
 [[- if .SSR ]]
 // Its pages render on the server with bundle, the SSR build, as well as in
 // the browser.
-func newApp(cfg tug.Config, build fs.FS, keys [][]byte, bundle fs.FS) (*tug.App, error) {
-[[- else ]]
-func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 [[- end ]]
+[[- if .Database ]]
+// What it keeps, it keeps in data, its database: database.go.
+[[- end ]]
+func newApp(cfg tug.Config, build fs.FS, keys [][]byte[[ if .SSR ]], bundle fs.FS[[ end ]][[ if .Database ]], data *database[[ end ]]) (*tug.App, error) {
 	assets, err := vite.New(vite.Config{Build: build, HotFile: "public/hot"})
 	if err != nil {
 		return nil, err
@@ -119,9 +130,17 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 		return nil, err
 	}
 	pages.Share("appName", "[[ .Name ]]")
+[[- if .Database ]]
+	// Where the sessions are kept: in their cookies, or with
+	// SESSION_STORE=database, in the sessions table: database.go.
+	keeper, err := data.keeper()
+	if err != nil {
+		return nil, err
+	}
+[[- end ]]
 	// Behind a proxy that ends TLS, requests reach the app over plain HTTP:
 	// an https:// APP_URL says the cookie is for HTTPS all the same.
-	sessions, err := session.New(session.Config{Keys: keys, Secure: strings.HasPrefix(cfg.URL, "https://")})
+	sessions, err := session.New(session.Config{Keys: keys, [[ if .Database ]]Keeper: keeper, [[ end ]]Secure: strings.HasPrefix(cfg.URL, "https://")})
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +181,14 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 		app.Go(server.Run)
 	}
 [[- end ]]
+[[- if .Database ]]
+	// The jobs that keep the database's tables, and the commands that run
+	// on it, as ./[[ .Name ]] migrate, which Run runs in place of serving:
+	// database.go.
+	if err := data.use(app); err != nil {
+		return nil, err
+	}
+[[- end ]]
 	// Behind a proxy, such as a load balancer, a request comes from the
 	// proxy's address: TRUSTED_PROXIES names the proxies the app believes
 	// when they say whose it is, for c.IP. Each response says what a
@@ -181,7 +208,11 @@ func newApp(cfg tug.Config, build fs.FS, keys [][]byte) (*tug.App, error) {
 	app.Get("/build/{path...}", tug.WrapHandler(assets))
 	// What a load balancer, or whatever watches the app, asks to see that
 	// it's up and serving.
+[[- if .Database ]]
+	app.Get("/up", data.up)
+[[- else ]]
 	app.Get("/up", func(c *tug.Ctx) error { return c.String(http.StatusOK, "up") })
+[[- end ]]
 
 	app.Get("/", home).Name("home")
 	app.Post("/hello", hello).Name("hello").Takes(HelloInput{})

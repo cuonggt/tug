@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"maps"
+[[- if .Auth ]]
 	"net/http"
+[[- end ]]
 	"os"
 	"path/filepath"
 	"slices"
@@ -68,10 +70,16 @@ func contents(t *testing.T, db *sql.DB) map[string][]string {
 
 func TestTheBackupCommandCopiesTheDatabaseWithEveryTableAndRow(t *testing.T) {
 	app := newTestApp(t)
+[[- if .Auth ]]
 	if r := register(app.client(), "Ann", "ann@example.com", "correct horse"); r.Code != http.StatusSeeOther {
 		t.Fatalf("registering: %v", r)
 	}
 	app.outbox.Next(t)
+[[- else ]]
+	if err := (&cacheTable{db: app.db}).Set(t.Context(), hashed("stats"), []byte("12"), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+[[- end ]]
 	// Nothing writes while the two are compared.
 	app.stopQueue()
 
@@ -88,9 +96,15 @@ func TestTheBackupCommandCopiesTheDatabaseWithEveryTableAndRow(t *testing.T) {
 	}
 	defer backup.Close()
 	got, want := contents(t, backup), contents(t, app.db)
+[[- if .Auth ]]
 	if len(want["users"]) != 1 {
 		t.Fatalf("the database has users %q, want Ann alone", want["users"])
 	}
+[[- else ]]
+	if len(want["cache"]) != 1 {
+		t.Fatalf("the database has cached %q, want the stats alone", want["cache"])
+	}
+[[- end ]]
 	for _, table := range slices.Sorted(maps.Keys(want)) {
 		if !slices.Equal(got[table], want[table]) {
 			t.Errorf("the backup's %s:\n%q\nwant:\n%q", table, got[table], want[table])
@@ -169,8 +183,13 @@ func TestTheNightlyBackupGoesOnTheAppsDiskAndTheNewestSevenAreKept(t *testing.T)
 		t.Fatal(err)
 	}
 	defer backup.Close()
+[[- if .Auth ]]
 	var users int
 	if err := backup.QueryRow("SELECT count(*) FROM users").Scan(&users); err != nil {
+[[- else ]]
+	var scheduled int
+	if err := backup.QueryRow("SELECT count(*) FROM jobs").Scan(&scheduled); err != nil {
+[[- end ]]
 		t.Errorf("tonight's backup isn't the database: %v", err)
 	}
 	var path string

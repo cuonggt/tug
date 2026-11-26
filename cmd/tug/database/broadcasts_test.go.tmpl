@@ -1,12 +1,16 @@
 package main
 
 import (
+[[- if .Auth ]]
 	"bufio"
+[[- end ]]
 	"context"
+[[- if .Auth ]]
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+[[- end ]]
 	"testing"
 	"time"
 
@@ -136,6 +140,7 @@ func TestAnEventThatCommitsAfterALaterOneIsHeardToo(t *testing.T) {
 	heard(t, events, "first")
 }
 [[- end ]]
+[[- if .Auth ]]
 
 func TestTheVerifyPageHearsTheEmailVerified(t *testing.T) {
 	app := newTestApp(t)
@@ -245,6 +250,7 @@ func TestAUsersPagesHearTheirOwnChannelAlone(t *testing.T) {
 	}
 	t.Fatal("the stream ended before Ann's own event came")
 }
+[[- end ]]
 [[- if not .Postgres ]]
 
 func TestTheAppPrunesTheEventsItCarried(t *testing.T) {

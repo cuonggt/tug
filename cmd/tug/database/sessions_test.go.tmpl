@@ -1,7 +1,9 @@
 package main
 
 import (
+[[- if .Auth ]]
 	"bytes"
+[[- end ]]
 	"context"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ func TestTheSessionsTableKeepsItsPromises(t *testing.T) {
 		return &sessionTable{db: testDB(t)}
 	})
 }
+[[- if .Auth ]]
 
 func TestTheAppKeepsItsSessionsInTheTableWhenItsAskedTo(t *testing.T) {
 	t.Setenv("SESSION_STORE", "database")
@@ -58,6 +61,42 @@ func TestTheAppKeepsItsSessionsInTheirCookiesByDefault(t *testing.T) {
 		t.Errorf("%d rows in sessions, want none: the cookie holds the session", len(ids))
 	}
 }
+[[- else ]]
+
+func TestTheAppKeepsItsSessionsInTheTableWhenItsAskedTo(t *testing.T) {
+	t.Setenv("SESSION_STORE", "database")
+	app := newTestApp(t)
+	c := app.client()
+	c.Get("/")
+	// The answer to the form, flashed for the page after it, is the
+	// session's, in a row of the table.
+	if r := c.Post("/hello", map[string]any{"name": "Ann"}); r.Location() != "/" {
+		t.Fatalf("saying hello: %v", r)
+	}
+	if ids := app.sessionIDs(); len(ids) != 1 {
+		t.Fatalf("%d rows in sessions, want the one with the answer", len(ids))
+	}
+	// Once the page has shown it, there's nothing left to keep.
+	if r := c.Get("/"); r.Page.Flash["success"] != "Hello, Ann!" {
+		t.Fatalf("the page after: flash %v", r.Page.Flash)
+	}
+	if ids := app.sessionIDs(); len(ids) != 0 {
+		t.Errorf("%d rows in sessions, want none once the answer is shown", len(ids))
+	}
+}
+
+func TestTheAppKeepsItsSessionsInTheirCookiesByDefault(t *testing.T) {
+	app := newTestApp(t)
+	c := app.client()
+	c.Get("/")
+	if r := c.Post("/hello", map[string]any{"name": "Ann"}).Follow(); r.Page.Flash["success"] != "Hello, Ann!" {
+		t.Fatalf("saying hello: flash %v", r.Page.Flash)
+	}
+	if ids := app.sessionIDs(); len(ids) != 0 {
+		t.Errorf("%d rows in sessions, want none: the cookie holds the session", len(ids))
+	}
+}
+[[- end ]]
 
 // sessionIDs are the keys of the sessions the app's table holds: the
 // SHA-256 of each session's own ID.

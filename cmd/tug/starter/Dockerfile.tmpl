@@ -5,8 +5,21 @@
 # The app as one static binary, frontend included, on an image with nothing
 # else in it.
 [[ end -]]
+[[ if .SQLite -]]
+# The database, and its nightly backups, are in /data, a volume, so they
+# outlive the container:
+#
+#   docker build -t app . && docker run -p 8080:8080 -v app-data:/data \
+#     -e APP_KEY=... app
+[[ else if .Database -]]
+# The database is wherever DB_URL says:
+#
+#   docker build -t app . && docker run -p 8080:8080 -e APP_KEY=... \
+#     -e DB_URL=... app
+[[ else -]]
 #
 #   docker build -t app . && docker run -p 8080:8080 -e APP_KEY=... app
+[[ end -]]
 #
 # Or serving HTTPS itself, on a machine of its own, with a certificate from
 # Let's Encrypt for each of TLS_DOMAINS, kept on /data, a volume, so a new
@@ -40,10 +53,17 @@ ENV SSR_NODE=/nodejs/bin/node
 FROM gcr.io/distroless/static-debian12
 [[ end -]]
 COPY --from=server /server /server
+[[ if .SQLite -]]
+# 65532 is the image's nonroot user, who has to be able to write the
+# database, its backups and the certificates.
+COPY --from=server --chown=65532:65532 /data /data
+ENV DB_PATH=/data/app.db FILES_PATH=/data/files CERTS_PATH=/data/certs
+[[ else -]]
 # 65532 is the image's nonroot user, who has to be able to write the
 # certificates.
 COPY --from=server --chown=65532:65532 /data /data
 ENV CERTS_PATH=/data/certs
+[[ end -]]
 # The app listens on :8080, or on the PORT a platform sets; or with
 # TLS_DOMAINS, or TLS_CERT and TLS_KEY, on :443 and :80.
 EXPOSE 8080 443 80

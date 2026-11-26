@@ -4,10 +4,18 @@ A [tug](https://github.com/cuonggt/tug) app: Go handlers render [[ .Framework ]]
 through Inertia, with no API in between.
 
 ```sh
+[[ if or .SQLite (not .Database) -]]
 tug dev      # run it on http://localhost:8080, rebuilt and reloaded as it changes
 tug gen      # write the TypeScript of the pages' props and the routes
 tug build    # build it into one binary, frontend included
 go test ./...
+[[- else -]]
+docker compose up -d   # start the database, which tug dev and the tests use
+tug dev                # run it on http://localhost:8080, rebuilt and reloaded as it changes
+tug gen                # write the TypeScript of the pages' props and the routes
+tug build              # build it into one binary, frontend included
+go test ./...
+[[- end ]]
 ```
 
 - `main.go`: the server, its pages and routes, and the health check at
@@ -15,6 +23,34 @@ go test ./...
   component is `resources/js/pages/Name.[[ .Component ]]`. Its pages run
   the scripts that carry their nonce alone, by a Content-Security-Policy,
   as `app.html`'s do: what it blocks, the log says.
+[[- if .Database ]]
+- `database.go`: the app's database, which `db.go` opens,
+[[- if .SQLite ]] SQLite
+  (`app.db`, or `DB_PATH`),
+[[- else ]] [[ .DatabaseName ]] at
+  `DB_URL`, which `compose.yaml` runs in development, and the tests make
+  a database each on,
+[[- end ]] through `database/sql`, and what tug's packages
+  keep in it, a table each, with its SQL in a `_db.go` file: the
+  background jobs, `jobs.go`, which run beside the server, `QUEUE_WORKERS`
+  at once, a job that fails running again later; the cache, which the
+  starter keeps nothing in yet; the sessions, which
+  `SESSION_STORE=database` keeps there rather than in their cookies; the
+  throttles' counts; and the events the hub carries to the pages open on
+  every instance of the app. A handler's writes go in one transaction,
+  with the jobs and the events about them, by `data.inTx`.
+- `migrations/`: the migrations that make and change the tables, a file of
+  SQL each, named for when it was made, which run once, in order, as the
+  app starts: `migrations.go`. `tug migrate new create_posts` writes the
+  next, and `./[[ .Name ]] migrate status` lists them.
+[[- if .SQLite ]]
+- `backup.go`: the database's backups, which a copy of `app.db` made as
+  the app writes can't be: `./[[ .Name ]] backup <file>` makes one while it
+  serves, and every night the `backup-db` job puts one on the app's disk,
+  in `files/backups/`, or with `FILESYSTEM_DISK=s3` in a bucket, off the
+  machine, keeping the newest `BACKUP_KEEP`, 7 unless it says.
+[[- end ]]
+[[- end ]]
 - `resources/js/app.[[ .Script ]]`: the app in the browser, which `inertia.[[ .Script ]]`
 [[- if .SSR ]]
   makes, and `ssr.[[ .Script ]]`, the app on the server. A first visit's page
@@ -42,11 +78,29 @@ go test ./...
   own address, and `TRUSTED_PROXIES` behind a load balancer; or, on a
   machine of its own, `TLS_DOMAINS`, for the app to serve HTTPS itself,
   with certificates from Let's Encrypt.
+[[- if .Postgres ]] Its database is `DB_URL`, which
+  is compose.yaml's in development.
+[[- else if .MySQL ]] Its database is `DB_URL`, which is
+  compose.yaml's in development.
+[[- end ]]
+[[- if .Database ]] `tug run` runs the binary's commands
+  with it, as `tug run migrate status`.
+[[- end ]]
 [[ if .SSR -]]
 - `Dockerfile`: the app as one static binary on a distroless image with
+[[- if .SQLite ]]
+  Node, for the pages it renders on the server, and the database, its
+  backups and the certificates of `TLS_DOMAINS` on a volume.
+[[- else ]]
   Node, for the pages it renders on the server, and the certificates of
   `TLS_DOMAINS` on a volume.
+[[- end ]]
 [[- else -]]
 - `Dockerfile`: the app as one static binary on a distroless image, with
+[[- if .SQLite ]]
+  the database, its backups and the certificates of `TLS_DOMAINS` on a
+  volume.
+[[- else ]]
   the certificates of `TLS_DOMAINS` on a volume.
+[[- end ]]
 [[- end ]]

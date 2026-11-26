@@ -12,7 +12,9 @@ import (
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/queue"
 	"github.com/cuonggt/tug/queue/queuetest"
+[[- if .Auth ]]
 	"github.com/cuonggt/tug/tugtest"
+[[- end ]]
 )
 
 func TestTheJobsTableKeepsTheQueuesPromises(t *testing.T) {
@@ -157,7 +159,7 @@ func TestTheBinaryRunsTheJobsCommandInPlaceOfTheServer(t *testing.T) {
 	db := testDB(t)
 	s := &jobs{db: db}
 	failJob(t, s, `{"user":1}`, "550 no such mailbox: ann@example.com")
-	app := startApp(t, db, [][]byte{key(1)}, nil)
+	app := startApp(t, db, [][]byte{key(1)}[[ if .Auth ]], nil[[ end ]])
 	old := os.Args
 	os.Args = []string{"./blog", "jobs", "retry", "all"}
 	t.Cleanup(func() { os.Args = old })
@@ -168,6 +170,7 @@ func TestTheBinaryRunsTheJobsCommandInPlaceOfTheServer(t *testing.T) {
 		t.Errorf("failed after retry all: %v, %v", failed, err)
 	}
 }
+[[- if .Auth ]]
 
 func TestAMailThatDoesntGoIsSentAgain(t *testing.T) {
 	app := newTestApp(t)
@@ -191,6 +194,7 @@ func TestAnAddressCanAskForFiveResetLinksAMinute(t *testing.T) {
 	}
 	app.outbox.None(t)
 }
+[[- end ]]
 
 func TestJobsThatFailedOverAMonthAgoArePruned(t *testing.T) {
 	s := &jobs{db: testDB(t)}
@@ -256,6 +260,7 @@ func TestTheAppPrunesFailedJobsEveryNight(t *testing.T) {
 		t.Errorf("the prune job runs at %v, want the next midnight UTC, %v", got, midnight)
 	}
 }
+[[- if .Auth ]]
 
 func TestAJobCarriesTheIDOfTheRequestThatPushedIt(t *testing.T) {
 	app := newTestApp(t)
@@ -283,3 +288,4 @@ func TestAJobCarriesTheIDOfTheRequestThatPushedIt(t *testing.T) {
 		}
 	}
 }
+[[- end ]]

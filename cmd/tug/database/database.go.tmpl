@@ -1,0 +1,256 @@
+package main
+
+import (
+	"cmp"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/cuonggt/tug"
+	"github.com/cuonggt/tug/broadcast"
+	"github.com/cuonggt/tug/cache"
+	"github.com/cuonggt/tug/middleware"
+	"github.com/cuonggt/tug/migrate"
+	"github.com/cuonggt/tug/queue"
+	"github.com/cuonggt/tug/session"
+[[- if .SQLite ]]
+	"github.com/cuonggt/tug/storage"
+[[- end ]]
+)
+
+// database is the app's database, [[ .DatabaseName ]], which db.go opens, and what
+// tug's packages keep in it, a table each: the jobs the queue runs beside
+// the server, the cache, the sessions with SESSION_STORE=database, the
+// throttles' counts, and the events the hub carries between the app's
+// instances, with who's on each channel. main makes it from the
+// environment, and the tests their own; newApp hands the handlers what
+// they use of it, as their closures, and a table of the app's own is made
+// by a migration, as migrations.go says.
+type database struct {
+	db *sql.DB // nil under tug gen, which serves nothing
+
+	// queue runs the app's background jobs, which wait in the jobs table:
+	// a handler's transaction pushes its own with Kind.In(d.jobs.in(tx)),
+	// as inTx says.
+	queue *queue.Queue
+	jobs  *jobs
+
+	// hub carries events to the pages open on any instance, through the
+	// broadcasts, which a handler's transaction publishes in with
+	// d.hub.In(d.broadcasts.in(tx)).
+	hub        *broadcast.Hub
+	broadcasts *broadcasts
+
+	// cache keeps what's slow to work out for a while, where every instance
+	// of the app finds it, and has locks for what mustn't run twice at once,
+	// on any of them. The starter keeps nothing in it; it's there for the
+	// app.
+	cache *cache.Cache
+[[- if .SQLite ]]
+
+	// disk is where the nightly backups of the database go: files/, or
+	// FILES_PATH, unless FILESYSTEM_DISK=s3 keeps them in a bucket, off the
+	// machine the database is on.
+	disk storage.Disk
+[[- end ]]
+
+	// workers is how many jobs the queue runs at once: QUEUE_WORKERS, or 4.
+	// An instance with none leaves its jobs to the others on the database.
+	workers int
+}
+
+// newDatabase is the database db, with q, which keeps its jobs in db's
+// jobs table, to run them[[ if .SQLite ]], and disk for its backups[[ end ]].
+func newDatabase(db *sql.DB, q *queue.Queue[[ if .SQLite ]], disk storage.Disk[[ end ]]) *database {
+	return &database{
+		db:         db,
+		queue:      q,
+		jobs:       &jobs{db: db},
+		hub:        &broadcast.Hub{Store: &broadcasts{db: db}, Presence: &presences{db: db}},
+		broadcasts: &broadcasts{db: db},
+		cache:      &cache.Cache{Store: &cacheTable{db: db}},
+[[- if .SQLite ]]
+		disk:       disk,
+[[- end ]]
+	}
+}
+
+// databaseFromEnv is the database the environment names, as db.go reads
+// it, with its tables brought up to date by the migrations that haven't
+// run, but by the migrate command, which runs them itself: migrations.go
+[[- if .SQLite ]], and the backup command, which copies them as they are: backup.go
+[[- end ]]. tug gen, which runs main to learn the pages and routes, needs
+// none.
+func databaseFromEnv() (*database, error) {
+	workers, err := strconv.Atoi(cmp.Or(os.Getenv("QUEUE_WORKERS"), "4"))
+	if err != nil || workers < 0 {
+		return nil, errors.New("QUEUE_WORKERS is how many jobs the app runs at once, such as 4, or 0 for none")
+	}
+[[- if .SQLite ]]
+	disk, err := storage.FromEnv(&storage.Local{Dir: cmp.Or(os.Getenv("FILES_PATH"), "files")})
+	if err != nil {
+		return nil, err
+	}
+[[- end ]]
+	var db *sql.DB
+	if !tug.Generating() {
+		if db, err = dbFromEnv(); err != nil {
+			return nil, err
+		}
+		if !migrating()[[ if .SQLite ]] && !backingUp()[[ end ]] {
+			if err := upToDate(context.Background(), db); err != nil {
+				db.Close()
+				return nil, err
+			}
+		}
+	}
+	// A job takes the ID of the request that pushed it, for its log lines
+	// to be matched with the request's.
+	q := queue.New(queue.Config{Store: &jobs{db: db}, Workers: workers, Carry: []queue.Carrier{middleware.CarryRequestID}})
+	d := newDatabase(db, q[[ if .SQLite ]], disk[[ end ]])
+	d.workers = workers
+	return d, nil
+}
+
+// close closes the database, which tug gen never opened.
+func (d *database) close() {
+	if d.db != nil {
+		d.db.Close()
+	}
+}
+
+// run runs the queue, unless the instance leaves its jobs to the others,
+// and the hub, beside the server, and Run waits for the jobs running as it
+// stops. Given a command, as ./[[ .Name ]] jobs, Run runs it in place of the
+// server, and of them.
+func (d *database) run(app *tug.App) {
+	if d.workers > 0 {
+		app.Go(d.queue.Run)
+	}
+	app.Go(d.hub.Run)
+}
+
+// keeper is where the sessions are kept, as SESSION_STORE says: in their
+// cookies, which asks nothing of the app, or with database, in the
+// sessions table, for an app whose sessions hold more than the 4 KB a
+// cookie takes. Moving to the table keeps the sessions there are; moving
+// back empties them.
+func (d *database) keeper() (session.Keeper, error) {
+	switch store := cmp.Or(os.Getenv("SESSION_STORE"), "cookie"); store {
+	case "cookie":
+		return nil, nil
+	case "database":
+		return &sessionTable{db: d.db}, nil
+	default:
+		return nil, fmt.Errorf("SESSION_STORE is cookie or database, not %q", store)
+	}
+}
+
+// use has the app keep the database's tables, and adds the commands that
+// run on it, which Run runs in place of serving: ./[[ .Name ]] migrate, in
+// migrations.go, ./[[ .Name ]] jobs, in jobs.go
+[[- if .SQLite ]], and ./[[ .Name ]] backup, in
+// backup.go
+[[- end ]]. Every night, a job deletes the jobs that failed for good over a
+// month ago; every hour, the throttles' counts that count nothing any
+// more, what the cache kept that has expired, and the sessions that have;
+// and every minute, the pages on a channel whose lease ended without them
+// leaving it
+[[- if not .Postgres ]], and the events the hub carried, which every instance
+// has read
+[[- end ]].
+[[- if .SQLite ]] And every night, a copy of the database, made as the app
+// serves, on the app's disk, the newest BACKUP_KEEP of them kept, seven
+// unless it says, or with 0, none: backup.go. A large database's copy can
+// take minutes, sent to S3 above all: the job has ten, which every job's
+// claim is held for too, should the app be killed as one runs.
+[[- end ]]
+func (d *database) use(app *tug.App) error {
+	queue.Handle(d.queue, "prune-jobs", d.jobs.prune).Schedule(queue.Cron("@daily"), struct{}{})
+	queue.Handle(d.queue, "prune-throttles", (&throttles{db: d.db}).prune).Schedule(queue.Every(time.Hour), struct{}{})
+	queue.Handle(d.queue, "prune-cache", (&cacheTable{db: d.db}).prune).Schedule(queue.Every(time.Hour), struct{}{})
+	queue.Handle(d.queue, "prune-sessions", (&sessionTable{db: d.db}).prune).Schedule(queue.Every(time.Hour), struct{}{})
+	queue.Handle(d.queue, "prune-presence", (&presences{db: d.db}).prune).Schedule(queue.Every(time.Minute), struct{}{})
+[[- if not .Postgres ]]
+	queue.Handle(d.queue, "prune-broadcasts", d.broadcasts.prune).Schedule(queue.Every(time.Minute), struct{}{})
+[[- end ]]
+[[- if .SQLite ]]
+	keep, err := strconv.Atoi(cmp.Or(os.Getenv("BACKUP_KEEP"), "7"))
+	if err != nil || keep < 0 {
+		return errors.New("BACKUP_KEEP is how many of the database's nightly backups the app keeps, such as 7, or 0 for none")
+	}
+	if keep > 0 {
+		nightly := &backups{db: d.db, disk: d.disk, keep: keep}
+		queue.Handle(d.queue, "backup-db", nightly.run, queue.Timeout(10*time.Minute)).Schedule(queue.Cron("@daily"), BackupDB{})
+	}
+[[- end ]]
+
+	app.Command("jobs", "list the jobs that failed for good; jobs retry <id>, or retry all, runs them again", func(ctx context.Context, args []string) error {
+		return jobsCommand(ctx, d.jobs, os.Args[0], args, os.Stdout)
+	})
+	app.Command("migrate", "run the migrations that haven't run; migrate status lists them, and migrate down undoes the last", func(ctx context.Context, args []string) error {
+		ms, err := migrations()
+		if err != nil {
+			return err
+		}
+		return migrate.Command(ctx, &migrationsTable{db: d.db}, ms, os.Args[0], args, os.Stdout)
+	})
+[[- if .SQLite ]]
+	app.Command("backup", "copy the database, as it is now, to a new file: backup <file>", func(ctx context.Context, args []string) error {
+		return backupCommand(ctx, d.db, os.Args[0], args, os.Stdout)
+	})
+[[- end ]]
+	return nil
+}
+
+// up answers a load balancer's or a platform's health checks: 200 while
+// the app is serving and its database answers, and a 503 when it doesn't.
+func (d *database) up(c *tug.Ctx) error {
+	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+	defer cancel()
+	if err := d.db.PingContext(ctx); err != nil {
+		return &tug.HTTPError{Code: http.StatusServiceUnavailable, Message: "the database isn't answering", Err: err}
+	}
+	return c.String(http.StatusOK, "up")
+}
+
+// inTx runs fn in one transaction, which it commits, and then wakes the
+// queue: what fn writes through the tables' in(tx), the jobs it pushes
+// about it with Kind.In(d.jobs.in(tx)), and the events it publishes with
+// d.hub.In(d.broadcasts.in(tx)), are kept together, or not at all. fn
+// writes through tx alone, as a write outside it may wait for it, and does
+// no slow work: the transaction holds what it writes until it ends
+[[- if .SQLite ]], and in
+// SQLite, which has one writer, it takes the lock for writing as it
+// begins, which holds up every other write.
+[[- else ]], which
+// holds up the other writes to the same rows.
+[[- end ]]
+func (d *database) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	d.queue.Wake()
+	return nil
+}
+
+// dbtx is the database, or a transaction in it, which the tables' methods
+// read and write through.
+type dbtx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}

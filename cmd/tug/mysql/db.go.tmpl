@@ -18,9 +18,15 @@ import (
 // The app's database is MySQL, at DB_URL, which compose.yaml runs in
 // development: docker compose up -d. This file opens it; migrations/ makes
 // its tables, as the app starts (migrations.go); and the SQL of each is
+[[- if .Auth ]]
 // beside the Go that's the same on any database: users_db.go,
 // passkeys_db.go, jobs_db.go, throttles_db.go, cache_db.go, tokens_db.go,
 // broadcasts_db.go, notifications_db.go and migrations_db.go.
+[[- else ]]
+// beside the Go that's the same on any database: jobs_db.go,
+// throttles_db.go, cache_db.go, sessions_db.go, broadcasts_db.go,
+// presences_db.go and migrations_db.go.
+[[- end ]]
 
 // dbFromEnv opens the database the environment names: DB_URL, with the
 // driver's settings in its query, as

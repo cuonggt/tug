@@ -9,7 +9,9 @@ people might start together. A cache keeps its values in a `Store`, such
 as a table in the app's database, or else in memory.
 
 The auth starter's cache is in its database, SQLite, Postgres or MySQL,
-as `a.cache`, which it keeps nothing in yet: it's there for the app.
+as `a.cache`, which it keeps nothing in yet: it's there for the app. A
+plain app made with a database, `tug new -sqlite`, `-postgres` or
+`-mysql`, has the same, as `data.cache`.
 
 ## Remembering a value
 

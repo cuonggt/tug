@@ -1,7 +1,10 @@
 # [[ .Name ]]
 
 A [tug](https://github.com/cuonggt/tug) app: Go handlers render [[ .Framework ]] pages
-through Inertia, with no API in between. `README.md` says what each file
+through Inertia, with no API in between
+[[- if .Database ]], and what it keeps is in
+[[ .DatabaseName ]]
+[[- end ]]. `README.md` says what each file
 is. This says how to change the app as tug has it done, what not to do,
 and how to check a change. tug's guide, at the version `go.mod` requires,
 is at [[ .Guide ]].
@@ -11,17 +14,28 @@ is at [[ .Guide ]].
 Before saying a change is done:
 
 ```sh
+[[ if or .SQLite (not .Database) -]]
 tug gen            # the TypeScript of the Go's pages and routes, which tug dev writes too
 npm run typecheck  # the pages against the Go's props, routes and forms
 go fmt ./...       # the Go as gofmt writes it
 go vet ./...
 go test ./...
+[[- else -]]
+docker compose up -d   # the database, which tug dev and the tests use
+tug gen                # the TypeScript of the Go's pages and routes, which tug dev writes too
+npm run typecheck      # the pages against the Go's props, routes and forms
+go fmt ./...           # the Go as gofmt writes it
+go vet ./...
+go test ./...
+[[- end ]]
 ```
 
 `tug routes` lists the routes, each with the line that added it, and
 `tug build` builds the frontend into one binary, as a deploy does. The
 tests visit the pages as Inertia's client does, with `tugtest`, with no
-browser or build: they're how a page is checked. A binary run by hand
+browser or build
+[[- if .Database ]], each on a database of its own
+[[- end ]]: they're how a page is checked. A binary run by hand
 takes `ADDR=127.0.0.1:8080`, as the default listens on every interface.
 
 ## See it running
@@ -41,6 +55,11 @@ entry is the newest then:
 curl http://localhost:8080/
 ls .tug/devtools | tail -1   # its entry
 ```
+[[- if .Database ]]
+
+`tug run` runs the app's commands with `.env` too, as
+`tug run migrate status`, and `tug run help` lists them.
+[[- end ]]
 
 ## Rules
 
@@ -57,6 +76,13 @@ ls .tug/devtools | tail -1   # its entry
   form's action is `form()`'s, typed by that input.
 - A flash key is declared in `flash.go`, with `tug.Flash`, and set through
   it.
+[[- if .Database ]]
+- A handler's writes are in one transaction, `data.inTx`'s, and so are the
+  jobs it pushes about them, so they're kept together, or not at all. No
+  slow work in it, which holds up the other writes.
+- A migration that has run is never changed: the app stops as it starts
+  at one whose SQL has. A change is a new one.
+[[- end ]]
 - An error says what's wrong to the person who gets it, as "title is
   required": no Go types, and no raw errors. What the app says to a person
   goes through `c.T`, for `tug lang` to find, to translate.
@@ -162,10 +188,60 @@ ls .tug/devtools | tail -1   # its entry
 [[- end ]]
    Its `validate('title')`, as a field is left, has the server check it,
    by the same `BindValid`.
+[[- if .Database ]]
+
+## Add a table
+
+1. `tug migrate new create_posts` writes
+   `migrations/<when>_create_posts.sql`: the table in [[ .DatabaseName ]]'s SQL,
+   and after its `-- down` line, what undoes it. The app runs it as it
+   starts, and under tug dev as it's written.
+2. Its Go: the row's type, and the table's, with its queries in
+   `<table>_db.go`, as `jobs.go` and `jobs_db.go` are, in [[ .DatabaseName ]]'s
+   SQL, with [[ if .Postgres ]]`$1`[[ else ]]`?`[[ end ]] for each value, through its `db`, a `dbtx`, so
+   they run in a transaction too:
+
+   ```go
+   type posts struct {
+   	db dbtx
+   }
+
+   func (ps *posts) in(tx *sql.Tx) *posts {
+   	return &posts{db: tx}
+   }
+   ```
+
+3. Made in `newApp`, on `data.db`, the database, and handed to the
+   handlers that use it, as methods of a type that holds it, or as their
+   closures:
+
+   ```go
+   ps := &posts{db: data.db}
+   app.Get("/posts", func(c *tug.Ctx) error { return postsIndex(c, ps) }).Name("posts.index")
+   ```
+
+4. Writes that go together, in `data.inTx`, through `ps.in(tx)`, with the
+   jobs about them.
+
+## Add a job
+
+A job's kind is made in `newApp` with `queue.Handle`, on `data.queue`, as
+`use` in `database.go` makes the jobs that prune the tables, and pushed
+with its `Push`, or in a handler's transaction through
+`Kind.In(data.jobs.in(tx))`. It carries what it needs to find its work, as
+IDs, and does it as it runs. A job on a schedule is `Schedule`'s, as
+`prune-jobs`. `./[[ .Name ]] jobs`, or `tug run jobs` in development, lists the
+jobs that failed for good, and runs them again.
+[[- end ]]
 
 ## Test it
 
+[[ if .Database -]]
+The tests are Go's, beside the files they test, as `main_test.go`, through
+`newClient`, each on a database of its own, which `newTestApp` makes:
+[[- else -]]
 The tests are Go's, in `main_test.go`, through `newClient`:
+[[- end ]]
 
 ```go
 func TestThePostsPageListsThePosts(t *testing.T) {
@@ -187,5 +263,10 @@ is `r.Follow()`, its flash `r.Page.Flash`.
 `tug upgrade`, with nothing uncommitted, brings the app what the starter
 has gained since the tug that made it, which `tug.json` names: it merges
 the starter's changes into the app's own, and marks where both changed
-the same lines, between `<<<<<<<` and `>>>>>>>`. Put right what it marks,
+the same lines, between `<<<<<<<` and `>>>>>>>`.
+[[- if .Database ]] A migration the starter
+changed is listed with its diff rather than changed, as one that has run
+is never changed: make the same change in a new one, with `tug migrate
+new`, in [[ .DatabaseName ]]'s SQL.
+[[- end ]] Put right what it marks,
 keeping what the app's change was for, then check the change as above.

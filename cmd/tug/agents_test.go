@@ -24,12 +24,19 @@ func TestEveryAppsNotesForAgentsAreTheApps(t *testing.T) {
 			starterData{Frontend: frontend, Auth: true, Database: "sqlite", SSR: true},
 			starterData{Frontend: frontend, Auth: true, Database: "postgres"},
 			starterData{Frontend: frontend, Auth: true, Database: "mysql"},
+			starterData{Frontend: frontend, Database: "sqlite"},
+			starterData{Frontend: frontend, Database: "sqlite", SSR: true},
+			starterData{Frontend: frontend, Database: "postgres"},
+			starterData{Frontend: frontend, Database: "mysql"},
 		)
 	}
 	for _, data := range kinds {
 		name := data.Frontend
 		if data.Auth {
-			name += "-auth-" + data.Database
+			name += "-auth"
+		}
+		if data.Database != "" {
+			name += "-" + data.Database
 		}
 		if data.SSR {
 			name += "-ssr"
@@ -48,8 +55,13 @@ func TestEveryAppsNotesForAgentsAreTheApps(t *testing.T) {
 			if !strings.Contains(notes, "https://github.com/cuonggt/tug/tree/v0.43.0/docs") {
 				t.Error("AGENTS.md doesn't link the guide at the version the app requires")
 			}
-			if data.Auth && !strings.Contains(notes, data.DatabaseName()) {
+			if data.Database != "" && !strings.Contains(notes, data.DatabaseName()) {
 				t.Errorf("AGENTS.md doesn't say the app's database is %s", data.DatabaseName())
+			}
+			// A table, its migration, and the commands that run on the
+			// database, as tug run migrate status, in an app with one.
+			if strings.Contains(notes, "## Add a table") != (data.Database != "") || strings.Contains(notes, "tug run migrate status") != (data.Database != "") {
+				t.Error("AGENTS.md says how to add a table, or run the migrate command, in an app with no database, or not in one with it")
 			}
 			if strings.Contains(notes, "createForm") == data.React() {
 				t.Errorf("AGENTS.md's forms aren't %s's", data.Framework())

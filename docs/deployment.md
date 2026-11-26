@@ -125,20 +125,22 @@ behind: delete it.
 | `TRUSTED_PROXIES`   | The proxies in front of the app, such as a load balancer, whose `X-Forwarded-For` says whose each request is: addresses or ranges, comma separated, as `10.0.0.0/8`, or `*` for whatever connects. See [Behind a proxy](#behind-a-proxy). | none: a request is from whatever connected | the starters' `main.go`, for `middleware.TrustProxies` |
 | `CORS_ORIGINS`      | The sites whose pages may call the app's API, `/api`, from the browser, with a user's API token: origins, comma separated, as `https://app.example.com`, or `*` for any. | none: a script or a phone's app, which isn't a page, needs none | the auth starter's `main.go`, for `middleware.CORS` |
 
-The auth starter reads these as well:
+The auth starter reads these as well, and a plain app made with a
+database, `tug new -sqlite`, `-postgres` or `-mysql`, those of its
+database, its sessions, its jobs and, on SQLite, its backups:
 
 | Variable            | What it does | Default | Read by |
 |---------------------|--------------|---------|---------|
 | `DB_PATH`           | The SQLite database. | `app.db`, and `/data/app.db` in its image | its `db.go` |
 | `DB_URL`            | On Postgres or MySQL, the database, as `postgres://user:password@host:5432/blog?sslmode=require` or `mysql://user:password@host:3306/blog?tls=true`, with the driver's settings in its query. | none: needed, unless `DB_HOST` is set | its `db.go` |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | The database's parts, as Laravel names them, where there's no `DB_URL`. | the port is `5432` or `3306` | its `db.go` |
-| `SESSION_STORE`     | Where the sessions themselves are kept: `cookie`, in the cookies, or `database`, in the app's `sessions` table, for sessions larger than the 4 KB a cookie takes ([Kept on the server](forms.md#kept-on-the-server)). Moving to the table logs nobody out; moving back logs everybody out. | `cookie` | its `main.go` |
-| `FILES_PATH`        | The directory the photos people upload are kept in, unless `FILESYSTEM_DISK` is `s3`. | `files`, and `/data/files` in its image | its `main.go` |
+| `SESSION_STORE`     | Where the sessions themselves are kept: `cookie`, in the cookies, or `database`, in the app's `sessions` table, for sessions larger than the 4 KB a cookie takes ([Kept on the server](forms.md#kept-on-the-server)). Moving to the table logs nobody out; moving back logs everybody out. | `cookie` | its `main.go`, or a plain app's `database.go` |
+| `FILES_PATH`        | The directory the photos people upload are kept in, and on SQLite the nightly backups, unless `FILESYSTEM_DISK` is `s3`. | `files`, and `/data/files` in its image | its `main.go`, or a plain app's `database.go` |
 | `FILESYSTEM_DISK`   | `local`, the directory, or `s3`, a bucket, which instances on more than one machine share. | `local` | `storage.FromEnv` |
 | `AWS_BUCKET`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | The bucket, and the keys to it, for `FILESYSTEM_DISK=s3`, which an app that runs as a role on AWS leaves out ([A bucket's keys](#a-buckets-keys)): in S3, or a service that speaks its API, as [files.md](files.md#from-the-environment) has. | none, and `us-east-1` for the region | `storage.FromEnv` |
-| `QUEUE_WORKERS`     | How many background jobs, such as mail, run at once. With `0`, this instance runs none and leaves its jobs to the others on the database. | `4` | its `main.go` |
+| `QUEUE_WORKERS`     | How many background jobs, such as mail, run at once. With `0`, this instance runs none and leaves its jobs to the others on the database. | `4` | its `main.go`, or a plain app's `database.go` |
 | `CHECK_BREACHED_PASSWORDS` | `true` checks a new password, as it's registered, reset or changed, against those leaked in breaches, by Pwned Passwords, which is told the first five characters of its SHA-1 alone; one that's been seen is turned away, and a service that doesn't answer lets it through ([Breached passwords](auth.md#breached-passwords)). | `false` | the auth starter's `main.go` |
-| `BACKUP_KEEP`       | On SQLite, how many of the database's nightly backups the app keeps on its disk, the newest, in `backups/`; with `0`, it makes none ([Backups](#backups)). | `7` | its `main.go` |
+| `BACKUP_KEEP`       | On SQLite, how many of the database's nightly backups the app keeps on its disk, the newest, in `backups/`; with `0`, it makes none ([Backups](#backups)). | `7` | its `main.go`, or a plain app's `database.go` |
 | `MAIL_HOST`         | The SMTP server. Without it, mail is written to the standard error instead of sent, or under `tug dev` kept in the app's mailbox. | none | `mail.FromEnv` |
 | `MAIL_PORT`         | The server's port. On 465 the connection is TLS from the start; on another, it uses STARTTLS when the server offers it. | `587` | `mail.FromEnv` |
 | `MAIL_USERNAME`, `MAIL_PASSWORD` | The login, for a server that wants one. | none | `mail.FromEnv` |
@@ -232,7 +234,7 @@ ENTRYPOINT ["/server"]
   them again: see [HTTPS on its own](#https-on-its-own).
 
 `.dockerignore` keeps `node_modules`, `public/build`, `public/hot`,
-`.tug`, `.env`, `certs` and `.git` out of the build, and the auth starter's on
+`.tug`, `.env`, `certs` and `.git` out of the build, and an app's on
 SQLite keeps a development `app.db` out too. So the frontend is built
 afresh, and the development `.env` never reaches the image: the
 variables come with `docker run -e`, as the Dockerfile's comment shows.
@@ -269,6 +271,11 @@ The distroless image has no shell to make the directory in, so the
 starts with the image's `/data`, owner and all. A directory of the
 host's, mounted with `-v /srv/blog:/data`, keeps the host's owner: make
 it writable by 65532.
+
+A plain app made with `-sqlite` keeps its database, its nightly backups,
+in `/data/files/backups`, and its certificates on the volume the same
+way, with the same `ENV`. On Postgres or MySQL, either starter's database
+is wherever `DB_URL` says, which `docker run -e DB_URL=...` gives it.
 
 The SQLite driver is modernc.org/sqlite, in pure Go, so the binary is
 still static.
@@ -916,7 +923,8 @@ The log says where the ports came from:
 
 ## Backups
 
-The auth starter on SQLite backs its database up itself. The database is
+An app on SQLite backs its database up itself, the auth starter's and a
+plain one made with `-sqlite` alike. The database is
 one file, and a copy of it made with `cp` while the app writes can be
 torn, a page from before a write beside one from after, and leaves out
 what's still in its write-ahead log, `app.db-wal`. `VACUUM INTO` makes
@@ -947,8 +955,9 @@ The database is backed up to before-deploy.db, 1.4 MB.
   `files/backups/`, beside the database, which is for a mistake, a table
   dropped or a row deleted, not for a disk or a machine that's lost: with
   `FILESYSTEM_DISK=s3`, they're in the bucket, off the machine. They're
-  private, as the photos are, unless the bucket's own policy makes its
-  files public, which it mustn't. `BACKUP_KEEP=0` turns the job off.
+  private, as the auth starter's photos are, unless the bucket's own
+  policy makes its files public, which it mustn't. `BACKUP_KEEP=0` turns
+  the job off.
 - The job makes its copy beside the database first, so the disk needs
   room for a second one, and has 10 minutes, its `Timeout`, to make it
   and send it. Every job's claim is held as long as the longest timeout,
@@ -990,9 +999,10 @@ mysql --host=db.example.com --user=blog -p blog < blog.sql
 ## Health checks
 
 Both starters answer `GET /up` with 200 and `up` while the app is serving,
-for a load balancer's or a platform's health check to ask. The auth
-starter's pings its database as well, and answers 503 when that doesn't
-answer. Like any request, each check is a line in the request log.
+for a load balancer's or a platform's health check to ask. An app with a
+database, the auth starter's or a plain one made with one, pings it as
+well, and answers 503 when it doesn't answer. Like any request, each
+check is a line in the request log.
 
 ## Rotating `APP_KEY`
 

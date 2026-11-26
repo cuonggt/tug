@@ -14,9 +14,14 @@ import (
 // The app's database is SQLite: one file, app.db, or wherever DB_PATH
 // says. This file opens it; migrations/ makes its tables, as the app starts
 // (migrations.go); and the SQL of each is beside the Go that's the same on
+[[- if .Auth ]]
 // any database: users_db.go, passkeys_db.go, jobs_db.go, throttles_db.go,
 // cache_db.go, tokens_db.go, broadcasts_db.go, notifications_db.go and
 // migrations_db.go.
+[[- else ]]
+// any database: jobs_db.go, throttles_db.go, cache_db.go, sessions_db.go,
+// broadcasts_db.go, presences_db.go and migrations_db.go.
+[[- end ]]
 
 // dbFromEnv opens the database the environment names, DB_PATH or else
 // app.db, making it when it's not there.

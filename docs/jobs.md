@@ -12,7 +12,10 @@ server, and start and stop with it.
 
 The auth starter sends its mail this way, with its jobs in its database,
 SQLite, Postgres or MySQL, and clears out old failed jobs every night:
-[auth.md](auth.md) has its side of it.
+[auth.md](auth.md) has its side of it. A plain app made with a database,
+`tug new -sqlite`, `-postgres` or `-mysql`, has the same queue, on the
+same table, with the same `jobs` command, ready for its own: its
+`database.go` makes a kind with `queue.Handle(data.queue, ...)`.
 
 ## A kind of job
 

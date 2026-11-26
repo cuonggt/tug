@@ -244,6 +244,9 @@ func TestAnAppWithNoTugJSONIsReadFromItsFiles(t *testing.T) {
 		{Frontend: "svelte", Auth: true, Database: "postgres"},
 		{Frontend: "react", Auth: true, Database: "mysql", SSR: true},
 		{Frontend: "react", Auth: true, Database: "sqlite"},
+		{Frontend: "react", Database: "sqlite"},
+		{Frontend: "vue", Database: "postgres", SSR: true},
+		{Frontend: "svelte", Database: "mysql"},
 	} {
 		data.Name, data.Module, data.TugVersion = "my-blog", "example.com/blog", "v0.47.0"
 		t.Run(strings.Join(append([]string{data.Frontend}, data.flags()...), " "), func(t *testing.T) {
@@ -298,6 +301,8 @@ func TestANewAppSaysWhatItWasMadeFrom(t *testing.T) {
 		{Frontend: "svelte"},
 		{Frontend: "vue", Auth: true, Database: "postgres", SSR: true},
 		{Frontend: "react", Auth: true, Database: "sqlite"},
+		{Frontend: "react", Database: "sqlite"},
+		{Frontend: "svelte", Database: "mysql", SSR: true},
 	} {
 		data.Name, data.Module, data.TugVersion = "blog", "blog", "v0.55.0"
 		files, err := starterFiles(data)

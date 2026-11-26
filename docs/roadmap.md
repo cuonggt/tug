@@ -76,7 +76,7 @@ to 3.11.0, November 2026), written against
 | M67 | Accounts, guarded          | done   |
 | M68 | What an agent can see      | done   |
 | M69 | Flash, kept and forgotten  | done   |
-| M70 | A plain app's database     | later  |
+| M70 | A plain app's database     | done   |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -7067,7 +7067,7 @@ Choices made on the way:
   forgetting with the page's leaving out, the redirect's, or the
   emptied flash's.
 
-## M70 · A plain app's database — later
+## M70 · A plain app's database — done
 
 An app `tug new` makes without `-auth` has no database: no table to keep
 anything in, and none of what tug's packages keep in one. Package
@@ -7107,7 +7107,8 @@ without its accounts. To be released as v1.8.0.
   its name and its SQL, which `migrations.sha256` holds; and the Go
   that's the same on every database, `jobs.go` and `migrations.go`, moves
   from `starter-auth/` to a layer both apps take, `database/`, with the
-  tests of the stores' promises, where the accounts' tests stay.
+  tests of the stores, whose tests of the accounts are in them still,
+  for an auth app alone.
 - **The plain starter's own files, a database's where they differ:** its
   `main.go`, opening the database, but under `tug gen`, and wiring the
   stores and the commands; its `Dockerfile`, the database on the volume
@@ -7134,7 +7135,7 @@ without its accounts. To be released as v1.8.0.
   Deployment, the database on the volume, and its backups; Upgrading,
   v1.8.0's entry; and the README.
 
-Choices, to settle before any code:
+Choices made on the way:
 
 - **A flag, not the default:** `tug new` alone stays the app with no
   database, which a site of pages and forms has no need of, and which
@@ -7157,11 +7158,18 @@ Choices, to settle before any code:
   and each layer stays one directory per database, the accounts' files
   left out of a plain app by a list, as `notInAuth` and `onlySSR` leave
   files out, since `migrations.sha256` keys each migration by its path.
-- **Shared, not copied:** the Go the two apps have alike is in one
-  layer, `database/`, laid before the database's own. An auth app's
-  files are as they were, but its tests of the stores' promises, which
-  move there, so neither app runs them twice, and `tug upgrade` brings
-  an auth app that alone.
+- **Shared, not copied, and an auth app as it was, byte for byte:** the
+  Go the two apps have alike is in one layer, `database/`, laid before
+  the database's own, and so are the tests of the stores, each file by
+  its own name, its tests of the accounts in it still, under
+  `[[ if .Auth ]]`, with the imports only they use, placed so that an
+  auth app's file renders as it did. Moving a store's tests to files of
+  their own, as the plan had it, would have brought every auth app a
+  change at its next upgrade, and conditions bring it none: `tug upgrade`
+  brings an auth app nothing of M70. The plain starter's files take a
+  database under `[[ if .Database ]]` the same way, so a plain app with
+  none renders as it did. Every kind of app `tug new` made before, the 24
+  of them, written before the change and after, is the same.
 - **A disk for SQLite's backups:** the nightly copy is to leave the
   database's volume, for a bucket, or `files/` by default, so a plain
   app on SQLite has `storage.FromEnv`'s disk, where on Postgres and MySQL
@@ -7175,6 +7183,34 @@ Choices, to settle before any code:
 - **One app more on each database in the suite:** React's, made with
   `-sqlite`, and on the servers `-postgres` and `-mysql`, as a frontend
   changes nothing of the database; the suite's time grows by those.
+- **`database.go`, the plain app's own:** a `database`, the database and
+  what tug's packages keep in it, `newApp`'s last argument, `data`, which
+  `databaseFromEnv` makes in `main` and `newDatabase` in the tests, with
+  `use`, the jobs that prune the tables and the commands, `keeper`,
+  `SESSION_STORE`'s, `run`, the queue and the hub beside the server,
+  `up`, and `inTx`, as the auth starter's `a.inTx`. The plain `main.go`
+  gains a few lines for it, where the auth starter's wires the same
+  inline, in an `app` its handlers are methods of: a plain app's
+  handlers are functions, which take what they use as their closures.
+- **`dbtx` twice:** the interface the tables write through, which
+  `jobs.go` takes, is in the auth starter's `users.go`, and a plain app's
+  is in its `database.go`, which an auth app leaves out, as moving it
+  would have changed `users.go`.
+- **The health check, the database's too:** as the auth starter's, a
+  plain app's `/up` pings its database, and answers 503 when it doesn't
+  answer, so a load balancer takes an instance that can't reach it out.
+- **Its tests, by the starter's own:** `newTestApp` and `startApp` of the
+  auth starter's shape, so the stores' tests are one file for both; the
+  sessions table's by the home page's form, whose answer is the session's
+  until the page has shown it; and a backup's copy checked by a value of
+  the cache's, where the auth starter's registers a user.
+- **The disk, the backups' alone:** `storage.FromEnv` of `files/` with no
+  keys, as nothing links to a backup.
+- **`tug.json` read from the files too:** with none, `tug upgrade` reads
+  a plain app's database from its `db.go`, its driver, SQLite's
+  `-sqlite`, as tug.json says it.
+- **`-sqlite` with `-auth`:** said by `-auth` already, so it's taken, and
+  `tug.json` keeps no flag for it, as before.
 
 ## Decisions
 

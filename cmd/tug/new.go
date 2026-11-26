@@ -21,22 +21,44 @@ import (
 // starters are the apps tug new makes, in layers, each laid over the ones
 // before it, whose files it replaces where they have the same name: the
 // plain app, in starter, and its frontend's, in react, vue or svelte; then
-// with -auth, the app with accounts, in starter-auth, its frontend's, in
-// react-auth, vue-auth or svelte-auth, and its database's, in sqlite,
-// postgres or mysql: the SQL, which is all the Go that differs between
-// them. starter and starter-auth have the Go and what every frontend uses.
-// Files ending in .tmpl are templates, filled in with starterData between
-// [[ and ]], which leaves the {{ }} of Go's own templates, such as
-// app.html's, alone; the rest are copied as they are.
+// with -auth, the app with accounts, in starter-auth, and its frontend's,
+// in react-auth, vue-auth or svelte-auth; and with a database, which -auth
+// always has, the Go that's the same on each, in database, and the
+// database's own, in sqlite, postgres or mysql: the SQL, which is all the
+// Go that differs between them. starter and starter-auth have the Go and
+// what every frontend uses. Files ending in .tmpl are templates, filled in
+// with starterData between [[ and ]], which leaves the {{ }} of Go's own
+// templates, such as app.html's, alone; the rest are copied as they are.
 //
-//go:embed all:starter all:starter-auth all:react all:react-auth all:vue all:vue-auth all:svelte all:svelte-auth all:sqlite all:postgres all:mysql
+//go:embed all:starter all:starter-auth all:react all:react-auth all:vue all:vue-auth all:svelte all:svelte-auth all:database all:sqlite all:postgres all:mysql
 var starters embed.FS
 
 // notInAuth are the plain app's files that an app with -auth has no use
 // for, and leaves out: its layouts, in resources/js/layouts, take the
-// plain Layout's place.
+// plain Layout's place, and its database, which the auth starter's main.go
+// opens itself, with the users' dbtx.
 func notInAuth(data starterData) []string {
-	return []string{"resources/js/Layout." + data.Component()}
+	return []string{"resources/js/Layout." + data.Component(), "database.go"}
+}
+
+// accountsOnly reports whether rel, a file of a database's layer, is the
+// accounts', which a plain app with that database leaves out: the tables of
+// the users and what's theirs, their SQL and their migrations. The rest is
+// what tug's packages keep, which either app has.
+func accountsOnly(rel string) bool {
+	for _, table := range []string{"users", "passkeys", "tokens", "notifications", "logins"} {
+		if rel == table+"_db.go" {
+			return true
+		}
+	}
+	if name, ok := strings.CutPrefix(rel, "migrations/"); ok {
+		for _, table := range []string{"users", "passkeys", "access_tokens", "notifications", "logins", "browsers"} {
+			if strings.HasSuffix(name, "_create_"+table+".sql") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // onlySSR are the files that only an app with -ssr has: the app on the
@@ -52,7 +74,7 @@ type starterData struct {
 	TugDir     string // a tug checkout go.mod replaces it with, when tug isn't a release
 	Frontend   string // react, vue or svelte: the layers of the frontend's own files
 	Auth       bool   // with accounts: starter-auth over starter
-	Database   string // with accounts, sqlite, postgres or mysql: the layer of its SQL
+	Database   string // sqlite, postgres or mysql, the layer of its SQL, which accounts take; "" for none
 	SSR        bool   // with pages rendered on the server too
 }
 
@@ -70,13 +92,15 @@ type made struct {
 }
 
 // flags are tug new's flags for the starter d is, as tug.json keeps them:
-// accounts, their database, the frontend, then rendering on the server.
+// accounts, the database, the frontend, then rendering on the server.
+// SQLite, which accounts take unless told another, is said for a plain app
+// alone.
 func (d starterData) flags() []string {
 	flags := []string{}
 	if d.Auth {
 		flags = append(flags, "-auth")
 	}
-	if d.Postgres() || d.MySQL() {
+	if d.Postgres() || d.MySQL() || d.SQLite() && !d.Auth {
 		flags = append(flags, "-"+d.Database)
 	}
 	if d.Vue() || d.Svelte() {
@@ -296,8 +320,9 @@ runs it.
 // fs has parsed them.
 func starterFlags(fs *flag.FlagSet) func(data *starterData) error {
 	withAuth := fs.Bool("auth", false, "with accounts: registering, verifying an email, logging in with two factors or a passkey, resetting a password, and settings, with the users in SQLite")
-	withPostgres := fs.Bool("postgres", false, "with -auth, the users in Postgres, rather than SQLite")
-	withMySQL := fs.Bool("mysql", false, "with -auth, the users in MySQL, rather than SQLite")
+	withSQLite := fs.Bool("sqlite", false, "with a database, SQLite, for the app's tables, its jobs, cache and sessions: what -auth has without -postgres or -mysql")
+	withPostgres := fs.Bool("postgres", false, "with a database, Postgres, rather than SQLite: with -auth, the users' too")
+	withMySQL := fs.Bool("mysql", false, "with a database, MySQL, rather than SQLite: with -auth, the users' too")
 	withSSR := fs.Bool("ssr", false, "with server-side rendering: a first visit's page renders on the server too, with Node, which runs beside the app")
 	withVue := fs.Bool("vue", false, "with a Vue frontend, rather than React's")
 	withSvelte := fs.Bool("svelte", false, "with a Svelte frontend, rather than React's")
@@ -311,16 +336,25 @@ func starterFlags(fs *flag.FlagSet) func(data *starterData) error {
 		case *withSvelte:
 			data.Frontend = "svelte"
 		}
+		var databases []string
+		for _, d := range []struct {
+			flag string
+			on   bool
+		}{{"-sqlite", *withSQLite}, {"-postgres", *withPostgres}, {"-mysql", *withMySQL}} {
+			if d.on {
+				databases = append(databases, d.flag)
+			}
+		}
 		switch {
-		case (*withPostgres || *withMySQL) && !*withAuth:
-			return errors.New("-postgres and -mysql are where -auth keeps its users: without -auth, the app has no database")
-		case *withPostgres && *withMySQL:
-			return errors.New("an app has one database: -postgres or -mysql, not both")
+		case len(databases) == 3:
+			return errors.New("an app has one database: -sqlite, -postgres or -mysql, not all three")
+		case len(databases) == 2:
+			return fmt.Errorf("an app has one database: %s or %s, not both", databases[0], databases[1])
 		case *withPostgres:
 			data.Database = "postgres"
 		case *withMySQL:
 			data.Database = "mysql"
-		case *withAuth:
+		case *withSQLite || *withAuth:
 			data.Database = "sqlite"
 		}
 		return nil
@@ -413,7 +447,10 @@ func writeStarter(root string, data starterData) error {
 func starterFiles(data starterData) (map[string][]byte, error) {
 	dirs := []string{"starter", data.Frontend}
 	if data.Auth {
-		dirs = append(dirs, "starter-auth", data.Frontend+"-auth", data.Database)
+		dirs = append(dirs, "starter-auth", data.Frontend+"-auth")
+	}
+	if data.Database != "" {
+		dirs = append(dirs, "database", data.Database)
 	}
 	files := map[string][]byte{} // by their path in the app
 	for _, dir := range dirs {
@@ -426,6 +463,9 @@ func starterFiles(data starterData) (map[string][]byte, error) {
 				return err
 			}
 			rel := strings.TrimPrefix(path, dir+"/")
+			if dir == data.Database && !data.Auth && accountsOnly(strings.TrimSuffix(rel, ".tmpl")) {
+				return nil
+			}
 			if name, ok := strings.CutSuffix(rel, ".tmpl"); ok {
 				tmpl, err := template.New(rel).Delims("[[", "]]").Option("missingkey=error").Parse(string(content))
 				if err != nil {

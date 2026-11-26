@@ -3,13 +3,17 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+[[- if .Auth ]]
 	"strings"
+[[- end ]]
 	"testing"
 	"time"
 
 	"github.com/cuonggt/tug/auth"
 	"github.com/cuonggt/tug/auth/throttletest"
+[[- if .Auth ]]
 	"github.com/cuonggt/tug/tugtest"
+[[- end ]]
 )
 
 func TestTheThrottlesTableKeepsItsPromises(t *testing.T) {
@@ -17,6 +21,7 @@ func TestTheThrottlesTableKeepsItsPromises(t *testing.T) {
 		return &throttles{db: testDB(t)}
 	})
 }
+[[- if .Auth ]]
 
 func TestTheAppsInstancesCountEachOthersTries(t *testing.T) {
 	db := testDB(t)
@@ -56,6 +61,7 @@ func TestClientsBehindTheLoadBalancerAreCountedApart(t *testing.T) {
 		t.Errorf("Ann, from her own address: %v", r)
 	}
 }
+[[- end ]]
 
 // hashed is a key as package auth hands a store one: 32 bytes.
 func hashed(key string) []byte {

@@ -213,14 +213,20 @@ func madeFromFiles(from string) (made, error) {
 		return made{}, err
 	}
 	m := made{Starter: from, Name: cmp.Or(p.Name, filepath.Base(wd)), Flags: []string{}}
-	if isFile("auth.go") {
+	auth := isFile("auth.go")
+	if auth {
 		m.Flags = append(m.Flags, "-auth")
-		db, _ := os.ReadFile("db.go")
+	}
+	// The database db.go opens: an app with accounts is on SQLite unless it
+	// says, and a plain one with a database says which, SQLite too.
+	if db, err := os.ReadFile("db.go"); err == nil {
 		switch {
 		case bytes.Contains(db, []byte(`"github.com/jackc/pgx/`)):
 			m.Flags = append(m.Flags, "-postgres")
 		case bytes.Contains(db, []byte(`"github.com/go-sql-driver/mysql"`)):
 			m.Flags = append(m.Flags, "-mysql")
+		case !auth:
+			m.Flags = append(m.Flags, "-sqlite")
 		}
 	}
 	switch {

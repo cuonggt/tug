@@ -64,6 +64,20 @@ kept in the app's mailbox, at `/_tug/mail`, which shows each mail as a
 mail program would, and the app's output has a line for each, with its
 link. [Accounts](auth.md) has the rest.
 
+For an app with a database and no accounts, add `-sqlite`, or
+`-postgres` or `-mysql`:
+
+```sh
+tug new -sqlite blog
+```
+
+That's the plain starter with the tables tug's packages keep things in:
+the background jobs, which run beside the server, the cache, and the
+sessions, with the commands that run on it, as `tug run migrate status`
+in development. A table of the app's own is a migration,
+`tug migrate new create_posts` ([Migrations](migrations.md)). `-auth`
+has a database already: SQLite, unless it's told another.
+
 For pages rendered on the server, for search engines and pages that show
 before their scripts run, add `-ssr`, to either: Node renders them, beside
 the app. [Server-side rendering](ssr.md) has the rest.

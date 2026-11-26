@@ -312,8 +312,10 @@ func TestNewFillsInTheStarter(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(root, "main.go.tmpl")); err == nil {
 				t.Error("a .tmpl file was copied as it was")
 			}
-			if _, err := os.Stat(filepath.Join(root, "auth.go")); err == nil {
-				t.Error("an app without -auth has auth.go")
+			for _, f := range []string{"auth.go", "db.go", "database.go", "migrations"} {
+				if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+					t.Errorf("an app without -auth or a database has %s", f)
+				}
 			}
 			for _, f := range onlySSR(data) {
 				if _, err := os.Stat(filepath.Join(root, f)); err == nil {
@@ -432,14 +434,100 @@ func TestNewWithPostgresOrMySQLLaysItsSQLOverTheAuthStarter(t *testing.T) {
 	}
 }
 
-func TestNewTakesOneDatabaseAndOnlyWithAuth(t *testing.T) {
+// TestNewWithADatabaseLaysItsLayerOverThePlainStarter makes a plain app
+// with each database: it has the database's layer, and the Go the auth
+// starter has alike, but none of the accounts', and its migrations are the
+// auth starter's own files, but the accounts' tables'.
+func TestNewWithADatabaseLaysItsLayerOverThePlainStarter(t *testing.T) {
+	for _, database := range []string{"sqlite", "postgres", "mysql"} {
+		t.Run(database, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "blog")
+			data := starterData{Name: "blog", Module: "blog", TugVersion: "v0.1.0", Frontend: "react", Database: database}
+			if err := writeStarter(root, data); err != nil {
+				t.Fatal(err)
+			}
+			formatted(t, root)
+			read := reader(t, root)
+			if main := read("main.go"); !strings.Contains(main, "databaseFromEnv()") || !strings.Contains(main, "app.Get(\"/up\", data.up)") || strings.Contains(main, "usersOnly") {
+				t.Errorf("main.go isn't the plain starter's, with its database:\n%s", main)
+			}
+			for _, f := range []string{"main.go", "main_test.go", "database.go", "db.go", "db_test.go", "jobs.go", "jobs_db.go", "jobs_test.go", "migrations.go", "migrations_db.go", "cache_db.go", "throttles_db.go", "sessions_db.go", "broadcasts_db.go", "presences_db.go", "README.md", "AGENTS.md", "Dockerfile", ".gitignore"} {
+				if strings.Contains(read(f), "[[") {
+					t.Errorf("%s has a placeholder left", f)
+				}
+			}
+			for _, f := range []string{"auth.go", "users.go", "users_db.go", "passkeys_db.go", "tokens_db.go", "notifications_db.go", "logins_db.go", "broadcasts.go", "account.go", "mail.go"} {
+				if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+					t.Errorf("a plain app with a database has the accounts' %s", f)
+				}
+			}
+
+			// Its migrations, and the Go both apps have, are the auth
+			// starter's own files, as are its tables.
+			withAccounts := data
+			withAccounts.Auth = true
+			auth, err := starterFiles(withAccounts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var want []string
+			for rel := range auth {
+				if strings.HasPrefix(rel, "migrations/") && !accountsOnly(rel) {
+					want = append(want, rel)
+				}
+			}
+			entries, err := os.ReadDir(filepath.Join(root, "migrations"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, e := range entries {
+				got = append(got, "migrations/"+e.Name())
+			}
+			slices.Sort(want)
+			if !slices.Equal(got, want) || len(got) == 0 {
+				t.Errorf("the migrations are %q, want the auth starter's but the accounts', %q", got, want)
+			}
+			for _, rel := range append(got, "jobs.go", "migrations.go", "jobs_db.go", "cache_db.go", "migrations_db.go") {
+				if read(rel) != string(auth[rel]) {
+					t.Errorf("%s isn't the auth starter's", rel)
+				}
+			}
+
+			_, compose := os.Stat(filepath.Join(root, "compose.yaml"))
+			_, backups := os.Stat(filepath.Join(root, "backup.go"))
+			if data.SQLite() {
+				if !strings.Contains(read(".gitignore"), "/app.db") || !strings.Contains(read("Dockerfile"), "ENV DB_PATH=/data/app.db") || strings.Contains(read(".env"), "DB_URL") {
+					t.Error("SQLite's file isn't the app's, out of git and on the image's volume")
+				}
+				if compose == nil || backups != nil {
+					t.Error("an app on SQLite has a compose.yaml, or no backups")
+				}
+			} else {
+				if !strings.Contains(read(".env"), "\nDB_URL="+data.DevURL()+"\n") || strings.Contains(read("Dockerfile"), "DB_PATH") || !strings.Contains(read("Dockerfile"), "-e DB_URL=...") {
+					t.Errorf("the app's database isn't DB_URL's, %s in development", data.DevURL())
+				}
+				if compose != nil || backups == nil {
+					t.Error("an app on a server has no compose.yaml, or SQLite's backups")
+				}
+			}
+			var m made
+			if err := json.Unmarshal([]byte(read(madeFile)), &m); err != nil || !slices.Equal(m.Flags, []string{"-" + database}) {
+				t.Errorf("tug.json's flags are %q, %v", m.Flags, err)
+			}
+		})
+	}
+}
+
+func TestNewTakesOneDatabase(t *testing.T) {
 	checkout, _ := filepath.Abs("../..")
 	for _, c := range []struct {
 		flags []string
 		want  string
 	}{
-		{[]string{"-postgres"}, "without -auth, the app has no database"},
 		{[]string{"-auth", "-postgres", "-mysql"}, "-postgres or -mysql, not both"},
+		{[]string{"-sqlite", "-mysql"}, "-sqlite or -mysql, not both"},
+		{[]string{"-sqlite", "-postgres", "-mysql"}, "-sqlite, -postgres or -mysql, not all three"},
 	} {
 		dir := filepath.Join(t.TempDir(), "blog")
 		err := runNew(append([]string{"-no-install", "-tug-dir", checkout, dir}, c.flags...))
@@ -537,6 +625,7 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 	}{
 		{"plain", nil},
 		{"auth", []string{"-auth"}},
+		{"plain with SQLite", []string{"-sqlite"}},
 		{"plain with SSR", []string{"-ssr"}},
 		{"auth with SSR", []string{"-auth", "-ssr"}},
 		// Vue's and Svelte's apps have the same Go as React's, so two
@@ -593,7 +682,37 @@ func TestANewAppBuildsAndPassesItsOwnTests(t *testing.T) {
 				runsItsCommands(t, dir)
 				growsAMigration(t, dir)
 			}
+			if kind.name == "plain with SQLite" {
+				migratesByItsCommand(t, dir)
+				runsItsDatabasesCommands(t, dir)
+				growsAMigration(t, dir)
+			}
 		})
+	}
+}
+
+// runsItsDatabasesCommands runs tug run in the plain app in dir, whose
+// commands are its database's: migrate, jobs and backup, and no account,
+// which is the auth starter's, and migrate status, which lists the
+// database's migrations and no account's.
+func runsItsDatabasesCommands(t *testing.T, dir string) {
+	t.Helper()
+	t.Chdir(dir)
+	var stdout, stderr bytes.Buffer
+	if err := runRun([]string{"help"}, &stdout, &stderr); err != nil {
+		t.Fatalf("tug run help: %v\n%s", err, stderr.String())
+	}
+	for _, command := range []string{"migrate", "jobs", "backup"} {
+		if !strings.Contains(stdout.String(), "\n  tug run "+command+" ") {
+			t.Errorf("tug run help doesn't list %s:\n%s", command, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "account") {
+		t.Errorf("tug run help lists the auth starter's account:\n%s", stdout.String())
+	}
+	stdout.Reset()
+	if err := runRun([]string{"migrate", "status"}, &stdout, &stderr); err != nil || !strings.Contains(stdout.String(), "_create_jobs") || strings.Contains(stdout.String(), "_create_users") {
+		t.Errorf("tug run migrate status: %v\n%s%s", err, stdout.String(), stderr.String())
 	}
 }
 
@@ -697,10 +816,10 @@ func writesItsTexts(t *testing.T, dir string) {
 }
 
 // TestANewAppOnPostgresOrMySQLPassesItsOwnTests makes an app on each of
-// the databases on a server as a person would, which writes its types
-// with none running, and runs its tests on the server TUG_TEST_POSTGRES or
-// TUG_TEST_MYSQL names, as CI's do, or else skips them. Its frontend is
-// the one the test above builds on SQLite.
+// the databases on a server as a person would, with accounts and without,
+// which writes its types with none running, and runs its tests on the
+// server TUG_TEST_POSTGRES or TUG_TEST_MYSQL names, as CI's do, or else
+// skips them. Its frontend is the one the test above builds on SQLite.
 func TestANewAppOnPostgresOrMySQLPassesItsOwnTests(t *testing.T) {
 	if testing.Short() {
 		t.Skip("installs the new app's packages")
@@ -709,10 +828,17 @@ func TestANewAppOnPostgresOrMySQLPassesItsOwnTests(t *testing.T) {
 		t.Skip("needs npm")
 	}
 	checkout, _ := filepath.Abs("../..")
-	for _, db := range []struct{ flag, server string }{{"-postgres", "TUG_TEST_POSTGRES"}, {"-mysql", "TUG_TEST_MYSQL"}} {
-		t.Run(db.flag[1:], func(t *testing.T) {
+	for _, db := range []struct{ name, server string }{
+		{"postgres", "TUG_TEST_POSTGRES"}, {"mysql", "TUG_TEST_MYSQL"},
+		{"plain postgres", "TUG_TEST_POSTGRES"}, {"plain mysql", "TUG_TEST_MYSQL"},
+	} {
+		t.Run(db.name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "blog")
-			if err := runNew([]string{dir, "-tug-dir", checkout, "-auth", db.flag}); err != nil {
+			flags := []string{"-auth", "-" + db.name}
+			if database, plain := strings.CutPrefix(db.name, "plain "); plain {
+				flags = []string{"-" + database}
+			}
+			if err := runNew(append([]string{dir, "-tug-dir", checkout}, flags...)); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := os.Stat(filepath.Join(dir, "resources/js/tug/pages.ts")); err != nil {

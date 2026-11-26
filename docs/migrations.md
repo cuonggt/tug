@@ -11,7 +11,9 @@ for being PHP.
 The auth starter's tables are its migrations, in the SQL of its
 database, SQLite, Postgres or MySQL: one for each table, with all the
 columns it had at v1.0, and since, a migration of its own for each
-change, as one an app has run is never changed. Package
+change, as one an app has run is never changed. A plain app made with a
+database, `tug new -sqlite`, `-postgres` or `-mysql`, has the same
+files, but the accounts' tables', and the same commands. Package
 `migrate` runs them, with no SQL of its own: which have run, a `Store`
 keeps, in the database's own SQL, as the starter's migrations table does.
 

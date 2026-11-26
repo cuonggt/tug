@@ -51,7 +51,7 @@ logged in from, each to log out, in SQLite, Postgres or MySQL.
 
 ```sh
 go install github.com/cuonggt/tug/cmd/tug@latest
-tug new blog                                        # a new app, in ./blog; tug new -auth blog for accounts
+tug new blog                                        # a new app, in ./blog; -auth for accounts, -sqlite for a database
 cd blog
 tug dev                                             # http://localhost:8080, rebuilt and reloaded as it changes
 ```
@@ -275,7 +275,8 @@ func showPost(c *tug.Ctx) error {
   What ran is kept with a hash of its SQL, so a file changed after it ran
   is caught, and instances starting at once take turns. The auth
   starter's tables are its migrations, one for each, in SQLite, Postgres
-  or MySQL.
+  or MySQL, and a plain app made with `-sqlite`, `-postgres` or `-mysql`
+  has the same, but the accounts', for its jobs, cache and sessions.
 - **Mail** (package `mail`): through an SMTP server, or under `tug dev`
   kept in a mailbox the app shows at `/_tug/mail`, each mail as a mail
   program would show it, with copies, a `Bcc` no one sees, replies to

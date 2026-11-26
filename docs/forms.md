@@ -560,8 +560,8 @@ user. A table of its own doesn't. Package `sessiontest` has
 app writes.
 
 The auth starter has a `sessions` table in each database's layer,
-`sessions_db.go`, and `SESSION_STORE` picks it: `cookie` by default, or
-`database`. Moving to the table logs nobody out, since a session still in
+`sessions_db.go`, as does a plain app made with a database, and
+`SESSION_STORE` picks it: `cookie` by default, or `database`. Moving to the table logs nobody out, since a session still in
 a cookie is read from it one last time and written to the keeper under a
 new ID; moving back logs everybody out. `prune-sessions`, a job on the
 hour, deletes the rows that have expired.
