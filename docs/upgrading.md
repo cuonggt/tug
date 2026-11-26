@@ -233,6 +233,18 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.8.0
+
+`go get github.com/cuonggt/tug@v1.8.0`, and the CLI at v1.8.0 for
+`tug new -sqlite`, `-postgres` and `-mysql` without `-auth`, which make
+the plain app with a database: the auth starter's tables for what tug's
+packages keep, its migrations, background jobs, cache, sessions,
+throttles, broadcasts and presence, with the `migrate` and `jobs`
+commands and, on SQLite, `backup` and the nightly backups
+([CLI](cli.md#tug-new)). Nothing an app calls changed since v1.7.0.
+Every starter `tug new` made before is as it was, byte for byte, so
+`tug upgrade` brings an app made before nothing.
+
 ### v1.7.0
 
 `go get github.com/cuonggt/tug@v1.7.0`. Nothing an app calls changed

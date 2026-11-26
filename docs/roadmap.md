@@ -7081,7 +7081,7 @@ the accounts out. And `tug new -postgres` without `-auth` is refused:
 `-postgres` and `-mysql` make the plain app with its database: the auth
 starter's tables for what tug's packages keep, its migrations, jobs,
 cache, sessions, throttles, broadcasts and presence, and its commands,
-without its accounts. To be released as v1.8.0.
+without its accounts. Released as v1.8.0.
 
 - **`tug new -sqlite`, `-postgres` and `-mysql`, without `-auth`:** the
   plain app, in its frontend, with its database's layer but the
@@ -7112,10 +7112,10 @@ without its accounts. To be released as v1.8.0.
 - **The plain starter's own files, a database's where they differ:** its
   `main.go`, opening the database, but under `tug gen`, and wiring the
   stores and the commands; its `Dockerfile`, the database on the volume
-  on SQLite, or `DB_URL`; its `.gitignore`, `.dockerignore` and
-  `.env.example`; and its `README.md` and `AGENTS.md`: the database, a
-  migration made by `tug migrate new` and run by the app, and the
-  commands by `tug run`, which `notesProblems` checks are the app's.
+  on SQLite, or `DB_URL`; its `.gitignore` and `.dockerignore`; and its
+  `README.md` and `AGENTS.md`: the database, a migration made by
+  `tug migrate new` and run by the app, and the commands by `tug run`,
+  which `notesProblems` checks are the app's.
 - **Tests:** `tug new`'s flags: `-sqlite`, `-postgres` and `-mysql`
   without `-auth` a plain app with its database, `-auth -sqlite` the
   same as `-auth`, two databases refused, and `tug.json`'s flags,
@@ -7211,6 +7211,11 @@ Choices made on the way:
   `-sqlite`, as tug.json says it.
 - **`-sqlite` with `-auth`:** said by `-auth` already, so it's taken, and
   `tug.json` keeps no flag for it, as before.
+- **`.env.example`, not yet:** the plan had the plain starter's list the
+  database's variables, and in v1.8.0 it lists none of them. Each has its
+  default, which [Deployment](deployment.md#configuration) lists, and the
+  `.env` `tug new` writes has `DB_URL` on Postgres or MySQL. A later
+  release adds them.
 
 ## Decisions
 
