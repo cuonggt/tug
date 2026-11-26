@@ -553,6 +553,12 @@ createInertiaApp({
 - Each page is a socket of its own, by an ID it makes, which the client
   sends with each request as `X-Socket-Id`, for `inertia.ToOthers`
   ([Broadcasting](broadcasting.md#values-and-the-others)).
+- An event that comes while one of the page's own visits is in flight, as
+  a form's, waits for the visit to finish. The change it tells of can be
+  the visit's own, published as it commits, before its answer has come: a
+  reload then would go with the cookie the change replaced, as a new
+  password's login, and its answer, coming after the visit's, would put
+  that cookie back.
 
 As an event comes for a page's props, the client fires its `live` event,
 with the props, the route and the event's name and data, and a listener

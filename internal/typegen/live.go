@@ -19,9 +19,40 @@ const liveTS = header + `
 // with its requests as X-Socket-Id: an event published with
 // inertia.ToOthers carries the ID of the page that made the change, and
 // that page, which has the change already, drops it.
+//
+// An event that comes while one of the page's own visits is in flight, as
+// a form's, waits for the visit to finish. The change the event tells of
+// can be the visit's own, published as it commits, before its answer has
+// come: a reload of the prop then would go with the cookie the change
+// replaced, as a new password's login, and its answer, coming after the
+// visit's, would put that cookie back, logging the browser out.
 
 type Channel = { name: string; type: string; params?: Record<string, unknown> }
 type Handler = (payload: unknown) => void
+
+// visiting is how many of the page's own visits are in flight: Inertia's
+// reloads, which are async, as a live prop's own, and its prefetches don't
+// count. held is what the events that came meanwhile do, in order.
+let visiting = 0
+const held: Array<() => void> = []
+
+type VisitEvent = CustomEvent<{ visit?: { async?: boolean; prefetch?: boolean } }>
+
+function ownVisit(event: Event): boolean {
+  const visit = (event as VisitEvent).detail?.visit
+  return !!visit && !visit.async && !visit.prefetch
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('inertia:start', (event) => {
+    if (ownVisit(event)) visiting++
+  })
+  document.addEventListener('inertia:finish', (event) => {
+    if (!ownVisit(event) || visiting === 0) return
+    visiting--
+    if (visiting === 0) for (const deliver of held.splice(0)) deliver()
+  })
+}
 
 type Stream = {
   source: EventSource
@@ -60,7 +91,11 @@ function subscribe(channel: Channel, event: string, handler: Handler): () => voi
       } catch {
         // an event with no JSON, a signal alone
       }
-      for (const handle of all) handle(payload)
+      const deliver = () => {
+        for (const handle of all) handle(payload)
+      }
+      if (visiting > 0) held.push(deliver)
+      else deliver()
     }
     stream.source.addEventListener(event, listener)
     stream.handlers.set(event, all)

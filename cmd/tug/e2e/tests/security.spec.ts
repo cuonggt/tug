@@ -87,14 +87,38 @@ async function addPasskey(page: Page, name: string) {
   await expect(page.getByText(name)).toBeVisible()
 }
 
-test('a new password logs in, and the old one no longer does', async ({ page }, info) => {
+test('a new password logs in, and the old one no longer does', async ({ page, request }, info) => {
   const user = await registered(page, info)
   await opened(page, '/settings/security')
+
+  // The change's notification reaches the page before its answer, which
+  // is held here half a second, as a slow network would: the page reloads
+  // none of its live props meanwhile, as a reload with the cookie the
+  // change replaced, answered after it, would put that cookie back and log
+  // the browser out. The answer comes by a request client of its own, so
+  // the browser has its cookie only once it's let through.
+  let held = false
+  const reloaded: string[] = []
+  page.on('request', (r) => {
+    const only = r.headers()['x-inertia-partial-data']
+    if (held && only) reloaded.push(only)
+  })
+  await page.route('**/settings/password', async (route) => {
+    held = true
+    const headers = await route.request().allHeaders()
+    delete headers['content-length']
+    const response = await request.fetch(route.request(), { headers, maxRedirects: 0 })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    held = false
+    await route.fulfill({ response })
+  })
+
   await page.getByLabel('Current password').fill(user.password)
   await page.getByLabel('New password', { exact: true }).fill('battery staple horse')
   await page.getByLabel('New password again').fill('battery staple horse')
   await page.getByRole('button', { name: 'Change the password' }).click()
   await expect(page.getByText("Password changed. You've been logged out everywhere else.")).toBeVisible()
+  expect(reloaded, 'the live props reloaded while the change was being answered').toEqual([])
 
   await logOut(page)
   await logIn(page, user)

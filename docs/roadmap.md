@@ -6325,6 +6325,24 @@ Choices made on the way:
   which Go keeps to itself. A connection that has said nothing for 5
   seconds, a browser's spare one, is closed by tug then, as Go takes it
   for idle by whole seconds of the clock, and waits up to one more.
+- **An event during the page's own visit waits for it, since v1.8.1:** a
+  new password's notification, published as its transaction commits,
+  reached the security page before the change's answer, and the client
+  reloaded the page's live props 32 ms later, with the cookie the change
+  replaced: answered as a session whose login had ended, and after the
+  change's own answer, it put that cookie back, and the browser that
+  changed its password was logged out, now and then, as the starters'
+  browser suite showed in Vue. The client waits only for a request of its
+  own to the page's address, and a form's goes elsewhere, so tug's
+  transport holds a channel's events while a visit of the page's own is
+  in flight, counted by the `inertia:start` and `inertia:finish` events
+  Inertia dispatches on `document`, but its async reloads and its
+  prefetches, and hands them on as it finishes, once the browser has the
+  answer's cookie. The suite's test of a new password holds the answer
+  half a second, which a transport without the hold fails every time.
+  Another tab's page has no visit in flight, and can still reload in that
+  moment, with the cookie as it was: a race that wants the session's
+  cookie written only as it changes, which is left for later.
 
 ## M65 · S3 on the platform's keys — done
 

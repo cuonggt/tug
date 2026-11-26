@@ -877,8 +877,13 @@ dev server that isn't there: delete it.
   values, and `live.ts` (`live.go`'s `liveTS`), the transport of live
   props, the same for every app, of the shape of Inertia's
   `LiveTransport`, importing nothing: an `EventSource` a route, shared by
-  its events, the connection's status, and a socket ID of the page's
-  own: `pages.ts` (an interface per named struct, `SharedProps`,
+  its events, the connection's status, a socket ID of the page's own,
+  and an event that comes while a visit of the page's own is in flight,
+  as a form's, held till it finishes (`visiting`, `held`, counted by
+  Inertia's `inertia:start` and `inertia:finish` on `document`, but its
+  async reloads and prefetches), as the change it tells of can be the
+  visit's own, whose answer brings the cookie a reload should go with:
+  `pages.ts` (an interface per named struct, `SharedProps`,
   `Pages`, `PageProps`, `FlashData`, the keys `tug.Flash` declares, each
   optional, and the `InertiaConfig` augmentation, with `flashDataType`
   only when there's a key, so an app's own doesn't clash) and
