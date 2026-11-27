@@ -35,7 +35,7 @@
 //	}
 //	user, err := users.ByID(r.Context(), id)
 //	if errors.Is(err, ErrNoUser) || err == nil && !auth.Current(s, user.PasswordHash) {
-//		auth.Logout(s) // the user has gone, or has a new password
+//		s.Pass() // the user has gone, or has a new password: a guest
 //		return nil, nil
 //	}
 //	return user, err
@@ -126,7 +126,11 @@ func UserID(s *session.Session) (string, bool) {
 
 // Current reports whether the login in s was made with passwordHash, the
 // user's password hash as it's stored now. When it wasn't, the password
-// has changed since the login, and s should be logged out.
+// has changed since the login, which is over: answer the request as a
+// guest's, and leave s as it came, by its Pass, rather than log it out. A
+// request sent with it can be answered after the browser has logged in
+// again, with the new password, whose cookie emptying it would delete; it
+// logs nobody in, and goes as a login replaces it.
 func Current(s *session.Session, passwordHash string) bool {
 	if s == nil {
 		return false

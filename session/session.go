@@ -17,6 +17,12 @@
 // table in its database say, and leaves the cookie carrying the session's
 // ID alone, for an app whose sessions hold more than that.
 //
+// A response writes the cookie as the session changes, and otherwise once
+// the cookie is a minute old, which keeps a session in use alive, rather
+// than with every response: one sent with an older cookie, and answered
+// after a newer one has come, would put the older back, as a page's
+// scripts could over a login's.
+//
 // Values go through encoding/json on their way, so they come back as JSON
 // types: a number as a float64, a struct as a map[string]any.
 package session
@@ -39,6 +45,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -52,9 +60,12 @@ type Config struct {
 	// Cookie names the cookie. Default "tug_session".
 	Cookie string
 
-	// Lifetime is how long a session lasts without a request. Each response
-	// starts it again. Default 2 hours; Session.SetLifetime changes it for
-	// one session.
+	// Lifetime is how long a session lasts without a request. Each write of
+	// it starts it again: a request that asks for the session writes it as
+	// it changes, and otherwise once its cookie is a minute old, so a
+	// session in use lasts, and one left alone ends a lifetime after its
+	// last write, a minute at most before its last request. Default 2
+	// hours; Session.SetLifetime changes it for one session.
 	Lifetime time.Duration
 
 	// Keeper is where the sessions themselves are kept, for sessions
@@ -177,19 +188,26 @@ func New(cfg Config) (*Store, error) {
 
 // Session is one visitor's session, for the length of a request.
 type Session struct {
+	// The session is read from the request's cookie as a handler first asks
+	// for it, by From, and asked says it has: a request whose handler never
+	// does, as a static file's, reads none of it, and writes none of it.
+	store   *Store
+	r       *http.Request
+	loading sync.Once
+	asked   atomic.Bool
+
 	values   map[string]any
 	now      map[string]any // flashed by the request before, readable now
 	next     map[string]any // flashed by this request, for the next
 	had      bool           // the request came with a session cookie
+	sent     time.Time      // when that cookie was written; zero when it doesn't say
 	lifetime time.Duration  // this session's own, from SetLifetime; 0 for the Store's
 	base     time.Duration  // the Store's
 
 	// Where a Keeper keeps the session: id is its own, which the cookie
-	// carries, wrote when the row it came from was written, rotated
-	// whether Rotate asked for a new id, and lost whether the keeper
-	// failed to answer, which leaves the session it holds alone.
+	// carries, rotated whether Rotate asked for a new id, and lost whether
+	// the keeper failed to answer, which leaves the session it holds alone.
 	id      string
-	wrote   time.Time
 	rotated bool
 	lost    bool
 
@@ -201,10 +219,20 @@ type Session struct {
 type sessionKey struct{}
 
 // From returns the session Store.Middleware put in ctx, or nil when it
-// didn't run.
+// didn't run. The first call reads it from the request's cookie, and where
+// a Keeper keeps the session, its row; a request that never asks for its
+// session leaves it as it came.
 func From(ctx context.Context) *Session {
 	s, _ := ctx.Value(sessionKey{}).(*Session)
+	if s != nil {
+		s.loading.Do(s.load)
+	}
 	return s
+}
+
+func (s *Session) load() {
+	s.store.load(s)
+	s.asked.Store(true)
 }
 
 // Get returns the value stored under key, or nil.
@@ -238,8 +266,8 @@ func (s *Session) Clear() {
 
 // SetLifetime makes the session last d without a request, in whole seconds,
 // in place of the Store's Lifetime: longer for a login that asked to be
-// remembered, say. Each response starts it again, as it does the Store's.
-// It lasts until Clear, and 0 goes back to the Store's.
+// remembered, say. Each write of the session starts it again, as it does
+// the Store's. It lasts until Clear, and 0 goes back to the Store's.
 func (s *Session) SetLifetime(d time.Duration) {
 	s.lifetime = max(d.Truncate(time.Second), 0)
 	s.changed = true
@@ -305,7 +333,7 @@ type payload struct {
 	Flash    map[string]any `json:"f,omitempty"`
 	Expires  int64          `json:"e"`
 	Lifetime int64          `json:"l,omitempty"` // seconds, when SetLifetime set one
-	Wrote    int64          `json:"w,omitempty"` // when a Keeper's row was written
+	Wrote    int64          `json:"w,omitempty"` // when it was written, the cookie or a Keeper's row
 }
 
 // keyOf is the key a session is kept under: the SHA-256 of its ID, as a
@@ -322,53 +350,63 @@ func ad(cookie, id string) []byte {
 	return fmt.Appendf(nil, "%d:%s%d:%s", len(cookie), cookie, len(id), id)
 }
 
-// refresh is how often a session nothing changed is written again, to put
-// off when it expires, and how long its row outlasts its cookie.
+// refresh is how old a session's cookie is before a request that changes
+// nothing writes it again, to put off when it expires, and how long a
+// Keeper's row outlasts its cookie.
 const refresh = time.Minute
 
-// Middleware gives each request its session, and writes the session back
-// to its cookie before the response starts. The cookie is written with
-// every response that has a session, which is what keeps the session
-// alive while it's in use.
+// Middleware gives each request its session, read as a handler first asks
+// for it, and writes it back to its cookie before the response starts:
+// when the request changed it, flashed something, or was shown what the
+// request before flashed, and otherwise once the cookie is a minute old,
+// which keeps a session in use alive. Each other response leaves the
+// cookie as it came, so one answered after a newer cookie has come, a
+// login's say, doesn't put the older back; and a request whose handler
+// never asks for the session, as a page's scripts', writes none of it at
+// all.
 func (st *Store) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s := st.load(r)
+		s := &Session{store: st, r: r}
 		cw := &cookieWriter{ResponseWriter: w, commit: func(w http.ResponseWriter) { st.save(w, r, s) }}
 		next.ServeHTTP(cw, r.WithContext(context.WithValue(r.Context(), sessionKey{}, s)))
 		cw.start()
 	})
 }
 
-func (st *Store) load(r *http.Request) *Session {
-	s := &Session{values: map[string]any{}, now: map[string]any{}, next: map[string]any{}, base: st.lifetime}
-	c, err := r.Cookie(st.cookie)
+// load fills s from its request's cookie, and where a Keeper keeps the
+// session, its row.
+func (st *Store) load(s *Session) {
+	s.values, s.now, s.next, s.base = map[string]any{}, map[string]any{}, map[string]any{}, st.lifetime
+	c, err := s.r.Cookie(st.cookie)
 	if err != nil {
-		return s
+		return
 	}
 	s.had = true
 	sealed, err := base64.RawURLEncoding.DecodeString(c.Value)
 	if err != nil {
-		return s
+		return
 	}
 	p, ok := st.open(sealed, []byte(st.cookie))
 	if !ok || st.now().Unix() > p.Expires {
-		return s // tampered with, from a key since dropped, or too old: start afresh
+		return // tampered with, from a key since dropped, or too old: start afresh
+	}
+	if p.Wrote > 0 {
+		s.sent = time.Unix(p.Wrote, 0)
 	}
 	s.lifetime = time.Duration(max(p.Lifetime, 0)) * time.Second
 	if st.keeper != nil && p.ID != "" {
-		st.read(r, s, p.ID)
-		return s
+		st.read(s.r, s, p.ID)
+		return
 	}
 	// The cookie holds the session itself: always without a Keeper, and
 	// with one for a session made before it was set, which save writes
-	// where the keeper puts it, under an ID of its own.
+	// where the keeper puts it, under an ID of its own, as it next writes.
 	if p.Values != nil {
 		s.values = p.Values
 	}
 	if p.Flash != nil {
 		s.now = p.Flash
 	}
-	return s
 }
 
 // read fills s from the Keeper's row for id. A row that isn't there is a
@@ -389,7 +427,7 @@ func (st *Store) read(r *http.Request, s *Session, id string) {
 	if !ok || st.now().Unix() > p.Expires {
 		return
 	}
-	s.id, s.wrote = id, time.Unix(p.Wrote, 0)
+	s.id = id
 	if p.Values != nil {
 		s.values = p.Values
 	}
@@ -430,6 +468,9 @@ func (st *Store) seal(p payload, ad []byte) ([]byte, error) {
 const maxCookie = 4000
 
 func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
+	if !s.asked.Load() {
+		return // never asked for, so as it came
+	}
 	cookie := &http.Cookie{
 		Name:     st.cookie,
 		Path:     "/",
@@ -446,6 +487,12 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 	if s.lost {
 		return // the Keeper didn't answer: leave the session it holds alone
 	}
+	if !s.changed && len(s.next) == 0 && len(s.now) == 0 && st.fresh(s) {
+		// Nothing to write, and it was written lately: a response that
+		// wrote it again would put it back over a newer one, a login's,
+		// when it's answered after it.
+		return
+	}
 	if len(s.values) == 0 && len(s.next) == 0 {
 		if s.had {
 			st.forget(r, s)
@@ -454,22 +501,21 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 		}
 		return
 	}
-	lifetime := st.lifetime
-	if s.lifetime > 0 {
-		lifetime = s.lifetime
-	}
-	expires := st.now().Add(lifetime)
+	lifetime := s.Lifetime()
+	now := st.now()
+	expires := now.Add(lifetime)
 	p := payload{
 		Values:   s.values,
 		Flash:    s.next,
 		Expires:  expires.Unix(),
 		Lifetime: int64(s.lifetime / time.Second),
+		Wrote:    now.Unix(),
 	}
 	if st.keeper != nil {
 		if !st.keep(r, s, p, expires) {
 			return
 		}
-		p = payload{ID: s.id, Expires: p.Expires, Lifetime: p.Lifetime}
+		p = payload{ID: s.id, Expires: p.Expires, Lifetime: p.Lifetime, Wrote: p.Wrote}
 	}
 	sealed, err := st.seal(p, []byte(st.cookie))
 	if err != nil {
@@ -486,25 +532,27 @@ func (st *Store) save(w http.ResponseWriter, r *http.Request, s *Session) {
 	http.SetCookie(w, cookie)
 }
 
+// fresh says whether the cookie the request came with was written lately
+// enough for a request that changes nothing to leave it as it came: less
+// than refresh ago, or than half the session's lifetime, for one shorter
+// than two of them, so a session in use never runs out between writes. A
+// cookie that doesn't say when it was written, one from before tug said
+// it, or that didn't open, isn't.
+func (st *Store) fresh(s *Session) bool {
+	age := st.now().Sub(s.sent)
+	return !s.sent.IsZero() && age >= 0 && age < min(refresh, s.Lifetime()/2)
+}
+
 // keep writes the session where the Keeper puts it, under the ID the
-// cookie will carry, and says whether the response can carry it. A
-// request that changed nothing, flashed nothing, and was left nothing
-// writes no row while the row it read was written less than refresh ago,
-// as a login's last sight is written at most that often; the cookie goes
-// out all the same, so the browser's own expiry is exact, and the row
-// outlasts it by refresh, so it never goes first. A request that was
-// flashed something writes, since the row holds that flash until a write
-// leaves it out, and the page after this one would be shown it again.
+// cookie will carry, and says whether the response can carry it. The row
+// is written with its cookie, as the cookie's expiry is the row's, and
+// the keeper holds it refresh longer, so it never goes first.
 func (st *Store) keep(r *http.Request, s *Session, p payload, expires time.Time) bool {
 	old := s.id
 	if s.id == "" || s.rotated {
 		s.id = rand.Text()
 	}
-	fresh := !s.wrote.IsZero() && st.now().Sub(s.wrote) < refresh
-	if s.id == old && !s.changed && len(s.next) == 0 && len(s.now) == 0 && fresh {
-		return true
-	}
-	p.Wrote = st.now().Unix() // the row doesn't carry the ID: its seal is bound to it
+	// The row doesn't carry the ID: its seal is bound to it.
 	sealed, err := st.seal(p, ad(st.cookie, s.id))
 	if err == nil {
 		err = st.keeper.Set(r.Context(), keyOf(s.id), sealed, expires.Add(refresh))

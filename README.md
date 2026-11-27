@@ -226,9 +226,11 @@ func showPost(c *tug.Ctx) error {
   the app likes, and moved to a new key after a rotation, as tug's own
   are. `tug key` makes a key.
 - **Sessions** (package `session`): in an encrypted cookie, keyed by
-  `APP_KEY`, with flash data. `c.Flash` reaches the next page shown, after
-  a redirect, a `c.Location` or neither, and only that one, and
-  `c.ForgetFlash` takes a key back.
+  `APP_KEY`, with flash data, written as they change and once a minute
+  while they're in use, so a page's scripts, or another tab's reload,
+  never put back a cookie a login replaced. `c.Flash` reaches the next
+  page shown, after a redirect, a `c.Location` or neither, and only that
+  one, and `c.ForgetFlash` takes a key back.
 - **Files** (package `storage`): uploads, from an Inertia form with its
   progress, kept in a directory the app serves, or in S3 or any service
   that speaks its API, Cloudflare R2 and MinIO among them, with S3's

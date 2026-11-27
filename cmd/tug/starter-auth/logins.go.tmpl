@@ -142,8 +142,8 @@ func (a *app) browserID(c *tug.Ctx) string {
 }
 
 // stillLoggedIn reports whether s's login, of u, has its row, and writes
-// its last sight, once a minute at most, which moves its end on, as each
-// response starts its session's lifetime again.
+// its last sight, once a minute at most, which moves its end on, as its
+// session's own writes, once a minute at most, start its lifetime again.
 func (a *app) stillLoggedIn(ctx context.Context, s *session.Session, u *User) (bool, error) {
 	login, ok := auth.LoginID(s)
 	if !ok {

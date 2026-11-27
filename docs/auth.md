@@ -188,7 +188,9 @@ app.Get("/settings/security", a.usersOnly(verified(passwordConfirmed(a.securityP
 `dashboard` takes the user as well as the `Ctx`:
 `func dashboard(c *tug.Ctx, user *User) error`, a `userHandler`.
 `usersOnly` finds the request's user and hands it over, or sends a guest to
-log in, keeping the page with `auth.SetIntended` for after. Routes take a
+log in, keeping the page with `auth.SetIntended` for after; a browser
+whose login has ended starts at the dashboard after it, as keeping the
+page would write the session `a.user` leaves as it came. Routes take a
 `tug.HandlerFunc`, and only `usersOnly` makes one of a `userHandler`, so a
 handler that takes a user can't be routed without it: forgetting it
 doesn't compile. That's why it's a wrapper rather than middleware, and why
@@ -249,8 +251,13 @@ func (a *app) user(r *http.Request) (*User, error) {
 has now, and `stillLoggedIn` that the login still has its row, which
 logging it out from another browser deletes ([Browsers](#browsers)). A
 user who's gone, or who has set a new password since, or whose login was
-ended, is logged out there and then, and the request goes on as a
-guest's. When the database fails, there's no user and an error:
+ended, is over, and the request goes on as a guest's, its session passed,
+by `Pass`, left as it came rather than emptied: a request sent with it can
+be answered after the browser has logged in again, with a new password in
+another tab say, and emptying it would delete that login's cookie, as
+emptying the session deletes it. The login that has ended logs nobody in,
+and goes as a login replaces it, or as it expires. When the database
+fails, there's no user and an error:
 `usersOnly` answers it with a 500, and `shareAuth` logs it and shows the
 page as a guest's.
 
@@ -631,7 +638,7 @@ code, a passkey, registering and a new password, logs in through
 random, which `auth.LoginID` reads, and the row keeps its SHA-256, as an
 API token's is kept, with the browser's User-Agent, its first 512 bytes,
 the address, `c.IP()`'s, and the session's lifetime. `a.user` reads the
-row at each request, and a session whose login has none is logged out
+row at each request, and a session whose login has none is a guest's
 ([Finding the request's user](#finding-the-requests-user)): a browser
 logged out from another finds its row gone at its next request, and goes
 to the login page.

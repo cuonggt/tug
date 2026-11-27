@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,7 @@ type memoryKeeper struct {
 	mu   sync.Mutex
 	rows map[string]keptRow
 	sets int   // how many sessions it has been given, for the once a minute
+	gets int   // how many it has been asked for
 	down error // what it answers while it's down
 }
 
@@ -34,6 +36,7 @@ func newMemoryKeeper() *memoryKeeper {
 func (k *memoryKeeper) Get(_ context.Context, key []byte, now time.Time) ([]byte, bool, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	k.gets++
 	if k.down != nil {
 		return nil, false, k.down
 	}
@@ -63,6 +66,17 @@ func (k *memoryKeeper) Delete(_ context.Context, key []byte) error {
 	}
 	delete(k.rows, string(key))
 	return nil
+}
+
+// reads is how many sessions the keeper has been asked for, and none for
+// no keeper.
+func (k *memoryKeeper) reads() int {
+	if k == nil {
+		return 0
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.gets
 }
 
 // kept is how many sessions the keeper holds.
@@ -279,18 +293,26 @@ func TestARotateWithoutAKeeperDoesNothing(t *testing.T) {
 
 func TestASessionTheKeeperNoLongerHasIsANewOne(t *testing.T) {
 	k := newMemoryKeeper()
-	b := newBrowser(t, newStore(t, Config{Keeper: k}))
+	clock := newClock()
+	b := newBrowser(t, clock.of(newStore(t, Config{Keeper: k})))
 	b.do(func(s *Session) { s.Set("user_id", 42) })
 	// Logged out from another browser, or pruned long after it expired.
 	k.rows = map[string]keptRow{}
 
+	// A cookie written within the minute is left as it came, as it may be
+	// one a login has since replaced, its row gone with it.
 	rec := b.do(func(s *Session) {
 		if s.Get("user_id") != nil {
 			t.Errorf("the request still had user_id = %v", s.Get("user_id"))
 		}
 	})
-	// Nothing to keep: the cookie goes, so the browser stops sending an ID
-	// that's no longer a session.
+	if c := rec.Header().Get("Set-Cookie"); c != "" {
+		t.Errorf("a request at once wrote %s", c)
+	}
+	// Once it's a minute old, with nothing to keep, it goes, so the browser
+	// stops sending an ID that's no longer a session.
+	clock.now = clock.now.Add(time.Minute)
+	rec = b.do(func(s *Session) {})
 	if !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=0") {
 		t.Errorf("the cookie wasn't dropped: %s", rec.Header().Get("Set-Cookie"))
 	}
@@ -332,35 +354,36 @@ func TestAKeeperThatFailsLeavesTheSessionItHoldsAlone(t *testing.T) {
 	})
 }
 
-func TestASessionNothingChangedIsWrittenOnceAMinute(t *testing.T) {
+func TestAKeptSessionsRowIsWrittenWithItsCookie(t *testing.T) {
 	k := newMemoryKeeper()
-	st := newStore(t, Config{Keeper: k})
-	now := time.Now()
-	st.now = func() time.Time { return now }
-	b := newBrowser(t, st)
+	clock := newClock()
+	b := newBrowser(t, clock.of(newStore(t, Config{Keeper: k})))
 
 	b.do(func(s *Session) { s.Set("user_id", 42) })
 	if k.sets != 1 {
 		t.Fatalf("the first request wrote %d times", k.sets)
 	}
-	// A page of a logged-in app changes nothing: its cookie goes out, so
-	// the browser's own expiry is exact, but the row stays as it is.
+	// A page of a logged-in app changes nothing: neither its cookie nor its
+	// row is written within the minute.
 	for range 3 {
-		if rec := b.do(func(s *Session) {}); rec.Header().Get("Set-Cookie") == "" {
-			t.Error("a request that changed nothing wrote no cookie")
+		clock.now = clock.now.Add(10 * time.Second)
+		if rec := b.do(func(s *Session) {}); rec.Header().Get("Set-Cookie") != "" {
+			t.Errorf("a request that changed nothing wrote %s", rec.Header().Get("Set-Cookie"))
 		}
 	}
 	if k.sets != 1 {
 		t.Errorf("requests that changed nothing wrote the row %d times", k.sets)
 	}
-	// A request that changes something writes it whenever it comes.
+	// A request that changes something writes both whenever it comes.
 	b.do(func(s *Session) { s.Set("user_id", 7) })
 	if k.sets != 2 {
 		t.Errorf("a request that set a value wrote the row %d times in all", k.sets)
 	}
-	// Past the minute, the row is written again to put off its expiry.
-	now = now.Add(2 * time.Minute)
-	b.do(func(s *Session) {})
+	// Past the minute, both are written again to put off their expiry.
+	clock.now = clock.now.Add(2 * time.Minute)
+	if rec := b.do(func(s *Session) {}); rec.Header().Get("Set-Cookie") == "" {
+		t.Error("a request a minute later wrote no cookie")
+	}
 	if k.sets != 3 {
 		t.Errorf("a request a minute later wrote the row %d times in all", k.sets)
 	}
@@ -368,19 +391,25 @@ func TestASessionNothingChangedIsWrittenOnceAMinute(t *testing.T) {
 
 func TestAKeptSessionOutlastsItsCookie(t *testing.T) {
 	k := newMemoryKeeper()
-	st := newStore(t, Config{Keeper: k, Lifetime: time.Hour})
-	now := time.Now()
-	st.now = func() time.Time { return now }
-	b := newBrowser(t, st)
+	clock := newClock()
+	b := newBrowser(t, clock.of(newStore(t, Config{Keeper: k, Lifetime: 30 * time.Second})))
 	b.do(func(s *Session) { s.Set("user_id", 42) })
 
 	// The row is written once a minute at most, so it expires refresh
-	// after the cookie of the response that wrote it: a session the
-	// browser still has is one the keeper still holds.
-	c := b.cookies["tug_session"]
-	ends := now.Add(time.Duration(c.MaxAge) * time.Second)
-	if _, ok, _ := k.Get(context.Background(), keyOf(b.cookiePayload(t).ID), ends); !ok {
-		t.Error("the keeper's row expires before the cookie does")
+	// after the cookie of the response that wrote it, and a cookie written
+	// again within that minute, to put off its expiry, as a short session's
+	// is, expires before it still: a session the browser still has is one
+	// the keeper still holds.
+	for range 6 {
+		p := b.cookiePayload(t)
+		ends := time.Unix(p.Expires, 0)
+		if _, ok, _ := k.Get(context.Background(), keyOf(p.ID), ends); !ok {
+			t.Fatalf("the keeper's row expires before the cookie does, at %v", ends)
+		}
+		clock.now = clock.now.Add(20 * time.Second)
+		if rec := b.do(func(s *Session) {}); rec.Header().Get("Set-Cookie") == "" {
+			t.Fatal("a request at half the session's lifetime wrote no cookie")
+		}
 	}
 }
 
@@ -413,14 +442,19 @@ func TestSessionsInCookiesMoveToAKeeperWithNoOneLoggedOut(t *testing.T) {
 		t.Fatalf("a cookie without a Keeper carries an ID: %+v", p)
 	}
 
-	// The app is deployed again, with a Keeper this time.
+	// The app is deployed again, with a Keeper this time. The session goes
+	// on in its cookie until it's next written, as it is once its cookie is
+	// a minute old.
 	k := newMemoryKeeper()
-	b.store = newStore(t, Config{Keys: keys, Keeper: k})
+	clock := newClock()
+	b.store = clock.of(newStore(t, Config{Keys: keys, Keeper: k}))
 	b.do(func(s *Session) {
 		if s.Get("user_id") != 42.0 {
 			t.Errorf("the session the cookie held was lost: user_id = %v", s.Get("user_id"))
 		}
 	})
+	clock.now = clock.now.Add(time.Minute)
+	b.do(func(s *Session) {})
 	if k.kept() != 1 {
 		t.Errorf("the keeper holds %d sessions, want the one that was in the cookie", k.kept())
 	}
@@ -463,6 +497,29 @@ func TestARequestWithNoSessionDoesntTouchTheKeeper(t *testing.T) {
 	}
 	if k.kept() != 0 {
 		t.Errorf("the keeper holds %d sessions", k.kept())
+	}
+}
+
+func TestASessionAskedForAtOnceIsReadOnce(t *testing.T) {
+	k := newMemoryKeeper()
+	b := newBrowser(t, newStore(t, Config{Keeper: k}))
+	b.do(func(s *Session) { s.Set("user_id", 42) })
+	reads := k.reads()
+
+	// A page's props resolve at once, and each can ask for the session.
+	b.send(b.cookies, func(w http.ResponseWriter, r *http.Request) {
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() {
+				if got := From(r.Context()).Get("user_id"); got != 42.0 {
+					t.Errorf("a prop got user_id %v", got)
+				}
+			})
+		}
+		wg.Wait()
+	})
+	if n := k.reads() - reads; n != 1 {
+		t.Errorf("the session was read %d times, want once", n)
 	}
 }
 

@@ -442,7 +442,9 @@ app := tug.New(cfg)
 
 The app `tug new` makes does this in its `main.go`. Every request then goes
 through the session's middleware, inside the app's own, and `c.Session()`
-returns its session; without `Config.Session`, it's nil.
+returns its session; without `Config.Session`, it's nil. The session is
+read as a handler first asks for it, so a request whose handler never
+does, as a page's scripts', reads none of it.
 
 The whole session travels in one cookie, encrypted and authenticated with
 AES-256-GCM under a key derived from `APP_KEY`, so the server keeps nothing.
@@ -452,10 +454,13 @@ an empty session. `session.Config` has four more fields:
 - `Cookie` names the cookie, `tug_session` by default. It's `HttpOnly` and
   `SameSite=Lax`, and isn't set while the session is empty.
 - `Lifetime` is how long a session lasts without a request, two hours by
-  default. Each response sets the cookie again with a new expiry, so a
-  session in use stays alive; one left longer starts afresh, even if the
-  browser kept the cookie, as the expiry is inside it too. One session
-  can have a lifetime of its own, set with `SetLifetime`, below.
+  default. Each write of the cookie gives it a new expiry, and a request
+  that asks for the session writes it once the cookie is a minute old,
+  [below](#when-its-written), so a session in use stays alive; one left
+  alone ends a lifetime after its last write, a minute at most before its
+  last request, and starts afresh, even if the browser kept the cookie, as
+  the expiry is inside it too. One session can have a lifetime of its own,
+  set with `SetLifetime`, below.
 - `Secure` keeps the cookie to HTTPS. A request over TLS gets that anyway,
   but behind a proxy that ends TLS, requests arrive over plain HTTP and it
   takes `Secure: true`. See [Deployment](deployment.md#behind-a-proxy).
@@ -463,6 +468,28 @@ an empty session. `session.Config` has four more fields:
   finds them, and leaves the cookie carrying the session's ID alone, for
   an app whose sessions hold more than a cookie takes: [Kept on the
   server](#kept-on-the-server).
+
+### When it's written
+
+A response writes the session's cookie when its request changed the
+session, by `Set`, `Delete`, `Clear`, `SetLifetime` or `Rotate`, flashed
+something, or was shown what the request before flashed, which the cookie
+then leaves out. Otherwise it writes it once the cookie is a minute old,
+to put off its expiry: half the session's lifetime, for one shorter than
+two minutes. Any other response leaves the cookie as it came, with no
+`Set-Cookie`, and a request whose handler never asks for the session, as
+a page's scripts', a stylesheet's or a health check's, writes none of it,
+however old the cookie is.
+
+That's so a browser's requests don't undo each other. Each goes with the
+cookie the browser has as it's sent, and one answered after a newer
+cookie has come, a login's in another tab say, would put the older back if
+it wrote the session as it found it, and the login would be gone. Two
+requests that both change one session still race, the later answer
+winning, as they would for any value kept in one place; those are the
+requests a person makes, rather than the ones a page makes beside them. A
+partial reload, as above, leaves the cookie as it came even once it's a
+minute old.
 
 ### Keys
 
@@ -480,10 +507,11 @@ for one kept outside the environment.
 To rotate the key, the new one goes in `APP_KEY` and the old one in
 `APP_PREVIOUS_KEYS`, comma separated when there are several. The first key
 encrypts and each of them decrypts, so sessions made with the old key still
-read, and each response encrypts its session again with the new one. Once
-a `Lifetime` has passed, every session still alive has been through a
-response, and the old key can go: the longest lifetime any session has,
-which is a month for the auth starter's "Remember me".
+read, and each write of a session encrypts it with the new one, which a
+session in use has within a minute. Once a `Lifetime` has passed, every
+session still alive has been written since, and the old key can go: the
+longest lifetime any session has, which is a month for the auth starter's
+"Remember me".
 
 ### Reading and writing
 
@@ -497,9 +525,9 @@ s.Delete("theme")
 `SetLifetime(d)` has the session last `d` without a request, in place of
 the `Store`'s `Lifetime`, as a login that ticked "Remember me" does in the
 auth starter: a month, where everyone else's lasts two hours. The lifetime
-travels in the cookie with the rest, so each response starts it again as
-it does the `Store`'s, until `Clear`, or `SetLifetime(0)`, goes back to the
-`Store`'s. `Lifetime()` says how long the session lasts: its own, or the
+travels in the cookie with the rest, so each write of the session starts
+it again as it does the `Store`'s, until `Clear`, or `SetLifetime(0)`, goes
+back to the `Store`'s. `Lifetime()` says how long the session lasts: its own, or the
 `Store`'s, as the auth starter keeps it with a login's row, for when the
 login ends.
 
@@ -561,19 +589,18 @@ app writes.
 
 The auth starter has a `sessions` table in each database's layer,
 `sessions_db.go`, as does a plain app made with a database, and
-`SESSION_STORE` picks it: `cookie` by default, or `database`. Moving to the table logs nobody out, since a session still in
-a cookie is read from it one last time and written to the keeper under a
-new ID; moving back logs everybody out. `prune-sessions`, a job on the
-hour, deletes the rows that have expired.
+`SESSION_STORE` picks it: `cookie` by default, or `database`. Moving to
+the table logs nobody out, since a session still in a cookie is read from
+it until it's next written, and then written to the keeper under a new
+ID; moving back logs everybody out. `prune-sessions`, a job on the hour,
+deletes the rows that have expired.
 
-A request that changes nothing, flashes nothing, and was flashed nothing
-writes no row while the row it read was written less than a minute ago, as
-the auth starter writes a login's last sight at most that often. The
-cookie goes out all the same, so the browser's own expiry is exact, and the
-row outlasts it by a minute, so a session the browser still has is one the
-keeper still holds. A request that was flashed something writes, since the
-row holds that flash until a write leaves it out, and the page after it
-would be shown the message again.
+The row is written with the cookie, by the [same rule](#when-its-written):
+as the request changes the session, and once a minute while it's in use,
+as the auth starter writes a login's last sight at most that often. The
+keeper holds it a minute longer than the cookie lasts, so a session the
+browser still has is one the keeper still holds, and a request whose
+handler never asks for its session reads no row.
 
 `Rotate` gives the session a new ID, keeping its values, and the row under
 the old one goes as the response does. `auth.Login` calls it, so a session

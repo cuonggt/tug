@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 tug is a Go web framework for apps whose frontend is Inertia.js v3: Go
 handlers render React, Vue or Svelte pages with props, with no API in
 between. It is built in milestones, and `docs/roadmap.md` has the plan,
-the decisions behind it and where it stands: M1 to M70 are done, which is
+the decisions behind it and where it stands: M1 to M71 are done, which is
 the HTTP core, Inertia pages with Vite, forms and validation, the rest of
 the v3 protocol, the CLI, v0.1.0 (the auth starter and the guide), the
 auth starter made whole (v0.2.0): email verification, remember me,
@@ -241,7 +241,14 @@ in CI, and a plain app's database (v1.8.0): `tug new -sqlite`,
 starter's tables for what tug's packages keep, its migrations, jobs,
 cache, sessions, throttles, broadcasts and presence, its commands and,
 on SQLite, its backups, by its `database.go`, and none of its accounts,
-the Go the two have alike in a layer of its own, `database/`.
+the Go the two have alike in a layer of its own, `database/`, and
+sessions written on change (v1.9.0): a session read as a handler first
+asks for it, and its cookie, a Keeper's row with it, written as the
+request changes it, flashes, or is shown a flash, and otherwise once the
+cookie is a minute old, and never by a request whose handler didn't ask,
+as the build's files', so a response answered after a newer cookie, a
+login's, doesn't put the older back, and in the auth starter, a login
+that has ended answered as a guest, its session passed, left as it came.
 `README.md` is the front door, and `docs/` the guide, a page per part of
 tug. Change them with the behaviour. The website is the guide made into
 pages by `site/`, which GitHub Pages serves, in English and in Spanish,
@@ -674,17 +681,27 @@ dev server that isn't there: delete it.
   the cookie name is the AAD. With a `Config.Keeper`, the session is kept
   on the server instead and the cookie carries a sealed ID alone: the
   `payload` under a key the Keeper has (`keyOf`, the ID hashed), written
-  as it changes and once a `refresh` minute otherwise, `Rotate` for a new
-  ID, which `Clear` does too, and `forget` as it goes. Package
+  with the cookie (`keep`), and outlasting it by `refresh`, `Rotate` for
+  a new ID, which `Clear` does too, and `forget` as it goes. Package
   `sessiontest` has `TestStore`, a Keeper's promises, and `Memory`.
-  `cookieWriter` sets the cookie when the response starts. Flash: `next`
-  is what this request flashes, `now` what the one before did; values go
+  `Middleware` puts a `Session` of the request in its context, which
+  `From` reads (`load`, once, by `loading`, and `asked`), so a request
+  whose handler never asks for it, as a static file's, reads no cookie
+  and no row, and `save` writes nothing of it. `cookieWriter` sets the
+  cookie when the response starts, and `save` writes it only when the
+  request changed the session (`changed`), flashed (`next`) or was shown
+  a flash (`now`), or once the cookie is `refresh`, a minute, old, or
+  half a lifetime shorter than two (`fresh`, by the payload's `w`, when
+  it was written, `sent`): every response writing it put an older cookie
+  back over a newer one, a login's, when it was answered after it. An
+  emptied session drops its cookie by the same rule. Flash: `next` is
+  what this request flashes, `now` what the one before did; values go
   through JSON. `SetLifetime` gives one session a lifetime of its own,
   kept in the payload (`l`), which `Clear` drops; `Lifetime` says it, or
   else the Store's (`base`). `Pass` leaves the cookie as it came,
   unwritten, when the request changes nothing (`changed`, set by `Set`,
-  `Delete`, `Clear` and `SetLifetime`) and flashes nothing, and else
-  reflashes what it had.
+  `Delete`, `Clear`, `SetLifetime` and `Rotate`) and flashes nothing,
+  however old the cookie, and else reflashes what it had.
 - `validate`: `Struct` over one go-playground validator that names fields
   by json tag, or else form tag; `path` turns its namespace into dotted
   paths, and `message` its tags into sentences, in the `lang.Words`
@@ -1249,9 +1266,13 @@ tests again with a migration of its own (`growsAMigration`), and reads
   browser the account hasn't had (`known`), but not at registering, a
   reset, whose second factor's login `reset-login` marks, which a login
   with the password unmarks, or a new password; `stillLoggedIn`, which
-  `a.user` calls, a session whose login has no row logged out, and its
-  last sight written once a minute at most (`seenEvery`), which moves its
-  end on; `endLogin` and `endOtherLogins`, at `DELETE
+  `a.user` calls, a session whose login has no row a guest's, passed, as
+  one whose user has gone or set a new password is, left as it came,
+  since a request sent with it can be answered after the browser has
+  logged in again, whose cookie emptying it would delete, and only a
+  guest with no login in the session has `usersOnly` keep the page asked
+  for, and its last sight written once a minute at most (`seenEvery`),
+  which moves its end on; `endLogin` and `endOtherLogins`, at `DELETE
   /settings/logins/{id}` and `/settings/logins`, behind
   `passwordConfirmed`; `browserName`, a User-Agent's browser and system,
   in lower case for one it doesn't know, which the pages capitalize; and

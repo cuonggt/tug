@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cuonggt/tug/session"
 	"github.com/cuonggt/tug/tugtest"
 )
 
@@ -189,6 +191,10 @@ func TestTooManyWrongPasswordsWaitAMinute(t *testing.T) {
 func TestRememberMeKeepsTheLoginForAMonth(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	sessions, err := session.New(session.Config{Keys: app.keys})
+	if err != nil {
+		t.Fatal(err)
+	}
 	// As the login form sends the box: "on" when it's ticked, and nothing
 	// when it isn't.
 	for remember, maxAge := range map[string]int{"on": 30 * 24 * 60 * 60, "": 2 * 60 * 60} {
@@ -201,10 +207,14 @@ func TestRememberMeKeepsTheLoginForAMonth(t *testing.T) {
 		if ck := r.Cookie("tug_session"); r.Location() != "/dashboard" || ck == nil || ck.MaxAge != maxAge {
 			t.Errorf("remember %q: %v, cookie %v", remember, r, ck)
 		}
-		// And on the visits after, which start its time again.
-		if ck := c.Get("/dashboard").Cookie("tug_session"); ck == nil || ck.MaxAge != maxAge {
-			t.Errorf("remember %q, the next visit: cookie %v", remember, ck)
-		}
+		// And for the visits after, which start its time again as they
+		// write the session, once a minute at most.
+		c.Get("/dashboard")
+		c.Session(sessions, func(s *session.Session) {
+			if s.Lifetime() != time.Duration(maxAge)*time.Second {
+				t.Errorf("remember %q, after the next visit the session lasts %v", remember, s.Lifetime())
+			}
+		})
 	}
 }
 

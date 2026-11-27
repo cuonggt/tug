@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { APIRequestContext, APIResponse, Page, Route } from '@playwright/test'
 import { authenticator, dashboard, expect, logIn, logOut, madeToken, opened, registered, test, totp } from './helpers'
 
 test('two-factor logins go on with a code from the app, and then each login asks for one', async ({ page }, info) => {
@@ -105,19 +105,13 @@ test('a new password logs in, and the old one no longer does', async ({ page, re
   })
   await page.route('**/settings/password', async (route) => {
     held = true
-    const headers = await route.request().allHeaders()
-    delete headers['content-length']
-    const response = await request.fetch(route.request(), { headers, maxRedirects: 0 })
+    const response = await fetched(request, route)
     await new Promise((resolve) => setTimeout(resolve, 500))
     held = false
     await route.fulfill({ response })
   })
 
-  await page.getByLabel('Current password').fill(user.password)
-  await page.getByLabel('New password', { exact: true }).fill('battery staple horse')
-  await page.getByLabel('New password again').fill('battery staple horse')
-  await page.getByRole('button', { name: 'Change the password' }).click()
-  await expect(page.getByText("Password changed. You've been logged out everywhere else.")).toBeVisible()
+  await changePassword(page, user.password, 'battery staple horse')
   expect(reloaded, 'the live props reloaded while the change was being answered').toEqual([])
 
   await logOut(page)
@@ -126,3 +120,65 @@ test('a new password logs in, and the old one no longer does', async ({ page, re
   await logIn(page, user, 'battery staple horse')
   await expect(dashboard(page, user)).toBeVisible()
 })
+
+test("the login a new password makes stays, however late another tab's reload is answered", async ({ page, request }, info) => {
+  const user = await registered(page, info)
+  const other = await page.context().newPage()
+  await opened(other, '/dashboard')
+  await opened(page, '/settings/security')
+
+  // The change's notification rings the other tab's bell, whose reload
+  // goes with the cookie the change is replacing, the browser's still: it
+  // reaches the app after the change, and its answer comes after the
+  // change's, both held for it, as a slow network could have them. Each
+  // answer comes by a request client of its own, so the browser has its
+  // cookie only once it's let through.
+  let sent = false
+  let reloadSent: () => void
+  const reloadAnswered = new Promise<void>((resolve) => (reloadSent = resolve))
+  let letThrough: () => void
+  const changeShown = new Promise<void>((resolve) => (letThrough = resolve))
+  let reloadDone: () => void
+  const reloaded = new Promise<void>((resolve) => (reloadDone = resolve))
+  await other.route('**/dashboard', async (route) => {
+    if (!route.request().headers()['x-inertia-partial-data']) return route.continue()
+    const response = await fetched(request, route)
+    sent = true
+    reloadSent()
+    await changeShown
+    await route.fulfill({ response })
+    reloadDone()
+  })
+  await page.route('**/settings/password', async (route) => {
+    const response = await fetched(request, route)
+    await Promise.race([reloadAnswered, new Promise((resolve) => setTimeout(resolve, 5_000))])
+    await route.fulfill({ response })
+  })
+
+  await changePassword(page, user.password, 'battery staple horse')
+  expect(sent, "the other tab's bell reloaded while the change was being answered").toBe(true)
+  letThrough!()
+  await reloaded
+  await other.unrouteAll({ behavior: 'ignoreErrors' })
+
+  await page.goto('/dashboard')
+  await expect(dashboard(page, user)).toBeVisible()
+})
+
+async function changePassword(page: Page, current: string, password: string) {
+  await page.getByLabel('Current password').fill(current)
+  await page.getByLabel('New password', { exact: true }).fill(password)
+  await page.getByLabel('New password again').fill(password)
+  await page.getByRole('button', { name: 'Change the password' }).click()
+  await expect(page.getByText("Password changed. You've been logged out everywhere else.")).toBeVisible()
+}
+
+// fetched is the app's answer to the request route holds, by a request
+// client of the test's own, with the browser's headers, its cookie among
+// them, and its redirect left for the browser to follow: the browser has
+// the answer, and any cookie it sets, only once the route fulfills it.
+async function fetched(request: APIRequestContext, route: Route): Promise<APIResponse> {
+  const headers = await route.request().allHeaders()
+  delete headers['content-length']
+  return request.fetch(route.request(), { headers, maxRedirects: 0 })
+}

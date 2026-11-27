@@ -108,6 +108,30 @@ func TestANewPasswordEndsTheOtherLoginsRowsAndAll(t *testing.T) {
 	}
 }
 
+func TestALoginThatHasEndedIsAGuestsAndLeftAsItCame(t *testing.T) {
+	app := newTestApp(t)
+	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
+	other := app.loggedIn("ann@example.com", "correct horse")
+	ann.Put("/settings/password", map[string]any{"current_password": "correct horse", "password": "battery staple", "password_confirmation": "battery staple"})
+
+	// The other browser's login has ended: its requests are a guest's, and
+	// write no cookie, as one sent with the session can be answered after
+	// that browser has logged in again, whose cookie emptying it would
+	// delete. Nor is the page asked for kept, which would write it too.
+	if r := other.Get("/settings/appearance?from=menu"); r.Location() != "/login" || r.Header.Get("Set-Cookie") != "" {
+		t.Fatalf("the ended login's page: %v, with Set-Cookie %q", r, r.Header.Get("Set-Cookie"))
+	}
+	if r := other.Get("/"); user(r) != nil || r.Header.Get("Set-Cookie") != "" {
+		t.Errorf("the ended login's home page is %+v's, with Set-Cookie %q", user(r), r.Header.Get("Set-Cookie"))
+	}
+	if r := logIn(other, "ann@example.com", "battery staple"); r.Location() != "/dashboard" {
+		t.Fatalf("logging in again: %v", r)
+	}
+	if r := other.Get("/settings/appearance?from=menu"); r.Code != http.StatusOK {
+		t.Errorf("after logging in again: %v", r)
+	}
+}
+
 func TestALoginFromANewBrowserIsToldOfAndOneFromAKnownBrowserIsnt(t *testing.T) {
 	app := newTestApp(t)
 	ann := app.verifiedUser("Ann", "ann@example.com", "correct horse")
@@ -163,7 +187,7 @@ func TestALoginWithThePasswordAfterAResetLeftAtItsCodeIsToldOf(t *testing.T) {
 	}
 }
 
-func TestALoginWithNoRowIsLoggedOut(t *testing.T) {
+func TestALoginWithNoRowIsAGuests(t *testing.T) {
 	app := newTestApp(t)
 	app.verifiedUser("Ann", "ann@example.com", "correct horse")
 	u, err := (&users{db: app.db}).byEmail(context.Background(), "ann@example.com")

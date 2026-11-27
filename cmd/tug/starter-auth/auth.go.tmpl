@@ -28,8 +28,12 @@ type Auth struct {
 
 // user returns the user r's session is logged in as, or nil for a guest. A
 // login whose user has gone, or has set a new password since, or whose
-// row is gone, ended from another browser, is over: the session is
-// logged out.
+// row is gone, ended from another browser, is over, and answered as a
+// guest. Its session is passed, left as it came, rather than emptied: a
+// request sent with it can be answered after the browser has logged in
+// again, as with a new password in another tab, whose cookie emptying it
+// would delete. It logs nobody in, and goes as a login replaces it, or as
+// it expires.
 func (a *app) user(r *http.Request) (*User, error) {
 	s := session.From(r.Context())
 	id, ok := auth.UserID(s)
@@ -38,12 +42,12 @@ func (a *app) user(r *http.Request) (*User, error) {
 	}
 	n, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
-		auth.Logout(s)
+		s.Pass()
 		return nil, nil
 	}
 	u, err := a.users.byID(r.Context(), n)
 	if errors.Is(err, errNoUser) || err == nil && !auth.Current(s, u.PasswordHash) {
-		auth.Logout(s)
+		s.Pass()
 		return nil, nil
 	}
 	if err != nil {
@@ -51,7 +55,7 @@ func (a *app) user(r *http.Request) (*User, error) {
 	}
 	if ok, err := a.stillLoggedIn(r.Context(), s, u); err != nil || !ok {
 		if err == nil {
-			auth.Logout(s)
+			s.Pass()
 		}
 		return nil, err
 	}
@@ -81,7 +85,9 @@ func (a *app) shareAuth(r *http.Request) inertia.Props {
 type userHandler func(c *tug.Ctx, user *User) error
 
 // usersOnly makes a handler for users who've logged in. A guest is sent to
-// log in, and comes back after.
+// log in, and comes back after; a login that has ended starts at the
+// dashboard after it, as keeping the page asked for would write the
+// session, which user leaves as it came.
 func (a *app) usersOnly(h userHandler) tug.HandlerFunc {
 	return func(c *tug.Ctx) error {
 		u, err := a.user(c.Request())
@@ -89,7 +95,9 @@ func (a *app) usersOnly(h userHandler) tug.HandlerFunc {
 			return err
 		}
 		if u == nil {
-			auth.SetIntended(c.Session(), c.Request())
+			if _, ended := auth.UserID(c.Session()); !ended {
+				auth.SetIntended(c.Session(), c.Request())
+			}
 			return c.RedirectRoute("login")
 		}
 		return h(c, u)

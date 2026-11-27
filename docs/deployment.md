@@ -90,7 +90,9 @@ app.Get("/build/{path...}", tug.WrapHandler(assets))
 - The build is served under `/build/`. The files in `assets/` have a hash
   of their content in their names, so they're cached for a year:
   `Cache-Control: public, max-age=31536000, immutable`. The manifest, and
-  anything else whose name starts with a dot, isn't served.
+  anything else whose name starts with a dot, isn't served. Its handler
+  never asks for the session, so a file goes with no `Set-Cookie`, which
+  a CDN in front, keeping no response with one, takes as one to keep.
 - Its scripts and styles go gzipped to a browser that takes it: see
   [Compression](#compression).
 - The manifest's hash is the frontend's version, which Inertia's client
@@ -1002,7 +1004,8 @@ Both starters answer `GET /up` with 200 and `up` while the app is serving,
 for a load balancer's or a platform's health check to ask. An app with a
 database, the auth starter's or a plain one made with one, pings it as
 well, and answers 503 when it doesn't answer. Like any request, each
-check is a line in the request log.
+check is a line in the request log. Its handler never asks for a session,
+so a check reads none, and answers with no cookie.
 
 ## Rotating `APP_KEY`
 
@@ -1013,9 +1016,10 @@ APP_KEY=base64:<the new key>
 APP_PREVIOUS_KEYS=base64:<the old key>
 ```
 
-The first key encrypts, and every key decrypts. Each response writes a
-visitor's session back to its cookie, with the new key, so sessions move
-over as people use the app. A session that goes unused for its lifetime,
+The first key encrypts, and every key decrypts. A visitor's session is
+written back to its cookie, with the new key, as a request changes it, and
+once a minute while it's in use, so sessions move over as people use the
+app. A session that goes unused for its lifetime,
 2 hours unless `session.Config.Lifetime` says otherwise, has ended anyway,
 so once that long has passed, drop the old key. In the auth starter, a
 login that ticked "Remember me" lasts a month without a visit, so keep the

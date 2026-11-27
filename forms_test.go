@@ -9,10 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/cuonggt/tug/inertia"
 	"github.com/cuonggt/tug/session"
 	"github.com/cuonggt/tug/validate"
+	"github.com/cuonggt/tug/vite"
 )
 
 type postInput struct {
@@ -597,5 +599,34 @@ func TestAPartialReloadLeavesAFormsErrorsForItsPage(t *testing.T) {
 	}
 	if p := v.page(v.do("GET", "/posts/create", "")); p.Props["errors"].(map[string]any)["title"] != "title is required" {
 		t.Errorf("the form's page shows the errors %v", p.Props["errors"])
+	}
+}
+
+func TestTheBuildsFilesAndAHealthCheckWriteNoCookie(t *testing.T) {
+	app, _ := formApp(t)
+	assets, err := vite.New(vite.Config{Build: fstest.MapFS{"assets/app-B1.js": {Data: []byte("console.log('app')")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Get("/build/{path...}", WrapHandler(assets))
+	app.Get("/up", func(c *Ctx) error { return c.String(http.StatusOK, "up") })
+	sent := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", path, nil)
+		req.AddCookie(&http.Cookie{Name: "tug_session", Value: "not-a-session"})
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// A cookie that doesn't open is one a request that asks for its session
+	// drops. A page's script and a health check never ask, so neither
+	// writes a cookie, as either could be answered after a newer one.
+	for _, path := range []string{"/build/assets/app-B1.js", "/up"} {
+		if rec := sent(path); rec.Code != http.StatusOK || rec.Header().Get("Set-Cookie") != "" {
+			t.Errorf("%s answered %d with Set-Cookie %q", path, rec.Code, rec.Header().Get("Set-Cookie"))
+		}
+	}
+	if rec := sent("/posts/1"); !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=0") {
+		t.Errorf("a page, which asks, answered with Set-Cookie %q", rec.Header().Get("Set-Cookie"))
 	}
 }
