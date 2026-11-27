@@ -431,9 +431,11 @@ dev server that isn't there: delete it.
     requests.
   - `shutdown.go`: `shutDown`, a server's graceful shutdown, which Go's
     `Shutdown` alone isn't, as it reads a request that comes on a
-    connection once it has begun and hangs up on it: the listener closed
-    first (`closeOnce`, as `Shutdown` closes it again), keep-alives off,
-    then, until `ShutdownTimeout`, the requests in flight and each new
+    connection once it has begun and hangs up on it: keep-alives off
+    first, so a request read once the listener has closed has its
+    connection closed after it, then the listener closed (`closeOnce`,
+    as `Shutdown` closes it again), then, until `ShutdownTimeout`, the
+    requests in flight and each new
     connection's first waited for, by `conns`, the server's `ConnState`
     (an HTTP/2 connection's its own, Active and Idle by its streams), a
     connection silent `newConnGrace`, 5 s, closed (`closeSilent`), and

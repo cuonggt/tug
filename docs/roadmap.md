@@ -6326,6 +6326,14 @@ Choices made on the way:
   which Go keeps to itself. A connection that has said nothing for 5
   seconds, a browser's spare one, is closed by tug then, as Go takes it
   for idle by whole seconds of the clock, and waits up to one more.
+- **Keep-alives off before the listener closes, since v1.9.0:** CI's run
+  of v1.9.0's docs commit answered the test's request, sent once the
+  listener had closed, with its connection kept: the request came
+  between the listener's close and keep-alives going off, on the next
+  line, as a pause put between the two had it every time. Turned off
+  first, they're off for any request a client sends once the listener
+  has closed, which is answered with its connection closed after it, as
+  Deployment says.
 - **An event during the page's own visit waits for it, since v1.8.1:** a
   new password's notification, published as its transaction commits,
   reached the security page before the change's answer, and the client

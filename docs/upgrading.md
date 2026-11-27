@@ -246,7 +246,10 @@ an older cookie, and answered after a newer one, put the older back, as a
 page's scripts could over a login's, or another tab's reload over the
 login a new password makes: a browser was logged out now and then.
 Nothing an app calls changed. A session left alone ends a lifetime after
-its last write, a minute at most before its last request.
+its last write, a minute at most before its last request. And as the app
+shuts down, a request on a connection it had taken is answered with the
+connection closed after it, as [Deployment](deployment.md#shutting-down)
+says, where now and then the connection was kept.
 
 In the auth starter, a login that has ended, by a new password or from
 another browser, is answered as a guest, its session left as it came,

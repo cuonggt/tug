@@ -15,17 +15,20 @@ import (
 // idle: a connection the app took as it was told to stop would lose its
 // request, as one systemd held across a restart for this process could.
 //
-// So s's listener is closed first, which refuses the connections that come
-// after it, or leaves them in the kernel's queue for the next process when
-// systemd holds the socket; keep-alives are turned off, which closes the
-// idle connections, and has each response close its own, and each HTTP/2
-// connection go away once its streams are done; and once no connection is
-// in the middle of a request, or new and still in time to send one, those
-// that have said nothing for newConnGrace are closed, and Shutdown has only
-// idle ones left to close, and ctx's time to wait for any it hasn't.
+// So keep-alives are turned off first, which closes the idle connections,
+// and has each response close its own, and each HTTP/2 connection go away
+// once its streams are done; then s's listener is closed, which refuses
+// the connections that come after it, or leaves them in the kernel's queue
+// for the next process when systemd holds the socket. In the other order,
+// a request read between the two, as a client can send once the listener
+// has closed, was answered with its connection kept, for a request the
+// client would then find it closed for. Once no connection is in the
+// middle of a request, or new and still in time to send one, those that
+// have said nothing for newConnGrace are closed, and Shutdown has only idle
+// ones left to close, and ctx's time to wait for any it hasn't.
 func (s listening) shutDown(ctx context.Context) error {
-	s.ln.Close()
 	s.server.SetKeepAlivesEnabled(false)
+	s.ln.Close()
 	for wait := time.Millisecond; ctx.Err() == nil && s.conns.busy(time.Now()); wait = min(2*wait, 100*time.Millisecond) {
 		t := time.NewTimer(wait)
 		select {
