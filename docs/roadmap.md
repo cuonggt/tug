@@ -78,6 +78,7 @@ to 3.11.0, November 2026), written against
 | M69 | Flash, kept and forgotten  | done   |
 | M70 | A plain app's database     | done   |
 | M71 | Sessions written on change | done   |
+| M72 | Examples on pkg.go.dev     | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -7405,6 +7406,98 @@ Choices made on the way:
   flash, so one that went stale between a flash and its page shows it on
   each page until a login replaces it, which is rare, and writing it
   away would be the write to leave out.
+
+## M72 · Examples on pkg.go.dev — later
+
+The guide's index sends a reader to pkg.go.dev for the detail of each
+package, and pkg.go.dev, where a Go developer looks first, shows tug's
+26 packages with their documentation and not one example: the
+repository has no `Example` function. M72 adds them to each package an
+app imports, runnable: the few lines of a way in, as an app writes
+them, which `go test` runs and holds to what they print, so a release's
+documentation shows code that works with it. Nothing an app calls
+changes. To be released as v1.9.1.
+
+- **A package's ways in, an example each:**
+  - `tug`: an app answering a route, served through `httptest`, the
+    package's own; a typed page, by `tug.Page` and `Render`; `Bind` and
+    `BindValid`, a form's input and its errors; `Flash` through a
+    redirect, with sessions; a `Group` with middleware; `Limit`;
+    `SignedURL` and `Signed`; `Paginate`; and `Events`.
+  - `inertia`: a page on a plain `ServeMux`, its first visit's HTML and
+    a visit's JSON, and a partial reload of its props, `Defer`,
+    `Optional` and `Merge` among them.
+  - `session`: a value set in one request and read in the next, and a
+    flash, by the cookie the first answer sets.
+  - `validate`: a struct's tags and the errors they make, in English and
+    in another language, and `Rule`, a tag of the app's own.
+  - `lang`: a catalog from files, `T` with a placeholder, `Choice` by a
+    count, `Number`, and `Dir`.
+  - `crypt`: a value sealed for its owner, opened, and not opened for
+    another.
+  - `storage`: a file on the local disk, put, listed, opened and moved,
+    and a signed link to it.
+  - `vite`: the tags a build's manifest gives an entry.
+  - `middleware`: the headers `Headers` adds, `CSP`'s policy,
+    `TrustProxies`' client address, and `CORS`' answer to a preflight.
+  - `auth`: a password hashed and checked, a `Throttle`'s tries, an
+    ability's yes and no, an access token and its hash, and a login in a
+    session.
+  - `mail`: a message `Log` writes out, and `mailtest.Outbox`'s `Sent`.
+  - `queue`: a kind handled, pushed and drained, on `queuetest.Memory`,
+    and the next runs of an `Every` and a `Cron`.
+  - `cache`: `Remember` working a value out once, and a lock held and let
+    go.
+  - `broadcast`: an event published to a subscriber, and who's on a
+    channel.
+  - `migrate`: migrations loaded from files, by their names, split at
+    their `-- down` line.
+- **Run, and held to their output:** each has an `// Output:` comment,
+  which `go test` checks, but those that need what a test can't reach:
+  S3, SMTP, Let's Encrypt, `ssr`'s Node, and the packages of tests'
+  helpers that take a `*testing.T`, `tugtest`, `sessiontest`,
+  `cachetest`, `throttletest`, `migratetest`, `passkeytest`, and
+  `queuetest`'s and `broadcasttest`'s `TestStore`, whose examples are a
+  test's body, compiled and not run.
+- **As an app writes them:** in each package's `example_test.go`, an
+  external test package, `package tug_test`, so an example has the
+  import path and the exported API alone, as an app does, and
+  pkg.go.dev shows it beside what it's named for, `ExampleCtx_Bind`
+  beside `Ctx.Bind`, which `go vet` checks is there.
+- **Nothing that changes from run to run:** an example prints a status,
+  a body, a header or a value's shape, and never a time, a nonce, a
+  random ID or what's made from one, so `go test` holds it every time.
+- **Each package held to one:** a test in package tug lists the
+  packages outside `internal/`, and fails for one with no example, as
+  `migrations.sha256` holds the released migrations, so a package added
+  later has one too.
+- **Tests:** the examples themselves, and the test that each package
+  has one.
+- **The guide:** its index, that pkg.go.dev has each package's
+  documentation and examples that run; CLAUDE.md's conventions, where a
+  package's examples are and that they run; and the README, a line.
+
+Choices, to settle before any code:
+
+- **A patch, v1.9.1:** no API, behaviour or starter changes, which
+  gorelease says too, and pkg.go.dev shows a release's own examples, so
+  they show once one has them. The next minor would leave them unseen
+  until it comes.
+- **Run where they can be:** an example that runs is one `go test`
+  checks, and one compiled alone can drift from what it says, so only
+  what needs the network, Node or a `*testing.T` is compiled alone.
+- **A package's ways in, not every name:** the guide tells the whole
+  story, and an example the few lines of one thing. An example of every
+  exported name would be hundreds, most of them a call and a print.
+- **External test packages:** an example inside its package could use
+  what an app can't, and pkg.go.dev would show it so.
+- **A test helper by a test's body:** `testing.T` has nothing an example
+  can make one with, so an example of `tugtest.New(t, app)` declares the
+  test it would be in, and is compiled.
+- **Not `examples/`, `cmd/tug` or `internal/`:** `examples/` are apps,
+  which the guide leads through; `cmd/tug` is a command, whose page is
+  its doc comment, and [the CLI](cli.md) its guide; `internal/` isn't on
+  pkg.go.dev.
 
 ## Decisions
 
