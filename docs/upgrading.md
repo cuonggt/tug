@@ -233,6 +233,32 @@ files to take from an app made by that release, which `tug upgrade` now
 does; what they say of tug's API, and of migrations, is still for the
 app to do.
 
+### v1.9.0
+
+`go get github.com/cuonggt/tug@v1.9.0`. A session's cookie is written as
+the request changes the session, by `Set`, `Delete`, `Clear`,
+`SetLifetime` or `Rotate`, flashes, or is shown a flash, and otherwise
+once the cookie is a minute old, to put off its expiry, where every
+response wrote it; and a request whose handler never asks for the
+session, as the build's files' and a health check's, reads none of it,
+and writes none ([Forms](forms.md#when-its-written)). A response sent with
+an older cookie, and answered after a newer one, put the older back, as a
+page's scripts could over a login's, or another tab's reload over the
+login a new password makes: a browser was logged out now and then.
+Nothing an app calls changed. A session left alone ends a lifetime after
+its last write, a minute at most before its last request.
+
+In the auth starter, a login that has ended, by a new password or from
+another browser, is answered as a guest, its session left as it came,
+where it was emptied, which, answered after the browser had logged in
+again, deleted that login's cookie; and only a guest's page asked for is
+kept for after the login ([Accounts](auth.md#finding-the-requests-user)).
+`tug upgrade` brings it. The starter's
+`TestRememberMeKeepsTheLoginForAMonth` read the month from the cookie of
+the visit after the login, which a visit that changes nothing no longer
+writes, so an app made before fails it on v1.9.0 until `tug upgrade`
+brings the test as it is now, which reads the session's `Lifetime`.
+
 ### v1.8.1
 
 `go get github.com/cuonggt/tug@v1.8.1`, then `tug gen`, or `tug dev` or

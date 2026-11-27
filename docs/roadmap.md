@@ -7258,8 +7258,8 @@ the trace CI kept showed. M71 writes the cookie as the session changes,
 and to slide its expiry at most once a minute, as a Keeper's rows are
 written already; not at all for a response whose handler never looked
 at the session, as a static file's; and has the auth starter leave a
-session whose login has ended as it came, rather than empty it. To be
-released as v1.9.0.
+session whose login has ended as it came, rather than empty it.
+Released as v1.9.0.
 
 - **Written as it changes:** a response writes the session's cookie when
   the request changed it, by `Set`, `Delete`, `Clear`, `SetLifetime` or
