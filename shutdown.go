@@ -22,13 +22,21 @@ import (
 // for the next process when systemd holds the socket. In the other order,
 // a request read between the two, as a client can send once the listener
 // has closed, was answered with its connection kept, for a request the
-// client would then find it closed for. Once no connection is in the
-// middle of a request, or new and still in time to send one, those that
-// have said nothing for newConnGrace are closed, and Shutdown has only idle
-// ones left to close, and ctx's time to wait for any it hasn't.
+// client would then find it closed for. Serve returns once the listener is
+// closed, having handed the server each connection it took, which conns
+// knows of only then: one taken a moment before, by an accept loop the
+// scheduler ran late, would otherwise be missed, and its request hung up
+// on. Once no connection is in the middle of a request, or new and still
+// in time to send one, those that have said nothing for newConnGrace are
+// closed, and Shutdown has only idle ones left to close, and ctx's time to
+// wait for any it hasn't.
 func (s listening) shutDown(ctx context.Context) error {
 	s.server.SetKeepAlivesEnabled(false)
 	s.ln.Close()
+	select {
+	case <-s.returned:
+	case <-ctx.Done():
+	}
 	for wait := time.Millisecond; ctx.Err() == nil && s.conns.busy(time.Now()); wait = min(2*wait, 100*time.Millisecond) {
 		t := time.NewTimer(wait)
 		select {

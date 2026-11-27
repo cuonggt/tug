@@ -434,13 +434,16 @@ dev server that isn't there: delete it.
     connection once it has begun and hangs up on it: keep-alives off
     first, so a request read once the listener has closed has its
     connection closed after it, then the listener closed (`closeOnce`,
-    as `Shutdown` closes it again), then, until `ShutdownTimeout`, the
+    as `Shutdown` closes it again), and `Serve`'s return waited for
+    (`listening.returned`), by which it has handed the server each
+    connection the listener took, then, until `ShutdownTimeout`, the
     requests in flight and each new
     connection's first waited for, by `conns`, the server's `ConnState`
     (an HTTP/2 connection's its own, Active and Idle by its streams), a
     connection silent `newConnGrace`, 5 s, closed (`closeSilent`), and
     then `Shutdown`. `shutdown_test.go` sends a request once the app is
-    shutting down.
+    shutting down, and on a connection its listener took a moment
+    before the server was handed it (`slowToHand`).
   - `router.go`: `Router`, `Route`, `URL`. `Query` adds a route of the
     `QUERY` method (`methodQuery`), which `allowedMethods`, in app.go,
     probes for a 405's `Allow`. A route goes into the ServeMux

@@ -249,7 +249,8 @@ Nothing an app calls changed. A session left alone ends a lifetime after
 its last write, a minute at most before its last request. And as the app
 shuts down, a request on a connection it had taken is answered with the
 connection closed after it, as [Deployment](deployment.md#shutting-down)
-says, where now and then the connection was kept.
+says, where now and then the connection was kept, or, for one taken a
+moment before the app stopped, the request hung up on.
 
 In the auth starter, a login that has ended, by a new password or from
 another browser, is answered as a guest, its session left as it came,

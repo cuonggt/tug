@@ -26,20 +26,39 @@ func (l accepting) Accept() (net.Conn, error) {
 	return c, err
 }
 
+// slowToHand is accepting with a pause after it takes each connection,
+// before the server has it, as an accept loop the scheduler runs late
+// has, for a test to stop the app in between.
+type slowToHand struct {
+	accepting
+	pause time.Duration
+}
+
+func (l slowToHand) Accept() (net.Conn, error) {
+	c, err := l.accepting.Accept()
+	time.Sleep(l.pause)
+	return c, err
+}
+
 // serveAccepting serves app on a free port, through accepting, until the
-// test stops it.
-func serveAccepting(t *testing.T, app *App) (addr string, accepted <-chan net.Conn, stop context.CancelFunc, served <-chan error) {
+// test stops it, with pause, if any, between taking each connection and
+// handing it to the server.
+func serveAccepting(t *testing.T, app *App, pause ...time.Duration) (addr string, accepted <-chan net.Conn, stop context.CancelFunc, served <-chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := accepting{Listener: ln, accepted: make(chan net.Conn, 100)}
+	a := accepting{Listener: ln, accepted: make(chan net.Conn, 100)}
+	var l net.Listener = a
+	if len(pause) > 0 {
+		l = slowToHand{accepting: a, pause: pause[0]}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() { done <- app.Serve(ctx, l) }()
-	return ln.Addr().String(), l.accepted, cancel, done
+	return ln.Addr().String(), a.accepted, cancel, done
 }
 
 // closed waits until nothing listens at addr: the app has stopped taking
@@ -78,6 +97,40 @@ func TestARequestAConnectionSendsAsTheAppShutsDownIsAnswered(t *testing.T) {
 	closed(t, addr)
 	// Its request, sent once the app is shutting down: Go's Shutdown reads
 	// one and hangs up, as the client gets nothing it could try again on.
+	answered(t, conn)
+	if err := <-served; err != nil {
+		t.Errorf("Serve returned %v", err)
+	}
+}
+
+func TestAConnectionTheServerHasntBeenHandedAsTheAppStopsIsAnswered(t *testing.T) {
+	captureLog(t)
+	app := New(Config{})
+	app.Get("/", text("home"))
+	// The listener takes the connection a moment before the server knows
+	// of it, as an accept loop the scheduler runs late does, and the app is
+	// told to stop in between: the server is handed it as its listener's
+	// closed, and has to wait for its request still.
+	addr, accepted, stop, served := serveAccepting(t, app, 100*time.Millisecond)
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	<-accepted
+
+	stop()
+	closed(t, addr)
+	answered(t, conn)
+	if err := <-served; err != nil {
+		t.Errorf("Serve returned %v", err)
+	}
+}
+
+// answered sends a request on conn, once the app is shutting down, and
+// wants it answered, with the connection closed after it.
+func answered(t *testing.T, conn net.Conn) {
+	t.Helper()
 	fmt.Fprint(conn, "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	res, err := http.ReadResponse(bufio.NewReader(conn), nil)
@@ -88,9 +141,6 @@ func TestARequestAConnectionSendsAsTheAppShutsDownIsAnswered(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusOK || string(body) != "home" || !res.Close {
 		t.Errorf("the request sent as the app shut down: %d %q, close %v, want the page, and the connection closed after it", res.StatusCode, body, res.Close)
-	}
-	if err := <-served; err != nil {
-		t.Errorf("Serve returned %v", err)
 	}
 }
 

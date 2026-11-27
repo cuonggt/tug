@@ -591,6 +591,10 @@ type listening struct {
 	scheme string // for the log, when there's more than one
 	from   string // for the log: systemd, for a socket it passed the app
 	conns  *conns // the server's connections, for shutDown
+
+	// returned is closed as Serve returns, having handed the server each
+	// connection its listener took, which conns knows of by then.
+	returned chan struct{}
 }
 
 // serveAll serves each of servers until ctx is done, with what Go runs, and
@@ -603,8 +607,13 @@ func (a *App) serveAll(ctx context.Context, more []func(context.Context) error, 
 		s := &servers[i]
 		s.ln = &closeOnce{Listener: s.ln}
 		s.conns = &conns{}
+		s.returned = make(chan struct{})
 		s.server.ConnState = s.conns.track
-		go func() { served <- s.server.Serve(s.ln) }()
+		go func() {
+			err := s.server.Serve(s.ln)
+			close(s.returned)
+			served <- err
+		}()
 		attrs := []any{"addr", s.ln.Addr().String()}
 		if s.scheme != "" {
 			attrs = append(attrs, "scheme", s.scheme)
