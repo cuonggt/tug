@@ -77,6 +77,7 @@ to 3.11.0, November 2026), written against
 | M68 | What an agent can see      | done   |
 | M69 | Flash, kept and forgotten  | done   |
 | M70 | A plain app's database     | done   |
+| M71 | Sessions written on change | later  |
 
 M1 to M3 is the minimum usable version: a create, edit and delete app, end
 to end.
@@ -7239,6 +7240,106 @@ Choices made on the way:
   default, which [Deployment](deployment.md#configuration) lists, and the
   `.env` `tug new` writes has `DB_URL` on Postgres or MySQL. A later
   release adds them.
+
+## M71 · Sessions written on change — later
+
+A session's cookie is written with every response that has a session,
+which is what slides its expiry: `session.Config.Lifetime` says each
+response starts it again. So a request sent with an older cookie,
+answered after a newer one has come, writes the older back. v1.8.1 met
+it as a race: a new password's login, undone by the security page's
+reload of a live prop, which went with the cookie the change replaced
+and was answered after the change. The transport now holds a page's
+reloads while its own visit is in flight, but another tab of the
+browser, which has no visit, can still do it, and so can any request
+beside one that logs in or out: a page's scripts and styles among them,
+as `/build/` answers under the session too, each with a `Set-Cookie`, as
+the trace CI kept showed. M71 writes the cookie as the session changes,
+and to slide its expiry at most once a minute, as a Keeper's rows are
+written already; not at all for a response whose handler never looked
+at the session, as a static file's; and has the auth starter leave a
+session whose login has ended as it came, rather than empty it. To be
+released as v1.9.0.
+
+- **Written as it changes:** a response writes the session's cookie when
+  the request changed it, by `Set`, `Delete`, `Clear`, `SetLifetime` or
+  `Rotate`, flashed something, or showed what the request before
+  flashed; and otherwise, to move its expiry, once the cookie was
+  written a minute ago or more, `refresh`, as a Keeper's row is. A
+  session in use lasts; one left alone ends its lifetime after its last
+  write, a minute at most before its last request.
+- **Not by a response that never looked at it:** a handler that never
+  asks for the session, by `session.From` or `c.Session()`, as a static
+  file's, `/build/`'s, or a health check's, gets a response with no
+  `Set-Cookie`, however long since the last.
+- **With a Keeper, the cookie the same:** the cookie of the session's ID
+  goes out by the same rule, where it went with every response, and the
+  row as before, so the row still outlasts it.
+- **A login that has ended, left as it came, in the auth starter:**
+  `a.user`, finding a session whose password has changed since its
+  login, or whose login's row is gone, answers as a guest and passes the
+  session, `Pass`, writing nothing, where `auth.Logout` emptied it, which,
+  answered after a newer login of the browser's own, deleted that. And
+  `usersOnly` keeps the page asked for, by `SetIntended`, for a guest
+  with no login in the session alone. A stale login logs nobody in, by
+  its password's fingerprint or its ended row, and goes as a login
+  replaces it or its cookie expires.
+- **`auth.Current`'s advice:** its documentation says a session that
+  isn't current is answered as a guest, where it said to log it out.
+- **Tests:** in package session, a response whose handler never looks
+  at the session writing no cookie, past a minute too; one that changes
+  nothing writing none within a minute of the last write, and one past
+  it, its expiry moved; each change, a flash, a flash shown, `Clear` and
+  `Rotate` writing at once; `Pass` as before; with a Keeper, the cookie
+  by the same rule and the row as before, outlasting it; and two
+  requests with one cookie, one that logs in and one that only reads,
+  answered in that order, the second writing nothing and the login
+  standing. In tug, a route of the build's, under `Config.Session`,
+  answering with no `Set-Cookie`. In the auth starter, a request with a
+  login another browser's new password ended answered as a guest,
+  redirected to the login page with no `Set-Cookie`, and logging in
+  again; and the page asked for kept for a guest, and not for a stale
+  login. In the browser suite, another tab's page, whose reload of the
+  bell goes with the cookie a password change replaced and is answered
+  after the change's own answer, both held for it, leaving the browser
+  logged in, which today's tug fails every time.
+- **The guide:** Forms' sessions, when the cookie is written, `Lifetime`
+  and `SetLifetime`, and a key's rotation; Deployment, a CDN that keeps
+  no response with a `Set-Cookie` now keeping `/build/`'s, health checks
+  writing none, and rotating `APP_KEY`; Accounts, a login that has ended
+  answered as a guest; Upgrading, v1.9.0's entry; and the README.
+
+Choices, to settle before any code:
+
+- **A minute, as the rows:** the cookie's expiry slides by a write at
+  most a minute old, where it slid with each response, so a session left
+  alone ends up to a minute before its lifetime after its last request,
+  as a Keeper's sessions do already, whose rows are written so. A
+  session in use doesn't end.
+- **Within v1, a fix:** `session.Config.Lifetime` says each response
+  starts a session's lifetime again, and from v1.9.0 a write does.
+  Upgrading's Versions leave out behaviour the guide calls a bug, and
+  this does: a response that writes back a session it didn't change,
+  answered after a newer one, undoes it. An app's own tests can't tell
+  the two, as `tugtest`'s client keeps cookies as a browser does, and the
+  Store's clock is its own.
+- **Untouched is unwritten:** a handler that never asked for the
+  session can't have changed it, and its response is the one most often
+  beside a request that does, as a page's scripts are. Refreshing on any
+  response a minute after the last would leave a window, at each minute,
+  in which a stylesheet's answer puts back a cookie a login replaced.
+- **Left as it came, not emptied:** a stale login emptied deletes the
+  cookie, which is a newer login's when that's on its way. Left, it
+  costs a lookup of the user and the login at each request, until a
+  login replaces it or it expires, and logs nobody in. The browser's own
+  logout empties it still, as `logout` does by `Clear`.
+- **The page asked for, a guest's alone:** keeping it writes the
+  session, which for a stale login is the write to leave out; after a
+  login, a stale login's browser starts at the dashboard.
+- **tug's, not the starter's alone:** the race is any app's whose
+  session is in its cookie, or whose cookie is a Keeper's ID, so the
+  session package decides when to write, and the starter only how a
+  stale login is answered.
 
 ## Decisions
 
